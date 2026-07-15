@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useDropzone, type FileRejection } from "react-dropzone";
-import { createIssuer, createRun, getIssuers, getPortfolios, toErrorMessage, uploadDocument, uploadPricingSheet, type PortfolioSummary } from "@/lib/api";
+import { appendIngestionContext, createIssuer, createRun, getIssuers, getPortfolios, toErrorMessage, uploadDocument, uploadPricingSheet, type PortfolioSummary } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import type { RunSummaryDTO } from "@/lib/engine/types";
 import { Dot } from "@/components/pipeline/atoms";
@@ -19,6 +19,7 @@ import {
   FileStep, IssuerStep, ResultStep, RUN_MODES, StepStrip, isSpreadsheet,
   type FileOutcome, type RunQueueOutcome, type Step,
 } from "@/components/upload/steps";
+import { ensureIssuerScope } from "@/components/upload/context";
 import { useAnalysisContext } from "@/lib/analysis-workbench";
 
 interface UploadWizardProps {
@@ -101,7 +102,6 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     accept: {
       "application/pdf": [".pdf"],
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
-      "application/vnd.ms-excel": [".xls"],
     },
   });
 
@@ -147,6 +147,9 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
 
     let vaultedAny = false;
     try {
+      let activeContext = await ensureIssuerScope(
+        analysis.context, selectedIssuer.id, analysis.patch,
+      );
       for (let i = 0; i < batch.length; i++) {
         if (cancelRef.current) break;
         const file = batch[i];
@@ -156,6 +159,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
         formData.append("run_mode", runMode);
         formData.append("origin", origin);
         formData.append("method", method);
+        appendIngestionContext(formData, activeContext?.id);
         formData.append("file", file);
         let settled: FileOutcome;
         try {
@@ -164,23 +168,26 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
             : await uploadDocument(formData);
           settled = { name: file.name, result: res, file };
           vaultedAny = true;
-          if (analysis.context) {
-            const context = analysis.context;
-            await analysis.patch({
-              issuer_ids: context.issuer_ids.includes(selectedIssuer.id)
-                ? context.issuer_ids
-                : [...context.issuer_ids, selectedIssuer.id],
-              artifacts: { ...context.artifacts, source_manifest_id: res.source_manifest_id },
+          if (activeContext) {
+            const legacyArtifacts = { ...activeContext.artifacts };
+            delete legacyArtifacts.artifact_refs;
+            const patchedContext = await analysis.patch({
+              issuer_ids: activeContext.issuer_ids,
+              artifacts: { ...legacyArtifacts, source_manifest_id: res.source_manifest_id },
               surface_state: {
-                ...context.surface_state,
+                ...activeContext.surface_state,
                 upload: {
-                  ...(context.surface_state.upload ?? {}),
+                  ...(activeContext.surface_state.upload ?? {}),
                   active_id: res.source_manifest_id,
                   selected_ids: [selectedIssuer.id],
                   view: "result",
                 },
               },
-            }).catch(() => setError("Source was ingested, but the analysis context could not be linked."));
+            }).catch(() => {
+              setError("Source was ingested, but the analysis context could not be linked.");
+              return null;
+            });
+            if (patchedContext) activeContext = patchedContext;
           }
         } catch (err) {
           settled = { name: file.name, error: toErrorMessage(err, "Upload failed"), file };
@@ -198,12 +205,16 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       if (vaultedAny && !cancelRef.current && !runQueuedRef.current) {
         setRunOutcome({ state: "queuing" });
         try {
-          const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
+          const run = await createRun(
+            selectedIssuer.id, undefined, portfolioId || undefined, undefined, activeContext?.id,
+          );
           runQueuedRef.current = true;
           setRunOutcome({ state: "queued", runId: run.id });
-          if (analysis.context) {
+          if (activeContext) {
+            const legacyArtifacts = { ...activeContext.artifacts };
+            delete legacyArtifacts.artifact_refs;
             await analysis.patch({
-              artifacts: { ...analysis.context.artifacts, issuer_run_id: run.id },
+              artifacts: { ...legacyArtifacts, issuer_run_id: run.id },
             }).catch(() => setError("Run queued, but the analysis context could not be linked."));
           }
         } catch (err: unknown) {
@@ -242,10 +253,17 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     setRunCreating(true);
     setRunError("");
     try {
-      const run = await createRun(selectedIssuer.id, undefined, portfolioId || undefined);
+      const activeContext = await ensureIssuerScope(
+        analysis.context, selectedIssuer.id, analysis.patch,
+      );
+      const run = await createRun(
+        selectedIssuer.id, undefined, portfolioId || undefined, undefined, activeContext?.id,
+      );
       setRunCreated(run);
-      if (analysis.context) {
-        await analysis.patch({ artifacts: { ...analysis.context.artifacts, issuer_run_id: run.id } });
+      if (activeContext) {
+        const legacyArtifacts = { ...activeContext.artifacts };
+        delete legacyArtifacts.artifact_refs;
+        await analysis.patch({ artifacts: { ...legacyArtifacts, issuer_run_id: run.id } });
       }
     } catch (err) {
       setRunError(toErrorMessage(err, "Could not create the run"));

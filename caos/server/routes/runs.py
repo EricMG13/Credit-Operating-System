@@ -32,13 +32,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 import vault_export
+from analysis_contracts import ArtifactRef
 from config import get_settings
+from context_lineage import bind_context_artifacts, typed_refs_from_artifacts
+from freshness import FreshnessEvaluation, evaluate_freshness, worst_freshness
 from engine import presets
 from database import (
-    Claim, EvidenceItem, Issuer, ModuleOutput, Portfolio, PortfolioPosition, QAFinding, Run, get_db,
+    AnalysisContextRecord, Claim, EvidenceItem, Issuer, ModuleOutput, Portfolio,
+    PortfolioPosition, QAFinding, Run, get_db,
 )
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity
+from lineage_service import write_lineage_edge
 from tenancy import (
     require_issuer,
     require_portfolio_access,
@@ -140,6 +145,7 @@ class RunCreate(BaseModel):
     # Portfolio to evaluate the issuer against (CP-3C concentration goes live).
     # Omit to auto-bind the portfolio that holds this issuer, if exactly one does.
     portfolio_id: Optional[str] = Field(default=None, max_length=36)
+    context_id: Optional[str] = Field(default=None, max_length=36)
 
 
 class ModuleStatus(BaseModel):
@@ -188,6 +194,51 @@ class RunListItem(BaseModel):
         if v is not None and v.tzinfo is None:
             return v.replace(tzinfo=timezone.utc)
         return v
+
+
+class RunFreshnessResponse(BaseModel):
+    run_id: str
+    evaluated_at: datetime
+    evaluation: FreshnessEvaluation
+
+
+async def _proved_run_freshness(
+    db: AsyncSession,
+    caller: CallerIdentity,
+    run_id: str,
+) -> Optional[FreshnessEvaluation]:
+    """Return the exact run's lineage-proved state from an active owned context."""
+    from routes.analysis import get_context_freshness
+
+    contexts = (await db.execute(
+        select(AnalysisContextRecord)
+        .where(AnalysisContextRecord.analyst_id == caller.id)
+        .order_by(AnalysisContextRecord.updated_at.desc())
+        .limit(100)
+    )).scalars().all()
+    evaluations: list[FreshnessEvaluation] = []
+    for context in contexts:
+        artifacts = context.artifacts or {}
+        retained_run_ids = {
+            str(ref.get("id"))
+            for ref in artifacts.get("artifact_refs", [])
+            if isinstance(ref, dict)
+            and ref.get("kind") == "issuer_run"
+            and ref.get("id")
+        }
+        if artifacts.get("issuer_run_id") == run_id:
+            retained_run_ids.add(run_id)
+        if run_id not in retained_run_ids:
+            continue
+        try:
+            result = await get_context_freshness(context.id, db, caller)
+        except HTTPException:
+            continue
+        evaluations.extend(
+            item.evaluation for item in result.artifacts
+            if item.artifact.kind == "issuer_run" and item.artifact.id == run_id
+        )
+    return worst_freshness(evaluations, source_kind="run") if evaluations else None
 
 
 class EvidenceOut(BaseModel):
@@ -354,6 +405,37 @@ async def create_run(
         )
         db.add(run)
         try:
+            await db.flush()
+            if body.context_id and settings.caos_lineage_v2_enabled:
+                context = (await db.execute(select(AnalysisContextRecord).where(
+                    AnalysisContextRecord.id == body.context_id,
+                    AnalysisContextRecord.analyst_id == caller.id,
+                ).with_for_update())).scalar_one_or_none()
+                if context is None or body.issuer_id not in (context.issuer_ids or []):
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+                input_refs = [
+                    ref for ref in typed_refs_from_artifacts(context.artifacts)
+                    if ref.kind in {"source_manifest", "document", "market_snapshot"}
+                ]
+                run_ref = ArtifactRef(kind="issuer_run", id=run.id)
+                await bind_context_artifacts(
+                    db,
+                    context_id=context.id,
+                    analyst_id=caller.id,
+                    refs=[run_ref],
+                    legacy_updates={"issuer_run_id": run.id},
+                )
+                for input_ref in input_refs:
+                    await write_lineage_edge(
+                        db,
+                        context_id=context.id,
+                        analyst_id=caller.id,
+                        artifact=run_ref,
+                        parent=input_ref,
+                        transform="run-creation",
+                        transform_version="2",
+                        enabled=True,
+                    )
             await db.commit()  # persist the queued run so the executor can see it
         except IntegrityError:
             # Belt-and-suspenders: the SELECT-then-INSERT above is already
@@ -403,6 +485,30 @@ async def get_run(
 ):
     run = await require_run_access(caller, await db.get(Run, run_id), db)
     return await _summary(db, run)
+
+
+@router.get("/{run_id}/freshness", response_model=RunFreshnessResponse)
+async def get_run_freshness(
+    run_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Evaluate this exact run rather than substituting the latest issuer run."""
+    # Keep foreign identifiers non-enumerable whether the feature is on or off.
+    run = await require_run_access(caller, await db.get(Run, run_id), db)
+    if not get_settings().caos_lineage_v2_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found.")
+    now = datetime.now(timezone.utc)
+    proved = await _proved_run_freshness(db, caller, run.id)
+    return RunFreshnessResponse(
+        run_id=run.id,
+        evaluated_at=now,
+        evaluation=proved or evaluate_freshness(
+            source_kind="run", now=now,
+            observed_at=run.completed_at or run.created_at,
+            source_version_state="unknown",
+        ),
+    )
 
 
 @router.get("/{run_id}/modules", response_model=List[ModuleDetail])

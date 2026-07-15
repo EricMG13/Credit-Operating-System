@@ -17,6 +17,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -25,7 +27,7 @@ from config import get_settings, is_deployed, require_postgres_in_production, re
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
-from routes import analysis, analysis_insights, alerts, auth, chat, committee, decisions, digest, edgar, health, ingestion, issuers, models, portfolio, portfolios, qa, query, reports, research, runs, rv, scenario, sector, settings as settings_routes, sponsors, thesis, autonomy
+from routes import analysis, analysis_insights, alerts, auth, chat, committee, decisions, digest, edgar, health, ingestion, issuers, market_import, model_v2, model_workbook as model_workbook_routes, models, portfolio, portfolios, qa, query, reports, research, runs, rv, scenario, sector, settings as settings_routes, sponsors, thesis, autonomy
 from research_executor import get_research_executor
 from research_report_executor import get_report_executor
 from engine.pipeline_executor import PipelineExecutor
@@ -287,6 +289,33 @@ async def access_log(request: Request, call_next):  # type: ignore[no-untyped-de
 # path, caller) before a clean 500 goes back. The pilot's monitoring surface is
 # `docker compose logs app` (LAUNCH_PHASE1 §8) — no external APM, by design
 # (no-paid-services). HTTPException keeps its own handler; this catches the rest.
+@app.exception_handler(RequestValidationError)
+async def normalize_typed_artifact_validation(request: Request, exc: RequestValidationError):
+    """Hide only unsupported typed artifact kinds at the context write boundary.
+
+    Other request validation remains FastAPI's normal 422 response. The custom
+    error type is emitted by ContextCreate/ContextPatch before Literal validation,
+    so the response never enumerates the closed vocabulary.
+    """
+    path = request.url.path
+    context_write = (
+        request.method == "POST" and path == "/api/analysis/contexts"
+    ) or (
+        request.method == "PATCH"
+        and path.startswith("/api/analysis/contexts/")
+        and path.count("/") == 4
+    )
+    if context_write and any(
+        error.get("type") == "artifact_not_found" for error in exc.errors()
+    ):
+        return JSONResponse(
+            {"detail": "Artifact not found."},
+            status_code=404,
+            headers=dict(_SECURITY_HEADERS),
+        )
+    return await request_validation_exception_handler(request, exc)
+
+
 @app.exception_handler(Exception)
 async def log_unhandled(request: Request, exc: Exception):  # type: ignore[no-untyped-def]
     logger.exception(
@@ -306,6 +335,8 @@ app.include_router(ingestion.router, prefix="/api/ingestion", tags=["ingestion"]
 app.include_router(edgar.router, prefix="/api/edgar", tags=["edgar"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
+app.include_router(model_v2.router, prefix="/api/models", tags=["model-v2"])
+app.include_router(model_workbook_routes.router, prefix="/api/models", tags=["model-v2"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
 app.include_router(portfolios.router, prefix="/api/portfolios", tags=["portfolios"])
@@ -320,6 +351,7 @@ app.include_router(research.router, prefix="/api/research", tags=["research"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(sector.router, prefix="/api/sector", tags=["sector"])
 app.include_router(rv.router, prefix="/api/rv", tags=["rv"])
+app.include_router(market_import.router, prefix="/api/rv", tags=["rv"])
 app.include_router(settings_routes.router, prefix="/api/settings", tags=["settings"])
 app.include_router(autonomy.router, prefix="/api/autonomy", tags=["autonomy"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])

@@ -10,6 +10,7 @@ import { IssuerProfileOverlayProvider, IssuerProfileOverlay } from "@/components
 import { CommandPalette } from "@/components/shared/CommandPalette";
 import { RouteHeading } from "@/components/shared/RouteHeading";
 import { WorkflowRail } from "@/components/shared/WorkflowRail";
+import { NavigationGuardProvider } from "@/components/shared/NavigationGuardProvider";
 
 export const metadata: Metadata = {
   title: "Credit Agent OS (CAOS)",
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body
         className="font-sans bg-caos-bg text-caos-text min-h-screen"
       >
+        <NavigationGuardProvider>
         <AuthProvider>
           <RoleViewProvider>
           <NotificationProvider>
@@ -65,6 +67,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </NotificationProvider>
           </RoleViewProvider>
         </AuthProvider>
+        </NavigationGuardProvider>
       </body>
     </html>
   );

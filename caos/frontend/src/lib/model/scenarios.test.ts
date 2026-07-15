@@ -4,7 +4,7 @@ import { buildModel } from "@/lib/reports/model";
 import { DEFAULT_CASE, type Assumptions } from "@/lib/reports/assumptions";
 
 // The default lens derives from the seeded BASE forecast (offline fallback).
-const lens = buildScenarios();
+const lens = buildScenarios(buildModel());
 
 // An Assumptions with one base-case field patched (downside left at agent baseline).
 const withBase = (patch: Partial<typeof DEFAULT_CASE>): Assumptions => ({

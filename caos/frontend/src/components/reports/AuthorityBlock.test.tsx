@@ -36,4 +36,12 @@ describe("AuthorityBlock", () => {
     rerender(<AuthorityBlock caveatKind="noRun" liveRunBacked={false} />);
     expect(screen.getByText(/ORIGIN: UNKNOWN — no completed run/)).toBeTruthy();
   });
+
+  it.each(["DUE", "STALE", "UNKNOWN"] as const)("prints %s freshness without losing reference limitations", (freshness) => {
+    render(<AuthorityBlock caveatKind="reference" liveRunBacked freshness={freshness} freshnessDetail="central run policy" />);
+    const block = screen.getByRole("note");
+    expect(block.textContent).toContain(`FRESHNESS: ${freshness}`);
+    expect(block.getAttribute("title")).toContain("Reference template");
+    expect(block.getAttribute("title")).toContain("central run policy");
+  });
 });

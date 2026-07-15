@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SettingsPage from "./page";
+import { getAnalystSettings, patchAnalystSettings } from "@/lib/api";
 
 let currentTab = "models";
 vi.mock("next/navigation", () => ({
@@ -56,6 +57,34 @@ describe("Settings · Models tab", () => {
     await waitFor(() => {
       const alert = screen.getByRole("alert");
       expect(alert.textContent).toContain("No analyst profile — settings not saved.");
+    });
+  });
+
+  it("persists the unsaved-model navigation preference through the analyst workspace patch flow", async () => {
+    vi.mocked(getAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {},
+      email_intelligence: { approved_senders: [] },
+      workspace: { model_builder: { warn_on_unsaved_leave: false, density: "desk" } },
+      revision: 7,
+    });
+    vi.mocked(patchAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {},
+      email_intelligence: { approved_senders: [] },
+      workspace: { model_builder: { warn_on_unsaved_leave: true, density: "desk" } },
+      revision: 8,
+    });
+
+    render(<SettingsPage />);
+    const toggle = await screen.findByRole("switch", { name: "Warn before leaving unsaved model edits" });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(patchAnalystSettings).toHaveBeenCalledWith(7, expect.objectContaining({
+        workspace: {
+          model_builder: { warn_on_unsaved_leave: true, density: "desk" },
+        },
+      }));
     });
   });
 });

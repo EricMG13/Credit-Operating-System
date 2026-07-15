@@ -46,7 +46,7 @@ export function PortfoliosPanel() {
     if (accepted[0]) { holdingsRef.current = accepted[0]; setHoldingsName(accepted[0].name); }
   }, []);
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop: onDropCreate, accept: { [XLSX]: [".xlsx"], "application/vnd.ms-excel": [".xls"] }, multiple: false,
+    onDrop: onDropCreate, accept: { [XLSX]: [".xlsx"] }, multiple: false,
   });
 
   const create = async () => {
@@ -162,7 +162,7 @@ function PortfolioPosture({ detail, onUpdated, onError }: {
     } finally { setBusy(false); }
   }, [detail.id, busy, onUpdated, onError]);
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop, accept: { [XLSX]: [".xlsx"], "application/vnd.ms-excel": [".xls"] }, multiple: false,
+    onDrop, accept: { [XLSX]: [".xlsx"] }, multiple: false,
   });
 
   return (

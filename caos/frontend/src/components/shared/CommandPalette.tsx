@@ -18,6 +18,7 @@ import { useRoleView } from "./RoleViewProvider";
 import type { RoleView } from "@/lib/api";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { SurfaceState } from "./SurfaceState";
+import { useNavigationAttempt } from "./NavigationGuardProvider";
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
@@ -49,6 +50,7 @@ export function CommandPalette() {
 function PalettePanel({ onClose }: { onClose: () => void }) {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
   const router = useRouter();
+  const attemptNavigation = useNavigationAttempt();
   const { openProfile } = useIssuerProfileOverlay();
   const { openWith } = useAsk();
   const { setRoleView } = useRoleView();
@@ -121,7 +123,7 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
     (row: PaletteRow) => {
       onClose();
       if (row.kind === "page") {
-        router.push(row.href);
+        attemptNavigation(() => router.push(row.href));
       } else if (row.kind === "issuer") {
         openProfile(row.id);
       } else if (row.kind === "ask") {
@@ -131,7 +133,7 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
         else setRoleView(row.id.replace("role-", "") as RoleView);
       }
     },
-    [onClose, router, openProfile, openWith, setRoleView],
+    [attemptNavigation, onClose, router, openProfile, openWith, setRoleView],
   );
 
   const onKeyDown = (e: React.KeyboardEvent) => {

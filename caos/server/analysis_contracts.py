@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal, Optional, TypeAlias
+from typing import Literal, Optional, TypeAlias, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_serializer
+from freshness import FreshnessEvaluation, POLICY_VERSION
 
 AnalysisJobState: TypeAlias = Literal[
     "queued",
@@ -61,6 +62,43 @@ FindingSourceSurface: TypeAlias = Literal[
     "global-ask",
 ]
 
+ArtifactKind: TypeAlias = Literal[
+    "issuer_run",
+    "source_manifest",
+    "research_job",
+    "model_checkpoint",
+    "report_version",
+    "alert_event",
+    "sponsor",
+    "portfolio",
+    "decision",
+    "insight",
+    "document",
+    "document_chunk",
+    "market_snapshot",
+]
+ARTIFACT_KINDS = frozenset(get_args(ArtifactKind))
+
+
+class ArtifactRef(BaseModel):
+    """Bounded, portable identity for an authoritative domain artifact."""
+
+    kind: ArtifactKind
+    # 96 leaves room for the longest closed kind plus ':' inside the existing
+    # 128-character lineage artifact columns.
+    id: str = Field(min_length=1, max_length=96)
+    version: Optional[str] = Field(default=None, min_length=1, max_length=64)
+
+    @field_validator("id", "version")
+    @classmethod
+    def _bounded_identifier(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value or ":" in value or any(ord(char) < 32 for char in value):
+            raise ValueError("artifact identifiers must be non-empty and cannot contain ':' or control characters")
+        return value
+
 
 class AnalysisArtifactRefs(BaseModel):
     """Typed links to the exact artifacts composing one analytical view.
@@ -80,6 +118,43 @@ class AnalysisArtifactRefs(BaseModel):
     portfolio_id: Optional[str] = Field(default=None, max_length=36)
     decision_id: Optional[str] = Field(default=None, max_length=36)
     insight_id: Optional[str] = Field(default=None, max_length=36)
+    artifact_refs: list[ArtifactRef] = Field(default_factory=list, max_length=100)
+
+    @model_serializer(mode="wrap")
+    def _omit_empty_typed_refs(self, handler):
+        """Keep scalar-only v1 payloads byte-shape compatible on serialization."""
+        data = handler(self)
+        if "artifact_refs" not in self.model_fields_set and not self.artifact_refs:
+            data.pop("artifact_refs", None)
+        return data
+
+
+class LineageEdgeV2(BaseModel):
+    id: str
+    artifact: ArtifactRef
+    parent: ArtifactRef
+    transform: str
+    transform_version: str
+    created_at: datetime
+
+
+class ContextLineage(BaseModel):
+    context_id: str
+    artifact_refs: list[ArtifactRef]
+    edges: list[LineageEdgeV2]
+    truncated: bool = False
+
+
+class ArtifactFreshness(BaseModel):
+    artifact: ArtifactRef
+    evaluation: FreshnessEvaluation
+
+
+class ContextFreshness(BaseModel):
+    context_id: str
+    evaluated_at: datetime
+    policy_version: str = POLICY_VERSION
+    artifacts: list[ArtifactFreshness]
 
 
 class AnalysisSurfaceStateEntry(BaseModel):
@@ -342,6 +417,8 @@ class RVScreenRun(BaseModel):
     context_id: str
     snapshot_id: str
     status: AnalysisJobState
+    snapshot_source_label: Optional[str] = None
+    snapshot_freshness: Optional[dict] = None
     filters: dict = Field(default_factory=dict)
     authority: AuthorityEnvelope
     candidates: list[RVCandidateOut] = Field(default_factory=list)

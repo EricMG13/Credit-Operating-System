@@ -88,9 +88,10 @@ def test_dependency_layers_respects_deps_and_groups_independents():
             if d in layer_of:
                 assert layer_of[d] < layer_of[m], f"{m} must run after its soft edge {d}"
 
-    # CP-1B and CP-4C both depend only on CP-1, so they land in the same layer —
+    # CP-1B and CP-1C both depend only on CP-1, so they land in the same layer —
     # i.e. independent modules are grouped, which is what lets them run concurrently.
-    assert layer_of["CP-1B"] == layer_of["CP-4C"]
+    # CP-4C now has a soft CP-4D ordering edge and intentionally lands later.
+    assert layer_of["CP-1B"] == layer_of["CP-1C"]
     assert layer_of["CP-1"] < layer_of["CP-1B"]
     # CP-1A is dep-free (corpus M2: "CP-1 NOT downstream" — audit SPEC-2), so it
     # lands in the FIRST layer, no longer gated behind CP-1.

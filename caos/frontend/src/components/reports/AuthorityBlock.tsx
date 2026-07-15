@@ -6,7 +6,7 @@
 // forking the caveatKind vocabulary that only makes sense for Report Studio.
 
 import type { DeepDiveCaveatKind } from "@/lib/deepdive/caveat";
-import { fromReportCaveat } from "@/lib/provenance";
+import { fromReportCaveat, type ProvFreshness } from "@/lib/provenance";
 import { AuthorityBlock as SharedAuthorityBlock } from "@/components/shared/AuthorityBlock";
 
 const UNKNOWN_TEXT: Record<"loading" | "error" | "noRun", string> = {
@@ -20,13 +20,20 @@ export function AuthorityBlock({
   liveRunBacked,
   runId,
   qaNote,
+  freshness,
+  freshnessDetail,
 }: {
   caveatKind: DeepDiveCaveatKind;
   liveRunBacked: boolean;
   runId?: string | null;
   qaNote?: string | null;
+  freshness?: ProvFreshness;
+  freshnessDetail?: string | null;
 }) {
-  const prov = fromReportCaveat(caveatKind, liveRunBacked);
+  const baseProv = fromReportCaveat(caveatKind, liveRunBacked);
+  const prov = baseProv && freshness
+    ? { ...baseProv, freshness, detail: [baseProv.detail, freshnessDetail].filter(Boolean).join(" ") }
+    : baseProv;
   const unknownText = prov
     ? undefined
     : UNKNOWN_TEXT[caveatKind as "loading" | "error" | "noRun"];

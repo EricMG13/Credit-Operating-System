@@ -15,15 +15,17 @@ rated B3/B- or below (the drift-to-CCC bucket that drives CLO haircuts).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Document, DocumentChunk, Issuer, Run, aware_utc, get_db
+from config import get_settings
+from database import AnalysisContextRecord, Document, DocumentChunk, Issuer, Run, aware_utc, get_db
+from freshness import POLICY_VERSION, FreshnessEvaluation, evaluate_freshness, worst_freshness
 from identity import CallerIdentity, get_identity
 from tenancy import scope_issuers, tenancy_enabled
 # Rating scale lives in ratings.py (one source of truth, shared with the
@@ -71,6 +73,24 @@ class DigestResponse(BaseModel):
     ccc_watch: List[WatchRow] = []     # B3/B- and below
     qa: Dict[str, int] = {}            # latest-complete-run qa_status -> count
     activity_24h: Dict[str, int] = {}  # runs completed / failed in the last 24h
+    # Optional so feature-off responses retain the legacy shape.
+    freshness: Optional["DigestFreshnessSummary"] = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
+class DigestFreshnessRow(BaseModel):
+    issuer_id: str
+    name: str
+    run_id: Optional[str] = None
+    evaluation: FreshnessEvaluation
+
+
+class DigestFreshnessSummary(BaseModel):
+    policy_version: str = POLICY_VERSION
+    source_kind: Literal["run"] = "run"
+    counts: Dict[Literal["current", "due", "stale", "unknown"], int]
+    rows: List[DigestFreshnessRow] = []
 
 
 # Coverage Control Plane (WP-4 G14) — the ingestion-side counterpart to the
@@ -123,6 +143,45 @@ def _read_rate_guard(caller: CallerIdentity) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Digest read rate limit reached — try again in a minute.",
         )
+
+
+async def _proved_context_run_freshness(
+    db: AsyncSession,
+    caller: CallerIdentity,
+    run_ids: set[str],
+) -> dict[str, FreshnessEvaluation]:
+    """Resolve only lineage-proved run states from the analyst's recent contexts.
+
+    The bounded scan avoids turning the digest into an unbounded context replay.
+    A run with no matching authorized context remains UNKNOWN.
+    """
+    if not run_ids:
+        return {}
+    from routes.analysis import get_context_freshness
+
+    contexts = (await db.execute(
+        select(AnalysisContextRecord)
+        .where(AnalysisContextRecord.analyst_id == caller.id)
+        .order_by(AnalysisContextRecord.updated_at.desc())
+        .limit(50)
+    )).scalars().all()
+    collected: dict[str, list[FreshnessEvaluation]] = {}
+    for context in contexts:
+        artifacts = context.artifacts or {}
+        active_run_id = artifacts.get("issuer_run_id")
+        if active_run_id not in run_ids:
+            continue
+        try:
+            context_result = await get_context_freshness(context.id, db, caller)
+        except HTTPException:
+            continue
+        for item in context_result.artifacts:
+            if item.artifact.kind == "issuer_run" and item.artifact.id == active_run_id:
+                collected.setdefault(item.artifact.id, []).append(item.evaluation)
+    return {
+        run_id: worst_freshness(evaluations, source_kind="run")
+        for run_id, evaluations in collected.items()
+    }
 
 
 @router.get("/daily", response_model=DigestResponse)
@@ -203,6 +262,34 @@ async def daily_digest(
     failed_24h = sum(1 for r in recent if r.status == "failed" and within_24h(r.created_at))
 
     rated = sum(1 for ix in indices.values() if ix is not None)
+    freshness_summary: Optional[DigestFreshnessSummary] = None
+    if get_settings().caos_lineage_v2_enabled:
+        proved = await _proved_context_run_freshness(
+            db, caller, {run.id for run in latest.values()}
+        )
+        freshness_rows: List[DigestFreshnessRow] = []
+        freshness_counts = {"current": 0, "due": 0, "stale": 0, "unknown": 0}
+        for issuer in issuers:
+            run = latest.get(issuer.id)
+            evaluation = proved.get(run.id) if run else None
+            if evaluation is None:
+                evaluation = evaluate_freshness(
+                    source_kind="run",
+                    now=now,
+                    observed_at=(run.completed_at or run.created_at) if run else None,
+                    source_version_state="unknown",
+                )
+            freshness_counts[evaluation.state] += 1
+            freshness_rows.append(DigestFreshnessRow(
+                issuer_id=issuer.id,
+                name=issuer.name,
+                run_id=run.id if run else None,
+                evaluation=evaluation,
+            ))
+        freshness_summary = DigestFreshnessSummary(
+            counts=freshness_counts,
+            rows=freshness_rows[:_MAX_LIST],
+        )
     return DigestResponse(
         as_of=now,
         coverage={
@@ -221,6 +308,7 @@ async def daily_digest(
         ccc_watch=ccc_watch,
         qa=qa,
         activity_24h={"runs_completed": completed_24h, "runs_failed": failed_24h},
+        freshness=freshness_summary,
     )
 
 

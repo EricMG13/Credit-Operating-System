@@ -800,7 +800,14 @@ async def _trend(session: AsyncSession, cap: dict) -> dict:
 
 
 async def _coverage(session: AsyncSession, cap: dict) -> dict:
-    designed = [s for s in all_specs() if s.implemented]
+    from config import get_settings
+
+    settings = get_settings()
+    enabled_flags = frozenset(
+        flag for flag in ("caos_cp_4d_enabled", "caos_cp_2g_enabled")
+        if bool(getattr(settings, flag, False))
+    )
+    designed = [s for s in all_specs(enabled_flags) if s.implemented]
     total = len(designed)
     # distinct (issuer, module): the by_issuer set-fold below dedups anyway, so push
     # DISTINCT to the DB — bounds the scan to issuers×modules, not O(runs×modules).

@@ -10,6 +10,7 @@ import { MODULE_NAMES } from "@/lib/reports/deal";
 import { G2Chart } from "@/components/charts/G2Chart";
 import { AuthorityBlock } from "./AuthorityBlock";
 import type { DeepDiveCaveatKind } from "@/lib/deepdive/caveat";
+import type { ProvFreshness } from "@/lib/provenance";
 
 export type ReportEdits = Record<string, string>;
 type OnEdit = (path: string, text: string) => void;
@@ -269,6 +270,7 @@ export function ReportDoc({
   showSources,
   edits,
   onEdit,
+  editableSectionCount,
   hideAddbacks,
   onOpenEvidence,
   authority,
@@ -279,16 +281,26 @@ export function ReportDoc({
   showSources?: boolean;
   edits?: ReportEdits;
   onEdit?: OnEdit;
+  /** When set, only root sections below this server-owned boundary are
+      editable. Appended identity/model sections remain visible and immutable. */
+  editableSectionCount?: number;
   hideAddbacks?: boolean;
   onOpenEvidence?: (id: string) => void;
   /** Origin/Method/Freshness/QA for the printed authority block — omit to
       fall back to the old blanket "reference template" disclaimer (callers
       that haven't been updated yet). */
-  authority?: { caveatKind: DeepDiveCaveatKind; liveRunBacked: boolean; runId?: string | null; qaNote?: string | null };
+  authority?: { caveatKind: DeepDiveCaveatKind; liveRunBacked: boolean; runId?: string | null; qaNote?: string | null; freshness?: ProvFreshness; freshnessDetail?: string | null };
 }) {
-  const ctx: EditCtx = { edits, onEdit, hideAddbacks };
+  const boundedEdits = editableSectionCount == null || !edits
+    ? edits
+    : Object.fromEntries(Object.entries(edits).filter(([path]) => {
+        const match = /^s(\d+)(?:\.|$)/.exec(path);
+        return !match || Number(match[1]) < editableSectionCount;
+      }));
+  const ctx: EditCtx = { edits: boundedEdits, onEdit, hideAddbacks };
+  const immutableCtx: EditCtx = { hideAddbacks };
   const isModelAppendix = rep.id === "model";
-  const overrideN = edits ? Object.keys(edits).length : 0;
+  const overrideN = boundedEdits ? Object.keys(boundedEdits).length : 0;
   const secs = rep.sections
     .map((s, i) => ({ s, i }))
     .filter((x) => !(omit && omit[x.i]));
@@ -359,7 +371,12 @@ export function ReportDoc({
 
             <div className="rd-secs mt-4">
               {pg.items.map((x) => (
-                <RDSection key={x.i} s={x.s} p={"s" + x.i} ctx={ctx} />
+                <RDSection
+                  key={x.i}
+                  s={x.s}
+                  p={"s" + x.i}
+                  ctx={editableSectionCount == null || x.i < editableSectionCount ? ctx : immutableCtx}
+                />
               ))}
             </div>
           </div>
@@ -438,7 +455,12 @@ export function ReportDoc({
       <div className="rd-subtitle"><E p="subtitle" v={rep.subtitle} ctx={ctx} /></div>
       <div className="rd-secs">
         {secs.map((x) => (
-          <RDSection key={x.i} s={x.s} p={"s" + x.i} ctx={ctx} />
+          <RDSection
+            key={x.i}
+            s={x.s}
+            p={"s" + x.i}
+            ctx={editableSectionCount == null || x.i < editableSectionCount ? ctx : immutableCtx}
+          />
         ))}
       </div>
       {showSources && !isModelAppendix ? <RDSources srcs={rep.srcs} onOpenEvidence={onOpenEvidence} /> : null}

@@ -27,7 +27,6 @@ logger = logging.getLogger("caos.ingest")
 
 _PDF_MAGIC = b"%PDF-"
 _OOXML_MAGIC = b"PK\x03\x04"
-_OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 CHUNK_CHARS = 2400
 CHUNK_OVERLAP = 240
@@ -44,18 +43,23 @@ NO_CHUNKS_WARNING = (
 _READ_CHUNK = 1024 * 1024  # 1 MB
 
 
-async def read_capped(file: UploadFile) -> bytes:
+async def read_capped(file: UploadFile, *, max_bytes: int | None = None) -> bytes:
     """Read the upload incrementally, aborting as soon as it exceeds the cap.
 
     Reading the whole body before checking would let an oversized request
     occupy its full size in memory before the 413.
     """
-    limit = settings.max_upload_mb * 1024 * 1024
+    configured_limit = settings.max_upload_mb * 1024 * 1024
+    limit = configured_limit if max_bytes is None else min(configured_limit, max_bytes)
     buf = bytearray()
     while chunk := await file.read(_READ_CHUNK):
         buf.extend(chunk)
         if len(buf) > limit:
-            raise HTTPException(413, f"File exceeds the {settings.max_upload_mb} MB limit")
+            if limit % (1024 * 1024) == 0:
+                label = f"{limit // (1024 * 1024)} MB"
+            else:
+                label = f"{limit} byte"
+            raise HTTPException(413, f"File exceeds the {label} limit")
     if not buf:
         raise HTTPException(400, "Empty upload")
     return bytes(buf)
@@ -67,15 +71,13 @@ def sniff_pdf(content: bytes) -> None:
 
 
 def sniff_xlsx(content: bytes) -> None:
-    if content.startswith(_OLE_MAGIC):
-        return  # legacy .xls
     if not content.startswith(_OOXML_MAGIC):
-        raise HTTPException(400, "Uploaded file is not a valid Excel workbook.")
+        raise HTTPException(400, "Uploaded file is not a valid .xlsx workbook.")
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
             names = zf.namelist()
     except zipfile.BadZipFile as e:
-        raise HTTPException(400, "Uploaded file is not a valid Excel workbook.") from e
+        raise HTTPException(400, "Uploaded file is not a valid .xlsx workbook.") from e
     if not any(n.startswith("xl/") for n in names):
         raise HTTPException(400, "ZIP container is not an Excel workbook (no xl/ entries).")
 

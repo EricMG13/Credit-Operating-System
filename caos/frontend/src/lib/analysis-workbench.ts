@@ -28,6 +28,27 @@ export interface AuthorityEnvelope {
   analyst_override: string | null;
 }
 
+export type ArtifactKind =
+  | "issuer_run"
+  | "source_manifest"
+  | "research_job"
+  | "model_checkpoint"
+  | "report_version"
+  | "alert_event"
+  | "sponsor"
+  | "portfolio"
+  | "decision"
+  | "insight"
+  | "document"
+  | "document_chunk"
+  | "market_snapshot";
+
+export interface ArtifactRef {
+  kind: ArtifactKind;
+  id: string;
+  version?: string | null;
+}
+
 export interface AnalysisArtifactRefs {
   issuer_run_id: string | null;
   source_manifest_id: string | null;
@@ -39,6 +60,8 @@ export interface AnalysisArtifactRefs {
   portfolio_id?: string | null;
   decision_id?: string | null;
   insight_id?: string | null;
+  /** Omitted on scalar-only v1 responses; present when typed refs are bound. */
+  artifact_refs?: ArtifactRef[];
 }
 
 export type AnalysisSurfaceName =
@@ -120,6 +143,11 @@ export interface AnalysisContext {
   created_at: string;
   updated_at: string;
 }
+
+export type AnalysisContextPatch = Omit<Partial<AnalysisContext>, "artifacts" | "surface_state"> & {
+  artifacts?: Partial<AnalysisArtifactRefs>;
+  surface_state?: AnalysisContext["surface_state"];
+};
 
 export interface Finding {
   id: string;
@@ -203,6 +231,8 @@ export interface RVScreenRun {
   context_id: string;
   snapshot_id: string;
   status: AnalysisJobState;
+  snapshot_source_label: string | null;
+  snapshot_freshness: Record<string, unknown> | null;
   filters: Record<string, unknown>;
   authority: AuthorityEnvelope;
   candidates: RVCandidate[];
@@ -212,13 +242,70 @@ export interface RVScreenRun {
   updated_at: string;
 }
 
+export interface MarketImportIssue {
+  severity: "blocking" | "warning";
+  code: string;
+  message: string;
+  row: number | null;
+  column: string | null;
+  field: string | null;
+}
+
+export interface MarketWorkbookPreview {
+  workbook_sha256: string;
+  preview_token: string;
+  issuer_mappings: Record<string, string>;
+  selected_sheet: string | null;
+  header_row: number | null;
+  mapping: Record<string, unknown>;
+  as_of: string | null;
+  row_count: number;
+  accepted_count: number;
+  rejected_count: number;
+  formula_cell_count: number;
+  blocking_count: number;
+  warning_count: number;
+  preview_truncated: boolean;
+  rows: Array<Record<string, unknown>>;
+  issues: MarketImportIssue[];
+}
+
+export interface MarketImportCommit {
+  snapshot_id: string;
+  existing: boolean;
+  document_id: string | null;
+  source_manifest_id: string | null;
+  workbook_sha256: string;
+  payload_hash: string;
+  as_of: string;
+  source_label: string;
+  instrument_count: number;
+  rejected_count: number;
+  warning_count: number;
+  formula_cell_count: number;
+  freshness: Record<string, unknown>;
+}
+
+export interface MarketSnapshotSummary {
+  id: string;
+  as_of: string;
+  source_label: string;
+  origin: string;
+  method: string;
+  status: string;
+  document_id: string | null;
+  source_manifest_id: string | null;
+  freshness: Record<string, unknown> | null;
+  metadata: Record<string, unknown>;
+}
+
 export const analysisApi = {
   getTaxonomy: () => api.get<{ sectors: Array<{ id: string; label: string; aliases: string[] }> }>("/api/analysis/taxonomy").then((response) => response.data.sectors),
   createContext: (body: Partial<AnalysisContext> & { name: string }) =>
     api.post<AnalysisContext>("/api/analysis/contexts", body).then((response) => response.data),
   getContext: (id: string) =>
     api.get<AnalysisContext>(`/api/analysis/contexts/${id}`).then((response) => response.data),
-  patchContext: (id: string, body: Partial<AnalysisContext>) =>
+  patchContext: (id: string, body: AnalysisContextPatch) =>
     api.patch<AnalysisContext>(`/api/analysis/contexts/${id}`, body).then((response) => response.data),
   listInsights: (
     contextId: string,
@@ -266,6 +353,37 @@ export const analysisApi = {
     api.post<SectorReviewV2>(`/api/sector/reviews/${reviewId}/publish`).then((response) => response.data),
   createRVScreen: (body: { context_id: string; snapshot_id?: string; filters?: Record<string, unknown> }) =>
     api.post<RVScreenRun>("/api/rv/screens", body).then((response) => response.data),
+  listMarketSnapshots: () =>
+    api.get<{ snapshots: MarketSnapshotSummary[] }>("/api/rv/snapshots").then((response) => response.data.snapshots),
+  previewMarketWorkbook: (body: {
+    file: File;
+    mapping: Record<string, unknown>;
+    issuerMappings?: Record<string, string>;
+  }) => {
+    const form = new FormData();
+    form.append("file", body.file);
+    form.append("mapping", JSON.stringify(body.mapping));
+    form.append("issuer_mappings", JSON.stringify(body.issuerMappings ?? {}));
+    return api.post<MarketWorkbookPreview>("/api/rv/snapshots/import/preview", form)
+      .then((response) => response.data);
+  },
+  commitMarketWorkbook: (body: {
+    file: File;
+    mapping: Record<string, unknown>;
+    issuerMappings?: Record<string, string>;
+    preview: MarketWorkbookPreview;
+    sourceLabel: string;
+  }) => {
+    const form = new FormData();
+    form.append("file", body.file);
+    form.append("mapping", JSON.stringify(body.mapping));
+    form.append("issuer_mappings", JSON.stringify(body.issuerMappings ?? {}));
+    form.append("preview_sha256", body.preview.workbook_sha256);
+    form.append("preview_token", body.preview.preview_token);
+    form.append("source_label", body.sourceLabel);
+    return api.post<MarketImportCommit>("/api/rv/snapshots/import/commit", form)
+      .then((response) => response.data);
+  },
   getRVScreen: (id: string) =>
     api.get<RVScreenRun>(`/api/rv/screens/${id}`).then((response) => response.data),
   ratifyRVCandidate: (runId: string, candidateId: string, analystOverride?: string) =>
@@ -337,7 +455,7 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string 
     return () => { cancelled = true; };
   }, [defaultName, defaultSectorId]);
 
-  const patch = useCallback(async (changes: Partial<AnalysisContext>) => {
+  const patch = useCallback(async (changes: AnalysisContextPatch) => {
     if (!context) return null;
     const value = await analysisApi.patchContext(context.id, changes);
     setContext(value);

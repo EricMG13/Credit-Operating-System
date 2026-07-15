@@ -28,9 +28,17 @@ describe("shared insight contracts", () => {
       portfolio_id: null,
       decision_id: null,
       insight_id: null,
+      artifact_refs: [
+        { kind: "document", id: "document-1" },
+        { kind: "document_chunk", id: "chunk-1" },
+        { kind: "market_snapshot", id: "snapshot-1", version: "v2" },
+      ],
     };
     expect(surfaces).toEqual(["portfolio-lab", "ic-book"]);
     expect(refs.insight_id).toBeNull();
+    expect(refs.artifact_refs?.map((ref) => ref.kind)).toEqual([
+      "document", "document_chunk", "market_snapshot",
+    ]);
     const statuses: InsightArtifact["status"][] = [
       "queued", "running", "ready", "partial", "error", "stale", "ratified", "rejected",
     ];

@@ -78,9 +78,9 @@ const BESPOKE_TABS = new Set(["CP-6A", "CP-6E", "CP-3B", "CP-4"]);
 const GROUPS: readonly { label: string; mods: readonly string[] }[] = [
   { label: "L0 · ORCH", mods: ["CP-0", "CP-X"] },
   { label: "L1 BASE", mods: ["CP-1", "CP-1A", "CP-1B", "CP-1C"] },
-  { label: "L2 SYNTHESIS", mods: ["CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F"] },
+  { label: "L2 SYNTHESIS", mods: ["CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F", "CP-2G"] },
   { label: "L3 REL VALUE", mods: ["CP-3", "CP-3B", "CP-3C", "CP-3D"] },
-  { label: "L4 LEGAL", mods: ["CP-4"] },
+  { label: "L4 LEGAL", mods: ["CP-4", "CP-4D"] },
   { label: "L5 GOV", mods: ["CP-5B", "CP-5"] },
   { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
 ];
@@ -297,12 +297,13 @@ function DeepDive() {
   // analysis didn't complete. Drives a ✕ FAILED badge + an explicit failed pane
   // instead of an empty ModuleView under a ● LIVE badge.
   const moduleFailed = !isReference && moduleLiveState(live.liveStatus[tab]) === "failed";
+  const referenceUnavailable = isReference && (tab === "CP-2G" || tab === "CP-4D");
   // The replay sim gates the reference showcase only. A real issuer is never
   // sim-locked (its honest empty state is the module view's own no-output
   // screen), and live output is never held behind replay theater — otherwise
   // the pane reads "awaiting upstream" under a ● LIVE badge. (critique: two
   // state machines disagreeing)
-  const unlocked = !isReference || moduleIsLive || isCleared(gateState(gateId));
+  const unlocked = referenceUnavailable || !isReference || moduleIsLive || isCleared(gateState(gateId));
   // Use the bespoke title only when the bespoke tab is actually rendered; a live
   // generic render shows the module's own name, not the showcase label.
   const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
@@ -751,6 +752,10 @@ function DeepDive() {
               ) : !isReference ? (
                 <span className="tabular text-caos-xs text-caos-muted" title="This module has no issuer-specific output available.">
                   ◦ NO OUTPUT
+                </span>
+              ) : referenceUnavailable ? (
+                <span className="tabular text-caos-xs text-caos-muted" title="No synthetic reference finding is supplied for this module.">
+                  ◦ NO REFERENCE OUTPUT
                 </span>
               ) : null}
             </span>

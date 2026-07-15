@@ -9,6 +9,7 @@ import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { SemanticVisualization, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
+import { MarketWorkbookImport } from "@/components/rv/MarketWorkbookImport";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { headStat } from "@/components/shared/headStat";
 import { toErrorMessage } from "@/lib/api";
@@ -130,11 +131,11 @@ export function RVScreenerWorkbench() {
     }).catch(() => setScreen(null));
   }, [contextState.context, urlState.selected]);
 
-  const runScreen = async () => {
+  const runScreen = async (snapshotId?: string) => {
     if (!contextState.context || busy) return;
     setBusy(true); setError(null);
     try {
-      const next = await analysisApi.createRVScreen({ context_id: contextState.context.id, filters: contextState.context.sector_id ? { sector_id: contextState.context.sector_id } : {} });
+      const next = await analysisApi.createRVScreen({ context_id: contextState.context.id, snapshot_id: snapshotId, filters: contextState.context.sector_id ? { sector_id: contextState.context.sector_id } : {} });
       setScreen(next); setSelected(next.candidates[0] ?? null);
       updateUrlState({ selected: next.candidates[0]?.id ?? null }, "replace");
       contextState.setContext({ ...contextState.context, rv_run_id: next.id, rv_snapshot_id: next.snapshot_id });
@@ -190,7 +191,7 @@ export function RVScreenerWorkbench() {
     whatChanged: rvDatum(screen, selected ? `${selected.borrower} · ${display(selectedPickup, "bp")} vs cohort` : "No candidate selected"),
     whyItMatters: rvDatum(screen, selected ? `${selected.classification} · ${selected.missing_gates.length} missing gates` : "No instrument evidence"),
     requiredAction: rvDatum(screen, selected?.classification === "actionable" ? "Review sizing and ratify" : "Resolve missing gates before any recommendation"),
-    evidenceHealth: rvDatum(screen, screen ? `${screen.authority.origin} snapshot · ${screen.authority.freshness}` : "Snapshot unavailable"),
+    evidenceHealth: rvDatum(screen, screen ? `${screen.snapshot_source_label ?? screen.authority.origin} · ${String(screen.snapshot_freshness?.state ?? screen.authority.freshness)}` : "Snapshot unavailable"),
   };
   const context = contextState.context;
   const compared = screen?.candidates.filter((candidate) => compareIds.has(candidate.id)) ?? [];
@@ -211,12 +212,12 @@ export function RVScreenerWorkbench() {
   return (
     <EnterprisePage
       kind="analytical"
-      identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text">RV Screener</span>{screen ? <span className="tabular text-caos-2xs text-caos-muted">Snapshot {screen.snapshot_id.slice(0, 8)}</span> : null}</>}
+      identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text">RV Screener</span>{screen ? <span className="tabular text-caos-2xs text-caos-muted">{screen.snapshot_source_label ?? "Snapshot"} · {screen.snapshot_id.slice(0, 8)}</span> : null}</>}
       status={<span className="tabular text-caos-2xs uppercase text-caos-accent">View: {roleLabel} · composition only</span>}
       primaryAction={<button type="button" onClick={reviewTop} disabled={!context || busy} className="caos-primary-action focus-ring disabled:opacity-40">{busy ? "Running…" : screen ? "Review top candidate" : "Run screen"}</button>}
-      contextualControls={<>{headStat("Universe", context?.sector_id ?? "All")}{headStat("Actionable", String(screen?.counts.actionable ?? 0), "var(--caos-success)")}{headStat("Screen only", String(screen?.counts["screen-only"] ?? 0), "var(--caos-warning)")}{headStat("Snapshot", screen?.authority.origin ?? "—")}</>}
+      contextualControls={<>{headStat("Universe", context?.sector_id ?? "All")}{headStat("Actionable", String(screen?.counts.actionable ?? 0), "var(--caos-success)")}{headStat("Screen only", String(screen?.counts["screen-only"] ?? 0), "var(--caos-warning)")}{headStat("Snapshot", screen?.snapshot_source_label ?? screen?.authority.origin ?? "—")}{headStat("Freshness", String(screen?.snapshot_freshness?.state ?? screen?.authority.freshness ?? "—"))}</>}
       utilityLabel="RV utilities"
-      utilityControls={<div className="space-y-4 text-caos-xs"><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section><button type="button" onClick={() => contextState.patch({ filters: { ...(context?.filters ?? {}), rv: screen?.filters ?? {} } })} disabled={!screen} className="caos-action-secondary focus-ring disabled:opacity-40">Save current screen</button></div>}
+      utilityControls={<div className="space-y-4 text-caos-xs"><MarketWorkbookImport onCommitted={(value) => { void runScreen(value.snapshot_id); }} /><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section><button type="button" onClick={() => contextState.patch({ filters: { ...(context?.filters ?? {}), rv: screen?.filters ?? {} } })} disabled={!screen} className="caos-action-secondary focus-ring disabled:opacity-40">Save current screen</button></div>}
       narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">{screen?.candidates.length ?? 0} instruments</span> }}
     >
       <main className="caos-persona-route rv-workbench min-h-0 flex-1 overflow-hidden p-2">

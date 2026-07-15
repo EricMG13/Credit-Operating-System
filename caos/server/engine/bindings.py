@@ -21,6 +21,7 @@ CP-6A/CP-6E share ``_bind_debate`` (which reads ``ctx.module_id``). There is no
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Optional
 
@@ -145,8 +146,21 @@ async def _bind_cp1c(ctx: RunContext) -> ModulePayload:
 
 
 async def _bind_cp4c(ctx: RunContext) -> ModulePayload:
-    # CP-4C computes covenant capacity / headroom against CP-1's leverage.
-    return await synthesize_covenants(ctx.upstream["CP-1"], ctx.retrieve)
+    # CP-4C owns covenant-capacity math against CP-1. When CP-4D ran, retain its
+    # already schema-validated qualitative handoff as a bounded upstream input
+    # record; it never replaces/recalculates CP-4C capacity and is not a hard gate.
+    payload = await synthesize_covenants(ctx.upstream["CP-1"], ctx.retrieve)
+    cp4d = ctx.upstream.get("CP-4D")
+    handoff = (
+        ((cp4d.runtime_output or {}).get("handoffs") or {}).get("cp_4c")
+        if cp4d is not None else None
+    )
+    if isinstance(handoff, dict):
+        payload.runtime_output = {
+            **(payload.runtime_output or {}),
+            "cp4d_structural_handoff": copy.deepcopy(handoff),
+        }
+    return payload
 
 
 async def _bind_cp2b(ctx: RunContext) -> ModulePayload:
@@ -204,6 +218,20 @@ async def _bind_cp4(ctx: RunContext) -> ModulePayload:
     return await synthesize_legal_review(ctx.retrieve)
 
 
+async def _bind_specialized(ctx: RunContext) -> ModulePayload:
+    """CP-4D/CP-2G own full-bundle loading and source-gated synthesis.
+
+    Keeping an explicit binder prevents a future fixture-table fallback from
+    silently bypassing their source gates.
+    """
+    return await ctx.synthesizer.synthesize(
+        ctx.module_id,
+        issuer_name=ctx.issuer_name,
+        upstream=ctx.upstream,
+        retrieve=ctx.retrieve,
+    )
+
+
 async def _bind_debate(ctx: RunContext) -> ModulePayload:
     # CP-6A/6E are the L6 adversarial debate over the produced upstream outputs;
     # both keys route here and the binder reads ctx.module_id to pick the seat.
@@ -223,11 +251,13 @@ BINDERS: Dict[str, Binder] = {
     "CP-2D": _bind_cp2d,
     "CP-2E": _bind_cp2e,
     "CP-2F": _bind_cp2f,
+    "CP-2G": _bind_specialized,
     "CP-3": _bind_cp3,
     "CP-3B": _bind_cp3b,
     "CP-3C": _bind_cp3c,
     "CP-3D": _bind_cp3d,
     "CP-4": _bind_cp4,
+    "CP-4D": _bind_specialized,
     "CP-6A": _bind_debate,
     "CP-6E": _bind_debate,
 }

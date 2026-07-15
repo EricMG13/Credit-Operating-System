@@ -134,7 +134,7 @@ def test_pricing_sheet_rejects_non_workbook_containers(rob_client):
         files={"file": ("px.xlsx", _tiny_pdf(), "application/vnd.ms-excel")},
     )
     assert r.status_code == 400, r.text
-    assert "not a valid Excel workbook" in r.json()["detail"]
+    assert "not a valid .xlsx workbook" in r.json()["detail"]
 
     # Zip-bomb-ish: a real ZIP container that is not a workbook (no xl/
     # entries) — e.g. a decompression bomb renamed .xlsx. Rejected on the

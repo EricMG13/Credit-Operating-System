@@ -27,6 +27,7 @@ import { loadMode, saveMode, DEFAULT_MODE, type ModelMode } from "@/lib/model-mo
 import { PortfoliosPanel } from "@/components/settings/PortfoliosPanel";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { readWarnOnUnsavedLeave, writeWarnOnUnsavedLeave } from "@/lib/model-builder-preferences";
 
 export default function SettingsPage() {
   return (
@@ -284,6 +285,13 @@ function Settings() {
   ) : analystSaved ? (
     <span className="caos-enter tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span>
   ) : null;
+  const warnOnUnsavedLeave = readWarnOnUnsavedLeave(analystSettings);
+  const changeWarnOnUnsavedLeave = (enabled: boolean) => {
+    saveAnalyst({
+      ...analystSettings,
+      workspace: writeWarnOnUnsavedLeave(analystSettings.workspace || {}, enabled),
+    });
+  };
 
   // ── Workspace config (server snapshot) ──
   const [cfg, setCfg] = useState<WorkspaceSettings | null>(null);
@@ -390,6 +398,36 @@ function Settings() {
                 pins the mode it ran at. Applies to this browser.
               </p>
               <ModelModeToggle value={mode} onChange={changeMode} />
+            </div>
+          </Panel>
+
+          <Panel
+            title="Model builder safeguards"
+            right={
+              <span className="flex items-center gap-2">
+                <ScopeLabel scope="profile" />
+                {analystStatusTag}
+              </span>
+            }
+          >
+            <div className="p-3">
+              <label className="flex items-start justify-between gap-4 rounded border border-caos-border bg-caos-bg/50 p-3">
+                <span className="min-w-0">
+                  <span className="block tabular text-caos-md font-semibold text-caos-text">Warn before leaving unsaved model edits</span>
+                  <span className="mt-1 block text-caos-xs leading-relaxed text-caos-muted">
+                    Guards internal navigation and browser exit while Model Engine v2 edits are pending locally. Leaving never autosaves.
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label="Warn before leaving unsaved model edits"
+                  checked={warnOnUnsavedLeave}
+                  disabled={!analystLoaded}
+                  onChange={(event) => changeWarnOnUnsavedLeave(event.target.checked)}
+                  className="mt-1 h-4 w-4 shrink-0 focus-ring disabled:opacity-40"
+                />
+              </label>
             </div>
           </Panel>
 

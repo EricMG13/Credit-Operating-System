@@ -15,6 +15,13 @@ def test_settings_returns_snapshot_without_secrets():
     assert r.status_code == 200
     body = r.json()
     assert body["model"] and "governance" in body and "deep_research" in body
+    assert body["features"] == {
+        "lineage_v2_enabled": False,
+        "market_xlsx_v2_enabled": False,
+        "model_engine_v2_enabled": False,
+        "cp_4d_enabled": False,
+        "cp_2g_enabled": False,
+    }
 
     # No secret material anywhere in the payload (key/db url/storage/EDGAR UA).
     blob = json.dumps(body).lower()

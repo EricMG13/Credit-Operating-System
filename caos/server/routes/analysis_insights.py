@@ -25,6 +25,11 @@ from analysis_contracts import (
     InsightClaim,
     InsightPage,
     InsightStatus,
+    ArtifactRef,
+)
+from config import get_settings
+from context_lineage import (
+    bind_context_artifacts, merge_artifact_refs, typed_refs_from_artifacts,
 )
 from database import (
     AlertEvent,
@@ -46,6 +51,7 @@ from database import (
 )
 from engine import queryinsights
 from identity import CallerIdentity, get_identity
+from lineage_service import write_lineage_edge
 from routes.analysis import _guard, _validate_artifact_refs, _validate_context_subjects
 
 router = APIRouter()
@@ -453,6 +459,15 @@ async def create_insight(
         caller=caller,
     )
     refs = body.subject_refs or AnalysisArtifactRefs.model_validate(context.artifacts or {})
+    lineage_enabled = get_settings().caos_lineage_v2_enabled
+    subject_typed_refs: list[ArtifactRef] = []
+    if lineage_enabled:
+        subject_typed_refs = typed_refs_from_artifacts(
+            refs.model_dump(mode="json"), convert_legacy=True
+        )
+        refs = AnalysisArtifactRefs.model_validate(merge_artifact_refs(
+            refs.model_dump(mode="json"), subject_typed_refs
+        ))
     await _validate_artifact_refs(db, refs, context_id=context_id, caller=caller)
     payload, basis = await _generation_payload(
         db, context, surface=body.surface, kind=body.kind, refs=refs
@@ -512,7 +527,35 @@ async def create_insight(
             generated_at=now,
         )
         try:
-            await _flush_new_insight(db, row)
+            # Keep the uniqueness savepoint and every dependent v2 write under
+            # one enclosing savepoint. SQLite can otherwise release the row's
+            # inner savepoint before a later edge failure, leaving a loser row
+            # visible even though the request rolls back.
+            async with db.begin_nested():
+                await _flush_new_insight(db, row)
+                if lineage_enabled:
+                    insight_ref = ArtifactRef(kind="insight", id=row.id, version=str(row.version))
+                    try:
+                        await bind_context_artifacts(
+                            db,
+                            context_id=context_id,
+                            analyst_id=caller.id,
+                            refs=[insight_ref, *subject_typed_refs],
+                            legacy_updates={"insight_id": row.id},
+                        )
+                    except LookupError:
+                        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+                    for subject_ref in subject_typed_refs:
+                        await write_lineage_edge(
+                            db,
+                            context_id=context_id,
+                            analyst_id=caller.id,
+                            artifact=insight_ref,
+                            parent=subject_ref,
+                            transform="insight-generation",
+                            transform_version="2",
+                            enabled=True,
+                        )
             return _artifact(row)
         except IntegrityError:
             if not body.force:

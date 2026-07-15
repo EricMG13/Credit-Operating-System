@@ -114,6 +114,7 @@ def test_build_reported_cp1_payload():
     assert p.runtime_output["basis"] == "reported_disclosure"
     assert p.runtime_output["normalized_financials"]["net_leverage_adj_ltm"] == 5.86
     assert p.runtime_output["currency"] == "£"
+    assert p.runtime_output["reporting_unit"] == "millions"
     assert any(c.claim_id == "C-RPT-LEV" for c in p.claims)
     assert p.claims[0].evidence[0].resolved_chunk_id == "c1"  # click-to-source
     assert validate_payload(p) == []

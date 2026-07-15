@@ -11,11 +11,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from analysis_contracts import AuthorityEnvelope, RVCandidateOut, RVScreenRun as RVScreenRunOut
+from config import get_settings
 from database import (
     AnalysisContextRecord,
     MarketInstrument,
@@ -27,6 +28,7 @@ from database import (
     get_db,
 )
 from identity import CallerIdentity, get_identity
+from freshness import evaluate_freshness
 from sector_taxonomy import canonical_sector_id
 from tenancy import require_portfolio_access, tenancy_enabled
 
@@ -91,18 +93,26 @@ async def _ensure_reference_snapshot(db: AsyncSession) -> MarketSnapshot:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Reference market snapshot is unavailable.") from exc
     payload_hash = hashlib.sha256(raw).hexdigest()
     existing = (await db.execute(
-        select(MarketSnapshot).where(MarketSnapshot.payload_hash == payload_hash)
+        select(MarketSnapshot).where(
+            MarketSnapshot.payload_hash == payload_hash,
+            MarketSnapshot.analyst_id.is_(None),
+            MarketSnapshot.origin == "reference",
+        )
     )).scalar_one_or_none()
     if existing is not None:
         return existing
     now = datetime.now(timezone.utc)
     snapshot = MarketSnapshot(
+        analyst_id=None,
         as_of=_REFERENCE_AS_OF,
         source_label="CAOS pricing-sheet reference snapshot",
         origin="reference",
         method="reported",
         status="ready",
         payload_hash=payload_hash,
+        document_id=None,
+        source_manifest_id=None,
+        import_mapping={},
         metadata_json={
             "file": "market-data.json",
             "row_count": len(rows),
@@ -129,6 +139,20 @@ async def _ensure_reference_snapshot(db: AsyncSession) -> MarketSnapshot:
         ))
     await db.flush()
     return snapshot
+
+
+def _require_snapshot_access(
+    snapshot: MarketSnapshot | None, caller: CallerIdentity
+) -> MarketSnapshot:
+    if snapshot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Market snapshot not found.")
+    if snapshot.analyst_id == caller.id:
+        return snapshot
+    # NULL ownership is the additive-migration compatibility state for market
+    # snapshots created before XLSX v2.  New imports always have an owner.
+    if snapshot.analyst_id is None:
+        return snapshot
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "Market snapshot not found.")
 
 
 async def _owned_context(
@@ -198,6 +222,8 @@ def _candidate_out(
         "maturity": payload.get("maturity"),
         "bid": payload.get("bid"),
         "ask": payload.get("ask"),
+        "price": payload.get("price"),
+        "currency": payload.get("currency"),
         "ytw": payload.get("midYtm"),
         "dm": payload.get("mid3yDm"),
     }
@@ -232,11 +258,14 @@ async def _run_out(db: AsyncSession, row: RVScreenRun) -> RVScreenRunOut:
         for classification in ("actionable", "screen-only", "unavailable")
     }
     result = row.result or {}
+    snapshot = await db.get(MarketSnapshot, row.snapshot_id)
     return RVScreenRunOut(
         id=row.id,
         context_id=row.context_id,
         snapshot_id=row.snapshot_id,
         status=row.status,
+        snapshot_source_label=snapshot.source_label if snapshot else None,
+        snapshot_freshness=(snapshot.metadata_json or {}).get("freshness_evaluation") if snapshot else None,
         filters=row.filters or {},
         authority=AuthorityEnvelope.model_validate(row.authority),
         candidates=candidates,
@@ -266,7 +295,10 @@ async def list_market_snapshots(
     _guard(caller, write=False)
     await _ensure_reference_snapshot(db)
     rows = (await db.execute(
-        select(MarketSnapshot).order_by(MarketSnapshot.as_of.desc()).limit(100)
+        select(MarketSnapshot).where(or_(
+            MarketSnapshot.analyst_id == caller.id,
+            MarketSnapshot.analyst_id.is_(None),
+        )).order_by(MarketSnapshot.as_of.desc()).limit(100)
     )).scalars().all()
     return {"snapshots": [{
         "id": row.id,
@@ -275,6 +307,9 @@ async def list_market_snapshots(
         "origin": row.origin,
         "method": row.method,
         "status": row.status,
+        "document_id": row.document_id,
+        "source_manifest_id": row.source_manifest_id,
+        "freshness": (row.metadata_json or {}).get("freshness_evaluation"),
         "metadata": row.metadata_json or {},
     } for row in rows]}
 
@@ -288,20 +323,35 @@ async def create_rv_screen(
     _guard(caller, write=True)
     context = await _owned_context(db, body.context_id, caller.id)
     if body.snapshot_id:
-        snapshot = await db.get(MarketSnapshot, body.snapshot_id)
-        if snapshot is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Market snapshot not found.")
+        snapshot = _require_snapshot_access(
+            await db.get(MarketSnapshot, body.snapshot_id), caller
+        )
     else:
-        snapshot = await _ensure_reference_snapshot(db)
+        snapshot = None
+        if get_settings().caos_market_xlsx_v2_enabled:
+            snapshot = (await db.execute(select(MarketSnapshot).where(
+                MarketSnapshot.analyst_id == caller.id,
+                MarketSnapshot.status == "ready",
+            ).order_by(MarketSnapshot.as_of.desc(), MarketSnapshot.created_at.desc()).limit(1))).scalar_one_or_none()
+        snapshot = snapshot or await _ensure_reference_snapshot(db)
     now = datetime.now(timezone.utc)
-    age_days = max(0, (now - (snapshot.as_of if snapshot.as_of.tzinfo else snapshot.as_of.replace(tzinfo=timezone.utc))).days)
-    market_current = snapshot.status == "ready" and age_days <= 90
+    if get_settings().caos_market_xlsx_v2_enabled:
+        freshness = evaluate_freshness(
+            source_kind="price", now=now, observed_at=snapshot.as_of
+        )
+        market_current = snapshot.status == "ready" and freshness.state == "current"
+    else:
+        age_days = max(0, (now - (snapshot.as_of if snapshot.as_of.tzinfo else snapshot.as_of.replace(tzinfo=timezone.utc))).days)
+        market_current = snapshot.status == "ready" and age_days <= 90
+        freshness = None
     authority = AuthorityEnvelope(
         origin=snapshot.origin,
         method="CP-6E gated-screen-v2",
         freshness="current" if market_current else "stale",
         as_of=snapshot.as_of,
-        source_ids=[snapshot.id],
+        source_ids=[value for value in (
+            snapshot.id, snapshot.document_id, snapshot.source_manifest_id
+        ) if value],
         approval_state="draft",
     )
     row = RVScreenRun(
@@ -311,7 +361,10 @@ async def create_rv_screen(
         status="running",
         filters=body.filters,
         result={},
-        authority=authority.model_dump(mode="json"),
+        authority={
+            **authority.model_dump(mode="json"),
+            **({"freshness_evaluation": freshness.model_dump(mode="json")} if freshness else {}),
+        },
         created_at=now,
         updated_at=now,
     )
@@ -392,6 +445,8 @@ async def create_rv_screen(
         }
         evidence = {
             "snapshot_id": snapshot.id,
+            "source_document_id": snapshot.document_id,
+            "source_manifest_id": snapshot.source_manifest_id,
             "instrument_key": instrument.instrument_key,
             "figi": instrument.figi,
             "cohort_definition": {"sector": _cohort_key(instrument)[0], "rating": _cohort_key(instrument)[1]},
@@ -417,7 +472,10 @@ async def create_rv_screen(
         "missing_dependencies": [] if instruments else ["normalized market instruments"],
         "candidate_count": len(instruments),
     }
-    row.authority = authority.model_dump(mode="json")
+    row.authority = {
+        **authority.model_dump(mode="json"),
+        **({"freshness_evaluation": freshness.model_dump(mode="json")} if freshness else {}),
+    }
     row.updated_at = datetime.now(timezone.utc)
     context.rv_snapshot_id = snapshot.id
     context.rv_run_id = row.id

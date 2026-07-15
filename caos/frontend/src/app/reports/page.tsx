@@ -21,18 +21,24 @@ import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import {
   getReportDraft,
+  getReportVersion,
   getSavedModel,
   exportReportVersionBinary,
   listReportVersions,
+  previewReportVersion,
   publishReportVersion,
   saveReportDraft,
   type ReportVersionDTO,
+  type ReportVersionPreviewDTO,
 } from "@/lib/api";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { DecisionRoomDrawer } from "@/components/decisions/DecisionRoomDrawer";
 import { useAnalysisContext } from "@/lib/analysis-workbench";
 import { buildLiveReports, reportFromVersion } from "@/lib/reports/live-builder";
+import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
+import { derivedFreshness, useIssuerFreshness } from "@/lib/engine/useFreshness";
+import { freshnessDetail, resolveReportFreshnessTarget, toProvFreshness } from "@/lib/freshness";
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -47,6 +53,7 @@ function PrintPortal({
   omit,
   showSources,
   edits,
+  editableSectionCount,
   hideAddbacks,
   authority,
 }: {
@@ -54,6 +61,7 @@ function PrintPortal({
   omit: Record<number, boolean>;
   showSources: boolean;
   edits: Record<string, string>;
+  editableSectionCount?: number;
   hideAddbacks?: boolean;
   authority?: Parameters<typeof ReportDoc>[0]["authority"];
 }) {
@@ -67,7 +75,7 @@ function PrintPortal({
   }, []);
   if (!el) return null;
   return createPortal(
-    <ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} hideAddbacks={hideAddbacks} authority={authority} />,
+    <ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} editableSectionCount={editableSectionCount} hideAddbacks={hideAddbacks} authority={authority} />,
     el,
   );
 }
@@ -95,6 +103,14 @@ function ReportStudio() {
   const [modelLoadError, setModelLoadError] = useState(false);
   const [modelReloadKey, setModelReloadKey] = useState(0);
   useEffect(() => {
+    // The browser calculator is a reference-fixture renderer only. Live issuer
+    // reports consume the server-frozen Model Engine v2 checkpoint attached to
+    // an immutable report version; never hydrate legacy SavedModel inputs here.
+    if (!isReference) {
+      setModelInputs({});
+      setModelLoadError(false);
+      return;
+    }
     let cancelled = false;
     setModelLoadError(false);
     getSavedModel(issuerId).then((saved) => {
@@ -111,10 +127,12 @@ function ReportStudio() {
       setModelLoadError(true);
     });
     return () => { cancelled = true; };
-  }, [issuerId, modelReloadKey]);
+  }, [isReference, issuerId, modelReloadKey]);
   const eng = useModelEngine(issuerId);
   const live = useLiveRun(issuerId);
   const [versions, setVersions] = useState<ReportVersionDTO[]>([]);
+  const [serverPreview, setServerPreview] = useState<ReportVersionPreviewDTO | null>(null);
+  const [previewIntent, setPreviewIntent] = useState<Record<string, unknown> | null>(null);
   const reports = useMemo(
     () => {
       if (isReference) return buildReports({ ...modelInputs, anchor: eng.anchor ?? undefined });
@@ -126,9 +144,13 @@ function ReportStudio() {
         liveOuts: live.liveOuts,
         liveStatus: live.liveStatus,
       }) : [];
-      return [...liveReports, ...versions.map(reportFromVersion)];
+      return [
+        ...liveReports,
+        ...(serverPreview ? [reportFromVersion(serverPreview)] : []),
+        ...versions.map(reportFromVersion),
+      ];
     },
-    [eng.anchor, isReference, issuerId, live.asOf, live.committeeStatus, live.liveOuts, live.liveStatus, live.runId, modelInputs, versions],
+    [eng.anchor, isReference, issuerId, live.asOf, live.committeeStatus, live.liveOuts, live.liveStatus, live.runId, modelInputs, serverPreview, versions],
   );
 
   const [activeId, setActiveId] = useState("snapshot");
@@ -149,6 +171,7 @@ function ReportStudio() {
   const [serverDraftReady, setServerDraftReady] = useState(false);
   const [publishState, setPublishState] = useState<"idle" | "publishing" | "published" | "error">("idle");
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
+  const versionPayloadRequests = useRef(new Set<string>());
 
   useEffect(() => {
     const contextId = analysis.context?.id;
@@ -159,6 +182,16 @@ function ReportStudio() {
       .catch(() => { if (!cancelled) setPublishMessage("Published versions unavailable; the live draft remains open."); });
     return () => { cancelled = true; };
   }, [analysis.context?.id, isReference]);
+
+  useEffect(() => {
+    const summary = versions.find((version) => version.id === activeId);
+    if (!summary || Object.keys(summary.payload).length || versionPayloadRequests.current.has(summary.id)) return;
+    versionPayloadRequests.current.add(summary.id);
+    void getReportVersion(summary.id)
+      .then((full) => setVersions((current) => current.map((item) => item.id === full.id ? full : item)))
+      .catch(() => setPublishMessage("The immutable report payload could not be loaded."))
+      .finally(() => versionPayloadRequests.current.delete(summary.id));
+  }, [activeId, versions]);
 
   // restore persisted workspace state
   const reportParam = searchParams.get("report");
@@ -244,6 +277,24 @@ function ReportStudio() {
   }, [activeId, analysis.context?.id, edits, hideAddbacks, hydrated, issuerId, omit, paper, serverDraftReady, showSources]);
 
   const rep = reports.find((r) => r.id === activeId) || reports[0];
+  const selectedPublishedVersion = versions.find((version) => version.id === rep?.id) ?? null;
+  const isFrozenPreview = Boolean(serverPreview && serverPreview.id === rep?.id);
+  const { artifactId: reportArtifactId, runId: reportRunId } = resolveReportFreshnessTarget(
+    selectedPublishedVersion,
+    eng.runId,
+  );
+  const freshnessRead = useIssuerFreshness({
+    contextId: analysis.context?.id,
+    runId: reportRunId,
+    artifactRevision: `${analysis.context?.updated_at ?? ""}:${reportArtifactId ?? "draft"}`,
+  });
+  const exactReportFreshness = reportArtifactId
+    ? freshnessRead.context?.artifacts.find((item) =>
+      item.evaluation.source_kind === "derived_artifact" && item.artifact.id === reportArtifactId)?.evaluation ?? null
+    : null;
+  const reportFreshness = selectedPublishedVersion
+    ? exactReportFreshness
+    : derivedFreshness(freshnessRead, reportArtifactId);
 
   // Auto-fit the sheet on first render (and per report) when it overflows the
   // scroller — the common 1280px laptop otherwise opens to a clipped page. Only
@@ -279,17 +330,65 @@ function ReportStudio() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [reports, zoom]);
-  const repOmit = rep ? omit[rep.id] || {} : {};
+  const frozenReviewedSectionCount = isFrozenPreview
+    ? (
+        (
+          serverPreview?.payload.composition as
+            | { reviewed_report?: { sections?: unknown[] } }
+            | undefined
+        )?.reviewed_report?.sections?.length ?? 0
+      )
+    : null;
+  const rawRepOmit = rep ? omit[rep.id] || {} : {};
+  const repOmit = frozenReviewedSectionCount === null
+    ? rawRepOmit
+    : Object.fromEntries(Object.entries(rawRepOmit).filter(([index, hidden]) => (
+        hidden && Number(index) < frozenReviewedSectionCount
+      )));
   const omitCount = Object.keys(repOmit).length;
-  const repEdits = rep ? edits[rep.id] || {} : {};
+  const rawRepEdits = rep ? edits[rep.id] || {} : {};
+  const repEdits = frozenReviewedSectionCount === null
+    ? rawRepEdits
+    : Object.fromEntries(Object.entries(rawRepEdits).filter(([path]) => {
+        const match = /^s(\d+)(?:\.|$)/.exec(path);
+        return !match || Number(match[1]) < frozenReviewedSectionCount;
+      }));
   const editCount = Object.keys(repEdits).length;
+  const previewHasMaterializedEditorial = Boolean(
+    previewIntent
+    && (
+      Object.keys((previewIntent.edits as Record<string, unknown> | undefined) ?? {}).length
+      || Object.values((previewIntent.omit as Record<string, boolean> | undefined) ?? {}).some(Boolean)
+      || previewIntent.show_sources === false
+      || previewIntent.hide_addbacks === true
+    ),
+  );
+  const canEditComposition = Boolean(
+    rep
+    && !selectedPublishedVersion
+    && (isReference || (isFrozenPreview && !previewHasMaterializedEditorial)),
+  );
+  const hasPendingPreviewEditorial = Boolean(
+    isFrozenPreview
+    && (
+      editCount
+      || omitCount
+      || (previewIntent && previewIntent.show_sources !== showSources)
+    ),
+  );
+  // Model identity, gaps, calculations, and debt are immutable appendices in a
+  // frozen preview. Keep them visible in the document, but expose only the
+  // server-owned reviewed-report section paths to the editorial compose rail.
+  const composeRep = rep && frozenReviewedSectionCount !== null
+    ? { ...rep, sections: rep.sections.slice(0, frozenReviewedSectionCount) }
+    : rep;
 
   useEffect(() => {
     const context = analysis.context;
     if (!context || !live.runId || context.artifacts.issuer_run_id === live.runId) return;
     void analysis.patch({
       issuer_ids: isReference ? context.issuer_ids : Array.from(new Set([...context.issuer_ids, issuerId])),
-      artifacts: { ...context.artifacts, issuer_run_id: live.runId },
+      artifacts: { issuer_run_id: live.runId },
       surface_state: {
         ...context.surface_state,
         reports: { ...context.surface_state.reports, active_id: activeId, view: editMode ? "edit" : "preview" },
@@ -298,7 +397,7 @@ function ReportStudio() {
   }, [activeId, analysis, editMode, isReference, issuerId, live.runId]);
 
   const toggleSec = (i: number) => {
-    if (!rep) return;
+    if (!rep || !canEditComposition) return;
     setOmit((o) => {
       const cur = { ...o[rep.id] };
       if (cur[i]) delete cur[i];
@@ -308,7 +407,14 @@ function ReportStudio() {
   };
 
   const applyEdit = (path: string, text: string) => {
-    if (!rep) return;
+    if (!rep || !canEditComposition) return;
+    const sectionMatch = /^s(\d+)(?:\.|$)/.exec(path);
+    if (
+      isFrozenPreview
+      && sectionMatch
+      && frozenReviewedSectionCount !== null
+      && Number(sectionMatch[1]) >= frozenReviewedSectionCount
+    ) return;
     setEdits((e) => {
       const cur = { ...e[rep.id] };
       if (text == null) delete cur[path]; else cur[path] = text;
@@ -336,10 +442,49 @@ function ReportStudio() {
   const publishCommitteeVersion = async () => {
     const context = analysis.context;
     const checkpointId = context?.artifacts.model_checkpoint_id;
-    if (!context || !live.runId || !checkpointId || !rep) return;
+    if (!context || !live.runId || !checkpointId || !rep || selectedPublishedVersion) return;
     setPublishState("publishing");
     setPublishMessage(null);
     try {
+      const isActiveFrozenPreview = serverPreview?.id === rep.id && previewIntent;
+      if (isActiveFrozenPreview) {
+        if (hasPendingPreviewEditorial) {
+          const reviewedIntent = {
+            ...previewIntent,
+            omit: Object.fromEntries(Object.entries(repOmit).map(([key, value]) => [String(key), value])),
+            edits: repEdits,
+            show_sources: showSources,
+          };
+          const reviewedPreview = await previewReportVersion({
+            context_id: context.id,
+            run_id: live.runId,
+            model_checkpoint_id: checkpointId,
+            payload: reviewedIntent,
+          });
+          setServerPreview(reviewedPreview);
+          setPreviewIntent(reviewedIntent);
+          setActiveId(reviewedPreview.id);
+          setEditMode(false);
+          setPublishState("idle");
+          setPublishMessage("Editorial changes are now materialized in the frozen preview. Review once more, then publish.");
+          return;
+        }
+        const version = await publishReportVersion({
+          context_id: context.id,
+          run_id: live.runId,
+          model_checkpoint_id: checkpointId,
+          payload: previewIntent,
+          preview_sha256: serverPreview.preview_sha256,
+        });
+        await analysis.patch({ artifacts: { report_version_id: version.id } });
+        setVersions((current) => [version, ...current.filter((item) => item.id !== version.id)]);
+        setServerPreview(null);
+        setPreviewIntent(null);
+        setActiveId(version.id);
+        setPublishState("published");
+        setPublishMessage(`Published ${version.id.slice(0, 8)} · immutable`);
+        return;
+      }
       const draft = await saveReportDraft(context.id, {
         issuer_id: issuerId,
         active_id: activeId,
@@ -350,34 +495,37 @@ function ReportStudio() {
         hide_addbacks: hideAddbacks,
       }, draftRevision ?? undefined);
       setDraftRevision(draft.revision);
-      const version = await publishReportVersion({
+      // Live-run layouts are browser adapters, while publication is a
+      // server-owned exact-run projection. Editorial paths are therefore
+      // created only after this first frozen preview is visible; carrying
+      // positional paths from the browser layout could edit the wrong module.
+      const intent = {
+        deliverable_id: "live-committee-pack",
+        source_run_id: live.runId,
+        omit: {},
+        edits: {},
+        show_sources: showSources,
+        hide_addbacks: false,
+      };
+      const preview = await previewReportVersion({
         context_id: context.id,
         run_id: live.runId,
         model_checkpoint_id: checkpointId,
-        payload: {
-          issuer_id: issuerId,
-          deliverable_id: rep.id,
-          omit: repOmit,
-          edits: repEdits,
-          show_sources: showSources,
-          hide_addbacks: hideAddbacks && rep.id === "model",
-          rendered_report: rep,
-        },
+        payload: intent,
       });
-      await analysis.patch({ artifacts: { ...context.artifacts, report_version_id: version.id } });
-      setVersions((current) => [version, ...current.filter((item) => item.id !== version.id)]);
-      setActiveId(version.id);
-      setPublishState("published");
-      setPublishMessage(`Published ${version.id.slice(0, 8)} · immutable`);
+      setServerPreview(preview);
+      setPreviewIntent(intent);
+      setActiveId(preview.id);
+      setEditMode(false);
+      setPublishState("idle");
+      setPublishMessage("Frozen preview ready. Apply editorial changes here, then review its exact run, model identity, gaps, and debt appendix before publishing.");
     } catch (reason) {
       setPublishState("error");
       setPublishMessage(reason instanceof Error ? reason.message : "Publish blocked by readiness or version conflict.");
     }
   };
 
-  const activeVersionId = versions.some((version) => version.id === rep?.id)
-    ? rep?.id ?? null
-    : analysis.context?.artifacts.report_version_id ?? null;
+  const activeVersionId = selectedPublishedVersion?.id ?? null;
   const downloadVersion = async (format: "pdf" | "xlsx") => {
     if (!activeVersionId) {
       setPublishMessage("Publish an immutable committee version before downloading a binary file.");
@@ -403,16 +551,32 @@ function ReportStudio() {
   // phase included so a backend outage reads "could not load", not the confident
   // "no run for this issuer" — this surface produces committee documents.
   const caveatKind = deepDiveCaveatKind({ isReference, loading: eng.loading, runId: eng.runId, phase: eng.phase });
+  const authorityCaveatKind = selectedPublishedVersion ? "live" : caveatKind;
+  const selectedApprovalState = typeof selectedPublishedVersion?.authority.approval_state === "string"
+    ? selectedPublishedVersion.authority.approval_state
+    : "published";
+  const activeFrozenAuthority = selectedPublishedVersion?.authority ?? serverPreview?.authority ?? null;
+  const frozenModelNote = activeFrozenAuthority && typeof activeFrozenAuthority.model_origin === "string"
+    ? ` · MODEL ${activeFrozenAuthority.model_origin.toUpperCase()}${activeFrozenAuthority.model_analyst_override ? " · OVERRIDDEN" : ""}`
+    : "";
 
   // Printed authority block (P2-WP-8) — same caveat state and FE-5
   // live-run-backed distinction the on-screen header already uses (266-311
   // below), so the deliverable's own masthead never overstates or
   // understates what actually backs it.
   const authority = {
-    caveatKind,
-    liveRunBacked: caveatKind === "reference" && !!eng.runId,
-    runId: eng.runId,
-    qaNote: caveatKind === "reference" ? "QA: CP-5 CONDITIONAL — QA-117" : eng.committeeStatus ? `COMMITTEE: ${eng.committeeStatus}` : null,
+    caveatKind: authorityCaveatKind,
+    liveRunBacked: selectedPublishedVersion ? true : caveatKind === "reference" && !!eng.runId,
+    runId: reportRunId,
+    qaNote: selectedPublishedVersion
+      ? `IMMUTABLE: ${selectedApprovalState.toUpperCase()}${frozenModelNote}`
+      : isFrozenPreview
+        ? `SERVER-FROZEN PREVIEW${frozenModelNote}`
+      : caveatKind === "reference" ? "QA: CP-5 CONDITIONAL — QA-117" : eng.committeeStatus ? `COMMITTEE: ${eng.committeeStatus}` : null,
+    ...((reportRunId || reportArtifactId) ? {
+      freshness: toProvFreshness(reportFreshness),
+      freshnessDetail: reportFreshness ? freshnessDetail(reportFreshness) : "Central report freshness unavailable.",
+    } : {}),
   };
 
   const narrowContract: NarrowContract = {
@@ -425,12 +589,15 @@ function ReportStudio() {
   const canPublish = Boolean(
     !isReference
     && rep
+    && !selectedPublishedVersion
     && live.runId
     && live.committeeStatus === "Committee Ready"
     && analysis.context?.artifacts.model_checkpoint_id,
   );
   const publishBlockReason = isReference
     ? "Reference output can be previewed and exported, but cannot be published as a live committee version."
+    : selectedPublishedVersion
+      ? "This is already an immutable published version. Select the live draft to create a new version."
     : !live.runId
       ? "A completed issuer run is required."
       : live.committeeStatus !== "Committee Ready"
@@ -439,13 +606,22 @@ function ReportStudio() {
           ? "Save an immutable Model checkpoint before publishing."
           : !rep
             ? "No issuer-specific report composition is available."
-            : "Publish an immutable committee version.";
+            : isFrozenPreview
+              ? "Publish this exact server-frozen preview."
+              : "Create a server-frozen preview for review before publication.";
 
   return (
     <EnterprisePage kind="editor"
       identity={
         <ShellIdentity tag="CP-RENDER" title="Report Studio — committee deliverables">
-          {caveatKind === "reference" && eng.runId ? (
+          {selectedPublishedVersion ? (
+            <span
+              className="tabular text-caos-xs whitespace-nowrap text-caos-accent"
+              title={`Immutable report ${selectedPublishedVersion.id} bound to run ${selectedPublishedVersion.run_id}`}
+            >
+              published {selectedPublishedVersion.id.slice(0, 8)} · run {selectedPublishedVersion.run_id.slice(0, 8)}
+            </span>
+          ) : caveatKind === "reference" && eng.runId ? (
             // FE-5: buildReports incorporates eng.anchor when a live run exists on
             // the reference issuer, but the debate/recovery/covenant tabs and the
             // DEAL narrative stay ATLF fixtures regardless (same rationale as
@@ -505,6 +681,7 @@ function ReportStudio() {
               no run for this issuer · report unavailable
             </span>
           )}
+          {(reportRunId || reportArtifactId) ? <FreshnessIndicator evaluation={reportFreshness} /> : null}
           {modelLoadError ? (
             <span
               role="alert"
@@ -534,7 +711,11 @@ function ReportStudio() {
           title={publishBlockReason}
           className="caos-primary-action focus-ring disabled:opacity-40"
         >
-          {publishState === "publishing" ? "Publishing…" : "Publish committee version"}
+          {publishState === "publishing"
+            ? "Publishing…"
+            : isFrozenPreview
+              ? hasPendingPreviewEditorial ? "Review editorial changes" : "Publish reviewed preview"
+              : "Review frozen preview"}
         </button>
       }
       utilityLabel="Report utilities"
@@ -571,8 +752,9 @@ function ReportStudio() {
               <button
                 type="button"
                 onClick={() => setEditMode(!editMode)}
+                disabled={!canEditComposition}
                 aria-pressed={editMode}
-                className={"focus-ring tabular text-caos-xs px-2 h-7 rounded border transition-caos " + (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")}
+                className={"focus-ring tabular text-caos-xs px-2 h-7 rounded border transition-caos disabled:opacity-40 " + (editMode ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")}
               >
                 {editMode ? "EDITING" : "EDIT DOCUMENT"}
               </button>
@@ -651,7 +833,8 @@ function ReportStudio() {
                 paper={paper}
                 showSources={showSources}
                 edits={repEdits}
-                onEdit={editMode ? applyEdit : undefined}
+                onEdit={editMode && canEditComposition ? applyEdit : undefined}
+                editableSectionCount={isFrozenPreview ? frozenReviewedSectionCount ?? undefined : undefined}
                 onOpenEvidence={setEvModal}
                 hideAddbacks={hideAddbacks && rep.id === "model"}
                 authority={authority}
@@ -683,7 +866,7 @@ function ReportStudio() {
               {hideAddbacks ? "SHOW EBITDA ADD-BACKS" : "HIDE EBITDA ADD-BACKS"}
             </button>
           ) : null}
-          <ComposePanel rep={rep} omit={repOmit} onToggle={toggleSec} />
+          {canEditComposition && composeRep ? <ComposePanel rep={composeRep} omit={repOmit} onToggle={toggleSec} /> : null}
           <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} runId={live.runId ?? undefined} />
         </div> : rep ? <ReportRail label="Panels" onExpand={() => setRightOpen(true)} /> : null}
       </div>} />
@@ -691,7 +874,7 @@ function ReportStudio() {
 
       {evModal ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
       {decisionOpen && live.runId ? <DecisionRoomDrawer issuerId={issuerId} runId={live.runId} reportId={rep?.id ?? activeId} onClose={() => setDecisionOpen(false)} /> : null}
-      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} hideAddbacks={hideAddbacks && rep.id === "model"} authority={authority} /> : null}
+      {rep ? <PrintPortal rep={rep} omit={repOmit} showSources={showSources} edits={repEdits} editableSectionCount={isFrozenPreview ? frozenReviewedSectionCount ?? undefined : undefined} hideAddbacks={hideAddbacks && rep.id === "model"} authority={authority} /> : null}
     </EnterprisePage>
   );
 }

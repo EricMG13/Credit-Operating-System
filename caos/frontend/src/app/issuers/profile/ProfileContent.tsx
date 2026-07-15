@@ -37,6 +37,9 @@ import { ThesisTimeline } from "@/components/profile/ThesisTimeline";
 import type { DecisionContextState } from "@/lib/decision-state";
 import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 import { useTypedUrlState } from "@/lib/typed-url-state";
+import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
+import { derivedFreshness, useIssuerFreshness } from "@/lib/engine/useFreshness";
+import { freshnessDetail, toProvFreshness } from "@/lib/freshness";
 
 const PROFILE_URL_KEYS = ["tab"] as const;
 const PROFILE_TABS = [
@@ -445,6 +448,18 @@ export function Profile({
 }) {
   const { issuer, latest_run, runs, metrics, signals, coverage, findings, business, sponsor, strengths, weaknesses } = data;
   const analysis = useAnalysisContext({ name: `${issuer.name} issuer profile` });
+  const activeFreshnessArtifact = analysis.context?.artifacts.model_checkpoint_id
+    ?? analysis.context?.artifacts.report_version_id;
+  const freshnessRead = useIssuerFreshness({
+    issuerId: id,
+    contextId: analysis.context?.id,
+    runId: latest_run?.id,
+    artifactRevision: `${analysis.context?.updated_at ?? ""}:${activeFreshnessArtifact ?? ""}`,
+  });
+  const profileFreshness = derivedFreshness(
+    freshnessRead,
+    activeFreshnessArtifact,
+  );
   const { values: profileUrl, update: updateProfileUrl } = useTypedUrlState(PROFILE_URL_KEYS);
   const activeTab = PROFILE_TABS.some((tab) => tab.id === profileUrl.tab)
     ? profileUrl.tab as ProfileTab
@@ -574,7 +589,7 @@ export function Profile({
   };
   const profileAsOf = latest_run?.as_of_date ?? null;
   const profileAuthority = profileAsOf ? {
-    provenance: { origin: "LIVE" as const, method: "DERIVED" as const, freshness: "CURRENT" as const, detail: "Issuer profile read-model from the latest completed run.", asOf: profileAsOf },
+    provenance: { origin: "LIVE" as const, method: "DERIVED" as const, freshness: toProvFreshness(profileFreshness), detail: profileFreshness ? freshnessDetail(profileFreshness) : "Central freshness evaluation unavailable for the issuer read-model.", asOf: profileAsOf },
     approval: latest_run?.committee_status === "Approved" ? "RATIFIED" as const : "UNRATIFIED" as const,
   } : undefined;
   const profileUnavailable = { kind: "unavailable" as const, message: "No timestamped completed run available" };
@@ -583,7 +598,13 @@ export function Profile({
         whatChanged: { kind: "ready", value: deskRead, asOf: profileAsOf, authority: profileAuthority },
         whyItMatters: { kind: "ready", value: pmPosture ? `${pmPosture.label} · ${pmRisk}` : pmRisk, asOf: profileAsOf, authority: profileAuthority },
         requiredAction: { kind: "ready", value: <Link href={pmAction.href} className="text-caos-accent hover:text-caos-text transition-caos focus-ring rounded outline-none">{pmAction.label} →</Link>, asOf: profileAsOf, authority: profileAuthority },
-        evidenceHealth: { kind: totalFindings ? "partial" : "ready", value: <span style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] ?? "var(--caos-text)" }}>{pmEvidence.label}</span>, missingSources: totalFindings ? [`${totalFindings} QA finding${totalFindings === 1 ? "" : "s"}`] : [], asOf: profileAsOf, authority: profileAuthority },
+        evidenceHealth: {
+          kind: profileFreshness?.state === "stale" ? "stale" : profileFreshness?.state === "current" && !totalFindings ? "ready" : "partial",
+          value: <span className="inline-flex items-center gap-2" style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] ?? "var(--caos-text)" }}><FreshnessIndicator evaluation={profileFreshness} />{pmEvidence.label}</span>,
+          missingSources: [...(totalFindings ? [`${totalFindings} QA finding${totalFindings === 1 ? "" : "s"}`] : []), ...(!profileFreshness || profileFreshness.state === "unknown" ? ["central freshness evaluation"] : [])],
+          asOf: profileAsOf,
+          authority: profileAuthority,
+        },
       }
     : { whatChanged: profileUnavailable, whyItMatters: profileUnavailable, requiredAction: profileUnavailable, evidenceHealth: profileUnavailable };
 
@@ -591,6 +612,7 @@ export function Profile({
     <Panel title="Evidence Atlas" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Latest run</span>}>
       <dl className="grid gap-1 p-3">
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Authority</dt><dd className="tabular text-caos-xs text-caos-text">{profileAuthority?.provenance.origin ?? "Unavailable"} · {profileAuthority?.approval ?? "UNRATIFIED"}</dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Freshness</dt><dd><FreshnessIndicator evaluation={profileFreshness} /></dd></div>
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Source readiness</dt><dd className="tabular text-caos-xs text-caos-text">{coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}%` : "Unavailable"}</dd></div>
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Documents</dt><dd className="tabular text-caos-xs text-caos-text">{Number(coverage.documents) || 0}</dd></div>
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Open findings</dt><dd className="tabular text-caos-xs text-caos-text">{totalFindings}</dd></div>

@@ -14,8 +14,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
+from analysis_contracts import ArtifactRef
+from config import get_settings
+from context_lineage import bind_context_artifacts
 from database import AnalysisContextRecord, Issuer, ModelCheckpoint, Run, SavedModel, get_db
 from identity import CallerIdentity, get_identity
+from lineage_service import write_lineage_edge
+from tenancy import require_issuer
 
 router = APIRouter()
 
@@ -138,7 +143,12 @@ async def create_model_checkpoint(
     if not rate_limit.hit(f"model-checkpoints:{caller.id}", max_attempts=15, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Checkpoint rate limit reached.")
     context = await _owned_context(db, body.context_id, caller.id)
-    if context.issuer_ids and issuer_id not in context.issuer_ids:
+    lineage_enabled = get_settings().caos_lineage_v2_enabled
+    if lineage_enabled:
+        require_issuer(caller, await db.get(Issuer, issuer_id))
+        if issuer_id not in (context.issuer_ids or []):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+    elif context.issuer_ids and issuer_id not in context.issuer_ids:
         raise HTTPException(status.HTTP_409_CONFLICT, "Issuer is outside the active analysis context.")
     saved = (await db.execute(select(SavedModel).where(
         SavedModel.issuer_id == issuer_id,
@@ -154,8 +164,15 @@ async def create_model_checkpoint(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer run not found.")
     if body.parent_checkpoint_id:
         parent = await db.get(ModelCheckpoint, body.parent_checkpoint_id)
-        if parent is None or parent.analyst_id != caller.id or parent.issuer_id != issuer_id:
+        if (
+            parent is None
+            or parent.analyst_id != caller.id
+            or parent.issuer_id != issuer_id
+            or (lineage_enabled and parent.context_id != context.id)
+        ):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Parent checkpoint not found.")
+    else:
+        parent = None
     canonical = json.dumps(saved.payload or {}, sort_keys=True, separators=(",", ":"), default=str)
     now = datetime.now(timezone.utc)
     row = ModelCheckpoint(
@@ -184,12 +201,43 @@ async def create_model_checkpoint(
     db.add(row)
     await db.flush()
     row.authority = {**row.authority, "version_id": row.id}
-    context.artifacts = {
-        **(context.artifacts or {}),
-        "model_checkpoint_id": row.id,
-        "issuer_run_id": body.issuer_run_id or (context.artifacts or {}).get("issuer_run_id"),
-    }
-    context.updated_at = now
+    if lineage_enabled:
+        checkpoint_ref = ArtifactRef(kind="model_checkpoint", id=row.id, version=row.payload_hash)
+        refs = [checkpoint_ref]
+        if body.issuer_run_id:
+            refs.append(ArtifactRef(kind="issuer_run", id=body.issuer_run_id))
+        if parent is not None:
+            refs.append(ArtifactRef(
+                kind="model_checkpoint", id=parent.id, version=parent.payload_hash
+            ))
+        legacy_updates = {"model_checkpoint_id": row.id}
+        if body.issuer_run_id:
+            legacy_updates["issuer_run_id"] = body.issuer_run_id
+        await bind_context_artifacts(
+            db,
+            context_id=context.id,
+            analyst_id=caller.id,
+            refs=refs,
+            legacy_updates=legacy_updates,
+        )
+        for parent_ref in refs[1:]:
+            await write_lineage_edge(
+                db,
+                context_id=context.id,
+                analyst_id=caller.id,
+                artifact=checkpoint_ref,
+                parent=parent_ref,
+                transform="model-checkpoint",
+                transform_version="2",
+                enabled=True,
+            )
+    else:
+        context.artifacts = {
+            **(context.artifacts or {}),
+            "model_checkpoint_id": row.id,
+            "issuer_run_id": body.issuer_run_id or (context.artifacts or {}).get("issuer_run_id"),
+        }
+        context.updated_at = now
     await db.flush()
     return _checkpoint_out(row)
 

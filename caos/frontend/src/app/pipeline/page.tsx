@@ -31,6 +31,9 @@ import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 import type { RunListItemDTO } from "@/lib/engine/types";
+import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
+import { useIssuerFreshness } from "@/lib/engine/useFreshness";
+import { resolvePipelineFreshnessRunId } from "@/lib/freshness";
 
 export default function PipelinePage() {
   return (
@@ -122,6 +125,9 @@ function PipelineVisualizer() {
   const issuerId = issuerParam || selectedRunRow?.issuer_id || latestLiveIssuer || ATLF_REFERENCE_ISSUER_ID;
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
   const { value: live, phase, latest } = useLivePipelineStatus(issuerId, runParam);
+  const freshnessRunId = resolvePipelineFreshnessRunId(runParam, live?.runId);
+  const selectedFreshnessRead = useIssuerFreshness({ runId: freshnessRunId });
+  const selectedRunFreshness = selectedFreshnessRead.run?.evaluation ?? null;
   const liveRun = useLiveRun(issuerId);
   const [liveMode, setLiveMode] = useState(true);
   const useLive = liveMode && live != null;
@@ -267,6 +273,7 @@ function PipelineVisualizer() {
                 />
               ) : null}
               <span className="tabular text-caos-xs text-caos-accent whitespace-nowrap">{runIdLabel}</span>
+              {freshnessRunId ? <FreshnessIndicator evaluation={selectedRunFreshness} /> : null}
             </>
           }
           title={<>{issuerName}{issuerModeSuffix}</>}
@@ -400,6 +407,7 @@ function PipelineRunWorklist({
             <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Run</th>
             <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Issuer</th>
             <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">State</th>
+            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Freshness</th>
             <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Committee</th>
             <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">As of</th>
             <th scope="col" className="px-2 py-1 text-right font-medium uppercase tracking-wider">Action</th>
@@ -414,6 +422,7 @@ function PipelineRunWorklist({
                 <td className="px-2 py-1.5 text-caos-text">{item.id.slice(0, 8)}</td>
                 <td className="px-2 py-1.5 text-caos-muted">{item.issuer_id}</td>
                 <td className="px-2 py-1.5"><Tag sev={statusKind}>{item.status.toUpperCase()}</Tag></td>
+                <td className="px-2 py-1.5"><RunFreshnessCell runId={item.id} /></td>
                 <td className="px-2 py-1.5 text-caos-muted">{item.committee_status || "UNRATED"}</td>
                 <td className="px-2 py-1.5 text-caos-muted">{item.as_of_date || "UNKNOWN"}</td>
                 <td className="px-2 py-1 text-right">
@@ -433,6 +442,11 @@ function PipelineRunWorklist({
       </table>
     </div>
   );
+}
+
+function RunFreshnessCell({ runId }: { runId: string }) {
+  const freshness = useIssuerFreshness({ runId });
+  return <FreshnessIndicator evaluation={freshness.run?.evaluation} />;
 }
 
 // Honest full-pane states for a real issuer whose run is unavailable — shown

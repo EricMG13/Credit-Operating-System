@@ -6,8 +6,9 @@ from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
-from sqlalchemy import select
+from pydantic import BaseModel, Field, model_validator
+from pydantic_core import PydanticCustomError
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -15,9 +16,16 @@ from analysis_contracts import (
     AnalysisArtifactRefs,
     AnalysisContext,
     AnalysisSurfaceState,
+    ARTIFACT_KINDS,
+    ArtifactRef,
     AuthorityEnvelope,
+    ArtifactFreshness,
+    ContextFreshness,
+    ContextLineage,
     Finding,
+    LineageEdgeV2,
 )
+from config import get_settings
 from database import (
     AlertEvent,
     AnalysisContextRecord,
@@ -26,8 +34,12 @@ from database import (
     AnalysisQueryRun,
     Decision,
     Document,
+    DocumentChunk,
     Issuer,
+    IssuerReportingProfile,
+    LineageEdge,
     MarketInstrument,
+    MarketSnapshot,
     ModelCheckpoint,
     Portfolio,
     ReportVersion,
@@ -40,8 +52,15 @@ from database import (
     get_db,
 )
 from identity import CallerIdentity, get_identity
+from freshness import FreshnessEvaluation, evaluate_freshness
+from context_lineage import LEGACY_REF_FIELDS, merge_artifact_refs
 from sector_taxonomy import canonical_sector_id
-from tenancy import require_issuer, require_portfolio_access, tenancy_enabled
+from tenancy import (
+    require_issuer,
+    require_portfolio_access,
+    scope_issuers,
+    tenancy_enabled,
+)
 
 router = APIRouter()
 
@@ -120,7 +139,29 @@ def _finding(row: AnalysisFinding) -> Finding:
     )
 
 
+def _reject_unsupported_artifact_kind(value):
+    """Tag only unsupported typed-ref kinds for the API's uniform 404 boundary."""
+    if not isinstance(value, dict):
+        return value
+    artifacts = value.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return value
+    refs = artifacts.get("artifact_refs")
+    if not isinstance(refs, list):
+        return value
+    for ref in refs:
+        kind = ref.get("kind") if isinstance(ref, dict) else None
+        if isinstance(kind, str) and kind not in ARTIFACT_KINDS:
+            raise PydanticCustomError("artifact_not_found", "Artifact not found.")
+    return value
+
+
 class ContextCreate(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def _closed_artifact_boundary(cls, value):
+        return _reject_unsupported_artifact_kind(value)
+
     name: str = Field("Untitled analysis", min_length=1, max_length=160)
     sector_id: Optional[str] = Field(default=None, max_length=128)
     sub_segments: list[str] = Field(default_factory=list, max_length=50)
@@ -135,6 +176,11 @@ class ContextCreate(BaseModel):
 
 
 class ContextPatch(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def _closed_artifact_boundary(cls, value):
+        return _reject_unsupported_artifact_kind(value)
+
     name: Optional[str] = Field(default=None, min_length=1, max_length=160)
     sector_id: Optional[str] = Field(default=None, max_length=128)
     sub_segments: Optional[list[str]] = Field(default=None, max_length=50)
@@ -208,6 +254,122 @@ async def _validate_artifact_refs(
         if context_id and insight.context_id != context_id:
             raise HTTPException(status.HTTP_409_CONFLICT, "Insight belongs to a different analysis context.")
 
+    for ref in refs.artifact_refs:
+        await _validate_typed_artifact_ref(
+            db, ref, context_id=context_id, caller=caller
+        )
+
+
+def _typed_artifact_not_found() -> HTTPException:
+    # One response for missing, unsupported, foreign, or mismatched typed refs:
+    # callers cannot use the context API as an artifact-existence oracle.
+    return HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found.")
+
+
+async def _validate_typed_artifact_ref(
+    db: AsyncSession,
+    ref: ArtifactRef,
+    *,
+    context_id: Optional[str],
+    caller: CallerIdentity,
+) -> None:
+    row = None
+    try:
+        if ref.kind == "issuer_run":
+            row = await db.get(Run, ref.id)
+            if row is None or row.analyst_id != caller.id:
+                raise _typed_artifact_not_found()
+            require_issuer(caller, await db.get(Issuer, row.issuer_id))
+        elif ref.kind == "source_manifest":
+            row = await db.get(SourceManifest, ref.id)
+            if row is None or row.analyst_id != caller.id:
+                raise _typed_artifact_not_found()
+            if row.issuer_id:
+                require_issuer(caller, await db.get(Issuer, row.issuer_id))
+        elif ref.kind == "research_job":
+            row = await db.get(ResearchJob, ref.id)
+            if row is None or row.analyst_id != caller.id:
+                raise _typed_artifact_not_found()
+            if row.context_id and row.context_id != context_id:
+                raise _typed_artifact_not_found()
+        elif ref.kind == "model_checkpoint":
+            row = await db.get(ModelCheckpoint, ref.id)
+            if row is None or row.analyst_id != caller.id or row.context_id != context_id:
+                raise _typed_artifact_not_found()
+            require_issuer(caller, await db.get(Issuer, row.issuer_id))
+        elif ref.kind == "report_version":
+            row = await db.get(ReportVersion, ref.id)
+            if row is None or row.analyst_id != caller.id or row.context_id != context_id:
+                raise _typed_artifact_not_found()
+        elif ref.kind == "alert_event":
+            row = await db.get(AlertEvent, ref.id)
+            if row is None or (row.context_id and row.context_id != context_id):
+                raise _typed_artifact_not_found()
+            if row.issuer_id:
+                require_issuer(caller, await db.get(Issuer, row.issuer_id))
+            elif row.created_by != caller.id:
+                raise _typed_artifact_not_found()
+        elif ref.kind == "sponsor":
+            statement = scope_issuers(
+                select(Issuer.id).where(Issuer.sponsor == ref.id), caller
+            ).limit(1)
+            if (await db.execute(statement)).scalar_one_or_none() is None:
+                raise _typed_artifact_not_found()
+        elif ref.kind == "portfolio":
+            require_portfolio_access(caller, await db.get(Portfolio, ref.id))
+        elif ref.kind == "decision":
+            row = await db.get(Decision, ref.id)
+            if row is None:
+                raise _typed_artifact_not_found()
+            require_issuer(caller, await db.get(Issuer, row.issuer_id))
+        elif ref.kind == "insight":
+            row = await db.get(AnalysisInsight, ref.id)
+            if row is None or row.analyst_id != caller.id or row.context_id != context_id:
+                raise _typed_artifact_not_found()
+        elif ref.kind == "document":
+            row = await db.get(Document, ref.id)
+            if row is None:
+                raise _typed_artifact_not_found()
+            if row.issuer_id:
+                require_issuer(caller, await db.get(Issuer, row.issuer_id))
+            elif row.analyst_id != caller.id:
+                raise _typed_artifact_not_found()
+        elif ref.kind == "document_chunk":
+            row = await db.get(DocumentChunk, ref.id)
+            document = await db.get(Document, row.document_id) if row is not None else None
+            if document is None:
+                raise _typed_artifact_not_found()
+            if document.issuer_id:
+                require_issuer(caller, await db.get(Issuer, document.issuer_id))
+            elif document.analyst_id != caller.id:
+                raise _typed_artifact_not_found()
+        elif ref.kind == "market_snapshot":
+            row = await db.get(MarketSnapshot, ref.id)
+            if row is None:
+                raise _typed_artifact_not_found()
+            if row.analyst_id is not None:
+                if row.analyst_id != caller.id:
+                    raise _typed_artifact_not_found()
+            elif tenancy_enabled():
+                # analyst_id was added by market XLSX v2.  NULL rows pre-date
+                # that ownership contract and remain shared, but the existing
+                # issuer/team boundary still applies to every instrument.
+                issuer_ids = list((await db.execute(
+                    select(MarketInstrument.issuer_id).where(
+                        MarketInstrument.snapshot_id == ref.id
+                    )
+                )).scalars().all())
+                if not issuer_ids or any(issuer_id is None for issuer_id in issuer_ids):
+                    raise _typed_artifact_not_found()
+                for issuer_id in set(issuer_ids):
+                    require_issuer(caller, await db.get(Issuer, issuer_id))
+        else:  # Literal validation normally catches this; keep route fail-closed.
+            raise _typed_artifact_not_found()
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise _typed_artifact_not_found() from exc
+        raise
+
 
 async def _validate_context_subjects(
     db: AsyncSession,
@@ -223,7 +385,15 @@ async def _validate_context_subjects(
         instrument = await db.get(MarketInstrument, instrument_id)
         if instrument is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
-        if tenancy_enabled():
+        snapshot = await db.get(MarketSnapshot, instrument.snapshot_id)
+        if snapshot is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
+        if snapshot.analyst_id is not None:
+            if snapshot.analyst_id != caller.id:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
+        elif tenancy_enabled():
+            # Preserve the pre-v2 contract for legacy shared snapshots while
+            # requiring exact issuer authorization under team tenancy.
             if not instrument.issuer_id:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
             try:
@@ -316,6 +486,327 @@ async def get_context(
     return _context(await _owned_context(db, context_id, caller.id))
 
 
+@router.get("/contexts/{context_id}/lineage", response_model=ContextLineage)
+async def get_context_lineage(
+    context_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _guard(caller, write=False)
+    # Ownership is resolved before the feature gate so a foreign identifier is
+    # indistinguishable from a missing context in every flag state.
+    context = await _owned_context(db, context_id, caller.id)
+    if not get_settings().caos_lineage_v2_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+
+    refs = AnalysisArtifactRefs.model_validate(context.artifacts or {})
+    await _validate_artifact_refs(db, refs, context_id=context_id, caller=caller)
+    typed_refs = list(dict.fromkeys(
+        (ref.kind, ref.id, ref.version) for ref in refs.artifact_refs
+    ))
+    response_refs = [
+        ArtifactRef(kind=kind, id=artifact_id, version=version)
+        for kind, artifact_id, version in typed_refs
+    ]
+    allowed = {
+        (f"{ref.kind}:{ref.id}", ref.version) for ref in response_refs
+    }
+
+    if not allowed:
+        return ContextLineage(
+            context_id=context_id, artifact_refs=response_refs, edges=[]
+        )
+    allowed_conditions = [
+        and_(
+            LineageEdge.artifact_id == artifact_id,
+            LineageEdge.artifact_version == version
+            if version is not None else LineageEdge.artifact_version.is_(None),
+        )
+        for artifact_id, version in allowed
+    ]
+    parent_conditions = [
+        and_(
+            LineageEdge.parent_id == artifact_id,
+            LineageEdge.parent_version == version
+            if version is not None else LineageEdge.parent_version.is_(None),
+        )
+        for artifact_id, version in allowed
+    ]
+    rows = (await db.execute(
+        select(LineageEdge)
+        .where(
+            LineageEdge.context_id == context_id,
+            LineageEdge.analyst_id == caller.id,
+            LineageEdge.v2_idempotency_key.is_not(None),
+            or_(*allowed_conditions),
+            or_(*parent_conditions),
+        )
+        .order_by(LineageEdge.created_at.desc())
+        .limit(201)
+    )).scalars().all()
+    edges: list[LineageEdgeV2] = []
+    truncated = len(rows) > 200
+    for row in rows[:200]:
+        if (
+            (row.artifact_id, row.artifact_version) not in allowed
+            or (row.parent_id, row.parent_version) not in allowed
+            or not row.artifact_kind
+            or not row.parent_kind
+            or not row.artifact_id.startswith(f"{row.artifact_kind}:")
+            or not row.parent_id.startswith(f"{row.parent_kind}:")
+        ):
+            continue
+        edges.append(LineageEdgeV2(
+            id=row.id,
+            artifact=ArtifactRef(
+                kind=row.artifact_kind,
+                id=row.artifact_id.split(":", 1)[1],
+                version=row.artifact_version,
+            ),
+            parent=ArtifactRef(
+                kind=row.parent_kind,
+                id=row.parent_id.split(":", 1)[1],
+                version=row.parent_version,
+            ),
+            transform=row.transform,
+            transform_version=row.transform_version,
+            created_at=row.created_at,
+        ))
+    return ContextLineage(
+        context_id=context_id,
+        artifact_refs=response_refs,
+        edges=edges,
+        truncated=truncated,
+    )
+
+
+@router.get("/contexts/{context_id}/freshness", response_model=ContextFreshness)
+async def get_context_freshness(
+    context_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _guard(caller, write=False)
+    context = await _owned_context(db, context_id, caller.id)
+    if not get_settings().caos_lineage_v2_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+    refs = AnalysisArtifactRefs.model_validate(context.artifacts or {})
+    await _validate_artifact_refs(db, refs, context_id=context_id, caller=caller)
+    typed_refs = list(refs.artifact_refs)
+    current_by_kind: dict[str, set[tuple[str, Optional[str]]]] = {}
+    for ref in typed_refs:
+        current_by_kind.setdefault(ref.kind, set()).add((ref.id, ref.version))
+    # Phase 1B retains historical typed refs for audit, while the legacy scalar
+    # fields remain the producer-maintained active pointer for singleton kinds.
+    # Narrow those kinds to the active id so a newly derived artifact can become
+    # current after a rebind instead of comparing forever against old history.
+    # If the scalar id has multiple typed versions, it cannot identify which is
+    # active; fail to unknown rather than guessing a sortable version scheme.
+    raw_artifacts = context.artifacts or {}
+    for field, kind in LEGACY_REF_FIELDS.items():
+        active_id = raw_artifacts.get(field)
+        if not isinstance(active_id, str) or not active_id:
+            continue
+        matching = {
+            (artifact_id, version)
+            for artifact_id, version in current_by_kind.get(kind, set())
+            if artifact_id == active_id
+        }
+        current_by_kind[kind] = matching or {(active_id, None)}
+        if len(matching) > 1:
+            current_by_kind[kind] = set()
+    if context.rv_snapshot_id:
+        matching_snapshots = {
+            (artifact_id, version)
+            for artifact_id, version in current_by_kind.get("market_snapshot", set())
+            if artifact_id == context.rv_snapshot_id
+        }
+        current_by_kind["market_snapshot"] = matching_snapshots or {
+            (context.rv_snapshot_id, None)
+        }
+    now = datetime.now(timezone.utc)
+    results: list[ArtifactFreshness] = []
+    parents_by_artifact: dict[
+        tuple[str, str, Optional[str]], set[tuple[str, str, Optional[str]]]
+    ] = {}
+
+    for ref in typed_refs:
+        source_kind = "derived_artifact"
+        observed_at = None
+        effective_period_end = None
+        cadence = "unknown"
+        reporting_lag_days = None
+        grace_days = 7
+        version_state = "match"
+        if ref.kind == "issuer_run":
+            row = await db.get(Run, ref.id)
+            source_kind = "run"
+            observed_at = (row.completed_at or row.created_at) if row else None
+        elif ref.kind == "market_snapshot":
+            row = await db.get(MarketSnapshot, ref.id)
+            source_kind = "price"
+            observed_at = row.as_of if row else None
+        elif ref.kind == "document":
+            row = await db.get(Document, ref.id)
+            if row and row.source_kind in {"reported_financials", "legal_document", "price"}:
+                source_kind = row.source_kind
+                observed_at = row.source_published_at or row.uploaded_at
+                effective_period_end = row.effective_period_end
+                if source_kind == "reported_financials":
+                    profile = await db.get(IssuerReportingProfile, row.issuer_id)
+                    if profile:
+                        cadence = profile.cadence
+                        reporting_lag_days = profile.reporting_lag_days
+                        grace_days = profile.grace_days
+            else:
+                results.append(ArtifactFreshness(
+                    artifact=ref,
+                    evaluation=FreshnessEvaluation(
+                        state="unknown", source_kind="derived_artifact",
+                        reason="document_source_kind_unknown",
+                    ),
+                ))
+                continue
+        else:
+            row = None
+            if ref.kind == "model_checkpoint":
+                row = await db.get(ModelCheckpoint, ref.id)
+                observed_at = row.created_at if row else None
+            elif ref.kind == "report_version":
+                row = await db.get(ReportVersion, ref.id)
+                observed_at = row.created_at if row else None
+            elif ref.kind == "insight":
+                row = await db.get(AnalysisInsight, ref.id)
+                observed_at = row.generated_at if row else None
+            elif ref.kind == "research_job":
+                row = await db.get(ResearchJob, ref.id)
+                observed_at = (row.completed_at or row.created_at) if row else None
+            elif ref.kind == "source_manifest":
+                row = await db.get(SourceManifest, ref.id)
+                observed_at = row.created_at if row else None
+
+        if source_kind in {"run", "derived_artifact"}:
+            edges = (await db.execute(
+                select(LineageEdge).where(
+                    LineageEdge.context_id == context_id,
+                    LineageEdge.analyst_id == caller.id,
+                    LineageEdge.artifact_id == f"{ref.kind}:{ref.id}",
+                    LineageEdge.artifact_version == ref.version
+                    if ref.version is not None else LineageEdge.artifact_version.is_(None),
+                    LineageEdge.v2_idempotency_key.is_not(None),
+                )
+            )).scalars().all()
+            artifact_key = (ref.kind, ref.id, ref.version)
+            if not edges:
+                version_state = "unknown"
+                parents_by_artifact[artifact_key] = set()
+            else:
+                version_state = "match"
+                incomplete_lineage = False
+                parents_by_kind: dict[str, set[tuple[str, Optional[str]]]] = {}
+                transforms_by_kind: dict[str, set[str]] = {}
+                parent_keys: set[tuple[str, str, Optional[str]]] = set()
+                for edge in edges:
+                    parent_kind = edge.parent_kind or ""
+                    parent_id = edge.parent_id.split(":", 1)[1] if ":" in edge.parent_id else ""
+                    parents_by_kind.setdefault(parent_kind, set()).add(
+                        (parent_id, edge.parent_version)
+                    )
+                    transforms_by_kind.setdefault(parent_kind, set()).add(edge.transform)
+                    parent_keys.add((parent_kind, parent_id, edge.parent_version))
+                parents_by_artifact[artifact_key] = parent_keys
+                for parent_kind, expected_parents in parents_by_kind.items():
+                    candidates = current_by_kind.get(parent_kind)
+                    if not candidates:
+                        incomplete_lineage = True
+                        continue
+                    # An ingestion manifest is intentionally scoped to its own
+                    # document; other documents may coexist in the context and
+                    # are not replacements. Snapshot-style transforms (runs,
+                    # checkpoints, reports, insights) compare the full active set.
+                    # Singleton kinds were already narrowed to their active scalar.
+                    subset_scoped = transforms_by_kind.get(parent_kind) == {"ingestion"}
+                    changed = (
+                        not expected_parents.issubset(candidates)
+                        if subset_scoped else candidates != expected_parents
+                    )
+                    if changed:
+                        version_state = "changed"
+                        break
+                if version_state != "changed" and incomplete_lineage:
+                    version_state = "unknown"
+
+        results.append(ArtifactFreshness(
+            artifact=ref,
+            evaluation=evaluate_freshness(
+                source_kind=source_kind,
+                now=now,
+                observed_at=observed_at,
+                effective_period_end=effective_period_end,
+                cadence=cadence,
+                reporting_lag_days=reporting_lag_days,
+                grace_days=grace_days,
+                source_version_state=version_state,
+            ),
+        ))
+
+    # Propagate parent freshness through the lineage DAG. Identity equality is
+    # necessary but not sufficient: a checkpoint still bound to the same run is
+    # stale if that run became stale after a document/market source change.
+    by_key = {
+        (item.artifact.kind, item.artifact.id, item.artifact.version): item
+        for item in results
+    }
+    resolved: dict[tuple[str, str, Optional[str]], ArtifactFreshness] = {}
+
+    def resolve(
+        key: tuple[str, str, Optional[str]],
+        visiting: set[tuple[str, str, Optional[str]]],
+    ) -> ArtifactFreshness:
+        if key in resolved:
+            return resolved[key]
+        item = by_key[key]
+        if key in visiting:
+            # Lineage must be a DAG. Fail closed if corrupt rows form a cycle.
+            cycled = item.model_copy(update={
+                "evaluation": item.evaluation.model_copy(update={
+                    "state": "unknown", "reason": "lineage_cycle",
+                })
+            })
+            resolved[key] = cycled
+            return cycled
+        next_visiting = {*visiting, key}
+        parent_states: list[str] = []
+        missing_parent = False
+        for parent_key in parents_by_artifact.get(key, set()):
+            if parent_key not in by_key:
+                missing_parent = True
+                continue
+            parent_states.append(resolve(parent_key, next_visiting).evaluation.state)
+        evaluation = item.evaluation
+        if evaluation.state != "stale" and "stale" in parent_states:
+            evaluation = evaluation.model_copy(update={
+                "state": "stale", "reason": "bound_source_stale",
+            })
+        elif evaluation.state != "stale" and (missing_parent or "unknown" in parent_states):
+            evaluation = evaluation.model_copy(update={
+                "state": "unknown", "reason": "bound_source_unknown",
+            })
+        elif evaluation.state == "current" and "due" in parent_states:
+            evaluation = evaluation.model_copy(update={
+                "state": "due", "reason": "bound_source_due",
+            })
+        resolved_item = item.model_copy(update={"evaluation": evaluation})
+        resolved[key] = resolved_item
+        return resolved_item
+
+    propagated = [
+        resolve((item.artifact.kind, item.artifact.id, item.artifact.version), set())
+        for item in results
+    ]
+    return ContextFreshness(context_id=context_id, evaluated_at=now, artifacts=propagated)
+
+
 @router.patch("/contexts/{context_id}", response_model=AnalysisContext)
 async def patch_context(
     context_id: str,
@@ -337,7 +828,31 @@ async def patch_context(
         # Several long-running surfaces may finish out of order (research,
         # model, ingestion); merging prevents a later callback from erasing a
         # sibling artifact reference it never intended to touch.
-        merged_artifacts = {**(row.artifacts or {}), **(changes["artifacts"] or {})}
+        artifact_patch = changes["artifacts"] or {}
+        incoming_refs = [
+            ArtifactRef.model_validate(raw)
+            for raw in (artifact_patch.get("artifact_refs") or [])
+        ]
+        legacy_updates = {
+            field: artifact_patch[field]
+            for field in LEGACY_REF_FIELDS
+            if field in artifact_patch
+        }
+        # Typed refs are append-only audit identities. Unioning here makes a
+        # delayed client patch idempotent and preserves refs transactionally
+        # bound by checkpoint/report producers after that client last read.
+        # An explicitly supplied empty collection is the established unbind
+        # operation. Scalar-only patches omit artifact_refs entirely, while a
+        # stale full client sends its older non-empty collection; those paths
+        # continue to union and cannot erase producer-bound refs.
+        merge_base = dict(row.artifacts or {})
+        if "artifact_refs" in artifact_patch and not artifact_patch["artifact_refs"]:
+            merge_base["artifact_refs"] = []
+        merged_artifacts = merge_artifact_refs(
+            merge_base,
+            incoming_refs,
+            legacy_updates=legacy_updates,
+        )
         refs = AnalysisArtifactRefs.model_validate(merged_artifacts)
         await _validate_artifact_refs(db, refs, context_id=context_id, caller=caller)
         changes["artifacts"] = refs.model_dump(mode="json")

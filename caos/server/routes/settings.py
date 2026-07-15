@@ -115,6 +115,13 @@ async def read_settings(caller: CallerIdentity = Depends(get_identity)):
             "max_upload_mb": s.max_upload_mb,
             "run_concurrency": s.caos_run_concurrency,
         },
+        "features": {
+            "lineage_v2_enabled": s.caos_lineage_v2_enabled,
+            "market_xlsx_v2_enabled": s.caos_market_xlsx_v2_enabled,
+            "model_engine_v2_enabled": s.caos_model_engine_v2_enabled,
+            "cp_4d_enabled": s.caos_cp_4d_enabled,
+            "cp_2g_enabled": s.caos_cp_2g_enabled,
+        },
         "analyst": getattr(caller, "id", None),
     }
 

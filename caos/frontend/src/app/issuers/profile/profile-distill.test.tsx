@@ -7,12 +7,63 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Profile } from "./ProfileContent";
 import type { IssuerProfile } from "@/lib/api";
 
+const freshnessState = vi.hoisted(() => ({
+  checkpointId: null as string | null,
+  updatedAt: "2026-07-13T00:00:00Z",
+  calls: [] as Array<Record<string, unknown>>,
+}));
+
 vi.mock("next/navigation", () => ({
   useSearchParams: vi.fn(),
   usePathname: () => "/issuers/profile",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 vi.mock("@/components/charts/G2Chart", () => ({ G2Chart: () => null }));
+vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
+  useAnalysisContext: () => ({
+    context: freshnessState.checkpointId ? {
+      id: "context-profile", name: "Profile", sector_id: null, sub_segments: [],
+      issuer_ids: ["iss-1"], instrument_ids: [], portfolio_scope: null, as_of: null,
+      sector_review_run_id: null, rv_snapshot_id: null, rv_run_id: null,
+      query_session_id: null,
+      artifacts: {
+        issuer_run_id: "run-1", source_manifest_id: null, research_job_id: null,
+        model_checkpoint_id: freshnessState.checkpointId, report_version_id: null,
+        alert_event_id: null, sponsor_id: null,
+      },
+      surface_state: {}, filters: {}, selected: {},
+      created_at: "2026-07-13T00:00:00Z", updated_at: freshnessState.updatedAt,
+    } : null,
+    loading: false, error: null,
+    patch: vi.fn().mockResolvedValue(null), replace: vi.fn(), refresh: vi.fn(),
+  }),
+}));
+vi.mock("@/lib/engine/useFreshness", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/engine/useFreshness")>()),
+  useIssuerFreshness: (args: Record<string, unknown>) => {
+    freshnessState.calls.push(args);
+    const id = freshnessState.checkpointId;
+    const evaluation = id ? {
+      state: id === "checkpoint-1" ? "stale" as const : "due" as const,
+      source_kind: "derived_artifact" as const,
+      observed_at: "2026-07-10T00:00:00Z", effective_period_end: null,
+      expected_next_at: null, due_at: "2026-07-14T00:00:00Z", age_days: 4,
+      reason: id === "checkpoint-1" ? "source_version_changed" : "refresh_due",
+      policy_version: "caos-freshness-v1",
+    } : null;
+    return {
+      issuer: null, run: null,
+      context: id && evaluation ? {
+        context_id: "context-profile", evaluated_at: "2026-07-14T00:00:00Z",
+        artifacts: [{ artifact: { kind: "model_checkpoint", id, version: null }, evaluation }],
+      } : null,
+      issuerStatus: "idle", runStatus: "idle", contextStatus: id ? "ready" : "idle",
+      contextRequested: Boolean(id), loading: false, compatibilityUnavailable: false,
+      error: false, unavailable: false,
+    };
+  },
+}));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getIssuerProfile: vi.fn(),
@@ -24,6 +75,9 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 
 afterEach(() => {
   cleanup();
+  freshnessState.checkpointId = null;
+  freshnessState.updatedAt = "2026-07-13T00:00:00Z";
+  freshnessState.calls.length = 0;
   vi.clearAllMocks();
   window.history.replaceState({}, "", "/issuers/profile");
 });
@@ -60,6 +114,23 @@ const data: IssuerProfile = {
 };
 
 describe("Profile (distilled)", () => {
+  it("rebinds exact freshness when the active profile artifact changes", async () => {
+    freshnessState.checkpointId = "checkpoint-1";
+    const view = render(<Profile id="iss-1" data={data} />);
+    expect((await screen.findAllByLabelText(/Freshness STALE/i)).length).toBeGreaterThan(0);
+    expect(freshnessState.calls.some((args) =>
+      String(args.artifactRevision).endsWith(":checkpoint-1"),
+    )).toBe(true);
+
+    freshnessState.checkpointId = "checkpoint-2";
+    freshnessState.updatedAt = "2026-07-14T00:00:00Z";
+    view.rerender(<Profile id="iss-1" data={data} />);
+    expect((await screen.findAllByLabelText(/Freshness DUE/i)).length).toBeGreaterThan(0);
+    expect(freshnessState.calls.some((args) =>
+      String(args.artifactRevision).endsWith(":checkpoint-2"),
+    )).toBe(true);
+  });
+
   it("renders one layout with a single primary Deep-Dive action and the issuer action bar", () => {
     render(<Profile id="iss-1" data={data} />);
 

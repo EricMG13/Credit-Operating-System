@@ -428,6 +428,8 @@ export function ModuleView({
   const isLive = !!liveOut;
   const st = sim.mods[id]?.state || "idle";
   if (!out || !meta) {
+    const missingAnalyticalReference = !!meta && allowSeededFallback && meta.layer !== "INFRA";
+    const openPipeline = !allowSeededFallback || missingAnalyticalReference;
     return (
       <div className="h-full flex flex-col items-center justify-center gap-2 p-6 text-center text-caos-muted">
         <div className="tabular text-caos-xl text-caos-text">{id} · no analytical output register</div>
@@ -437,7 +439,9 @@ export function ModuleView({
               ? meta.name + " has no issuer-specific output available. Run or re-run the issuer, then inspect CP-5 for any gate reason."
               : "This module id is not part of the CP-X route graph."
             : meta
-              ? meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register."
+              ? missingAnalyticalReference
+                ? meta.name + " has no synthetic reference finding. Run it for an issuer to produce a source-gated output."
+                : meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register."
               : "This module id is not part of the CP-X route graph."}
         </div>
         {meta ? (
@@ -445,10 +449,10 @@ export function ModuleView({
           // fixed by running the issuer (Pipeline), not by opening the
           // reference committee pack (Report Studio).
           <Link
-            href={!allowSeededFallback ? "/pipeline" : "/reports"}
+            href={openPipeline ? "/pipeline" : "/reports"}
             className="tabular text-caos-sm px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
           >
-            {!allowSeededFallback ? "OPEN PIPELINE — RUN THE ISSUER →" : "OPEN REPORT STUDIO →"}
+            {openPipeline ? "OPEN PIPELINE — RUN THE ISSUER →" : "OPEN REPORT STUDIO →"}
           </Link>
         ) : null}
       </div>

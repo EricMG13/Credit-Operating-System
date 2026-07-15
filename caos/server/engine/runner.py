@@ -57,7 +57,7 @@ from engine.gate import (
 )
 from engine.lineage import _SOURCED_TYPES, validate_lineage
 from engine.planner import BLOCKED as ROUTE_BLOCKED, EXCLUDED as ROUTE_EXCLUDED, RoutePlan, build_route_plan
-from engine.registry import REGISTRY
+from engine.registry import REGISTRY, all_specs
 from engine.schemas import ModulePayload, validate_payload
 from engine.synth import SynthesisError, get_synthesizer, prompt_corpus_fingerprint
 from retrieval import build_issuer_index, rank_with_index
@@ -196,6 +196,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
     """
     run.status = "running"
     settings = get_settings()
+    enabled_module_flags = frozenset(
+        flag for flag in ("caos_cp_4d_enabled", "caos_cp_2g_enabled")
+        if bool(getattr(settings, flag, False))
+    )
     # H-1: seed from tokens already spent on prior attempts so run_token_budget is
     # a CUMULATIVE per-run cap, not a per-attempt one. A re-claimed run (worker
     # death → QueueWorker re-claim, up to caos_run_max_attempts) would otherwise
@@ -279,7 +283,8 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         if isinstance(result, SynthesisError):
             logger.warning("synthesis failed for %s: %s", module_id, result)
             output_rows[module_id], gate_f = _persist_blocked(
-                session, run.id, module_id, f"Synthesis failed: {result}"
+                session, run.id, module_id, f"Synthesis failed: {result}",
+                severity="CRITICAL" if REGISTRY[module_id].run_blocking else "MATERIAL",
             )
             structural_findings.append(gate_f)
             module_status[module_id] = "Blocked"
@@ -292,6 +297,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
                 session, run.id, module_id,
                 "Payload failed schema validation: " + "; ".join(errors),
                 validation_status="Blocked",
+                severity="CRITICAL" if REGISTRY[module_id].run_blocking else "MATERIAL",
             )
             structural_findings.append(gate_f)
             module_status[module_id] = "Blocked"
@@ -306,6 +312,24 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             session, run.id, payload, validation_status="Passed"
         )
         upstream[module_id] = payload
+        if payload.runtime_output.get("module_status") == "Blocked":
+            row = output_rows[module_id]
+            row.qa_status = "Blocked"
+            row.committee_status = "Blocked"
+            reason = str(payload.runtime_output.get("status_basis") or f"{module_id} source gate blocked")
+            gate_f = _gate_finding(
+                module_id,
+                reason,
+                severity="CRITICAL" if REGISTRY[module_id].run_blocking else "MATERIAL",
+            )
+            structural_findings.append(gate_f)
+            session.add(QAFinding(
+                run_id=run.id, module_id=gate_f.module_id, finding_id=gate_f.finding_id,
+                severity=gate_f.severity, lane=gate_f.lane, description=gate_f.description,
+                required_remediation=gate_f.required_remediation,
+            ))
+            module_status[module_id] = "Blocked"
+            return
         module_status[module_id] = "Pending"
 
     async def _run_layer(layer: List[str]) -> None:
@@ -318,7 +342,10 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         for module_id in layer:
             reason = _block_reason(module_id)
             if reason is not None:
-                output_rows[module_id], gate_f = _persist_blocked(session, run.id, module_id, reason)
+                output_rows[module_id], gate_f = _persist_blocked(
+                    session, run.id, module_id, reason,
+                    severity="CRITICAL" if REGISTRY[module_id].run_blocking else "MATERIAL",
+                )
                 structural_findings.append(gate_f)
                 module_status[module_id] = "Blocked"
             else:
@@ -348,7 +375,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             owned_object="source_readiness_assessment", runtime_output={},
             confidence="Insufficient Information",
         )
-        plan = build_route_plan(cp0_payload)
+        plan = build_route_plan(cp0_payload, all_specs(enabled_module_flags))
         await _persist_cpx(session, run.id, plan)
 
         # ── Routed analytical modules, executed in dependency LAYERS ───────
@@ -518,10 +545,17 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             )
 
         # ── Run-level roll-up ─────────────────────────────────────────────
-        statuses = [module_status[m] for m in analytical_ids if m in module_status]
+        rollup_ids = [
+            m for m in analytical_ids
+            if m in module_status and REGISTRY[m].run_blocking
+        ]
+        statuses = [module_status[m] for m in rollup_ids]
         run.qa_status = roll_up_qa_status(statuses)
         run.committee_status = committee_status_from(
-            run.qa_status, worst_confidence([p.confidence for p in produced])
+            run.qa_status,
+            worst_confidence([
+                upstream[m].confidence for m in rollup_ids if m in upstream
+            ]),
         )
         run.tokens_used = run_budget.used
         if run_budget.budget_exhausted:
@@ -541,9 +575,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
 
 def _persist_blocked(
     session: AsyncSession, run_id: str, module_id: str, reason: str,
-    *, validation_status: str = "Not Executed",
+    *, validation_status: str = "Not Executed", severity: str = "CRITICAL",
 ) -> Tuple[ModuleOutput, Finding]:
-    """Record a module that could not run, plus a CRITICAL structural finding.
+    """Record a module that could not run, plus its structural gate finding.
 
     Returns the Finding too so execute_run can fold it into the CP-5 clearance
     payload: these GATE findings used to be written straight to the QAFinding
@@ -559,17 +593,21 @@ def _persist_blocked(
         limitation_flags=[reason],
     )
     session.add(row)
-    finding = Finding(
-        finding_id=f"{module_id}-GATE", severity="CRITICAL", lane=7,
-        module_id=module_id, description=reason,
-        required_remediation="Resolve the upstream or schema failure and re-run the module.",
-    )
+    finding = _gate_finding(module_id, reason, severity=severity)
     session.add(QAFinding(
         run_id=run_id, module_id=finding.module_id, finding_id=finding.finding_id,
         severity=finding.severity, lane=finding.lane, description=finding.description,
         required_remediation=finding.required_remediation,
     ))
     return row, finding
+
+
+def _gate_finding(module_id: str, reason: str, *, severity: str) -> Finding:
+    return Finding(
+        finding_id=f"{module_id}-GATE", severity=severity, lane=7,
+        module_id=module_id, description=reason,
+        required_remediation="Resolve the upstream or schema failure and re-run the module.",
+    )
 
 
 async def _persist_output(

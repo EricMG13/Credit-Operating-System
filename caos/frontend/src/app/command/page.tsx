@@ -39,6 +39,7 @@ import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { SemanticVisualization, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
 import { analysisApi, contextHref, type InsightArtifact, useAnalysisContext } from "@/lib/analysis-workbench";
 import { useTypedUrlState } from "@/lib/typed-url-state";
+import type { FreshnessState } from "@/lib/api";
 
 const REFRESHES_DUE = [ATLF_COVERAGE_ROW, ...COVERAGE].filter(
   (c) => worstStatus(c.cells) === "stale",
@@ -96,12 +97,18 @@ function CommandCenter() {
   const digestAsOf = digest?.as_of
     ? new Date(digest.as_of).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
     : null;
-  const digestAuthority = digestAsOf ? {
+  const digestFreshnessState: FreshnessState | null = digest?.freshness
+    ? digest.freshness.counts.stale > 0 ? "stale"
+      : digest.freshness.counts.unknown > 0 ? "unknown"
+        : digest.freshness.counts.due > 0 ? "due" : "current"
+    : null;
+  const digestFreshnessLabel = digestFreshnessState?.toUpperCase() as "CURRENT" | "DUE" | "STALE" | "UNKNOWN" | undefined;
+  const digestAuthority = digestAsOf && digestFreshnessLabel ? {
     provenance: {
       origin: "LIVE" as const,
       method: "DERIVED" as const,
-      freshness: digest && digest.stale.length > 0 ? "STALE" as const : "CURRENT" as const,
-      detail: "Daily digest assembled from completed engine runs.",
+      freshness: digestFreshnessLabel,
+      detail: `Central ${digest?.freshness?.policy_version} latest-run freshness roll-up.`,
       asOf: digestAsOf,
     },
     approval: "UNRATIFIED" as const,
@@ -138,14 +145,13 @@ function CommandCenter() {
           : { kind: "unavailable", message: "Governance queue observation unavailable" },
     evidenceHealth: digestLoading
       ? { kind: "loading", message: "Checking evidence coverage…" }
-      : digestLive && digest && digestAsOf
-        ? {
-            kind: digest.stale.length > 0 ? "stale" : "ready",
-            value: `${digest.stale.length} stale of ${digest.coverage?.issuers ?? 0} covered · threshold ${digest.stale_threshold_days}d`,
-            asOf: digestAsOf,
-            authority: digestAuthority,
-          }
-        : { kind: "unavailable", message: "Evidence health unavailable" },
+      : digestLive && digest && digestAsOf && digest.freshness && digestFreshnessState
+        ? digestFreshnessState === "stale"
+          ? { kind: "stale", value: `${digest.freshness.counts.stale} stale · ${digest.freshness.counts.due} due · ${digest.freshness.counts.unknown} unknown · ${digest.freshness.counts.current} current`, asOf: digestAsOf, authority: digestAuthority }
+          : digestFreshnessState === "current"
+            ? { kind: "ready", value: `${digest.freshness.counts.current} current · no due, stale, or unknown runs`, asOf: digestAsOf, authority: digestAuthority }
+            : { kind: "partial", value: `${digest.freshness.counts.stale} stale · ${digest.freshness.counts.due} due · ${digest.freshness.counts.unknown} unknown · ${digest.freshness.counts.current} current`, missingSources: digestFreshnessState === "unknown" ? ["unverified latest-run freshness"] : ["run refresh due"], asOf: digestAsOf, authority: digestAuthority }
+        : { kind: "unavailable", message: "Central evidence freshness unavailable" },
   };
 
   useEffect(() => {

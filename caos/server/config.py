@@ -70,6 +70,15 @@ class Settings(BaseSettings):
     # shared/global). Assign teams by setting Analyst.team_id / Issuer.team_id.
     caos_tenancy_enabled: bool = False
 
+    # Applicable Updates program gates. Each capability is independently
+    # deployable and defaults OFF so absent environment variables preserve the
+    # current production behavior. Env names are the upper-case field names.
+    caos_lineage_v2_enabled: bool = False
+    caos_market_xlsx_v2_enabled: bool = False
+    caos_model_engine_v2_enabled: bool = False
+    caos_cp_4d_enabled: bool = False
+    caos_cp_2g_enabled: bool = False
+
     # Anthropic — optional; chat degrades to demo replies without it.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"

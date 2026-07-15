@@ -181,6 +181,22 @@ class TestBuildModuleDigest:
         digests = build_module_digest(mods)
         assert [d.module_id for d in digests] == ["CP-1", "CP-2B"]  # sorted
 
+    def test_phase4_modules_follow_registry_order_not_lexicographic_order(self):
+        from research_report import build_module_digest
+        mods = {
+            "CP-4C": FakeModuleOutput("CP-4C"),
+            "CP-4D": FakeModuleOutput("CP-4D", runtime_output={
+                "overall_structural_view": "Structural view is limited by security evidence."
+            }),
+            "CP-2G": FakeModuleOutput("CP-2G", runtime_output={
+                "overall_credit_view": "Transition exposure is directional."
+            }),
+        }
+        digests = build_module_digest(mods)
+        assert [d.module_id for d in digests] == ["CP-2G", "CP-4D", "CP-4C"]
+        assert digests[0].layer == "L2" and digests[1].layer == "L4"
+        assert "Structural view" in digests[1].overall_view
+
     def test_overall_view_extracted(self):
         from research_report import build_module_digest
         mods = {

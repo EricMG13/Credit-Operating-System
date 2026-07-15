@@ -95,7 +95,7 @@ TLS is terminated at the edge proxy (Caddy on the self-hosted stack).
 ## 4. Input handling
 
 - **Uploads** ([ingest.py](../server/ingest.py)): incremental **size cap**
-  (`MAX_UPLOAD_MB`, default 250), **magic-byte MIME sniff** (PDF / OOXML / OLE),
+  (`MAX_UPLOAD_MB`, default 250), **magic-byte MIME sniff** (PDF / OOXML),
   and **path-traversal-safe storage** — the filename is sanitized and the
   storage key is UUID-prefixed, so a hostile filename can't escape the vault.
   `run_mode` is validated against an allow-list. An **optional ClamAV scan**
@@ -105,6 +105,20 @@ TLS is terminated at the edge proxy (Caddy on the self-hosted stack).
   (single trusted coverage team); enable it via the `av` compose profile when the
   team or the data sensitivity grows. This is the control this section previously
   conditioned upload-safety on — it is now built and wired, gated to opt-in.
+- **Market price workbooks** ([market_xlsx.py](../server/market_xlsx.py),
+  [market_import.py](../server/routes/market_import.py)) accept `.xlsx` only and
+  are gated by `CAOS_MARKET_XLSX_V2_ENABLED` plus lineage v2. Preview scans and
+  validates without writing. Commit requires the signed, analyst-bound preview
+  token, re-scans and re-parses the same workbook bytes, and writes the raw
+  workbook, immutable snapshot, normalized instruments, rejection ledger and
+  lineage in one failure-cleaned transaction. The parser rejects macros,
+  embedded/query/external content, unsafe ZIP members, expansion bombs,
+  excessive workbook dimensions, ambiguous mappings, future/inconsistent
+  market dates and required formula cells without finite cached values. It never
+  calculates formulas or substitutes upload time for market as-of. Issuer links
+  are exact FIGI matches or explicit analyst mappings only; fuzzy borrower-name
+  matching is prohibited. New snapshots and source documents are analyst-owned,
+  foreign identifiers return 404, and disabling the flag retains their evidence.
 - **Document parsing** is best-effort and exception-swallowing (`pypdf`,
   `openpyxl` read-only) — hostile/scanned files vault without crashing the app.
   Parsing untrusted documents is an inherent surface, bounded by the size cap.

@@ -324,9 +324,54 @@ export interface DailyDigest {
   ccc_watch: DigestWatchRow[];
   qa: Record<string, number>;
   activity_24h: Record<string, number>;
+  freshness?: DigestFreshnessSummary;
 }
 export const getDigest = (): Promise<DailyDigest> =>
   api.get("/api/digest/daily").then((r) => r.data);
+
+export type FreshnessState = "current" | "due" | "stale" | "unknown";
+export type FreshnessSourceKind = "reported_financials" | "price" | "rating" | "legal_document" | "run" | "derived_artifact";
+export interface FreshnessEvaluation {
+  state: FreshnessState;
+  source_kind: FreshnessSourceKind;
+  observed_at: string | null;
+  effective_period_end: string | null;
+  expected_next_at: string | null;
+  due_at: string | null;
+  age_days: number | null;
+  reason: string;
+  policy_version: string;
+}
+export interface DigestFreshnessSummary {
+  policy_version: string;
+  source_kind: "run";
+  counts: Record<FreshnessState, number>;
+  rows: Array<{ issuer_id: string; name: string; run_id: string | null; evaluation: FreshnessEvaluation }>;
+}
+export interface IssuerFreshnessResponse {
+  issuer_id: string;
+  evaluated_at: string;
+  evaluations: FreshnessEvaluation[];
+}
+export interface RunFreshnessResponse {
+  run_id: string;
+  evaluated_at: string;
+  evaluation: FreshnessEvaluation;
+}
+export interface ContextFreshnessResponse {
+  context_id: string;
+  evaluated_at: string;
+  artifacts: Array<{
+    artifact: { kind: string; id: string; version: string | null };
+    evaluation: FreshnessEvaluation;
+  }>;
+}
+export const getIssuerFreshness = (id: string, signal?: AbortSignal): Promise<IssuerFreshnessResponse> =>
+  api.get(`/api/issuers/${encodeURIComponent(id)}/freshness`, { signal }).then((r) => r.data);
+export const getRunFreshness = (id: string, signal?: AbortSignal): Promise<RunFreshnessResponse> =>
+  api.get(`/api/runs/${encodeURIComponent(id)}/freshness`, { signal }).then((r) => r.data);
+export const getContextFreshness = (id: string, signal?: AbortSignal): Promise<ContextFreshnessResponse> =>
+  api.get(`/api/analysis/contexts/${encodeURIComponent(id)}/freshness`, { signal }).then((r) => r.data);
 
 export interface IngestionGapRow {
   document_id: string;
@@ -499,6 +544,11 @@ export const uploadPricingSheet = (formData: FormData): Promise<IngestionResult>
     timeout: 300_000,
   }).then((r) => r.data);
 
+export const appendIngestionContext = (formData: FormData, contextId?: string): FormData => {
+  if (contextId) formData.append("context_id", contextId);
+  return formData;
+};
+
 export interface VaultMemoResult {
   note: string;
   path: string;
@@ -579,12 +629,22 @@ import type {
 // fire several of these in a row (e.g. the Issuers directory BatchBar) pass one.
 export const createRun = (
   issuerId: string, asOfDate?: string, portfolioId?: string, idempotencyKey?: string,
+  contextId?: string,
 ): Promise<RunSummaryDTO> =>
   api.post(
     "/api/runs",
-    { issuer_id: issuerId, as_of_date: asOfDate, portfolio_id: portfolioId },
+    buildRunCreatePayload(issuerId, asOfDate, portfolioId, contextId),
     idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : undefined,
   ).then((r) => r.data);
+
+export const buildRunCreatePayload = (
+  issuerId: string, asOfDate?: string, portfolioId?: string, contextId?: string,
+) => ({
+  issuer_id: issuerId,
+  as_of_date: asOfDate,
+  portfolio_id: portfolioId,
+  context_id: contextId,
+});
 
 export const listRuns = (issuerId?: string): Promise<RunListItemDTO[]> =>
   api.get("/api/runs", { params: issuerId ? { issuer_id: issuerId } : {} }).then((r) => r.data);
@@ -1029,6 +1089,15 @@ export interface WorkspaceSettings {
   deep_research: { effort: string; max_searches: number; max_tokens: number };
   retrieval: { edgar_enabled: boolean; markitdown_enabled: boolean };
   workspace: { environment: string; demo_seed: boolean; max_upload_mb: number; run_concurrency: number };
+  features: {
+    lineage_v2_enabled: boolean;
+    market_xlsx_v2_enabled: boolean;
+    /** Compatibility alias used by staged workspace-settings deployments. */
+    model_engine_v2?: boolean;
+    model_engine_v2_enabled: boolean;
+    cp_4d_enabled?: boolean;
+    cp_2g_enabled?: boolean;
+  };
 }
 export const getSettings = (): Promise<WorkspaceSettings> =>
   api.get("/api/settings").then((r) => r.data);
@@ -1116,6 +1185,146 @@ export const restoreModelCheckpoint = (
     expected_updated_at: expectedUpdatedAt ?? undefined,
   }).then((r) => r.data);
 
+// ─── Canonical Model Engine v2 ───────────────────────────────────────────
+import type {
+  ModelV2CalculateRequest,
+  ModelV2Calculation,
+  ModelV2Checkpoint,
+  ModelV2CheckpointCreateRequest,
+  ModelV2CheckpointRestoreRequest,
+  ModelV2DraftRecord,
+  ModelV2OverrideEvent,
+  ModelV2OverrideBatchRequest,
+  ModelV2OverrideMutationRequest,
+  ModelV2OverrideReplayRequest,
+  ModelV2ReadResponse,
+  ModelV2SaveRequest,
+  ModelV2LegacyWorkbookMapping,
+  ModelV2WorkbookCommit,
+  ModelV2WorkbookExport,
+  ModelV2WorkbookPreview,
+} from "@/lib/engine/modelV2";
+
+const modelV2Path = (issuerId: string): string =>
+  `/api/models/v2/${encodeURIComponent(issuerId)}`;
+
+export const getModelV2 = (
+  issuerId: string,
+  signal?: AbortSignal,
+): Promise<ModelV2ReadResponse> =>
+  api.get<ModelV2ReadResponse>(modelV2Path(issuerId), { signal }).then((r) => r.data);
+
+export const calculateModelV2 = (
+  issuerId: string,
+  body: ModelV2CalculateRequest,
+  signal?: AbortSignal,
+): Promise<ModelV2Calculation> =>
+  api.post<ModelV2Calculation>(`${modelV2Path(issuerId)}/calculate`, body, { signal }).then((r) => r.data);
+
+export const saveModelV2 = (
+  issuerId: string,
+  body: ModelV2SaveRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.put<ModelV2DraftRecord>(modelV2Path(issuerId), body).then((r) => r.data);
+
+export const getModelV2History = (
+  issuerId: string,
+  signal?: AbortSignal,
+): Promise<ModelV2OverrideEvent[]> =>
+  api.get<ModelV2OverrideEvent[]>(`${modelV2Path(issuerId)}/history`, { signal }).then((r) => r.data);
+
+export const mutateModelV2Override = (
+  issuerId: string,
+  body: ModelV2OverrideMutationRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.post<ModelV2DraftRecord>(`${modelV2Path(issuerId)}/overrides`, body).then((r) => r.data);
+
+export const mutateModelV2OverridesBatch = (
+  issuerId: string,
+  body: ModelV2OverrideBatchRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.post<ModelV2DraftRecord>(`${modelV2Path(issuerId)}/overrides/batch`, body).then((r) => r.data);
+
+export const replayModelV2Override = (
+  issuerId: string,
+  eventId: string,
+  body: ModelV2OverrideReplayRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.post<ModelV2DraftRecord>(
+    `${modelV2Path(issuerId)}/history/${encodeURIComponent(eventId)}/replay`,
+    body,
+  ).then((r) => r.data);
+
+export const getModelV2Checkpoints = (
+  issuerId: string,
+  signal?: AbortSignal,
+): Promise<ModelV2Checkpoint[]> =>
+  api.get<ModelV2Checkpoint[]>(`${modelV2Path(issuerId)}/checkpoints`, { signal }).then((r) => r.data);
+
+export const createModelV2Checkpoint = (
+  issuerId: string,
+  body: ModelV2CheckpointCreateRequest,
+): Promise<ModelV2Checkpoint> =>
+  api.post<ModelV2Checkpoint>(`${modelV2Path(issuerId)}/checkpoints`, body).then((r) => r.data);
+
+export const restoreModelV2Checkpoint = (
+  issuerId: string,
+  checkpointId: string,
+  body: ModelV2CheckpointRestoreRequest,
+): Promise<ModelV2DraftRecord> =>
+  api.post<ModelV2DraftRecord>(
+    `${modelV2Path(issuerId)}/checkpoints/${encodeURIComponent(checkpointId)}/restore`,
+    body,
+  ).then((r) => r.data);
+
+export const exportModelV2Workbook = (
+  issuerId: string,
+): Promise<ModelV2WorkbookExport> =>
+  api.get<Blob>(`${modelV2Path(issuerId)}/workbook/export`, { responseType: "blob" }).then((response) => {
+    const disposition = String(response.headers["content-disposition"] ?? "");
+    const revisionHeader = response.headers["x-caos-model-revision"];
+    const parsedRevision = Number(revisionHeader);
+    return {
+      blob: response.data,
+      filename: disposition.match(/filename="([^"]+)"/)?.[1] ?? `caos-model-${issuerId}.xlsx`,
+      revision: Number.isInteger(parsedRevision) && parsedRevision >= 0 ? parsedRevision : null,
+    };
+  });
+
+export const previewModelV2Workbook = (body: {
+  issuerId: string;
+  file: File;
+  expectedRevision: number;
+  mapping?: ModelV2LegacyWorkbookMapping | null;
+}): Promise<ModelV2WorkbookPreview> => {
+  const form = new FormData();
+  form.append("file", body.file);
+  form.append("mapping", body.mapping ? JSON.stringify(body.mapping) : "");
+  form.append("expected_revision", String(body.expectedRevision));
+  return api.post<ModelV2WorkbookPreview>(
+    `${modelV2Path(body.issuerId)}/workbook/import/preview`,
+    form,
+  ).then((response) => response.data);
+};
+
+export const commitModelV2Workbook = (body: {
+  issuerId: string;
+  file: File;
+  preview: ModelV2WorkbookPreview;
+  mapping?: ModelV2LegacyWorkbookMapping | null;
+}): Promise<ModelV2WorkbookCommit> => {
+  const form = new FormData();
+  form.append("file", body.file);
+  form.append("mapping", body.mapping ? JSON.stringify(body.mapping) : "");
+  form.append("expected_revision", String(body.preview.expected_revision));
+  form.append("preview_sha256", body.preview.workbook_sha256);
+  form.append("preview_token", body.preview.preview_token ?? "");
+  return api.post<ModelV2WorkbookCommit>(
+    `${modelV2Path(body.issuerId)}/workbook/import/commit`,
+    form,
+  ).then((response) => response.data);
+};
+
 export interface ReportDraftDTO {
   id: string;
   context_id: string;
@@ -1135,6 +1344,10 @@ export interface ReportVersionDTO {
   authority: Record<string, unknown>;
   created_at: string;
 }
+export interface ReportVersionPreviewDTO extends ReportVersionDTO {
+  status: "preview";
+  preview_sha256: string;
+}
 export const getReportDraft = (contextId: string): Promise<ReportDraftDTO | null> =>
   api.get(`/api/reports/drafts/${contextId}`).then((r) => r.data);
 export const saveReportDraft = (
@@ -1147,13 +1360,29 @@ export const saveReportDraft = (
     expected_revision: expectedRevision,
   }).then((r) => r.data);
 export const listReportVersions = (contextId: string): Promise<ReportVersionDTO[]> =>
-  api.get("/api/reports/versions", { params: { context_id: contextId } }).then((r) => r.data);
+  api.get("/api/reports/versions", { params: { context_id: contextId } }).then((r) =>
+    (r.data as Array<Omit<ReportVersionDTO, "payload">>).map((version) => ({
+      ...version,
+      payload: {},
+    })),
+  );
+export const getReportVersion = (versionId: string): Promise<ReportVersionDTO> =>
+  api.get(`/api/reports/versions/${encodeURIComponent(versionId)}`).then((r) => r.data);
+export const previewReportVersion = (body: {
+  context_id: string;
+  run_id: string;
+  model_checkpoint_id: string;
+  thesis_version_id?: string;
+  payload: Record<string, unknown>;
+}): Promise<ReportVersionPreviewDTO> =>
+  api.post("/api/reports/versions/preview", body).then((r) => r.data);
 export const publishReportVersion = (body: {
   context_id: string;
   run_id: string;
   model_checkpoint_id: string;
   thesis_version_id?: string;
   payload: Record<string, unknown>;
+  preview_sha256: string;
 }): Promise<ReportVersionDTO> =>
   api.post("/api/reports/versions", body).then((r) => r.data);
 export const exportReportVersionBinary = (

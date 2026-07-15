@@ -47,7 +47,7 @@ CP-1A -----\
 CP-1B ------> CP-2 (FundamentalCreditSynthesizer)
 CP-1C -----/
 
-CP-2 -> CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-3, CP-6A
+CP-2 -> CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-2G, CP-3, CP-6A
 ```
 
 **CP-2** is the L2 hub. It receives four upstream feeds: CP-1, CP-1A, CP-1B, and CP-1C.
@@ -61,6 +61,7 @@ Specialist L2 modules then branch from CP-2:
 | CP-2D | Governance / sponsor score | CP-1A, CP-2 |
 | CP-2E | Liquidity and cash-flow bridge | CP-1, CP-2 |
 | CP-2F | Macro / FX / hedging sensitivity | CP-2 |
+| CP-2G | ESG / transition credit transmission and linked-debt mechanics | CP-1, CP-1A, CP-2 (soft; missing inputs limit rather than block) |
 
 ### 4. L3 Valuation, Portfolio, and Refinancing
 
@@ -90,11 +91,18 @@ CP-3D -----> CP-4 (LegalCovenantInterpreter)
 CP-4 ----\
 CP-1 ----- > CP-4C (CovenantCapacityCalculator)
 
+CP-1  ----\
+CP-1A -----\
+CP-4  ------> CP-4D (RestrictedGroupGuaranteeMap)
+
+CP-4D -> CP-4C, CP-6A (optional handoffs)
+
 CP-4  -> CP-4C, CP-6A
 CP-4C -> CP-6A, CP-6E
 ```
 
 - **CP-4** interprets legal/covenant documentation and scores covenant aggressiveness.
+- **CP-4D** maps the restricted-group perimeter, guarantees, collateral, structural priority, leakage, and priming exposure. CP-3B consumes its nullable handoff on a later run.
 - **CP-4C** calculates covenant capacity and headroom using the required calculation standard: formula, numerator, denominator, period, source trace, and normalisation.
 
 ### 6. L5 Quality Assurance Loop
@@ -133,8 +141,8 @@ CP-5B validates claim-to-source lineage. CP-5 audits outputs across eight lanes:
 CP-6A receives from 11 upstream modules:
 
 ```text
-CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F,
-CP-3, CP-3B, CP-3D, CP-4, CP-4C
+CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-2G (optional),
+CP-3, CP-3B, CP-3D, CP-4, CP-4D (optional), CP-4C
         |
         v
 CP-6A (ICDebateChallenge)
@@ -167,7 +175,7 @@ CP-6E is the terminal analytical module. It determines final Portfolio Posture t
 |--------|----------------|------------------|----------------|
 | CP-2 | 4 | CP-1, CP-1A, CP-1B, CP-1C | First full synthesis of financials, business facts, earnings, and peers |
 | CP-3 | 4 | CP-1, CP-1C, CP-2, CP-2E | Converts fundamentals into valuation and security selection |
-| CP-6A | 11 | CP-2, CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-3, CP-3B, CP-3D, CP-4, CP-4C | Maximum analytical convergence for IC decision-making |
+| CP-6A | 11 core + 2 optional | Core feeds plus nullable CP-2G and CP-4D handoffs | Maximum analytical convergence for IC decision-making without optional-module input gating |
 | CP-6E | 4 | CP-3, CP-3C, CP-4C, CP-6A | Terminal portfolio-level decision point |
 
 ## Complete Edge Reference
@@ -175,21 +183,23 @@ CP-6E is the terminal analytical module. It determines final Portfolio Posture t
 | Source Module | Downstream Destinations |
 |---------------|-------------------------|
 | CP-0 | CP-X |
-| CP-1 | CP-1B, CP-1C, CP-2, CP-2B, CP-2E, CP-3, CP-3D, CP-4, CP-4C |
-| CP-1A | CP-2, CP-2D |
+| CP-1 | CP-1B, CP-1C, CP-2, CP-2B, CP-2E, CP-2G, CP-3, CP-3D, CP-4, CP-4D, CP-4C |
+| CP-1A | CP-2, CP-2D, CP-2G, CP-4D |
 | CP-1B | CP-2, CP-2B |
 | CP-1C | CP-2, CP-3 |
-| CP-2 | CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-3, CP-6A |
+| CP-2 | CP-2B, CP-2C, CP-2D, CP-2E, CP-2F, CP-2G, CP-3, CP-6A |
 | CP-2B | CP-3D, CP-6A |
 | CP-2C | CP-6A |
 | CP-2D | CP-6A |
 | CP-2E | CP-3, CP-3D, CP-6A |
 | CP-2F | CP-6A |
+| CP-2G | CP-6A |
 | CP-3 | CP-3B, CP-3C, CP-6A, CP-6E |
 | CP-3B | CP-6A |
 | CP-3C | CP-6E |
 | CP-3D | CP-4, CP-6A |
-| CP-4 | CP-4C, CP-6A |
+| CP-4 | CP-4D, CP-4C, CP-6A |
+| CP-4D | CP-4C, CP-6A; CP-3B next run |
 | CP-4C | CP-6A, CP-6E |
 | CP-6A | CP-6E |
 | All analytical modules | CP-5B |

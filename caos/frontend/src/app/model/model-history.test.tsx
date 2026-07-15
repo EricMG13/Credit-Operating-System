@@ -22,6 +22,7 @@ vi.mock("@/lib/engine/useModelEngine", () => ({
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
+  getSettings: vi.fn().mockResolvedValue({ features: { model_engine_v2_enabled: false } }),
   getSavedModel: vi.fn().mockResolvedValue(null),
   saveModel: vi.fn(),
   getAnalystSettings: vi.fn(),

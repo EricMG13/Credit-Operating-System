@@ -417,6 +417,23 @@ Decision under review: replace the stale deployment grounding with a code-backed
 
 Reopen if a reference/demo artifact is described as live, if an open PR is counted as merged, if a prerequisite-gated control is mislabeled dead, if a control label overstates its server-side effect, if the two failing `main` E2E assertions disappear from the release gate without a green rerun, or if any phase checkbox is closed from documentation evidence alone rather than current code plus its stated verification.
 
+## CAOS Applicable Updates — Phase 1C freshness critic pass (2026-07-14)
+
+Decision under review: introduce one source-aware freshness policy and reporting-profile contract before replacing the existing surface-specific staleness heuristics.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-14-166 | Credit analyst | Missing fiscal-period, publication, or market as-of metadata could be treated as recent merely because the file was uploaded recently. | High | Resolved in contract | `unknown` is the mandatory result when source-effective metadata is missing or invalid. Upload time is observation metadata only and never substitutes for a reporting period or market as-of. |
+| RT-2026-07-14-167 | Saboteur | Fixed day arithmetic can misclassify month-end, leap-year, quarterly, semiannual, annual, or private-company reporting cycles. | High | Resolved in contract | Calendar-period advancement is cadence-aware, evaluated in UTC, and covered at month-end, leap-year, exact-boundary, and timezone edges. Private/event-driven and unknown cadence do not receive an invented due date. |
+| RT-2026-07-14-168 | Data-governance reviewer | A restated document or replaced source version could leave a derived run, checkpoint, or report labelled current even though its inputs changed. | High | Resolved in contract | Derived freshness compares the bound source identity/version set with the lineage parents used at creation. A proven mismatch is stale; missing lineage is unknown, never current. |
+| RT-2026-07-14-169 | Security auditor | A consolidated freshness endpoint could reveal the existence or timestamps of foreign issuers, contexts, reports, or source artifacts. | High | Resolved in contract | Freshness reads reuse issuer/team/analyst authorization, resolve foreign identifiers as 404, and never traverse lineage outside the caller's owned context. |
+| RT-2026-07-14-170 | New hire | One universal age threshold would conflate prices, reported accounts, ratings, legal documents, runs, and derived artifacts. | High | Resolved in contract | The evaluator uses explicit source kinds and independent clocks. Event-driven sources remain current only when their version is known and unchanged; they do not inherit a quarterly clock. |
+| RT-2026-07-14-171 | Release engineer | Replacing every existing stale label at once could change production decisions without a rollback path. | High | Resolved in rollout | Schema and metadata writes are additive. New reads and route adapters are gated by `CAOS_LINEAGE_V2_ENABLED`; flag-off preserves the current staleness behavior while stored source metadata remains available for a later retry. |
+
+### Critic reopen conditions (Phase 1C)
+
+Reopen if upload time is proposed as a market/reporting as-of fallback, if a new source kind is introduced without an explicit clock, if a derived artifact lacks a stable source fingerprint or lineage comparison, if freshness reads cross an existing authorization boundary, or if the policy/version vocabulary changes without a migration and compatibility test.
+
 ## All-Surface Impeccable Lifecycle Deployment — Critic Reopen (2026-07-13)
 
 Decision under review: apply the approved critique, system-convergence, surface-refinement, production-readiness, and release passes to every analyst route and global overlay while retaining Query, Sector Review, and RV Screener as visual goldens.
@@ -494,6 +511,25 @@ edited, if a foreign agenda or linked artifact is distinguishable from missing, 
 existing decision clients change shape, or if agenda and history tables are visible
 at the same time.
 
+## Phase 1B Transactional Lineage and Reconciliation — Critic Pass (2026-07-13)
+
+Decision under review: bind producer refs and derivation edges inside existing
+transactions, then add a bounded operator reconciler over authoritative history.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-13-161 | Saboteur | A producer that serializes a stale context JSON object can erase refs written by a sibling producer that completed first. | High | Resolved in implementation | All v2 producers lock and reload the owned context, merge refs by `(kind,id,version)`, retain unrelated keys and legacy scalars, and flush within the caller transaction. Typed ordering is canonical. |
+| RT-2026-07-13-162 | Security Auditor | Accepting a context id on ingestion or run creation can become an ownership or cross-team existence oracle. | High | Resolved in implementation | V2-enabled requests validate owner and issuer membership through non-enumerable 404 responses before domain persistence. Flag-off and omitted-context requests retain the v1 path. |
+| RT-2026-07-13-163 | Saboteur | Backfilling run inputs from the context's present contents would fabricate provenance for documents attached after the run began. | High | Resolved in implementation | Run input edges are captured only at run creation. The reconciler upgrades the run ref but records unresolved history rather than synthesizing run-input edges. |
+| RT-2026-07-13-164 | Security Auditor | A reconciliation script could silently rewrite legacy history, cross tenant boundaries, or partially mutate an unbounded dataset. | High | Resolved in implementation | The service pages over every context, resolves persisted owners separately, uses bounded tenancy-off fallbacks, fails closed on tenancy-on owner gaps, adds only proven v2 refs/edges, never deletes, and commits once per context only in apply mode. Dry-run and verify roll back. |
+| RT-2026-07-13-165 | Saboteur | A uniqueness loser could leave insight edges even though its insight row rolled back. | High | Resolved in implementation | Insight edges are written only after the nested flush succeeds. A uniqueness loser resolves the winner without writing; any later edge failure rolls the outer request transaction back with the new insight. |
+
+### Critic reopen conditions (2026-07-13)
+
+Stop and revise if a helper commits, if producer lineage can survive without its
+domain row, if reconciliation invents run inputs, if verify mutates state, or if a
+foreign context/artifact produces a distinguishable response.
+
 ## Report Studio Live Rendering and Binary Export — Critic Pass (2026-07-13)
 
 Decision under review: bind Report Studio to live module output and immutable report
@@ -541,6 +577,34 @@ but symbol impact and final `detect-changes` cannot open its pending LadybugDB W
 because `lbug.shadow` is absent. No WAL data was deleted; exhaustive source/diff
 review and the full verification matrix are the fallback required by AGENTS.md.
 
+## CAOS Applicable Updates — Phase 0 critic pass (2026-07-13)
+
+Decision: adopt the bounded execution contract in
+`docs/superpowers/plans/2026-07-13-caos-applicable-updates.md`; Phase 0 freezes
+source contracts and default-off gates without changing runtime behavior.
+
+| ID | Date | Decision / Plan | Objection | Impact | Status | Evidence / resolved commitment |
+| --- | --- | --- | --- | --- | --- | --- |
+| RT-2026-07-13-143 | 2026-07-13 | Applicable Updates rollout | A coupled rollout makes one defect block or contaminate unrelated capabilities. | High | Resolved | The contract defines bounded, independently deployable phases with per-phase acceptance and rollback gates. |
+| RT-2026-07-13-144 | 2026-07-13 | Lineage v2 | Lineage written after the business transaction can diverge; broad reads can leak cross-scope evidence. | High | Resolved in contract | Lineage is transactional with its source write and every read/write preserves existing authorization and tenancy scope. |
+| RT-2026-07-13-145 | 2026-07-13 | Market/model XLSX import | A hostile workbook can evaluate formulas, follow links, spoof cached values, or mutate state during preview. | High | Resolved in contract | `.xlsx` only, quarantine and bounded parsing, no formula evaluation, cached-value/as-of validation, preview has no writes, and ambiguity fails closed. |
+| RT-2026-07-13-146 | 2026-07-13 | Model engine v2 | Parallel production calculators can silently produce inconsistent committee numbers. | High | Resolved in contract | Exactly one production calculator is canonical; rollout changes routing under a default-off flag and parity goldens. |
+| RT-2026-07-13-147 | 2026-07-13 | Analyst model overrides | Untyped edits without actor/reason provenance can bypass model discipline and leave dependent outputs stale. | High | Resolved in contract | Overrides are typed, authorized, immutable-audited, and atomically trigger dependency-aware downstream recomputation. |
+| RT-2026-07-13-148 | 2026-07-13 | CP-2G/CP-4D integration | Runtime adapters can drift from supplied prompts/schemas and become impossible to disable safely. | High | Resolved | Supplied bytes are vendored with SHA-256 manifests; compatibility goldens and independent default-off flags gate each module. |
+| RT-2026-07-13-149 | 2026-07-13 | Persistence evolution | Destructive migrations or one-shot backfills make rollback unsafe and can strand partial data. | High | Resolved in contract | Migrations are additive; backfills are resumable/idempotent; rollback disables routing and uses forward correction without deleting analyst evidence. |
+| RT-2026-07-13-150 | 2026-07-13 | Notifications | In-memory or globally addressed alerts disappear on restart or disclose another analyst's activity. | High | Resolved in contract | Notifications are durable, authorization checked, and analyst scoped; delivery can be disabled without deleting the ledger. |
+| RT-2026-07-13-151 | 2026-07-13 | All new UI | Accessibility deferred to the end can make dense evidence/import interactions unusable by keyboard or color-dependent. | High | Resolved in contract | WCAG 2.1 AA, keyboard operation, visible focus, semantic status labels, reduced motion, and axe evidence are gates in every UI-bearing phase. |
+
+### Critic reopen conditions (Applicable Updates)
+
+Reopen before proceeding if any phase cannot deploy/roll back independently; a
+lineage event can diverge from its authorized source transaction; XLSX processing
+evaluates formulas or accepts ambiguous/stale caches; more than one calculator is
+production-authoritative; an override lacks type/audit/recomputation; a prompt or
+schema changes without compatibility proof and a flag; a migration is destructive
+or a backfill non-resumable; notifications are ephemeral or cross analyst scope;
+or any interaction fails the accessibility gates.
+
 ## Pre-Deployment Program Coverage Review — Critic Pass (2026-07-13)
 
 Decision under review: retain the eight-phase pre-deployment program, but close
@@ -566,3 +630,100 @@ backup or external alerting remains optional at sign-off; any spec-only module's
 user promise has no blocking owner; beta fixtures can enter production; the
 handover omits retention/vendor/host operations; persona UAT is unsigned; or
 readiness is inferred from an undifferentiated checkbox count.
+
+## Phase 2 Secure Market Workbook — Critic Pass (2026-07-14)
+
+Decision under review: add a stateless preview/revalidated commit boundary for
+analyst-supplied Bloomberg-style `.xlsx` files and create immutable, owned market
+snapshots without weakening the Phase 1 lineage or tenancy contracts.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-14-172 | Security auditor | A preview that vaults the upload or creates a database token is already a state mutation; a commit that trusts preview rows or client-returned warnings can bypass later validation. | High | Resolved in contract | Preview is read-only. Commit receives the workbook again, verifies the preview SHA-256, rescans and reparses it under the same bounded policy, and derives rows and issues server-side before any write. |
+| RT-2026-07-14-173 | Saboteur | The existing globally unique market payload hash can cause a second analyst uploading identical bytes to receive the first analyst's snapshot, leaking its existence and authority. | High | Resolved in contract | Imported snapshots are analyst-owned and every import/read/screen lookup is owner-scoped with foreign IDs returning 404. The stored idempotency fingerprint is authority-scoped while the unsalted workbook SHA-256 remains audit metadata; retries converge only inside the owning analyst scope. |
+| RT-2026-07-14-174 | Data-governance reviewer | A broad market workbook cannot safely be assigned to an arbitrary issuer-owned `Document`: a user authorized for that issuer could then retrieve prices for issuers or teams elsewhere in the file. | High | Resolved in contract | The raw workbook is represented once by an analyst-owned market source record and manifest with no invented issuer anchor. Exact FIGI or explicit authorized mappings may link individual normalized rows to issuers; the binary remains analyst-scoped. |
+| RT-2026-07-14-175 | Database reviewer | Writing the vault file before the database transaction can leave an orphan when commit fails, while writing it after commit can leave a snapshot whose evidence bytes never landed. | High | Resolved in implementation contract | Commit performs a deterministic atomic vault write, creates source, manifest, snapshot, instruments, issue ledger, and lineage in one explicit database transaction, and removes only a newly-created vault object if that transaction fails. Idempotent retries reuse an already-valid owned object. |
+| RT-2026-07-14-176 | Hostile-input tester | A ZIP with traversal names, duplicate members, extreme compression, macros, external relationships, too many sheets/cells, or oversized strings can bypass a simple `PK`/`xl/` sniff and exhaust or influence the parser. | High | Resolved in contract | A pre-open OOXML gate rejects encrypted, duplicate, traversing, macro/external-link and over-budget packages; workbook sheet/row/column/cell/string/formula budgets are enforced before normalization. ClamAV remains scan-before-parse and fails closed whenever configured. |
+| RT-2026-07-14-177 | Credit analyst | Automatic borrower-name matching, implicit Bid/Ask selection, or upload-time dating can silently bind the wrong issuer or market observation. | High | Resolved in contract | Issuer linkage is exact FIGI or explicit authorized issuer ID only. Sheet, noncanonical headers, Bid/Ask-to-price choice, currency and as-of constants require explicit mapping; upload time never supplies market as-of and inconsistent/future row dates block commit. |
+| RT-2026-07-14-178 | Spreadsheet specialist | Loading a formula workbook with `data_only=True` alone hides formulas; loading it with formulas alone cannot prove cached values. External references can also appear in relationships or formula text. | High | Resolved in contract | The parser opens independent formula and cached-value views, inspects package relationships and formula text, never calculates, and records every formula-bearing mapped cell. Any required formula without an acceptable finite cached value blocks commit. |
+
+### Critic reopen conditions (Phase 2)
+
+Reopen if preview writes state; commit accepts client-normalized rows; a duplicate
+can cross analyst scope; the raw workbook is assigned an invented issuer; any
+formula is evaluated; external relationships, macros, or workbook budgets are
+relaxed; upload time becomes market as-of; issuer matching uses borrower text; or
+the raw source, manifest, snapshot, instruments, issue ledger, and lineage can
+diverge across a failed commit.
+
+## Phase 3 Canonical Model Engine v2 — Critic Pass (2026-07-14)
+
+Decision under review: introduce a default-off, pure server-side ModelEngineV2
+and additive ModelDraftV2 contract, then make that server result the only live
+issuer calculation authority while retaining the TypeScript Atlas Forge model
+solely as a clearly labelled reference fixture.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-14-179 | Credit model reviewer | Running the current TypeScript calculator beside the new server engine for live issuers creates two plausible but divergent committee answers. | High | Resolved and verified | Atlas Forge is the only issuer permitted to load the TypeScript reference calculator, independent of flag state. Flag-on live issuers consume only server V2; flag-off live issuers fail closed instead of inheriting fixture values. No live shadow comparison is introduced. |
+| RT-2026-07-14-180 | Database reviewer | Timestamp check-then-update permits concurrent saves that both pass and silently lose one analyst edit. | High | Resolved in contract | ModelDraftV2 has an integer revision. Every mutation uses one `UPDATE ... WHERE id/owner/revision = expected` statement and requires exactly one affected row; conflicts return 409 with the authorized current revision. First creation relies on the unique owner/issuer key and never falls back to last-write-wins. |
+| RT-2026-07-14-181 | Model-risk reviewer | “Edit any cell” can replace a derived value without showing the displaced formula, propagate stale dependents, or erase unrelated overrides during scenario reset. | High | Resolved and verified | Overrides are typed graph-node replacements. Calculation always starts from canonical inputs, applies active replacements, recomputes dependents, retains original formula/value and an immutable audit record, and emits invariant warnings. Derived overrides require reason, actor, before/after, scope, source, and a timezone-aware future expiry. Scenario reset changes scenario inputs only. |
+| RT-2026-07-14-182 | Credit analyst | Missing live debt terms could silently inherit Atlas Forge balances, margins, or rates and make a fabricated forecast look complete. | High | Resolved in contract | Live calculations accept only sourced/imported inputs. Missing required inputs produce an explicit `insufficient_inputs` result with null dependent outputs and named gaps; reference constants are unreachable from the server engine. |
+| RT-2026-07-14-183 | Spreadsheet security reviewer | A model workbook can carry macros, links, volatile formulas, stale caches, ambiguous row labels, or formulas crafted to become executable after export. | High | Resolved in contract | Reuse the bounded OOXML/AV gate, accept `.xlsx` only, never evaluate formulas, treat formula text as informational, fail closed on active content/external links/ambiguity, neutralize exported text cells against formula injection, and revalidate the original bytes during commit. |
+| RT-2026-07-14-184 | Contract reviewer | The Phase 0 model-workbook note names `Historical`, `Forecast`, `Debt`, and `Outputs`, while the approved Phase 3 public contract names `Model`, `Debt Schedule`, `Overrides`, and `Sources/Audit`. Implementing both would create incompatible v1 formats. | High | Resolved before implementation | The approved Phase 3 logical contract is authoritative. The physical workbook uses the five literal valid names plus `Sources - Audit`; its logical sheet ID and product label remain `Sources/Audit`. Stable row IDs and period keys remain canonical. |
+| RT-2026-07-14-185 | Authorization reviewer | Draft, calculation, import-preview, checkpoint, or export lookups by raw ID can disclose another analyst's issuer/model existence. | High | Resolved in contract | Every lookup is analyst- and issuer-authorized, uses `require_issuer`, scopes by owner in SQL, and returns 404 for foreign objects. Preview is stateless; commit repeats authorization and validation inside the transaction. |
+| RT-2026-07-14-186 | Lineage reviewer | Checkpoints and reports can bind the draft payload while exports bind a later recalculation, so identical labels conceal different numbers. | High | Resolved in contract | Every calculation carries engine version, canonical input fingerprint, calculation hash, and revision. Checkpoint, report, and workbook exports bind the same immutable calculation envelope; restores create a new draft revision and calculation rather than mutating history. |
+| RT-2026-07-14-187 | Release engineer | A flag rollback after a destructive schema rewrite could strand existing models or require dual-writing two incompatible payloads. | High | Resolved in contract | Migration is additive. Existing `SavedModel` remains the flag-off compatibility path; V2 uses new nullable/additive tables and columns. Disabling the flag stops V2 routing without deleting drafts, calculations, overrides, or audit evidence. |
+| RT-2026-07-14-188 | UX/accessibility reviewer | A browser-only unload prompt misses internal Next.js navigation, while aggressive interception can trap keyboard users or silently autosave. | Medium | Resolved in contract | A persisted analyst preference controls both `beforeunload` and internal-link interception. The dialog is keyboard/focus safe, clearly offers stay or discard-and-leave, and never autosaves. Clean drafts never prompt. |
+| RT-2026-07-14-189 | OOXML verifier | The approved literal worksheet title `Sources/Audit` is impossible: Excel forbids `/` in worksheet names, so an exporter using it cannot save a valid `.xlsx`. | High | Resolved before implementation | Use physical title `Sources - Audit` and logical ID/label `sources_audit` / `Sources/Audit`. Preview and round-trip tests require this exact mapping and reject alternate or duplicate audit sheets. |
+| RT-2026-07-14-190 | Release/model-risk reviewer | A flag-off live issuer could fall through to the synthetic fixture calculator and display plausible Atlas Forge values under a real issuer. | High | Resolved and verified | Route authority is fail-closed for every live issuer unless V2 is explicitly enabled and returned with the V2 authority marker. Resolver and rendered-route tests prove the reference calculator is reachable only for the explicit Atlas Forge ID. |
+| RT-2026-07-14-191 | Scale-control reviewer | Defaulting an omitted model or close-format workbook currency/unit to USD/millions can create a 1,000x wrong read. | High | Resolved and verified | `ModelDraftPayload` and `LegacyWorkbookMapping` require explicit supported monetary identity. CP-1, API, mapping, workbook and UI paths reject missing, empty, null, conflicting or unsupported values; close-format templates begin blank and require analyst entry. |
+| RT-2026-07-14-192 | Credit model reviewer | Negative effective cash interest increases free cash flow under the positive-expense formula and can overstate coverage/cash generation. | High | Resolved and verified | Explicit, derived-override and debt-schedule negative cash interest becomes unavailable with a named gap; coverage and free cash flow degrade to null. Zero remains separately identified as undefined coverage. |
+| RT-2026-07-14-193 | Debt-model reviewer | An untied actual roll-forward or discontinuous actual opening can still look ready; overlapping YTD/LTM windows can also create false discontinuity alarms. | High | Resolved and verified | Material actual residuals make the result partial. Later sourced openings are compared only across contiguous month-end-aware intervals; sourced values remain visible, while genuine discontinuities add a warning and named gap. Same-end and overlapping comparison shapes remain independent. |
+| RT-2026-07-14-194 | Governance reviewer | An override can expire after checkpoint/preview while a report or pending mutation still publishes the stale reviewed result. | High | Resolved and verified | Every effective expiring override blocks new report preview/publication at or after expiry. The workbench invalidates pending/scenario previews locally before refresh, including refresh failure, and disables commit/checkpoint/export until recalculation is explicitly saved. Existing published versions remain immutable. |
+| RT-2026-07-14-195 | Availability reviewer | A valid maximum-size graph can render hundreds of thousands of table cells/options and freeze Model Builder. | Medium | Resolved and verified | Calculation nodes render in 100-row pages with period/text filters; the sensitivity picker renders at most 200 searchable options. A 350-node DOM regression proves off-page nodes remain reachable without mounting the full graph. |
+| RT-2026-07-14-196 | Source-contract reviewer | CP-1 synthesis and binder assumptions can lose fiscal calendar, currency or scale and silently convert non-calendar/GBP disclosures into calendar/USD millions. | High | Resolved and verified | Synthesized, EDGAR and reported CP-1 emit explicit currency/unit; missing or ambiguous identity fails closed. Fiscal-profile-aware FY/Q/YTD parsing handles Qn-before-FY and end-of-month arithmetic. GBP identity survives model, workbook, checkpoint and frozen report surfaces. |
+| RT-2026-07-14-197 | Audit reviewer | The workbench hides actor/time/before/after details even though the append-only audit records contain them. | Medium | Resolved and verified | Model history now exposes actor/time, before/after, displaced formula/value, reason, scope, source, expiry, action and revision. Checkpoints freeze draft ID/revision and reports freeze checkpoint identity, so the applicable append-only events remain addressable without duplicating the event store. |
+
+### Critic reopen conditions (Phase 3)
+
+Reopen if any live issuer number can come from the TypeScript fixture calculator;
+revision writes are not a single database CAS; a derived override lacks immutable
+audit data or downstream recomputation; missing inputs receive reference defaults;
+workbook formulas execute or ambiguous mappings auto-bind; foreign object access
+does not return 404; checkpoint/report/export fingerprints can diverge; rollback
+requires deleting V2 evidence; currency/unit can be inferred or defaulted; an
+expired override can feed a new preview/publication; or unsaved navigation silently
+saves or traps focus.
+
+## Phase 4 CP-4D and CP-2G — Critic Pass (2026-07-15)
+
+Decision under review: add CP-4D and CP-2G as independently flagged analytical
+modules using the supplied prompt methodology, while retaining CAOS persistence,
+authorization, confidence, evidence, and report governance as authoritative.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-15-198 | Release engineer | Registering either module in the static plan without connecting its existing flag would change every run while the flag is off and defeat independent rollback. | High | Resolved in contract | Module specs carry an explicit feature flag. Planning receives the enabled-flag set and omits disabled modules from execution while keeping their contracts addressable in the registry. Flag-off route plans remain byte-for-byte equivalent to the pre-Phase-4 plan. |
+| RT-2026-07-15-199 | Prompt-governance reviewer | The current live synthesizer loads only the Active Prompt; CP-4D and CP-2G require their complete REF, schema, system, and common-preamble context. A partial load can silently change analytical rules. | High | Resolved in contract | Add a deterministic manifest-verifying bundle loader. It loads the common preamble, Active Prompt, ordered REF files, schema reference, and system reference; hashes relative paths plus exact bytes; rejects missing, extra, or mismatched module files; and never falls back to Active Prompt-only loading for these modules. |
+| RT-2026-07-15-200 | Platform architect | The supplied packs contain M365/OneDrive/DOCX export instructions and reference shared files that are absent from the supplied corpus. Executing or inventing those rules would create a second governance/export authority. | High | Resolved before implementation | Keep the supplied directories byte-locked and fingerprinted, then append a CAOS runtime overlay that prohibits filesystem, M365, OneDrive, and document-export actions and requires structured tool output only. CAOS confidence, evidence, persistence, and reporting contracts remain canonical; no numeric-confidence or missing export policy is invented. |
+| RT-2026-07-15-201 | Source-gate reviewer | Thin disclosure can be mistaken for evidence of no structural or ESG risk, creating a false clean conclusion. | High | Resolved in contract | CP-4D blocks without affirmative entity-perimeter and guarantee evidence and limits when security/intercreditor evidence is incomplete. CP-2G zero-source input is Blocked; partial or unknown disclosure is Completed with Limitations. CP-2G Not Applicable requires affirmative sourced inventory, all assessed factors Immaterial to Credit, and no sustainability-linked instrument. Absence alone never proves Not Applicable. |
+| RT-2026-07-15-202 | Orchestration reviewer | Making CP-4D or CP-2G a new hard dependency can block legacy CP-4C, CP-3B, or CP-6A runs and make an optional module failure a platform-wide failure. | High | Resolved in contract | CP-4D and CP-2G have hard upstream source dependencies but only soft downstream ordering. CP-4C and CP-6A degrade when either is disabled, absent, blocked, or malformed. CP-3B keeps its current execution position and may consume only a nullable, versioned CP-4D handoff on a later run. CP-2G is marked non-run-blocking. |
+| RT-2026-07-15-203 | Schema reviewer | A generic object tool can accept invented labels, incomplete registers, numeric leakage guesses, or an unsupported CP-2G module ID. | High | Resolved in contract | Add concrete versioned Pydantic runtime schemas and cross-field validators. Extend module-ID validation only for literal `CP-2G`; keep CP-4D under the existing D range. Enforce exact status/materiality/priority/severity vocabularies, named structural gaps/stranded value, CP-2G Not Applicable invariants, finite numbers, and a complete explicit gaps ledger. |
+| RT-2026-07-15-204 | Evidence-lineage reviewer | Model output can cite search snippets, external unfetched documents, or another analyst's evidence and appear fully sourced. | High | Resolved in contract | Source gates and binders use only retrieved, authorized CAOS chunks. Every material claim carries evidence IDs that the existing runner resolves to owned chunks; unresolved evidence remains a limitation or blocks the source gate. Search hits and filenames alone never establish execution, guarantees, collateral, materiality, or linked-debt mechanics. |
+| RT-2026-07-15-205 | Prompt-injection reviewer | Legal and sustainability documents are untrusted text and can instruct the synthesizer to ignore the methodology or perform tool/file actions. | High | Resolved in contract | The CAOS overlay explicitly treats retrieved text as evidence, never instructions; the live call exposes only the pinned structured-output tool; no file/network/export tool is available; runtime output is schema-validated before persistence. |
+| RT-2026-07-15-206 | Product-integrity reviewer | Adding rich ATLF or other seeded CP-4D/CP-2G findings would make invented risks look like live analytical evidence. | High | Resolved in contract | Do not add production/reference findings. Offline fallback is source-gated and emits the complete schema with empty registers, explicit limitations/gaps, and Insufficient Information states. Frontend reference routes render explicitly unavailable unless a real persisted module result exists. |
+| RT-2026-07-15-207 | IC-methodology reviewer | CP-6A can over-weight an optional module, infer a score from malformed severity text, or change legacy verdicts when the new handoff is absent. | High | Resolved in contract | CP-6A reads only the versioned module handoff, validates its enums and finite values, emits bounded evidence-attributed signals, and otherwise records no score. Absent/blocked/malformed optional outputs preserve the legacy verdict and surface a limitation. |
+| RT-2026-07-15-208 | Runtime-capacity reviewer | Loading every reference on every attempt can exceed prompt budgets and make retries nondeterministic. | Medium | Resolved in contract | Validate and load the bundle once per module execution, use a fixed file order, apply explicit bounded retrieval context separately, and reuse that exact in-memory bundle for corrective retry. Cross-run caching is deliberately avoided so an on-disk hash mismatch cannot be masked by stale process state. A bundle over the explicit byte cap fails closed rather than dropping references. |
+| RT-2026-07-15-209 | Corpus-maintenance reviewer | Registry, CP-X routing, Pipeline, Deep-Dive, Research, onboarding, and consistency tools can drift and expose different module orders or promises. | High | Resolved in contract | Update every canonical route/reference surface and add consistency tests covering registry IDs, execution order, prompt manifests, frontend module maps, and documentation. Vendored module bytes remain unchanged; any prompt-pack hash change reopens this gate. |
+
+### Critic reopen conditions (Phase 4)
+
+Reopen if a disabled module changes the flag-off plan; any module runs from only
+its Active Prompt; bundle verification is bypassed; M365/file export instructions
+become executable; a thin or absent source pack becomes a clean/Not-Applicable
+finding; optional modules hard-block CP-4C, CP-3B, CP-6A, or the overall run; a
+runtime schema accepts noncanonical enums or unsupported numeric confidence;
+unresolved or foreign evidence satisfies a source gate; synthetic findings appear
+in production/reference UI; CP-6A changes its legacy verdict when the new handoff
+is absent; or the corpus, server registry, and frontend route maps disagree.

@@ -42,7 +42,7 @@ produced after synthesis, so none is a routed entry here.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, FrozenSet, List, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
 
 # CP-0 source categories (must match engine.readiness._CATEGORIES keys).
 FINANCIALS = "financials"
@@ -95,6 +95,13 @@ class ModuleSpec:
     # can't be silently fanned out concurrently because a runner-side set was
     # forgotten (the old hardcoded _SESSION_SYNTH failure mode).
     session_bound: bool = False
+    # Independently deployable optional modules stay in REGISTRY for contract
+    # validation but are absent from the default route plan until their exact
+    # settings field is enabled.
+    feature_flag: Optional[str] = None
+    # A blocked optional advisory module can remain visibly Blocked without
+    # forcing the entire analytical run to Blocked.
+    run_blocking: bool = True
 
     @property
     def layer_rank(self) -> int:
@@ -135,6 +142,9 @@ _SPECS: Tuple[ModuleSpec, ...] = (
                depends_on=("CP-1",), after=("CP-1A", "CP-1B", "CP-1C"),
                required_sources=frozenset({FINANCIALS}),
                implemented=True),
+    ModuleSpec("CP-2G", "ESGSustainabilityCreditRisk", "L2", "esg_credit_risk",
+               after=("CP-1", "CP-1A", "CP-2"), implemented=True,
+               feature_flag="caos_cp_2g_enabled", run_blocking=False),
     # Corpus hard stop (CP_CANONICAL_STATE_RULES SEC4): CP-2B stops only when
     # CP-1 AND CP-2 are BOTH unavailable. Hard-gating on CP-2 turned that AND
     # into an OR (audit 2026-07-10 SPEC-2); CP-2 is a soft ordering edge — the
@@ -180,8 +190,13 @@ _SPECS: Tuple[ModuleSpec, ...] = (
     ModuleSpec("CP-4", "LegalCovenantInterpreter", "L4", "legal_covenant_review",
                depends_on=("CP-1",), required_sources=frozenset({AGREEMENT, COVENANT}),
                implemented=True),
+    ModuleSpec("CP-4D", "RestrictedGroupGuaranteeMap", "L4", "structural_priority_map",
+               after=("CP-1", "CP-1A", "CP-4"),
+               required_sources=frozenset({AGREEMENT}), implemented=True,
+               feature_flag="caos_cp_4d_enabled"),
     ModuleSpec("CP-4C", "CovenantCapacityCalculator", "L4", "covenant_capacity_calculation",
-               depends_on=("CP-1",), required_sources=frozenset({AGREEMENT, COVENANT}),
+               depends_on=("CP-1",), after=("CP-4D",),
+               required_sources=frozenset({AGREEMENT, COVENANT}),
                implemented=True),
     # ── L6 — adversarial debate ────────────────────────────────────────────
     # Deps are the wired upstreams the debate reads. CP-2B (downside fragility)
@@ -191,7 +206,8 @@ _SPECS: Tuple[ModuleSpec, ...] = (
     # opportunistically; CP-6A lands in a later layer via CP-3 (→CP-1C), so those
     # reads now resolve too. See [debate.py].
     ModuleSpec("CP-6A", "ICDebateChallenge", "L6", "ic_debate_challenge",
-               depends_on=("CP-1", "CP-2", "CP-4C", "CP-2B", "CP-3", "CP-3C"), implemented=True),
+               depends_on=("CP-1", "CP-2", "CP-4C", "CP-2B", "CP-3", "CP-3C"),
+               after=("CP-2G", "CP-4D"), implemented=True),
     ModuleSpec("CP-6E", "PortfolioDebateChallenge", "L6", "portfolio_debate_challenge",
                depends_on=("CP-6A",), implemented=True),
     # ── Spec-only corpus modules (no engine synthesizer) ────────────────────
@@ -221,9 +237,16 @@ REGISTRY: Dict[str, ModuleSpec] = {s.module_id: s for s in _SPECS}
 DECLARATION_INDEX: Dict[str, int] = {s.module_id: i for i, s in enumerate(_SPECS)}
 
 
-def all_specs() -> List[ModuleSpec]:
-    """The routing index in declaration order."""
-    return list(_SPECS)
+def all_specs(enabled_flags: FrozenSet[str] = frozenset()) -> List[ModuleSpec]:
+    """The enabled routing index in declaration order.
+
+    Feature-gated specs remain in ``REGISTRY`` so API/schema consumers can name
+    them, but default-off planning is exactly the pre-feature route graph.
+    """
+    return [
+        spec for spec in _SPECS
+        if spec.feature_flag is None or spec.feature_flag in enabled_flags
+    ]
 
 
 def _validate_registry() -> None:

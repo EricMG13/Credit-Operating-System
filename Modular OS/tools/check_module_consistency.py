@@ -25,6 +25,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]  # Modular OS/
 PAYLOADS = ROOT / "KNOWLEDGE SOURCES" / "02_SCHEMA" / "MODULE_PAYLOADS"
 CPX_ROUTE = ROOT / "CP-X" / "SYSTEM_REFERENCE.md"
 ONBOARDING = ROOT / "README" / "CP_ONBOARDING_DOCUMENTATION_v2.txt"
+ROUTE_GRAPH = ROOT / "KNOWLEDGE SOURCES" / "03_ORCHESTRATION" / "CP-X_ROUTE_GRAPH_v2.2.txt"
+ROUTING_INDEX = ROOT / "KNOWLEDGE SOURCES" / "03_ORCHESTRATION" / "CP_ROUTING_INDEX_v2.2.txt"
+COMMON_PREAMBLE = ROOT / "KNOWLEDGE SOURCES" / "00_GOVERNANCE" / "CP-COMMON_PREAMBLE.md"
 
 
 def norm(s: str) -> str:
@@ -77,6 +80,21 @@ def main() -> int:
 
     for f in fails:
         print(f"DRIFT {f}")
+    # Phase-4 modules are independently flagged at runtime, but every canonical
+    # route/reference surface must still know their exact IDs and names.
+    for code in ("CP-2G", "CP-4D"):
+        for label, path in (
+            ("route-graph", ROUTE_GRAPH),
+            ("routing-index", ROUTING_INDEX),
+            ("common-preamble", COMMON_PREAMBLE),
+        ):
+            if code not in read(path):
+                fails.append(f"{code}: missing from {label}")
+
+    # Print Phase-4 checks after the original taxonomy rows too.
+    for f in fails:
+        if f.startswith(("CP-2G:", "CP-4D:")):
+            print(f"DRIFT {f}")
     print(f"\n{checked} modules checked, {len(fails)} with drift.")
     return 1 if fails else 0
 
