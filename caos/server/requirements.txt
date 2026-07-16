@@ -15,7 +15,7 @@ asyncpg==0.31.*; python_version >= "3.10"
 # pgvector SQLAlchemy types (database.SafeVector; mig 0030 HNSW embeddings). Pure
 # Python (needs numpy, already locked); the `vector` Postgres EXTENSION is a
 # deploy-image concern, not a pip one.
-pgvector==0.4.*
+pgvector==0.5.*
 pydantic==2.*
 pydantic-settings==2.*
 anthropic>=0.116.0,<2  # >=0.109 carries the advisor tool (advisor-tool-2026-03-01)
