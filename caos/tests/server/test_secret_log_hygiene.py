@@ -53,6 +53,10 @@ def captured_logs(monkeypatch):
     # Deployed boots refuse the demo seed (another fail-closed guard) — drop
     # the conftest's dev default for this scan.
     monkeypatch.delenv("CAOS_DEMO_SEED", raising=False)
+    # Deployed boots also refuse to start without a malware scanner configured
+    # (config.require_malware_scanner_in_production) — not a secret, just a
+    # boot precondition for this posture.
+    monkeypatch.setenv("CLAMAV_HOST", "clamav-log-hygiene-probe")
     config.get_settings.cache_clear()
     handler = _CaptureHandler()
     handler.setFormatter(logging.Formatter("%(name)s %(levelname)s %(message)s"))
