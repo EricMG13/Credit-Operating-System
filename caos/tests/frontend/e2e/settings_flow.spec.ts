@@ -53,7 +53,8 @@ test.describe("Settings", () => {
     // Diverge one field → the primary becomes actionable.
     await page.getByRole("tab", { name: "Research" }).click();
     await page.getByLabel("Audience").fill(`Dirty ${Date.now()}`);
-    await expect(save).toHaveAttribute("aria-disabled", "false");
+    await expect(save).not.toHaveAttribute("aria-disabled", "true");
+    await expect(save).not.toHaveAttribute("title", "No unsaved changes");
 
     // Saving returns to pristine.
     await save.click();
