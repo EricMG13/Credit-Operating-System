@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { GraphView, SwimlaneView, Inspector, LineagePanel, EventLog } from "./views";
+import { GraphView, SwimlaneView, Inspector, LineagePanel, LiveLineagePanel, EventLog } from "./views";
 import { MODULES } from "@/lib/pipeline/data";
 import type { Sim } from "@/lib/pipeline/sim-engine";
 
@@ -49,6 +49,34 @@ describe("LineagePanel", () => {
     render(<LineagePanel onPick={onPick} drivers={[1]} onOpenEvidence={() => {}} />);
     fireEvent.click(screen.getByText(/EBITDA quality/));
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ n: 1 }));
+  });
+});
+
+describe("LiveLineagePanel", () => {
+  it("renders persisted driver lineage and never adds the seeded reference register", () => {
+    render(
+      <LiveLineagePanel
+        loading={false}
+        onOpenEvidence={() => {}}
+        output={{
+          kpis: [{ l: "Decision drivers", v: "1" }],
+          sections: [{
+            type: "flags",
+            title: "CP-5B · Decision-relevant driver lineage",
+            items: [{ sev: "ok", text: "#1 [CP-4C] Incremental capacity is open.", ev: ["E-4C"] }],
+          }],
+        }}
+      />,
+    );
+    expect(screen.getByText("Decision drivers")).toBeTruthy();
+    expect(screen.getByText(/Incremental capacity is open/)).toBeTruthy();
+    expect(screen.queryByText(/Seeded CP-5B reference/)).toBeNull();
+  });
+
+  it("fails explicitly when a live run predates the persisted driver register", () => {
+    render(<LiveLineagePanel loading={false} onOpenEvidence={() => {}} />);
+    expect(screen.getByText(/LIVE REGISTER UNAVAILABLE/)).toBeTruthy();
+    expect(screen.getByText(/demo lineage is not substituted/i)).toBeTruthy();
   });
 });
 

@@ -35,9 +35,32 @@ api.interceptors.request.use((config) => {
 // profile cookie behind SSO, a lost cookie off-proxy) fires an app-level event
 // that AuthProvider handles by re-resolving /api/auth/me — so the UI routes to the
 // login landing instead of silently 401-ing every call over stale, still-rendered
-// data. The /me probe is excluded (AuthProvider owns its own result) to avoid a
-// self-trigger. The error is re-thrown untouched so every per-call handler still
-// runs exactly as before.
+// data. The /me probe is excluded (AuthProvider owns its own result), as are the
+// exact unauthenticated credential-entry POSTs: their expected 401s belong to the
+// mounted login form and must not remount it before its inline error renders.
+// The error is re-thrown untouched so every per-call handler still runs.
+const AUTH_ENTRY_POST_PATHS = new Set([
+  "/api/auth/profile",
+  "/api/auth/register",
+  "/api/auth/login",
+  "/api/auth/recover",
+]);
+
+function requestPath(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    return new URL(url, "http://caos.local").pathname;
+  } catch {
+    return "";
+  }
+}
+
+function requestOwnsUnauthorizedError(url: string | undefined, method: string | undefined): boolean {
+  const path = requestPath(url);
+  return path === "/api/auth/me"
+    || (method?.toLowerCase() === "post" && AUTH_ENTRY_POST_PATHS.has(path));
+}
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -45,7 +68,7 @@ api.interceptors.response.use(
       typeof window !== "undefined" &&
       axios.isAxiosError(error) &&
       error.response?.status === 401 &&
-      !error.config?.url?.includes("/api/auth/me")
+      !requestOwnsUnauthorizedError(error.config?.url, error.config?.method)
     ) {
       window.dispatchEvent(new Event("caos:auth-lost"));
     }
@@ -510,44 +533,10 @@ export interface SectorReview {
   sections: SectorReviewSection[];
   signals: SectorSignal[];
 }
-export interface SectorAskResponse {
-  signal_id: string;
-  answer: string;
-  financial_impact_summary: string;
-  affected_issuers: SectorIssuer[];
-  recommended_actions: string[];
-  sources: SectorSource[];
-  provenance: string;
-  retrieval_scope: string;
-}
 export const getSectorFeeds = (): Promise<SectorFeed[]> =>
   api.get("/api/sector/feeds").then((r) => r.data);
 export const updateSectorFeeds = (feeds: SectorFeed[]): Promise<SectorFeed[]> =>
   api.put("/api/sector/feeds", { feeds }).then((r) => r.data);
-export const getSectorSignals = (params: {
-  sector?: string;
-  from?: string;
-  to?: string;
-  q?: string;
-  category?: string;
-  severity?: string;
-  limit?: number;
-}): Promise<SectorSignal[]> =>
-  api.get("/api/sector/signals", { params }).then((r) => r.data);
-export const getSectorReview = (params: {
-  sector: string;
-  timeframe?: string;
-  as_of?: string;
-}): Promise<SectorReview> =>
-  api.get("/api/sector/review", { params }).then((r) => r.data);
-export const refreshSectorReview = (data: {
-  sector: string;
-  timeframe?: string;
-  as_of?: string;
-}): Promise<SectorReview> =>
-  api.post("/api/sector/review/refresh", data).then((r) => r.data);
-export const askSectorTopic = (signal_id: string, question: string): Promise<SectorAskResponse> =>
-  api.post("/api/sector/ask", { signal_id, question }).then((r) => r.data);
 
 // ─── Ingestion ────────────────────────────────────────────────────────────
 // The server parses, virus-scans, and chunks the file inside the request, so a
@@ -736,10 +725,7 @@ export const exportToVault = (runId: string): Promise<{ written: string[]; vault
   api.post(`/api/runs/${runId}/vault`).then((r) => r.data);
 
 // ─── Cross-issuer natural-language query ─────────────────────────────────────
-import type { ChunkDTO, MetricDef, NlQueryResult } from "@/lib/query/types";
-
-export const nlQuery = (question: string, signal?: AbortSignal): Promise<NlQueryResult> =>
-  api.post("/api/query/nl", { question }, { signal }).then((r) => r.data);
+import type { ChunkDTO, MetricDef } from "@/lib/query/types";
 
 // Catalog for the NL-query lane — surface ahead of its UI consumer.
 // fallow-ignore-next-line unused-export

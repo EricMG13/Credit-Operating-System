@@ -464,6 +464,48 @@ export function LineagePanel({
   );
 }
 
+export function LiveLineagePanel({
+  output,
+  loading,
+  onOpenEvidence,
+}: {
+  output?: ModuleOutput;
+  loading: boolean;
+  onOpenEvidence: (id: string) => void;
+}) {
+  if (loading) {
+    return (
+      <div role="status" className="px-3 py-2 text-caos-md text-caos-muted">
+        Loading persisted CP-5B driver lineage…
+      </div>
+    );
+  }
+  const hasDriverRegister = output?.sections.some((section) => section.title.includes("Decision-relevant driver lineage"));
+  if (!output || !hasDriverRegister) {
+    return (
+      <div role="status" className="m-3 rounded border border-caos-warning/50 bg-caos-panel px-3 py-2.5">
+        <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning">⚠ LIVE REGISTER UNAVAILABLE</div>
+        <div className="mt-1 text-caos-md text-caos-muted leading-relaxed">
+          This run has no persisted CP-5B decision-driver register. Re-run the issuer to produce one; demo lineage is not substituted.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="p-2 flex flex-col gap-2">
+      <div className="grid grid-cols-2 gap-1.5">
+        {output.kpis.map((kpi) => (
+          <div key={kpi.l} className="rounded border border-caos-border bg-caos-bg px-2 py-1.5">
+            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{kpi.l}</div>
+            <div className="tabular text-caos-md text-caos-text">{kpi.v}</div>
+          </div>
+        ))}
+      </div>
+      <OutSections sections={output.sections} onOpenEvidence={onOpenEvidence} />
+    </div>
+  );
+}
+
 /* ---------- event log ---------- */
 export function EventLog({ events }: { events: SimEvent[] }) {
   return (

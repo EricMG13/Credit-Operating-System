@@ -20,7 +20,7 @@ import { useLivePipelineStatus } from "@/lib/pipeline/useLivePipeline";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { Bar, Dot, SimControls, Tag, ToggleGroup } from "@/components/pipeline/atoms";
-import { EventLog, GraphView, Inspector, LineagePanel, SwimlaneView } from "@/components/pipeline/views";
+import { EventLog, GraphView, Inspector, LineagePanel, LiveLineagePanel, SwimlaneView } from "@/components/pipeline/views";
 import { deriveClearance } from "@/lib/pipeline/clearance";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import type { Sim } from "@/lib/pipeline/sim-engine";
@@ -35,6 +35,7 @@ import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
 import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { useIssuerFreshness } from "@/lib/engine/useFreshness";
 import { resolvePipelineFreshnessRunId } from "@/lib/freshness";
+import type { ModuleOutput } from "@/lib/deepdive/module-outputs";
 
 export default function PipelinePage() {
   return (
@@ -386,6 +387,8 @@ function PipelineVisualizer() {
         modeLabel={modeLabel}
         useLive={useLive}
         mode={mode}
+        liveLineage={liveRun.liveOuts["CP-5B"]}
+        liveLineageLoading={liveRun.loading || liveRun.phase === "loading"}
         pickDriver={pickDriver}
         setEvModal={setEvModal}
       />
@@ -541,6 +544,8 @@ interface PipelineWorkspaceProps {
   modeLabel: string;
   useLive: boolean;
   mode: RunMode;
+  liveLineage?: ModuleOutput;
+  liveLineageLoading: boolean;
   pickDriver: (d: Driver) => void;
   setEvModal: (v: string | null) => void;
 }
@@ -558,9 +563,14 @@ function PipelineWorkspace({
   modeLabel,
   useLive,
   mode,
+  liveLineage,
+  liveLineageLoading,
   pickDriver,
   setEvModal,
 }: PipelineWorkspaceProps) {
+  const hasLiveDriverRegister = liveLineage?.sections.some((section) =>
+    section.title.includes("Decision-relevant driver lineage"),
+  ) ?? false;
   return (
     <div className="pipeline-workspace flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_368px] gap-2 p-2">
       <div className="pipeline-workspace__primary flex flex-col gap-2 min-h-0 min-w-0">
@@ -604,18 +614,18 @@ function PipelineWorkspace({
           <Inspector sim={sim} selected={selected} plan={plan} scope={scope} modeLabel={modeLabel} isLive={useLive} onOpen={openModule} />
         </PanelShell>
         <PanelShell
-          title={mode.drivers ? `Data Lineage · CP-5B drivers in scope (${mode.drivers.length}/5)` : "Data Lineage · CP-5B top-5 material drivers"}
+          title={useLive
+            ? "Data Lineage · CP-5B decision-relevant drivers"
+            : mode.drivers
+              ? `Data Lineage · CP-5B drivers in scope (${mode.drivers.length}/5)`
+              : "Data Lineage · CP-5B decision-relevant drivers"}
           className="flex-[2]"
-          // The CP-5B driver register is a seeded ATLF fixture; don't stamp
-          // "auditability STRONG" over a live run whose lineage it doesn't reflect.
-          right={useLive ? <Tag sev="idle">reference fixture</Tag> : <Tag sev="idle">seeded reference · demo</Tag>}
+          right={useLive
+            ? <Tag sev={hasLiveDriverRegister ? "ok" : "idle"}>{hasLiveDriverRegister ? "live persisted" : "unavailable"}</Tag>
+            : <Tag sev="idle">seeded reference · demo</Tag>}
         >
           {useLive ? (
-            <div className="px-3 py-2 text-caos-md text-caos-muted leading-relaxed">
-              CP-5B driver lineage is not yet wired for live runs — the seeded driver
-              register reflects the ATLF reference deal, not this run. Open a module
-              node to inspect its live payload, QA findings and propagated limitations.
-            </div>
+            <LiveLineagePanel output={liveLineage} loading={liveLineageLoading} onOpenEvidence={setEvModal} />
           ) : (
             <LineagePanel drivers={mode.drivers} onPick={pickDriver} onOpenEvidence={setEvModal} />
           )}
