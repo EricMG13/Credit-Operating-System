@@ -231,7 +231,7 @@ export function QueryInvestigationWorkbench() {
       }
     });
     return () => { historyGeneration.current += 1; };
-  }, [contextState.context?.id, contextState.context?.query_session_id, urlState.run]);
+  }, [contextState.context, urlState.run]);
 
   useEffect(() => {
     let current = true;
@@ -281,7 +281,7 @@ export function QueryInvestigationWorkbench() {
         setRunning(false);
       }
     }
-  }, [capabilityId, contextState, lane, question, running, updateUrlState]);
+  }, [capabilityId, contextState, lane, question, updateUrlState]);
 
   const missing = useMemo(() => Array.isArray(run?.result.missing_dependencies) ? run.result.missing_dependencies.map(String) : [], [run]);
   const decisionState: DecisionContextState = {
