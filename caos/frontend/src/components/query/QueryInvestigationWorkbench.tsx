@@ -195,6 +195,8 @@ export function QueryInvestigationWorkbench() {
   const runGeneration = useRef(0);
   const runningRef = useRef(false);
   const pinningRef = useRef(false);
+  const contextId = contextState.context?.id ?? null;
+  const querySessionId = contextState.context?.query_session_id ?? null;
 
   useEffect(() => {
     if (urlState.lane === "graph" || urlState.lane === "grounded" || urlState.lane === "metric") {
@@ -205,24 +207,23 @@ export function QueryInvestigationWorkbench() {
   }, [urlState.lane]);
 
   useEffect(() => {
-    const context = contextState.context;
     const generation = ++historyGeneration.current;
     setHistory([]);
     setHistoryError(null);
-    if (!context) {
+    if (!contextId) {
       historyContextId.current = null;
       setRun(null);
       return;
     }
-    if (historyContextId.current !== context.id) {
-      historyContextId.current = context.id;
+    if (historyContextId.current !== contextId) {
+      historyContextId.current = contextId;
       setRun(null);
     }
-    analysisApi.listQueryRuns(context.id).then((rows) => {
+    analysisApi.listQueryRuns(contextId).then((rows) => {
       if (generation !== historyGeneration.current) return;
       setHistory(rows);
-      if (urlState.run || context.query_session_id) {
-        const latest = rows.find((item) => item.id === (urlState.run ?? context.query_session_id));
+      if (urlState.run || querySessionId) {
+        const latest = rows.find((item) => item.id === (urlState.run ?? querySessionId));
         if (latest) setRun(latest);
       }
     }).catch((error) => {
@@ -231,7 +232,7 @@ export function QueryInvestigationWorkbench() {
       }
     });
     return () => { historyGeneration.current += 1; };
-  }, [contextState.context, urlState.run]);
+  }, [contextId, querySessionId, urlState.run]);
 
   useEffect(() => {
     let current = true;

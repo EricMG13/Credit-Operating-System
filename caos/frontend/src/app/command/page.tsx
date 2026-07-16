@@ -381,7 +381,7 @@ function CommandCenter() {
                 <button type="button" onClick={() => void generateInsight()} className="caos-action-secondary focus-ring m-2">{insight ? "Refresh cited brief" : "Generate cited brief"}</button>
                 {insight ? <article className="p-2 pt-0 grid gap-2"><p className="text-caos-sm text-caos-text">{insight.summary}</p><ul className="grid gap-1">{insight.claims.map((claim) => <li key={claim.id} className="text-caos-xs text-caos-muted">{claim.statement} · sources {claim.evidence_ids.join(", ") || "missing"}</li>)}</ul></article> : <p role="status" className="p-2 pt-0 text-caos-xs text-caos-muted">{insightMessage ?? "No cited brief generated."}</p>}
               </PanelShell>
-              {analysis.context ? <Link href={contextHref("/query", analysis.context.id)} className="caos-action-secondary no-underline focus-ring">Open cross-issuer Query</Link> : null}
+              <Link href={analysis.context ? contextHref("/query", analysis.context.id) : "/query"} className="caos-action-secondary no-underline focus-ring">Open cross-issuer Query</Link>
             </div>}
           />
         </div>
