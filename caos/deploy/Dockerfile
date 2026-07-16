@@ -18,7 +18,7 @@ RUN npm run build
 # ─── Stage 2: Python runtime (FastAPI + static UI) ──────────────────────────
 # Pinned by digest (#24); refresh with:
 #   docker buildx imagetools inspect python:3.14-slim --format '{{.Manifest.Digest}}'
-FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1 AS runtime
+FROM python:3.14-slim@sha256:d3400aa122fa42cf0af0dbe8ec3091b047eac5c8f7e3539f7135e86d855dc015 AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     HOST=0.0.0.0 \
