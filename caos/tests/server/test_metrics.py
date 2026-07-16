@@ -78,3 +78,15 @@ def test_leverage_plausibility_fires_when_inconsistent():
 def test_leverage_plausibility_skips_when_input_missing():
     assert leverage_plausibility_finding(_cp1(net_leverage_adj_ltm=5.0)) is None  # no net debt / ebitda
     assert leverage_plausibility_finding(None) is None
+
+
+def test_energy_pct_requires_same_clause_cooccurrence():
+    # Same-chunk-but-different-sentence used to misattribute a non-energy cost
+    # share to energy_cost_pct (triage 2026-07-16 P3).
+    from engine.metrics import derive_energy_cost_pct
+
+    misattributed = [("c1", "10-K", "Raw materials represent 40% of cost of goods sold. "
+                                    "Fuel surcharges apply to freight contracts.")]
+    assert derive_energy_cost_pct(misattributed) is None
+    genuine = [("c2", "10-K", "Energy costs represent 18% of cost of goods sold.")]
+    assert derive_energy_cost_pct(genuine) == (18.0, "c2", "10-K")

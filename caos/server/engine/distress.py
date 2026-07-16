@@ -1,17 +1,23 @@
 """Altman Z''-Score — a transparent, deterministic distress signal.
 
-The private-firm / non-manufacturer variant (Altman's "double-prime" / EM-score)
+The private-firm / non-manufacturer variant (Altman's 1995 "double-prime")
 deliberately drops the market-value and sales-turnover terms of the classic
 Z-score, so it is computable from the **balance sheet alone** — which fits the
 loans-only lens (issuers are often private or sub-IG, with no clean market cap).
 
-    Z'' = 3.25 + 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4
+    Z'' = 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4
       X1 = working capital / total assets
       X2 = retained earnings / total assets
       X3 = EBIT / total assets
       X4 = book equity / total liabilities
 
 Zones (standard Z'' cutoffs): > 2.6 safe · 1.1–2.6 grey · < 1.1 distress.
+
+The +3.25 EM-Score intercept does NOT belong here: that constant defines
+Altman's *emerging-markets* variant, which is read against bond-rating
+equivalents, not these zones. Pairing the constant with the 2.6/1.1 cutoffs
+shifted every issuer ~3.25 toward "safe" — most stressed LBO balance sheets
+read safe/grey (audit 2026-07-10 ENG-1, CRITICAL; fixed 2026-07-16).
 
 A *transparent, cited* score — not a black-box rating. Every input is an XBRL
 fact, so the engine can show its work and the CP-5 gate can audit it.
@@ -45,12 +51,12 @@ def altman_z_double_prime(
     total_liabilities: float,
     book_equity: float,
 ) -> Optional[Tuple[float, str]]:
-    """Altman Z''-Score (double-prime / EM-score) and its credit zone.
+    """Altman Z''-Score (double-prime, 1995 four-variable) and its credit zone.
 
     Balance-sheet-only distress signal. Returns None when the inputs are unusable
     (a denominator <= 0, or any input missing/non-finite), otherwise (Z'', zone).
 
-        Z'' = 3.25 + 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4
+        Z'' = 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4
 
     where each X-term is a standard balance-sheet ratio:
 
@@ -85,5 +91,8 @@ def altman_z_double_prime(
     x3 = ebit / total_assets                     # operating return on assets
     x4 = book_equity / total_liabilities         # solvency cushion (equity / DEBT)
 
-    z = round(3.25 + 6.56 * x1 + 3.26 * x2 + 6.72 * x3 + 1.05 * x4, 2)
+    # No +3.25: that intercept is the EM-Score variant, whose scale is read
+    # against bond-rating equivalents — the 2.6/1.1 zones above assume the
+    # no-constant Z'' (ENG-1).
+    z = round(6.56 * x1 + 3.26 * x2 + 6.72 * x3 + 1.05 * x4, 2)
     return z, zone_for(z)

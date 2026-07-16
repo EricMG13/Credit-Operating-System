@@ -152,3 +152,15 @@ describe("buildWorkbook", () => {
     expect(String(headerCell.value).startsWith("'")).toBe(true);
   });
 });
+
+  it("never exports a non-finite ratio cell (zero-revenue override → blank, not Infinity)", async () => {
+    // q0 revenue overridden to 0 makes adjm/sga/dapc ±Infinity in the model;
+    // the grid blanks them (model-format fmt) but round3 guarded only NaN, so
+    // the committee .xlsx carried numeric Infinity cells with a "0.0%" numFmt
+    // (triage 2026-07-16 P3).
+    const wb = await roundTrip(build({ "q0:rev": 0 }));
+    const rows = sheetRows(wb.getWorksheet("Model")!);
+    const flat = rows.flat();
+    const nonFinite = flat.filter((v) => typeof v === "number" && !Number.isFinite(v));
+    expect(nonFinite).toEqual([]);
+  });

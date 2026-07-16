@@ -6,7 +6,8 @@ CP-1 output computed from **real, captured** SEC company facts (trimmed fixtures
 in this dir) so any numeric drift fails CI. Fully offline — never touches SEC.
 
 The VSAT figures are cross-checked against the human-validated VIASAT_VALIDATION.md
-(revenue $2,556M→$4,284M→$4,520M→$4,640M; Altman Z'' 4.47 safe), so a green run
+(revenue $2,556M→$4,284M→$4,520M→$4,640M; Altman Z'' 1.22 grey — re-validated
+2026-07-16 after the ENG-1 fix removed the erroneous +3.25 EM intercept), so a green run
 certifies real numbers, not just "whatever the code emits today."
 
 Regenerate fixtures with `_capture.py` (one live SEC fetch each); when a frozen
@@ -39,8 +40,8 @@ GOLDEN = {
         "net_debt_ltm": 4701.8,
         "net_leverage_adj_ltm": 3.21,
         "interest_coverage_ltm": 4.06,
-        "altman_z": 4.47,
-        "zone": "safe",
+        "altman_z": 1.22,
+        "zone": "grey",
     },
     "fun_facts.json": {
         "entity": "Six Flags Entertainment Corporation",
@@ -49,8 +50,8 @@ GOLDEN = {
         "net_debt_ltm": 5090.0,
         "net_leverage_adj_ltm": 8.09,
         "interest_coverage_ltm": None,  # interest concept predates the EBITDA period (#25 gate)
-        "altman_z": 1.23,
-        "zone": "grey",
+        "altman_z": -2.02,
+        "zone": "distress",
     },
 }
 

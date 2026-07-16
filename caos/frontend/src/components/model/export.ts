@@ -68,8 +68,12 @@ function buildModelSheet(
     .filter((c) => showQ || c.group !== "Q")
     .map((c) => ({ ...c, ctx: model.cols[c.key] }));
 
+  // Number.isFinite, not isNaN: a zero-revenue override makes the ratio rows
+  // (adjm/sga/dapc) ±Infinity, which the on-screen grid blanks but this exported
+  // as a numeric Infinity cell with a "0.0%" numFmt — a grid/export divergence
+  // on a committee deliverable (triage 2026-07-16 P3).
   const round3 = (v: number | null | undefined): Cell =>
-    v == null || Number.isNaN(v) ? "" : Math.round(v * 1000) / 1000;
+    !Number.isFinite(v as number) ? "" : Math.round((v as number) * 1000) / 1000;
 
   stampRow(ws, prov, runId);
   ws.addRow([safeStr(meta.header), ...colDefs.map((c) => GROUPS_META[c.group])]);

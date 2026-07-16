@@ -23,7 +23,7 @@ Companion to [LAUNCH_PHASE1.md](LAUNCH_PHASE1.md) and [AUDIT.md](AUDIT.md).
 | **Full pipeline** (upload → chunk → modules → CP-5B/5C/5) | Completed end-to-end; run `complete`. |
 | **CP-5 QA gate** | **Honest** — run roll-up **`Restricted`** on 2 MATERIAL lineage findings (Weak / Conflicting lineage in CP-1); did *not* rubber-stamp. The CP-5 invariant held (the LLM never set its own committee status). |
 | **Provenance / click-to-source** | Every claim resolved `claim → evidence → document_chunk_id`; `metric_facts` tagged `prov=run` with period + headline flags. |
-| **EDGAR XBRL → CP-1** (`fetch_cp1("VSAT")`, deterministic, no LLM) | **Real reported revenue** $2,556M (FY23) → $4,284M (FY24, Inmarsat) → $4,520M (FY25) → $4,640M (FY26), plus **Altman Z'' 4.47** (safe), each **cited to a `us-gaap:` XBRL concept**. |
+| **EDGAR XBRL → CP-1** (`fetch_cp1("VSAT")`, deterministic, no LLM) | **Real reported revenue** $2,556M (FY23) → $4,284M (FY24, Inmarsat) → $4,520M (FY25) → $4,640M (FY26), plus **Altman Z'' 1.22** (grey), each **cited to a `us-gaap:` XBRL concept**. *(Correction 2026-07-16: originally validated as "4.47 safe" — that score carried the +3.25 EM-Score intercept, which belongs to Altman's emerging-markets variant and not the 2.6/1.1 zones; the corrected no-constant Z'' is 1.22 → grey. Audit ENG-1.)* |
 
 ## Findings (tracked)
 

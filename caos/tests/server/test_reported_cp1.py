@@ -207,3 +207,38 @@ def test_build_reported_cp1_mixed_currency_omits_the_conflicting_metric():
     assert not any(c.claim_id == "C-RPT-REV" for c in p.claims)
     assert any("currency" in flag.lower() for flag in p.limitation_flags)
     assert validate_payload(p) == []
+
+
+# ── Verb-only comparative re-point (triage 2026-07-16 P1; extends ENG-2) ─────
+def test_verb_only_delta_repoints_to_level():
+    # "rose/declined £X to £Y" is routine UK-release phrasing; the £X is the
+    # CHANGE, the "... to £Y" is the level. Pre-fix these published 12.3 / 9.2.
+    from engine.reported_cp1 import _EBITDA_AMOUNT, _amount
+    rose = _amount(_EBITDA_AMOUNT,
+                   "Adjusted EBITDA rose £12.3 million to £963.4 million in the quarter.")
+    assert rose is not None and rose[0] == 963.4
+    fell = _amount(_EBITDA_AMOUNT,
+                   "Adjusted EBITDA declined £9.2 million to £954.2 million.")
+    assert fell is not None and fell[0] == 954.2
+    # The original from/by forms keep working (golden-pinned behavior).
+    by = _amount(_EBITDA_AMOUNT,
+                 "Adjusted EBITDA increased by £12.3 million to £963.4 million.")
+    assert by is not None and by[0] == 963.4
+
+
+def test_prior_year_comparison_is_not_repointed():
+    # "£963.4m compared to £951.0m": the anchored amount IS the level — its
+    # precedent ("of") is no movement verb, so no re-point to the prior year.
+    from engine.reported_cp1 import _EBITDA_AMOUNT, _amount
+    got = _amount(_EBITDA_AMOUNT,
+                  "Adjusted EBITDA of £963.4 million compared to £951.0 million last year.")
+    assert got is not None and got[0] == 963.4
+
+
+# ── "total leverage" is a gross-basis label, never net (triage 2026-07-16 P2) ─
+def test_total_leverage_is_not_published_as_net():
+    from engine.reported_cp1 import _leverage
+    assert _leverage("Total leverage ratio was 6.8x at quarter end.") is None
+    assert _leverage("Consolidated total leverage was 6.8x.") is None
+    # ... but an explicitly NET total is a net basis and still matches.
+    assert _leverage("Total net leverage of 5.0x.") == 5.0

@@ -216,3 +216,59 @@ def test_portfolio_idor_single_team_is_intentional(client):
                            files={"holdings": ("h.xlsx", _holdings_xlsx(single), _XLSX)})
     assert replaced.status_code == 200, replaced.text  # foreign-owned, still writable/replaceable
     assert replaced.json()["n_positions"] == 1
+
+
+# ── Constraint direction parsing (triage 2026-07-16 P1: floor-as-ceiling) ────
+def test_word_form_minimum_is_a_floor_not_a_ceiling():
+    from engine.portfolio import _status, check_constraints
+    from portfolio_ingest import _parse_limit
+
+    for text in ("Min 90.0% 1st lien", "at least 90%", "minimum 90% senior secured",
+                 "no less than 90%"):
+        value, unit, op = _parse_limit(text)
+        assert (value, op) == (90.0, ">="), text
+    # Pre-fix these parsed op="<=", so an 85% holding against a 90% FLOOR read
+    # Watch (+5 headroom) and a 75% holding read Pass (+15) — deeper breach,
+    # greener status.
+    assert _status(85.0, 90.0, ">=") == "Breach"
+    assert _status(75.0, 90.0, ">=") == "Breach"
+    # Word-form maximum still a ceiling; glyphs still win outright.
+    assert _parse_limit("Max 40% CCC")[2] == "<="
+    assert _parse_limit("up to 10%")[2] == "<="
+    assert _parse_limit("≥ 90%")[2] == ">="
+    # Headroom is sign-aware for floors: 85 vs a 90 floor = -5, not +5.
+    ex = {"rating_dist": [], "sectors": [], "first_lien_pct": 85.0}
+    rows = check_constraints([{
+        "code": "C-09", "category": "Instrument", "parameter": "Min 1st Lien",
+        "limit_text": "Min 90.0%", "limit_value": 90.0, "limit_op": ">=",
+        "breach_type": "Hard",
+    }], ex)
+    assert rows[0]["status"] == "Breach" and rows[0]["headroom"] == -5.0
+
+
+def test_deglyphed_and_bare_gt_limits():
+    from engine.portfolio import _status
+    from portfolio_ingest import _parse_limit
+
+    # cp1252/Excel saves degrade ≥ to "?": direction lost — never guess one.
+    assert _parse_limit("? 90.0% NAV") == (None, None, None)
+    # Bare ">" is a floor and must not fall into the max branch.
+    assert _status(4.0, 5.0, ">") == "Breach"
+    assert _status(85.0, 90.0, ">") == "Breach"
+    # Unknown op degrades to Info, never a guessed direction.
+    assert _status(85.0, 90.0, "!=") == "Info"
+
+
+def test_zero_bid_is_a_real_mark_not_a_dash():
+    # Ingest: bid 0.0 with no ask must keep the 0.0 (truthiness dropped it);
+    # engine: a 0.0 price is a real mark → MV 0, never the par fallback
+    # (triage 2026-07-16 P3, both halves).
+    from engine.portfolio import position_market_value
+
+    bid, ask = 0.0, None
+    price = (bid + ask) / 2 if bid is not None and ask is not None else (
+        bid if bid is not None else ask)
+    assert price == 0.0
+    assert position_market_value({"par_usd": 1_000_000, "price": 0.0}) == 0.0
+    assert position_market_value({"par_usd": 1_000_000, "price": None}) == 1_000_000.0
+    assert position_market_value({"par_usd": 1_000_000, "price": -1.0}) == 1_000_000.0

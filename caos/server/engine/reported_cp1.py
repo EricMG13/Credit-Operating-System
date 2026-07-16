@@ -45,8 +45,12 @@ _LEVERAGE_PATTERNS = (
     # "net leverage: 5.68x", "net leverage ratio 5.68x", not only "leverage of N".
     # Lookbehinds reject an explicitly NON-net basis: "gross leverage was 6.8x"
     # appearing before the net figure was otherwise published AS net leverage
-    # (audit 2026-07-10 ENG-5). An unqualified "leverage ratio 5.68x" still matches.
-    re.compile(r"(?<!gross\s)(?<!secured\s)(?<!senior\s)(?<!lien\s)"
+    # (audit 2026-07-10 ENG-5); bare "total leverage" is a gross-basis label in
+    # sponsor/lender decks and slipped the original set the same way (triage
+    # 2026-07-16 P2 — "total NET leverage" still matches: its immediate
+    # precedent is "net", not "total"). An unqualified "leverage ratio 5.68x"
+    # still matches.
+    re.compile(r"(?<!gross\s)(?<!secured\s)(?<!senior\s)(?<!lien\s)(?<!total\s)"
                r"(?:consolidated\s+)?(?:net\s+)?leverage(?:\s+ratio)?(?:\s+(?:of|was|at))?"
                r"[\s:=]+(\d+(?:\.\d+)?)\s*x", re.IGNORECASE),
     re.compile(r"(\d+(?:\.\d+)?)\s*x\s+(?:consolidated\s+)?(?:net\s+)?leverage", re.IGNORECASE),
@@ -115,13 +119,22 @@ def _amount(pat: re.Pattern, text: str) -> Optional[Tuple[float, str, str]]:
     if not m:
         return None
     cur, num_g, scale = m.group(1), m.group(2), (m.group(3) or "").lower()
-    # "revenue increased from £392m to £415m" / "grew by £12.3m to £963.4m": the
-    # metric-anchored match lands on the PRIOR value or the CHANGE (right after
-    # 'from'/'by'); the actual level is the '... to £B' figure. Re-point to the next
-    # amount when this one is a from/by comparative — without the 'by' case the
-    # delta was published as the level, understating EBITDA/revenue 10-60x and
-    # silently collapsing the CP-3B recovery EV (audit 2026-07-10 ENG-2).
-    if re.search(r"\b(?:from|by)\s*$", text[max(0, m.start(1) - 6): m.start(1)], re.IGNORECASE):
+    # "revenue increased from £392m to £415m" / "grew by £12.3m to £963.4m" /
+    # "rose £12.3m to £963.4m": the metric-anchored match lands on the PRIOR
+    # value or the CHANGE (right after 'from'/'by', or right after a bare
+    # movement verb); the actual level is the '... to £B' figure. Re-point to
+    # the next amount when this one is a comparative — without the 'by' case
+    # the delta was published as the level, understating EBITDA/revenue 10-60x
+    # and silently collapsing the CP-3B recovery EV (audit 2026-07-10 ENG-2);
+    # verb-only forms ("rose/fell/declined £X to £Y", routine UK-release
+    # phrasing) slipped the from/by-only lookback the same way (triage
+    # 2026-07-16 P1). The trailing '... to £Y' confirmation below is what keeps
+    # this from re-pointing "£963.4m compared to £951.0m"-style prior-year
+    # references: their anchored amount is not verb/from/by-preceded.
+    if re.search(
+        r"\b(?:from|by|rose|grew|increased|declined|fell|decreased|dropped|improved|up|down)\s*$",
+        text[max(0, m.start(1) - 12): m.start(1)], re.IGNORECASE,
+    ):
         nxt = _AMOUNT_RE.search(text, m.end())
         if nxt and nxt.start() - m.end() <= 12 and \
                 re.search(r"\bto\s*$", text[max(0, nxt.start() - 5): nxt.start()], re.IGNORECASE):

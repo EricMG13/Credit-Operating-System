@@ -100,7 +100,11 @@ def parse_holdings_xlsx(content: bytes, max_rows: int = 20000) -> List[Dict[str,
             continue  # not a CLO position (market-universe reference row)
         moody, sp = ratings.parse_rating_cell(cell(row, "ratings"))
         bid, ask = _num(cell(row, "bid")), _num(cell(row, "ask"))
-        price = (bid + ask) / 2 if bid is not None and ask is not None else (bid or ask)
+        # `bid if bid is not None else ask`, NOT `bid or ask`: a fully distressed
+        # zero-BID quote is a real 0.0 mark, and truthiness dropped it to None
+        # (dash) while the mirror zero-ask case survived (triage 2026-07-16 P3).
+        price = (bid + ask) / 2 if bid is not None and ask is not None else (
+            bid if bid is not None else ask)
         name = cell(row, "borrower_name")
         out.append({
             "borrower_name": str(name).strip() if name else "—",
@@ -130,6 +134,16 @@ def _s(v: Any) -> Optional[str]:
 # ── Constraints ──────────────────────────────────────────────────────────────
 _OP = {"≤": "<=", "<=": "<=", "<": "<", "≥": ">=", ">=": ">=", ">": ">"}
 _LIMIT_RE = re.compile(r"(≤|>=|<=|≥|<|>)?\s*([0-9]+(?:\.[0-9]+)?)\s*(%|x|yrs|years|notches)?", re.I)
+# Word-form direction, for limits written without a glyph: "Min 90% 1st lien" is a
+# FLOOR — defaulting it to a max inverted every word-form minimum, so a breached
+# hard floor rendered Pass/Watch with positive headroom, and the deeper the breach
+# the greener the status (triage 2026-07-16 P1).
+_WORD_MIN = re.compile(r"\b(?:min(?:imum)?|at\s+least|no\s+(?:less|lower)\s+than|floor)\b", re.I)
+_WORD_MAX = re.compile(r"\b(?:max(?:imum)?|at\s+most|no\s+(?:more|greater|higher)\s+than|cap(?:ped)?|up\s+to)\b", re.I)
+# A cp1252/Excel-legacy save degrades the ≥/≤ glyphs to "?": the direction is
+# gone, and guessing one would silently invert half of them. Un-inferable → the
+# row stays "Info" (value dropped), never a guessed ceiling.
+_DEGLYPHED = re.compile(r"^\?\s*[0-9]")
 
 _CONS_COLS = {
     "code": ("id",),
@@ -143,16 +157,28 @@ _CONS_COLS = {
 
 def _parse_limit(text: str) -> Tuple[Optional[float], Optional[str], Optional[str]]:
     """'≤ 2.5% NAV' → (2.5, '%', '<='). 'Info only' / '—' → (None, None, None).
-    Bare '0% NAV' → (0.0, '%', '<=') (a max). Rating-floor style text with a name
-    before the number (e.g. '≥ Caa1 (numeric ≤ 17)') yields the first numeric it
-    finds, but such rows aren't category-mapped so they stay 'Info'."""
+    Direction precedence: an explicit glyph wins; else a word form ('Min 90%' →
+    '>=', 'Max 40%' / 'up to' → '<='); a de-glyphed '? 90%' (cp1252 save) is
+    un-inferable and stays Info; only a genuinely bare number defaults to a max.
+    Rating-floor style text with a name before the number (e.g. '≥ Caa1
+    (numeric ≤ 17)') yields the first numeric it finds, but such rows aren't
+    category-mapped so they stay 'Info'."""
     t = (text or "").strip()
     if not t or t.lower() in ("info only", "—", "-", "n/a"):
         return (None, None, None)
+    if _DEGLYPHED.match(t):
+        return (None, None, None)  # direction lost in transit — never guess one
     m = _LIMIT_RE.search(t)
     if not m:
         return (None, None, None)
-    op = _OP.get(m.group(1)) if m.group(1) else "<="  # bare number → treat as a max
+    if m.group(1):
+        op = _OP.get(m.group(1))
+    elif _WORD_MIN.search(t):
+        op = ">="
+    elif _WORD_MAX.search(t):
+        op = "<="
+    else:
+        op = "<="  # bare number → treat as a max
     value = float(m.group(2))
     unit = m.group(3)
     unit = {"yrs": "years", "years": "years"}.get((unit or "").lower(), unit) if unit else (

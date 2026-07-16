@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import statistics
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,9 +65,13 @@ def _rating_bucket(value: str | None) -> str:
     for bucket in ("BA1", "BA2", "BA3", "B1", "B2", "B3", "CAA1", "CAA2", "CAA3"):
         if bucket in normalized:
             return bucket.title().replace("Caa", "Caa")
+    # Modifier tokens BEFORE their base: "BB-" contains "BB", so a base-first
+    # scan bucketed BB-→Ba2 and CCC-→Caa2 — one notch senior, pooling the
+    # weakest modifier ratings with a tighter-spread cohort and overstating
+    # their DM pickup (triage 2026-07-16 P2).
     sp = {
-        "BB+": "Ba1", "BB": "Ba2", "BB-": "Ba3", "B+": "B1",
-        "B-": "B3", "CCC+": "Caa1", "CCC": "Caa2", "CCC-": "Caa3",
+        "BB+": "Ba1", "BB-": "Ba3", "BB": "Ba2", "B+": "B1",
+        "B-": "B3", "CCC+": "Caa1", "CCC-": "Caa3", "CCC": "Caa2",
     }
     for token, bucket in sp.items():
         if token in normalized:
@@ -75,9 +80,14 @@ def _rating_bucket(value: str | None) -> str:
 
 
 def _number(value: object) -> Optional[float]:
+    # Finite, not merely numeric: a NaN passes isinstance and would scramble the
+    # pickup sort and leak NaN JSON. Both current snapshot producers already
+    # filter non-finite values, so this is the house-convention backstop
+    # (engine.periods.is_finite_number semantics; triage 2026-07-16 P3).
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return float(value)
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 def classify_candidate(*, market_current: bool, has_exact_identity: bool, missing_gates: list[str]) -> str:

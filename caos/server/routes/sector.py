@@ -864,16 +864,19 @@ def _build_review_payload(
             current_state = f"Unavailable / {signal.severity}"
             warning_status: Literal["normal", "watch", "breached", "unavailable"] = "unavailable"
         else:
-            current_state = f"{score:.0f} / {signal.severity}"
+            # sector_materiality_score is capped at 0.99 — the old ">= 75" clause
+            # could never fire and the "{score:.0f}" render showed a meaningless
+            # 0/1 beside a threshold text claiming 75 (triage 2026-07-16 P3).
+            current_state = f"{score:.2f} / {signal.severity}"
             warning_status = (
-                "breached" if signal.severity == "critical" or score >= 75
+                "breached" if signal.severity == "critical" or score >= 0.75
                 else "watch" if signal.severity in {"high", "medium"}
                 else "normal"
             )
         early_warning.append(SectorEarlyWarning(
             id=f"ew-{signal.id}",
             indicator=signal.headline,
-            threshold="Materiality score >= 75 or severity critical",
+            threshold="Materiality score >= 0.75 or severity critical",
             current_state=current_state,
             status=warning_status,
             source_ids=[signal.id],

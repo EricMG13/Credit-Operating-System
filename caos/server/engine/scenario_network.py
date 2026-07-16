@@ -13,7 +13,7 @@ from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from engine.capstructure import recovery_waterfall
-from engine.periods import is_finite_number, latest_annual, safe_div
+from engine.periods import is_finite_number, latest_annual, safe_div, safe_mul
 
 
 class ShockInput(BaseModel):
@@ -78,9 +78,16 @@ def _validated_tranches(value: object) -> Optional[List[dict]]:
     if not isinstance(value, list) or not value:
         return None
     try:
-        return [_ScenarioTranche.model_validate(row).model_dump() for row in value]
+        rows = [_ScenarioTranche.model_validate(row).model_dump() for row in value]
     except (ValidationError, TypeError):
         return None
+    # recovery_waterfall groups by CONSECUTIVE seniority_rank (itertools.groupby):
+    # unsorted rows would silently split a rank into multiple groups and hand a
+    # senior group leftover EV as if it were junior. The producer (capstructure)
+    # sorts, but this consumer must not assume it — stable sort keeps intra-rank
+    # payload order (triage 2026-07-16 P3).
+    rows.sort(key=lambda row: row["seniority_rank"])
+    return rows
 
 
 def _node(
@@ -163,15 +170,26 @@ def propagate(
     recovery: Optional[float] = None
     if stressed_ebitda is not None and tranches:
         stressed_rows = recovery_waterfall(tranches, stressed_ebitda * 5.0)
-        recoveries = [r.get("recovery_pct") for r in stressed_rows]
-        finite_recoveries = [float(v) for v in recoveries if is_finite_number(v)]
-        if finite_recoveries:
-            recovery = round(sum(finite_recoveries) / len(finite_recoveries), 1)
+        # Par-weighted, not an unweighted mean of tranche percentages: this
+        # recovery prices the HELD position in the portfolio node below, and an
+        # unweighted mean let a $10M junior stub weigh like the $2bn first lien
+        # (halving the displayed recovery for a senior-held book — triage
+        # 2026-07-16 P2). Weighted mean = Σ recovered / Σ claim over the sized,
+        # determinate rows (recovery_pct finite ⇒ both legs finite).
+        recovered_total: float = 0.0
+        claim_total: float = 0.0
+        for row in stressed_rows:
+            if is_finite_number(row.get("recovery_pct")) and is_finite_number(row.get("amount_musd")):
+                recovered_total += float(row["recovery_musd"])
+                claim_total += float(row["amount_musd"])
+        weighted = safe_div(safe_mul(100.0, recovered_total), claim_total)
+        if weighted is not None:
+            recovery = round(weighted, 1)
     nodes.append(_node(
         "recovery",
         NodeStatus.COMPUTED if recovery is not None else NodeStatus.DEGRADED,
         recovery,
-        f"{recovery:g}% average sized-tranche recovery" if recovery is not None else "Recovery not computable",
+        f"{recovery:g}% par-weighted sized-tranche recovery" if recovery is not None else "Recovery not computable",
         "CP-3B waterfall at 5.0x stressed EBITDA",
     ))
 

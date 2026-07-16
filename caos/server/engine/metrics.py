@@ -492,11 +492,20 @@ def derive_energy_cost_pct(
     else None. Deterministic and offline — the evidence-grounded counterpart to a
     hardcoded seed value for energy_cost_pct.
     """
+    from engine.textscan import _clause_bounds
+
     for chunk_id, doc, text in chunks:
         if not _ENERGY_CHECK.search(text):
             continue
-        m = _COST_PCT_RE.search(text)
-        if m:
+        for m in _COST_PCT_RE.finditer(text):
+            # Same-clause co-occurrence, not same-chunk: "raw materials are 40%
+            # of cost of goods sold. ... fuel surcharges ..." used to publish 40
+            # as the ENERGY share because the keyword and the percentage merely
+            # shared a chunk (triage 2026-07-16 P3). The energy cue must sit in
+            # the percentage's own clause (textscan's terminator-bounded window).
+            left, right = _clause_bounds(text, m.start(), m.end())
+            if not _ENERGY_CHECK.search(text, left, right):
+                continue
             v = float(m.group(1))
             # Domain clamp (0, 100]: a matched percentage outside it is a mis-read
             # ("0 percent of cost base" / a stray figure), not a cost share — its

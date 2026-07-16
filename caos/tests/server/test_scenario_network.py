@@ -112,3 +112,35 @@ def test_scenario_payload_excludes_blocked_modules_and_reports_source_status():
         ShockInput(issuer_id="i", run_id="r", ebitda_pct=-0.2), payload, source=source
     )
     assert result.source == source
+
+
+def test_recovery_is_par_weighted_not_unweighted_mean():
+    # $2bn 1L fully recovered + $10M junior wiped: an unweighted mean printed
+    # ~50%; the position-pricing read is the par-weighted ~99.5%
+    # (triage 2026-07-16 P2).
+    payload = _payload(ebitda=500.0)  # stressed EV = 500*0.8*5 = 2000
+    payload["CP-3B"]["tranches"] = [
+        {"code": "1L", "tranche": "First lien", "seniority_rank": 0, "amount_musd": 2000.0},
+        {"code": "SUB", "tranche": "Sub notes", "seniority_rank": 3, "amount_musd": 10.0},
+    ]
+    result = propagate(ShockInput(issuer_id="i", run_id="r", ebitda_pct=-0.2), payload)
+    recovery = next(node for node in result.nodes if node.node == "recovery")
+    assert recovery.status == NodeStatus.COMPUTED
+    # Σ recovered / Σ claim = 2000 / 2010 = 99.5% — nowhere near the 50% mean.
+    assert recovery.value == 99.5
+    assert "par-weighted" in recovery.label
+
+
+def test_unsorted_tranches_waterfall_like_sorted():
+    # recovery_waterfall groups consecutive ranks; the validator must sort so a
+    # payload with ranks out of order cannot hand a senior group leftover EV
+    # (triage 2026-07-16 P3).
+    sorted_payload = _payload(ebitda=500.0)
+    shuffled_payload = _payload(ebitda=500.0)
+    shuffled_payload["CP-3B"]["tranches"] = list(reversed(sorted_payload["CP-3B"]["tranches"]))
+    shock = dict(issuer_id="i", run_id="r", ebitda_pct=-0.2)
+    a = propagate(ShockInput(**shock), sorted_payload)
+    b = propagate(ShockInput(**shock), shuffled_payload)
+    ra = next(n for n in a.nodes if n.node == "recovery")
+    rb = next(n for n in b.nodes if n.node == "recovery")
+    assert ra.value == rb.value and ra.status == rb.status == NodeStatus.COMPUTED

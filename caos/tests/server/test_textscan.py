@@ -42,3 +42,19 @@ def test_no_in_clause_amount_returns_none():
 
 def test_billion_normalises_to_musd():
     assert amount_musd("first lien term loan of $1.5 billion", _kw("first lien term loan")) == 1500.0
+
+
+def test_non_usd_amounts_degrade_to_null_quantum():
+    # "£1,250 million" used to return 1250.0 into a *_musd field — a GBP
+    # magnitude under a $M label (triage 2026-07-16 P2). Non-$ symbols degrade;
+    # $-prefixed and symbol-less (in-$M table row) amounts still parse.
+    import re
+
+    from engine.textscan import amount_musd
+
+    rcf = re.compile(r"revolving credit facilit|\brcf\b|revolver", re.IGNORECASE)
+    assert amount_musd("The £1,250 million revolving credit facility remains undrawn.", rcf) is None
+    assert amount_musd("The €500 million revolving credit facility.", rcf) is None
+    assert amount_musd("The $1,250 million revolving credit facility.", rcf) == 1250.0
+    assert amount_musd("A 750 million revolving credit facility.", rcf) == 750.0
+    assert amount_musd("The $1.5 billion revolver.", rcf) == 1500.0

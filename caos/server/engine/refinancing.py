@@ -65,7 +65,12 @@ def score_vulnerability(leverage: Optional[float], fragility: Optional[str]) -> 
 
 async def synthesize_refinancing(cp1: ModulePayload, cp2b: Optional[ModulePayload]) -> ModulePayload:
     """Build the CP-3D payload from CP-1 leverage + CP-2B fragility."""
-    leverage = (cp1.runtime_output or {}).get("normalized_financials", {}).get("net_leverage_adj_ltm")
+    # None-safe AND non-dict-safe: a live-LLM CP-1 can carry normalized_financials
+    # as null or a narrative string — the `.get(key, {})` default only covers a
+    # MISSING key, and a chained .get on the string raised into the module gate
+    # (the one CP-1 consumer the BE3 hardening sweep missed; triage 2026-07-16 P3).
+    _nf = (cp1.runtime_output or {}).get("normalized_financials")
+    leverage = _nf.get("net_leverage_adj_ltm") if isinstance(_nf, dict) else None
     fragility = (cp2b.runtime_output or {}).get("fragility") if cp2b is not None else None
 
     # is_finite_number (not bare isinstance): a NaN leverage passes isinstance, so it

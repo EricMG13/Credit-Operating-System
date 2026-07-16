@@ -16,7 +16,12 @@ from typing import Iterable, Iterator, Optional, Sequence, Tuple
 # (\d[\d,]*) so a lone/leading comma can't match — "[\d,]+" would capture "," and
 # float("") then raised ValueError, losing a whole CP-2E/3B module to one malformed
 # sentence (the runner's per-module catch contains it, but it's still a lost module).
-_AMOUNT = re.compile(r"\$?\s?(\d[\d,]*(?:\.\d+)?)\s*(billion|bn|million|m)\b", re.IGNORECASE)
+# The currency symbol is CAPTURED, not optional-and-ignored: "£1,250 million" used
+# to land as amount_musd=1250.0 — a GBP magnitude under a $M label in the tranche/
+# liquidity registers (triage 2026-07-16 P2). A non-$ symbol now degrades to the
+# qualitative-hit path (quantum null), per "degrade, never guess"; a symbol-less
+# amount stays accepted (in-$M table rows).
+_AMOUNT = re.compile(r"(?:([£€$])\s?)?(\d[\d,]*(?:\.\d+)?)\s*(billion|bn|million|m)\b", re.IGNORECASE)
 
 # Clause terminators: an amount on the far side of one of these belongs to a
 # different sentence/tranche, so the keyword's clause stops here. A period is a
@@ -28,15 +33,21 @@ _CLAUSE_GAP = 200
 
 
 def _to_musd(a: "re.Match[str]") -> Optional[float]:
+    # A captured non-$ currency symbol means the figure is NOT in USD millions —
+    # returning it under a *_musd field mislabeled every absolute magnitude for a
+    # non-USD issuer. Degrade to the qualitative hit instead (the ratios that
+    # matter — recovery %, % of structure, runway — never needed the label).
+    if a.group(1) and a.group(1) != "$":
+        return None
     # Defensive try/except (belt-and-suspenders behind the leading-digit _AMOUNT
     # regex): never let a surprising capture raise into a caller with no try/except
     # (liquidity/capstructure/sponsor) — return None so the caller records the
     # qualitative hit with a null quantum instead of losing the module.
     try:
-        val = float(a.group(1).replace(",", ""))
+        val = float(a.group(2).replace(",", ""))
     except ValueError:
         return None
-    out = round(val * 1000, 1) if a.group(2).lower() in ("billion", "bn") else round(val, 1)
+    out = round(val * 1000, 1) if a.group(3).lower() in ("billion", "bn") else round(val, 1)
     # `[\d,]+` is unbounded: a garbage 309+-digit run parses to inf. Every current
     # consumer re-filters is_finite_number, but enforce the contract at the source
     # so a future consumer can't inherit an inf quantum.

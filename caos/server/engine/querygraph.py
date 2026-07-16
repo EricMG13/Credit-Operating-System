@@ -777,9 +777,15 @@ async def _trend(session: AsyncSession, cap: dict) -> dict:
     )).all()
     series: Dict[Tuple[str, str], List[Tuple[str, float]]] = {}
     issuers: Dict[str, Issuer] = {}
+    # First-seen stored unit per (issuer, metric): the fact's unit carries the
+    # currency ("£M"/"EURM") — the catalog's "$M" mislabeled non-USD series
+    # (triage 2026-07-16 P3).
+    series_unit: Dict[Tuple[str, str], str] = {}
     for f, iss in rows:
         issuers[iss.id] = iss
         series.setdefault((iss.id, f.metric_key), []).append((f.period, f.value))
+        if f.unit:
+            series_unit.setdefault((iss.id, f.metric_key), f.unit)
     pick = max(series.items(), key=lambda kv: len({p for p, _ in kv[1]}), default=None)
     if pick is None or len({p for p, _ in pick[1]}) < 2:
         return _empty(cap, "Metric trend", "No metric has ≥2 periods yet.")
@@ -791,10 +797,11 @@ async def _trend(session: AsyncSession, cap: dict) -> dict:
     nodes, edges = [], []
     pos = _spread(len(pairs), y=0.5, x0=0.12, x1=0.88)
     prev = None
+    unit = series_unit.get((iid, mk)) or (md.unit if md else "")
     for (period, v), (x, _y) in zip(pairs, pos):
         nid = f"pt:{period}"
         nodes.append(_node(nid, period, "metric", x, 0.85 - 0.6 * _norm(v, lo, hi),
-                           sub=f"{v:g}{md.unit if md else ''}"))
+                           sub=_fmt_metric(v, unit)))
         if prev:
             edges.append(_edge(prev, nid, kind="seq"))
         prev = nid
@@ -1032,17 +1039,28 @@ def _fmt_metric(value: float, unit: str) -> str:
         return f"{value:g}%"
     if unit == "$M":
         return f"${value:g}M"
+    # Non-USD money units, exactly as minted by metrics.extract_facts
+    # (``f"{cur}M"`` — "£M" on the reported lane, "GBPM"/"EURM" on the live
+    # lane). Rendering these under the catalog's "$M" showed a GBP magnitude as
+    # dollars in the head-to-head/trend surfaces (triage 2026-07-16 P2).
+    if unit and unit.endswith("M"):
+        prefix = unit[:-1]
+        sep = " " if len(prefix) > 1 and prefix.isalpha() else ""
+        return f"{prefix}{sep}{value:g}M"
     return f"{value:g}"
 
 
-def _collapse_headline(facts: Sequence[MetricFact]) -> Dict[str, float]:
+def _collapse_headline(facts: Sequence[MetricFact]) -> Dict[str, Tuple[float, Optional[str]]]:
     """Latest-wins per metric_key over one issuer's headline facts (same
-    ``better_fact`` tiering the profile route and ``_profile_values`` use)."""
+    ``better_fact`` tiering the profile route and ``_profile_values`` use).
+    Carries each winning fact's ``(value, unit)`` — the stored unit is the
+    currency truth ("£M"/"EURM"); discarding it forced the catalog's "$M" onto
+    non-USD figures downstream (triage 2026-07-16 P2)."""
     best: Dict[str, MetricFact] = {}
     for f in facts:
         if better_fact(best.get(f.metric_key), f):
             best[f.metric_key] = f
-    return {k: f.value for k, f in best.items()}
+    return {k: (f.value, f.unit) for k, f in best.items()}
 
 
 async def _h2h_signals(session: AsyncSession, issuer_id: str) -> dict:
@@ -1074,11 +1092,13 @@ async def _h2h_signals(session: AsyncSession, issuer_id: str) -> dict:
     }
 
 
-def _h2h_metric_sub(facts: Dict[str, float], key: str) -> Optional[str]:
+def _h2h_metric_sub(facts: Dict[str, Tuple[float, Optional[str]]], key: str) -> Optional[str]:
     if key not in facts:
         return None
+    value, unit = facts[key]
     spec = CATALOG_BY_KEY.get(key)
-    return _fmt_metric(facts[key], spec.unit if spec else "")
+    # The fact's own unit wins (it carries the currency); catalog is the fallback.
+    return _fmt_metric(value, unit or (spec.unit if spec else ""))
 
 
 def _h2h_rv_sub(sig: dict) -> Optional[str]:
@@ -1103,7 +1123,8 @@ def _h2h_cov_sub(sig: dict) -> Optional[str]:
     return f"{lev_cov:g}x cov{head}"
 
 
-def _h2h_rows(facts_a: Dict[str, float], facts_b: Dict[str, float],
+def _h2h_rows(facts_a: Dict[str, Tuple[float, Optional[str]]],
+             facts_b: Dict[str, Tuple[float, Optional[str]]],
              sig_a: dict, sig_b: dict) -> List[Tuple[str, Optional[str], Optional[str]]]:
     rows: List[Tuple[str, Optional[str], Optional[str]]] = [
         (CATALOG_BY_KEY[k].label if k in CATALOG_BY_KEY else k,

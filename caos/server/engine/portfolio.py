@@ -115,12 +115,17 @@ def portfolio_authority(
 
 
 def position_market_value(position: Dict[str, Any]) -> Optional[float]:
-    """Finite market value with par fallback when price is absent or invalid."""
+    """Finite market value with par fallback when price is absent or invalid.
+
+    A price of 0.0 is a REAL mark (a fully distressed quote), not a missing one:
+    the old ``price > 0`` gate sent zero-priced positions to the par fallback,
+    marking precisely the most distressed holding at 100 (triage 2026-07-16 P3,
+    the ingest-side zero-bid fix's other half). Negative prices stay invalid."""
     par = position.get("par_usd")
     if not is_finite_number(par) or par <= 0:
         return None
     price = position.get("price")
-    if is_finite_number(price) and price > 0:
+    if is_finite_number(price) and price >= 0:
         price_factor = checked_divide(price, 100.0)
         return checked_multiply(par, price_factor)
     return float(par)
@@ -692,15 +697,22 @@ def _current_for(constraint: Dict[str, Any], exposure: Dict[str, Any]) -> Option
 
 def _status(current: Optional[float], limit_value: Optional[float], op: Optional[str]) -> str:
     """Pass / Watch / Breach for a computed current vs a limit. Watch = within 10%
-    of the limit magnitude. Unknown current or limit → 'Info' (not computed)."""
+    of the limit magnitude. Unknown current or limit → 'Info' (not computed).
+
+    ``>`` joins the ``>=`` branch: both are FLOORS, and routing bare ``>`` through
+    the default max-branch inverted it — a floor breach read as Pass with positive
+    headroom (triage 2026-07-16 P1 family). An op that is neither a known floor
+    nor a known ceiling is 'Info', never a guessed direction."""
     if not is_finite_number(current) or not is_finite_number(limit_value):
         return "Info"
+    if op not in (">=", ">", "<=", "<", None):
+        return "Info"
     band = max(0.2, abs(limit_value) * 0.10)
-    if op == ">=":
+    if op in (">=", ">"):
         if current < limit_value:
             return "Breach"
         return "Watch" if current - limit_value < band else "Pass"
-    # default / "<=" : a maximum
+    # default / "<=" / "<" : a maximum
     if current > limit_value:
         return "Breach"
     return "Watch" if limit_value - current < band else "Pass"
@@ -718,7 +730,8 @@ def check_constraints(constraints: List[Dict[str, Any]], exposure: Dict[str, Any
         status = _status(current, limit_value, op)
         headroom = None
         if is_finite_number(current) and is_finite_number(limit_value):
-            headroom = round((limit_value - current) if op != ">=" else (current - limit_value), 2)
+            # Sign-aware both ways: floors (>=, >) measure room ABOVE the limit.
+            headroom = round((current - limit_value) if op in (">=", ">") else (limit_value - current), 2)
         out.append({
             "code": k.get("code"), "category": k.get("category"), "parameter": k.get("parameter"),
             "limit_text": k.get("limit_text"), "breach_type": k.get("breach_type"),

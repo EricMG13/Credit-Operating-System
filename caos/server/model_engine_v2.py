@@ -1222,7 +1222,11 @@ class ModelEngineV2:
                     coupon_interest=_number(coupon_interest),
                     fees=_number(fees),
                     pik_interest=_number(pik_interest),
-                    hedge_effect=_number(hedge_effect) if opening is not None and closing is not None else None,
+                    # Unconditional: this was the only component gated on balance
+                    # availability, so a row could show components that don't sum
+                    # to its cash_interest (which always includes the hedge —
+                    # triage 2026-07-16 P3).
+                    hedge_effect=_number(hedge_effect),
                     fx_effect=_number(fx_effect),
                     cash_interest=_number(cash_interest),
                     debt_reporting_currency=_number(debt_reporting),

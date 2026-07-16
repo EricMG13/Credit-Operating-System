@@ -262,3 +262,22 @@ async def test_head_to_head_availability_reuses_facts_flag(h2h_issuers):
 
     h2h = next(c for grp in caps["groups"] for c in grp["capabilities"] if c["id"] == "head-to-head")
     assert h2h["enabled"] is True and h2h["reason"] is None
+
+
+def test_h2h_metric_sub_renders_the_facts_currency_not_the_catalogs():
+    # A GBP revenue fact (unit "£M", as minted by metrics.extract_facts for a
+    # reported-disclosure CP-1) must not render under the catalog's "$M"
+    # (triage 2026-07-16 P2). Pure-function check: collapse carries the unit,
+    # the sub formatter prefers it, catalog stays the fallback.
+    from types import SimpleNamespace
+
+    from engine.querygraph import _collapse_headline, _h2h_metric_sub
+
+    gbp = SimpleNamespace(metric_key="revenue", value=963.4, unit="£M",
+                          provenance="run", created_at=None)
+    bare = SimpleNamespace(metric_key="net_leverage", value=4.4, unit=None,
+                           provenance="run", created_at=None)
+    facts = _collapse_headline([gbp, bare])
+    assert facts["revenue"] == (963.4, "£M")
+    assert _h2h_metric_sub(facts, "revenue") == "£963.4M"
+    assert _h2h_metric_sub(facts, "net_leverage") == "4.4x"  # catalog fallback
