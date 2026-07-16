@@ -68,6 +68,25 @@ describe("DecisionHeader", () => {
     expect(screen.getAllByText(/as of 13 Jul 2026, 09:00/)).toHaveLength(4);
   });
 
+  it("collapses to one spanning line when every cell states the same value-less cause", () => {
+    const cause = { kind: "unavailable" as const, message: "Run the gated screen to establish this observation." };
+    render(<DecisionHeader state={{ whatChanged: cause, whyItMatters: cause, requiredAction: cause, evidenceHealth: cause }} />);
+    expect(screen.getAllByText("Run the gated screen to establish this observation.")).toHaveLength(1);
+    expect(screen.getByText("Entire brief")).toBeTruthy();
+    expect(screen.queryByText("Why it matters")).toBeNull();
+  });
+
+  it("keeps four cells when the same kind carries different messages", () => {
+    render(<DecisionHeader state={{
+      whatChanged: { kind: "unavailable", message: "No change source" },
+      whyItMatters: { kind: "unavailable", message: "No impact source" },
+      requiredAction: { kind: "unavailable", message: "No action source" },
+      evidenceHealth: { kind: "unavailable", message: "No evidence source" },
+    }} />);
+    expect(screen.getByText("Why it matters")).toBeTruthy();
+    expect(screen.getByText("No impact source")).toBeTruthy();
+  });
+
   it("renders a failed response as an error, never as a neutral empty observation", () => {
     render(<DecisionHeader state={{
       whatChanged: { kind: "error", message: "Observation failed" },

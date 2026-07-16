@@ -14,8 +14,7 @@ export interface ShortcutEntry {
 }
 
 export const SHORTCUTS: ShortcutEntry[] = [
-  { keys: "⌘K / Ctrl+K", label: "Open the command palette" },
-  { keys: "Alt + S", label: "Open the command palette" },
+  { keys: "⌘K / Ctrl+K · Alt + S", label: "Open the command palette" },
   { keys: "Alt + K", label: "Ask across coverage (focuses the composer on /query)" },
   { keys: "Alt + C", label: "Collapse / expand the decision brief" },
   { keys: "Alt + ← / →", label: "Cycle between concepts (Command, Monitor, Deep-Dive…)" },

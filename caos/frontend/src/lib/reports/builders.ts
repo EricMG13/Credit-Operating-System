@@ -90,8 +90,15 @@ function seniorityStackChart(
   equity: number,
   page?: string,
 ): Section {
+  const total = rcf + tlb + ssn + sub + equity;
+  const isThin = (v: number) => total > 0 && v / total < 0.18;
+  const thinRows = ([
+    ["RCF", rcf], ["1L TLB", tlb], ["2L TL '31", ssn], ["Sub Notes '32", sub], ["Implied equity", equity],
+  ] as Array<[string, number]>).filter(([, v]) => isThin(v));
   return {
     ...(page ? { page } : {}),
+    // Visible ink caption carrying the tranches too thin to label in-bar.
+    ...(thinRows.length ? { note: `Unlabeled thin tranches: ${thinRows.map(([k, v]) => `${k} $${v.toLocaleString()}M`).join(" · ")}` } : {}),
     t: "chart",
     kind: "stacked-bar",
     title: "SENIORITY STACK — CLAIMS INCL. IMPLIED EQUITY",
@@ -99,35 +106,44 @@ function seniorityStackChart(
     sourceIds: ["CP-3B:T3B.2", "E-63"],
     accessibleSummary: `The stack comprises $${rcf}M RCF, $${tlb}M first-lien term loan, $${ssn}M second-lien term loan, $${sub}M subordinated notes, and $${equity}M implied equity.`,
     columns: [{ key: "cls", label: "Claim" }, { key: "v", label: "$M" }],
-    h: 52,
+    h: 108,
+    // One horizontal bar per tranche (seniority order top→bottom) rather than
+    // a single-band stacked interval: under transpose this G2 build renders a
+    // stacked segment at its cumulative offset but at a fraction of its
+    // extent, scattering the tranches — and their light contrast-reversed
+    // labels — loose across the cream paper. Category bars are the idiom the
+    // model tornado and recovery charts already render correctly.
     spec: {
       type: "interval",
       data: [
-        { slot: "stack", cls: "RCF (drawn)", v: rcf },
-        { slot: "stack", cls: "1L Term Loan B", v: tlb },
-        { slot: "stack", cls: "2L TL '31 (subject)", v: ssn },
-        { slot: "stack", cls: "Sub Notes '32", v: sub },
-        { slot: "stack", cls: "Implied equity @ 9.5x", v: equity },
+        { cls: "RCF (drawn)", v: rcf },
+        { cls: "1L Term Loan B", v: tlb },
+        { cls: "2L TL '31 (subject)", v: ssn },
+        { cls: "Sub Notes '32", v: sub },
+        { cls: "Implied equity @ 9.5x", v: equity },
       ],
-      encode: { x: "slot", y: "v", color: "cls" },
-      transform: [{ type: "stackY" }],
+      encode: { x: "cls", y: "v", color: "cls" },
       coordinate: { transform: [{ type: "transpose" }] },
-      axis: false,
+      axis: { y: false, x: { title: false, tick: false } },
       legend: false,
       scale: {
+        x: { domain: ["RCF (drawn)", "1L Term Loan B", "2L TL '31 (subject)", "Sub Notes '32", "Implied equity @ 9.5x"] },
+        // Pin the value domain to the data: the runtime otherwise inflates it
+        // and every bar renders at a fraction of the plot width.
+        y: { domain: [0, Math.max(rcf, tlb, ssn, sub, equity) * 1.05], nice: false },
         color: {
           domain: ["RCF (drawn)", "1L Term Loan B", "2L TL '31 (subject)", "Sub Notes '32", "Implied equity @ 9.5x"],
           range: ["#0f766e", "#0d9488", "#2563eb", "#7c3aed", "#94a3b8"],
         },
       },
+      // Values label inside the bar where they fit; short tranches hide via
+      // overflowHide and stay covered by the ink caption + equivalence table.
       labels: [{
-        text: (d: { cls: string; v: number }) => d.cls.split(" ")[0] + " " + d.v.toLocaleString(),
+        text: (d: { v: number }) => d.v.toLocaleString(),
         position: "inside",
         fontSize: 10,
         fontWeight: 600,
-        // Hide labels that collide in narrow tranches; exact values remain in
-        // the capital-structure table paired with this visualization.
-        transform: [{ type: "contrastReverse" }, { type: "overflowHide" }, { type: "overlapHide" }],
+        transform: [{ type: "contrastReverse" }, { type: "overflowHide" }],
       }],
     },
   };

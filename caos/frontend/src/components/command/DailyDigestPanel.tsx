@@ -89,7 +89,9 @@ function WatchList({ title, rows, kind, empty }: {
                 className="w-full text-left px-3 py-1 flex items-baseline gap-2 hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
                 <span className="text-caos-md text-caos-text truncate flex-1 min-w-[10ch]">{r.name}</span>
-                <span className="tabular text-caos-xs truncate shrink text-right min-w-[6ch]" style={{ color }} title={r.detail || undefined}>{r.detail || "—"}</span>
+                {/* Value column has width priority — the name absorbs truncation.
+                    A clipped "neve," is a wrong read; a clipped name is not. */}
+                <span className="tabular text-caos-xs whitespace-nowrap shrink-0 max-w-[50%] truncate text-right" style={{ color }} title={r.detail || undefined}>{r.detail || "—"}</span>
               </button>
             ))}
           </div>

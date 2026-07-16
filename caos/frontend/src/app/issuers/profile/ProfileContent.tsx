@@ -394,7 +394,7 @@ function IssuerProfileView() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!id) { setError("No issuer id."); setLoading(false); return; }
+    if (!id) { setError("This profile link is missing its issuer — open a name from the Directory."); setLoading(false); return; }
     let stale = false;
     setLoading(true);
     getIssuerProfile(id)

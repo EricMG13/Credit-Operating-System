@@ -10,6 +10,7 @@ import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ActionReason } from "@/components/shared/ActionReason";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
+import { CitationViewer } from "@/components/command/CitationViewer";
 import { headStat } from "@/components/shared/headStat";
 import { queryCapabilities, toErrorMessage } from "@/lib/api";
 import { fmtUtcDateTime } from "@/lib/format-date";
@@ -218,6 +219,10 @@ export function QueryInvestigationWorkbench() {
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [pinning, setPinning] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
+  // Click-to-source for the citation register — every C-n identifier opens the
+  // underlying document extract (or an explicit failure) instead of sitting as
+  // inert text on the surface whose required action says "inspect citations".
+  const [citation, setCitation] = useState<{ id: string; label: string } | null>(null);
   const [findingsKey, setFindingsKey] = useState(0);
   const historyGeneration = useRef(0);
   const historyContextId = useRef<string | null>(null);
@@ -406,7 +411,7 @@ export function QueryInvestigationWorkbench() {
         <PersonaWorkbench
           surface="query"
           decision={<DecisionHeader state={decisionState} defaultOpen={!!run} />}
-          context={run ? composer : <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer note"><p className="text-caos-xs leading-relaxed text-caos-muted">The composer is front and center until the first run; results take over this workspace and follow-up questions move here.</p></section>}
+          context={run ? composer : <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer note"><p className="text-caos-xs leading-relaxed text-caos-muted">TIP · Declare the lane before running — metric ranks coverage, graph traverses relationships, grounded answers from cited documents.</p></section>}
           primary={run
             ? <section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} /></DominantTableRegion> : <QueryResult run={run} />}</section>
             : <section className="min-h-0 h-full overflow-auto border border-caos-border grid place-items-center p-6" aria-label="Query answer">
@@ -432,11 +437,12 @@ export function QueryInvestigationWorkbench() {
               className="caos-action-secondary ml-auto focus-ring"
             >{pinning ? "Pinning…" : "Pin finding"}</ActionReason> : null}</div>
             {pinError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{pinError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void pinFinding()}>Retry pin</button></p> : null}
-            {run ? <><div className="mt-3"><AuthorityLine authority={run.authority} /></div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3><p className="mt-1 text-caos-xs leading-relaxed text-caos-text">{run.authority.source_ids.length ? `${run.authority.source_ids.length} source identifiers attached to this run.` : "No citation identifiers were attached; keep this result in draft."}</p>{run.authority.source_ids.length ? <ol className="mt-2 space-y-1">{run.authority.source_ids.slice(0, 20).map((id, index) => <li key={id} className="tabular text-caos-xs text-caos-muted"><span className="text-caos-accent">C{index + 1}</span> · {id}</li>)}</ol> : null}</div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div></> : <p className="mt-3 text-caos-xs text-caos-muted">Run an investigation to inspect its method, caveats and citations.</p>}
+            {run ? <><div className="mt-3"><AuthorityLine authority={run.authority} /></div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3><p className="mt-1 text-caos-xs leading-relaxed text-caos-text">{run.authority.source_ids.length ? `${run.authority.source_ids.length} cited sources — open one to read the underlying extract.` : "No citation identifiers were attached; keep this result in draft."}</p>{run.authority.source_ids.length ? <ol className="mt-2 space-y-1">{run.authority.source_ids.slice(0, 20).map((id, index) => <li key={id}><button type="button" title={`Open source extract · ${id}`} onClick={() => setCitation({ id, label: `C${index + 1}` })} className="w-full rounded-sm px-1 py-0.5 text-left tabular text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text focus-ring"><span className="text-caos-accent">C{index + 1}</span> · {id.slice(0, 8)}… <span className="text-caos-accent">↗</span></button></li>)}</ol> : null}</div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div></> : <p className="mt-3 text-caos-xs text-caos-muted">Run an investigation to inspect its method, caveats and citations.</p>}
             {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={findingsKey} /></div> : null}
           </aside>}
         />
       </main>
+      {citation ? <CitationViewer chunkId={citation.id} label={citation.label} onClose={() => setCitation(null)} /> : null}
     </EnterprisePage>
   );
 }

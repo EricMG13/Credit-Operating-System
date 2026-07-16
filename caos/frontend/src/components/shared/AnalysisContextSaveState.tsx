@@ -13,7 +13,9 @@ export function AnalysisContextSaveState({ analysis }: { analysis: ContextMutati
   if (analysis.mutationState !== "error") return null;
   return (
     <span role="alert" className="flex items-center gap-2 text-caos-xs text-caos-critical">
-      <span>{analysis.mutationError ?? "Analysis context was not saved."}</span>
+      {/* Consequence first, mechanism second — "rate limit reached" alone
+          never says what was lost. */}
+      <span>Last change not saved{analysis.mutationError ? ` — ${analysis.mutationError}` : "."}</span>
       <button
         type="button"
         className="tabular text-caos-2xs text-caos-accent focus-ring"

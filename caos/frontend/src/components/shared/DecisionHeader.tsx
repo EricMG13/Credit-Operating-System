@@ -58,7 +58,9 @@ function Datum({ state, showObservation = true }: { state: DecisionDatumState; s
       content = state.value;
       break;
     case "observed-empty":
-      glyph = "✓";
+      // "○" = observed, nothing there. A "✓" here scan-reads as green health
+      // decorating an empty board (2026-07-16 critique, PM persona).
+      glyph = "○";
       content = state.message ?? "No material change observed";
       break;
     case "stale":
@@ -158,6 +160,17 @@ export function DecisionHeader({
   const hasError = Object.values(resolved).some((datum) => datum.kind === "error");
   const cells = [resolved.whatChanged, resolved.whyItMatters, resolved.requiredAction, resolved.evidenceHealth];
   const commonObservation = sharedAuthority(cells);
+  // When every cell states the same value-less cause ("Run the gated screen to
+  // establish this observation." ×4), the 4-cell anatomy is scaffolding, not
+  // information — collapse to one spanning line. Cells that carry values
+  // (ready/stale/partial) never collapse: their content differs by definition.
+  const sharedCause = (() => {
+    const collapsible = new Set(["unavailable", "observed-empty", "loading"]);
+    const key = (s: DecisionDatumState) => `${s.kind}|${"message" in s ? s.message ?? "" : ""}`;
+    const first = cells[0];
+    if (!collapsible.has(first.kind)) return null;
+    return cells.every((cell) => key(cell) === key(first)) ? first : null;
+  })();
 
   return (
     <section role={hasError ? "alert" : undefined} aria-label="Decision header" data-contract="decision-context" className={`caos-decision-header shrink-0 border-b border-caos-border bg-caos-panel/40 ${className}`}>
@@ -174,12 +187,18 @@ export function DecisionHeader({
       </button>
       {open ? (
         <div className="border-t border-caos-border/60">
-          <div className="caos-decision-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
-            <Cell label="What changed" state={resolved.whatChanged} showObservation={!commonObservation} />
-            <Cell label="Why it matters" state={resolved.whyItMatters} showObservation={!commonObservation} />
-            <Cell label="Required action" state={resolved.requiredAction} showObservation={!commonObservation} />
-            <Cell label="Evidence health" state={resolved.evidenceHealth} showObservation={!commonObservation} />
-          </div>
+          {sharedCause ? (
+            <div className="caos-decision-grid grid grid-cols-1">
+              <Cell label="Entire brief" state={sharedCause} showObservation={!commonObservation} />
+            </div>
+          ) : (
+            <div className="caos-decision-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+              <Cell label="What changed" state={resolved.whatChanged} showObservation={!commonObservation} />
+              <Cell label="Why it matters" state={resolved.whyItMatters} showObservation={!commonObservation} />
+              <Cell label="Required action" state={resolved.requiredAction} showObservation={!commonObservation} />
+              <Cell label="Evidence health" state={resolved.evidenceHealth} showObservation={!commonObservation} />
+            </div>
+          )}
           {commonObservation ? (
             <div data-origin={commonObservation.authority.provenance.origin} className="caos-decision-observation flex flex-wrap items-center gap-2 border-t border-caos-border/60 px-3 py-1.5" aria-label="Shared authority for all decision conclusions">
               <span className="caos-observation-label tabular text-caos-2xs uppercase tracking-widest text-caos-muted">Observation authority</span>

@@ -23,9 +23,22 @@ export function ShortcutHelp() {
   const pathname = usePathname();
 
   useEffect(() => {
-    const onOpen = () => setOpen(true);
+    // One overlay at a time: join the shared caos:modal-open ownership protocol
+    // (CommandPalette et al.) so invoking the palette while the reference is up
+    // swaps dialogs instead of stacking them.
+    const onOpen = () => {
+      window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "shortcut-help" } }));
+      setOpen(true);
+    };
+    const onModalOpen = (event: Event) => {
+      if ((event as CustomEvent<{ owner?: string }>).detail?.owner !== "shortcut-help") setOpen(false);
+    };
     window.addEventListener("caos:help-open", onOpen);
-    return () => window.removeEventListener("caos:help-open", onOpen);
+    window.addEventListener("caos:modal-open", onModalOpen);
+    return () => {
+      window.removeEventListener("caos:help-open", onOpen);
+      window.removeEventListener("caos:modal-open", onModalOpen);
+    };
   }, []);
 
   if (!open) return null;

@@ -9,7 +9,7 @@
 // name: name-based queries and muscle memory both depend on the label staying
 // stable whether or not the action is currently available.
 
-import { useId, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 interface ActionReasonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick" | "title" | "aria-disabled" | "aria-describedby"> {
@@ -32,6 +32,13 @@ export function ActionReason({
 }: ActionReasonProps) {
   const reasonId = useId();
   const inert = Boolean(reason);
+  // A guarded click must never look ignored: in the "hidden" variant the
+  // reason surfaces inline for a few seconds after the attempt (and announces
+  // via role=status), instead of the click silently doing nothing.
+  const [flash, setFlash] = useState(false);
+  const flashTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (flashTimer.current !== null) window.clearTimeout(flashTimer.current); }, []);
+  const showInline = reasonDisplay === "inline" || flash;
   return (
     <>
       <button
@@ -40,14 +47,22 @@ export function ActionReason({
         title={inert ? reason ?? undefined : undefined}
         aria-describedby={inert ? reasonId : undefined}
         onClick={() => {
-          if (!inert) onClick?.();
+          if (!inert) {
+            onClick?.();
+            return;
+          }
+          if (reasonDisplay === "hidden") {
+            setFlash(true);
+            if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+            flashTimer.current = window.setTimeout(() => setFlash(false), 4000);
+          }
         }}
         {...rest}
       >
         {children}
       </button>
       {inert ? (
-        <span id={reasonId} className={reasonDisplay === "inline" ? "caos-action-reason" : "sr-only"}>
+        <span id={reasonId} role={flash ? "status" : undefined} className={showInline ? "caos-action-reason" : "sr-only"}>
           {reason}
         </span>
       ) : null}

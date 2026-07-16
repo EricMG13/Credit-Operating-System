@@ -4,7 +4,7 @@
 // title + aria-describedby + a visible reason line, and the reason text never
 // leaks into the button's accessible name.
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ActionReason } from "./ActionReason";
 
 afterEach(cleanup);
@@ -53,5 +53,28 @@ describe("ActionReason", () => {
     const button = screen.getByRole("button", { name: "Acknowledge selected" });
     const reasonNode = document.getElementById(button.getAttribute("aria-describedby")!);
     expect(reasonNode?.className).toContain("sr-only");
+  });
+
+  it("surfaces the hidden reason on a guarded click instead of swallowing it", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <ActionReason reason="No ranked changes yet" reasonDisplay="hidden">
+          Open top change
+        </ActionReason>,
+      );
+      const button = screen.getByRole("button", { name: "Open top change" });
+      const reasonNode = document.getElementById(button.getAttribute("aria-describedby")!)!;
+      expect(reasonNode.className).toContain("sr-only");
+      fireEvent.click(button);
+      // The guarded attempt reveals the reason inline and announces it…
+      expect(reasonNode.className).toContain("caos-action-reason");
+      expect(reasonNode.getAttribute("role")).toBe("status");
+      // …then it returns to sr-only once the flash window passes.
+      act(() => { vi.advanceTimersByTime(4100); });
+      expect(reasonNode.className).toContain("sr-only");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

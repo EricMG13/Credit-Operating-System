@@ -371,7 +371,10 @@ body {
 /* Disabled-with-reason: keep the control focusable/hoverable (unlike native
    `disabled`) so its title reason is discoverable by keyboard and pointer. */
 :is(.caos-primary-action, .caos-action-primary, .caos-secondary-action, .caos-action-secondary)[aria-disabled="true"] {
+  /* Desaturate as well as fade: a 0.4-opacity accent-blue primary still reads
+     as an available action at scan distance (2026-07-16 critique, H3). */
   opacity: 0.4;
+  filter: saturate(0.35);
   cursor: not-allowed;
 }
 
@@ -639,6 +642,7 @@ button.rd-cite:focus-visible { outline: 2px solid var(--paper-link); outline-off
 }
 .rd-paper .semantic-visualization__header h3 { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
 .rd-paper .semantic-visualization__summary { margin: 4px 0; font-size: 8.5px; line-height: 1.4; }
+.rd-paper .semantic-visualization__note { margin-top: 3px; font-size: 8px; }
 .rd-paper .semantic-visualization__meta,
 .rd-paper .semantic-visualization__sources { font-size: 7.5px; font-weight: 600; }
 .rd-paper .semantic-visualization__table-toggle { min-height: 24px; margin-top: 4px; padding: 3px 7px; font-size: 8px; }
@@ -996,6 +1000,9 @@ button.rd-revert-dot:focus-visible {
 }
 .semantic-visualization[data-mode="paper"] :is(.semantic-visualization__meta, .semantic-visualization__sources) { color: var(--paper-meta); }
 .semantic-visualization[data-mode="paper"] .semantic-visualization__summary { color: var(--paper-ink); }
+/* The note carries chart values (thin-tranche caption) — full ink on paper,
+   never the dark-theme muted gray. */
+.semantic-visualization[data-mode="paper"] .semantic-visualization__note { color: var(--paper-ink); }
 .semantic-visualization[data-mode="paper"] .semantic-visualization__table-region th { color: var(--paper-ink); }
 .semantic-visualization[data-mode="paper"] .semantic-visualization__status[data-tone="success"] { color: var(--paper-success); }
 .semantic-visualization[data-mode="paper"] .semantic-visualization__status[data-tone="warning"] { color: var(--paper-warning-status); }
