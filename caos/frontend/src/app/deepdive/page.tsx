@@ -498,10 +498,16 @@ function DeepDive() {
       }
       primaryAction={
         <button
-          onClick={() => void affirmView()}
-          disabled={isReference || !live.runId || analysis.loading || affirmState === "saving"}
-          title={isReference ? "Reference output cannot be ratified" : "Append an immutable thesis version and pin the affirmed view"}
-          className="caos-primary-action focus-ring disabled:opacity-40"
+          onClick={() => { if (!isReference && live.runId && !analysis.loading && affirmState !== "saving") void affirmView(); }}
+          aria-disabled={(isReference || !live.runId || analysis.loading || affirmState === "saving") || undefined}
+          title={isReference
+            ? "Reference output cannot be ratified"
+            : !live.runId
+            ? "Run analysis first — there is no live view to affirm"
+            : analysis.loading
+            ? "Preparing analysis workspace…"
+            : "Append an immutable thesis version and pin the affirmed view"}
+          className="caos-action-primary focus-ring"
         >
           {affirmState === "saving" ? "Affirming…" : affirmState === "saved" ? "Thesis affirmed" : "Affirm thesis"}
         </button>

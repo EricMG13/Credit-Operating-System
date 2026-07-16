@@ -13,6 +13,7 @@ import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
@@ -218,6 +219,23 @@ function Research() {
   const subj = subject.trim();
   const canRun = subj.length >= 2;
   const configReady = configState === "live" || configState === "demo";
+  // One label + one reason, shared by the header primary and the brief-panel
+  // CTA — the two previously computed the same ternary independently and one
+  // was allowed to look enabled while the other was disabled with a reason.
+  const runLabel = running
+    ? "Researching…"
+    : configState === "demo"
+      ? "Run example research"
+      : configState === "live"
+        ? "Run deep research"
+        : "Research configuration unavailable";
+  const runReason = running
+    ? "Research in progress"
+    : !configReady
+      ? "Research configuration unavailable"
+      : !canRun
+        ? `Enter a ${mode === "sector" ? "sector" : "issuer"} above to run`
+        : null;
   const criteriaList = criteria.split("\n").map((c) => c.trim()).filter(Boolean);
 
   const toggleAdv = () =>
@@ -396,9 +414,9 @@ function Research() {
     <EnterprisePage kind="analytical"
       identity={<ShellIdentity title="Deep Research — sector & issuer credit intelligence" />}
       primaryAction={
-        <button type="button" onClick={() => { if (canRun && configReady && !running) run(); }} aria-disabled={!canRun || !configReady || running} title={canRun || running ? undefined : "Enter a sector or issuer above"} className="caos-primary-action focus-ring">
-          {running ? "Researching…" : configState === "demo" ? "Run example research" : configState === "live" ? "Run deep research" : "Research configuration unavailable"}
-        </button>
+        <ActionReason reason={runReason} reasonDisplay="hidden" onClick={run} className="caos-action-primary focus-ring">
+          {runLabel}
+        </ActionReason>
       }
       contextualControls={
         result && analysis.context ? (
@@ -493,32 +511,20 @@ function Research() {
             {/* Action — the primary move: a solid, confident button, anchored to
                 the panel foot (mt-auto) so it never floats mid-form. */}
             <div className="flex flex-col gap-2 mt-auto pt-1">
-              <button
-                type="button"
+              <ActionReason
+                reason={runReason}
                 onClick={run}
-                disabled={!canRun || !configReady || running}
                 className={
                   "text-caos-md font-semibold px-3 py-2.5 rounded border transition-caos focus-ring " +
                   (running
                     ? "bg-caos-elevated border-caos-border text-caos-muted cursor-wait"
                     : !canRun || !configReady
-                      ? "bg-caos-elevated border-caos-border text-caos-muted cursor-not-allowed"
+                      ? "bg-caos-elevated border-caos-border text-caos-muted"
                       : "bg-caos-accent border-caos-accent text-caos-bg hover:brightness-110")
                 }
               >
-                {running
-                  ? "Researching…"
-                  : configState === "demo"
-                    ? "Run example research"
-                    : configState === "live"
-                      ? "Run deep research"
-                      : "Research configuration unavailable"}
-              </button>
-              {!canRun && (
-                <p className="text-caos-2xs text-caos-muted leading-snug">
-                  Enter a {mode === "sector" ? "sector" : "issuer"} above to run.
-                </p>
-              )}
+                {runLabel}
+              </ActionReason>
             </div>
           </div>
         </Panel>}

@@ -9,6 +9,7 @@ import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { headStat } from "@/components/shared/headStat";
 import { queryCapabilities, toErrorMessage } from "@/lib/api";
@@ -23,10 +24,15 @@ import {
 import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
 import { useTypedUrlState } from "@/lib/typed-url-state";
 
+// The first starter is the canonical seeded demo (energy-price margin
+// exposure): its metric is chunk-cited even before any run completes, so the
+// full gate-off → pin → unpin flow is demonstrable on a cold workspace. The
+// leverage/recovery starters return uncited seed facts cold, which correctly
+// leaves pinning gated.
 const STARTERS = [
+  "Which issuers' margins are most exposed to higher energy prices?",
   "Which credits have the largest leverage deterioration?",
   "Show evidence linking refinancing risk to sector posture.",
-  "Compare recovery assumptions across the selected instruments.",
 ];
 const QUERY_URL_KEYS = ["lane", "run"] as const;
 
@@ -309,7 +315,10 @@ export function QueryInvestigationWorkbench() {
   };
 
   const pinFinding = async () => {
+    // Same rule the button's reason states: no citations, no pin. CP-5 would
+    // refuse to ratify an uncited finding anyway — block it at the source.
     if (pinningRef.current || !contextState.context || !run || !["ready", "observed-empty"].includes(run.status)) return;
+    if (run.authority.source_ids.length === 0) return;
     pinningRef.current = true;
     setPinning(true);
     setPinError(null);
@@ -372,7 +381,16 @@ export function QueryInvestigationWorkbench() {
         </section>}
           primary={<section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{run && resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} /></DominantTableRegion> : <QueryResult run={run} />}</section>}
           inspector={<aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50 p-3" aria-label="Query evidence inspector">
-            <div className="flex items-center gap-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Evidence inspector</h2>{run ? <button type="button" onClick={() => void pinFinding()} disabled={pinning || !["ready", "observed-empty"].includes(run.status)} className="caos-action-secondary ml-auto focus-ring disabled:opacity-40">{pinning ? "Pinning…" : "Pin finding"}</button> : null}</div>
+            <div className="flex items-center gap-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Evidence inspector</h2>{run ? <ActionReason
+              reason={!["ready", "observed-empty"].includes(run.status)
+                ? "Only a completed run can be pinned"
+                : run.authority.source_ids.length === 0
+                ? "Attach citations before pinning — draft results can't enter the tray"
+                : pinning ? "Pinning…" : null}
+              reasonDisplay="hidden"
+              onClick={() => void pinFinding()}
+              className="caos-action-secondary ml-auto focus-ring"
+            >{pinning ? "Pinning…" : "Pin finding"}</ActionReason> : null}</div>
             {pinError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{pinError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void pinFinding()}>Retry pin</button></p> : null}
             {run ? <><div className="mt-3"><AuthorityLine authority={run.authority} /></div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3><p className="mt-1 text-caos-xs leading-relaxed text-caos-text">{run.authority.source_ids.length ? `${run.authority.source_ids.length} source identifiers attached to this run.` : "No citation identifiers were attached; keep this result in draft."}</p>{run.authority.source_ids.length ? <ol className="mt-2 space-y-1">{run.authority.source_ids.slice(0, 20).map((id, index) => <li key={id} className="tabular text-caos-xs text-caos-muted"><span className="text-caos-accent">C{index + 1}</span> · {id}</li>)}</ol> : null}</div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div></> : <p className="mt-3 text-caos-xs text-caos-muted">Run an investigation to inspect its method, caveats and citations.</p>}
             {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={findingsKey} /></div> : null}

@@ -15,6 +15,7 @@ import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { RoleViewSwitch } from "@/components/shared/RoleViewSwitch";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { ScopeLabel } from "@/components/shared/ScopeLabel";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
@@ -411,7 +412,7 @@ function Settings() {
   return (
     <EnterprisePage kind="object"
       identity={<ShellIdentity title="Settings" />}
-      primaryAction={<button type="button" onClick={() => { if (analystLoaded && dirty) saveAll(); }} aria-disabled={!analystLoaded || !dirty} title={!analystLoaded ? "Loading profile…" : dirty ? undefined : "No unsaved changes"} className="caos-primary-action focus-ring">Save changes</button>}
+      primaryAction={<ActionReason reason={!analystLoaded ? "Loading profile…" : dirty ? null : "No unsaved changes"} reasonDisplay="hidden" onClick={saveAll} className="caos-action-primary focus-ring">Save changes</ActionReason>}
       utilityLabel="Settings utilities"
       utilityControls={<button type="button" onClick={loadCfg} className="caos-action-secondary focus-ring">Refresh environment snapshot</button>}
       contextualControls={

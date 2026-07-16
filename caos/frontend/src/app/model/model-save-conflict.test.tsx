@@ -37,7 +37,7 @@ describe("Model Builder · save conflict (409)", () => {
   it("shows a role=alert SAVED ELSEWHERE state, not the generic SAVE FAILED", async () => {
     render(<ModelPage />);
     const save = await screen.findByRole("button", { name: /SAVE MODEL/i });
-    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(save.getAttribute("aria-disabled")).toBeNull()); // the ready action omits its disabled state
     fireEvent.click(save);
     await waitFor(() => {
       const alert = screen.getByRole("alert");
@@ -49,7 +49,7 @@ describe("Model Builder · save conflict (409)", () => {
   it("clicking the conflict badge clears it (reload affordance)", async () => {
     render(<ModelPage />);
     const save = await screen.findByRole("button", { name: /SAVE MODEL/i });
-    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(save.getAttribute("aria-disabled")).toBeNull()); // the ready action omits its disabled state
     fireEvent.click(save);
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("SAVED ELSEWHERE");

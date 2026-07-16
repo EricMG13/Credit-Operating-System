@@ -182,6 +182,11 @@ function IssuersDirectory() {
   }, [filters, issuerContext, patchIssuerContext, query, selected, sort]);
 
   const openIssuer = (issuerId: string) => {
+    // Navigation is never hostage to the context write: the profile opens
+    // immediately, the patch reconciles in the background, and a rejection
+    // (e.g. the 45/min analysis-write limit) surfaces through the mounted
+    // AnalysisContextSaveState instead of silently eating the click.
+    openProfile(issuerId);
     const context = analysis.context;
     if (context) {
       void analysis.patch({
@@ -190,10 +195,8 @@ function IssuersDirectory() {
           ...context.surface_state,
           issuers: { ...(context.surface_state.issuers ?? {}), active_id: issuerId, selected_ids: selected },
         },
-      }).then(() => openProfile(issuerId)).catch(() => undefined);
-      return;
+      }).catch(() => undefined);
     }
-    openProfile(issuerId);
   };
 
   // Drop any selected id that's no longer in the register (search/reload

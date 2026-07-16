@@ -33,7 +33,7 @@ describe("Model Builder · save to DB", () => {
   it("shows a role=alert SAVE FAILED state when the PUT rejects (F3)", async () => {
     render(<ModelPage />);
     const save = await screen.findByRole("button", { name: /SAVE MODEL/i });
-    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(save.getAttribute("aria-disabled")).toBeNull()); // the ready action omits its disabled state
     fireEvent.click(save);
     await waitFor(() => {
       const alert = screen.getByRole("alert");

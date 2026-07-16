@@ -15,7 +15,7 @@ import Link from "next/link";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
-import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
+import { useAutonomyDraft, type AutonomyDraftState } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, requiredActionFor, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
 import { getAlertStates, setAlertState, type AlertStateDTO } from "@/lib/api";
 
@@ -24,8 +24,16 @@ function issuerHref(row: AlertRow): string {
   return `/deepdive?issuer=${encodeURIComponent(q)}`;
 }
 
+/** Self-fetching wrapper — kept for callsites that don't already hold the
+ * draft. Command lifts the fetch to the page (it also gates OPEN TOP CHANGE
+ * on the same state) and renders RankedChangesView directly, so the draft is
+ * requested once per surface. */
 export function RankedChanges() {
-  const { draft, loading, offline } = useAutonomyDraft();
+  return <RankedChangesView state={useAutonomyDraft()} />;
+}
+
+export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
+  const { draft, loading, offline } = state;
   const [states, setStates] = useState<Map<string, AlertStateDTO>>(new Map());
 
   const rows = draft ? draftToAlertRows(draft) : [];

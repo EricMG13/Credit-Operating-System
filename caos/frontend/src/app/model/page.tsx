@@ -745,19 +745,23 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
       primaryAction={
         <>
           <button
-            onClick={saveCheckpoint}
-            disabled={!hasIssuerModel || !hydrated || saving || checkpointing || analysis.loading}
+            onClick={() => { if (hasIssuerModel && hydrated && !saving && !checkpointing && !analysis.loading) saveCheckpoint(); }}
+            aria-disabled={(!hasIssuerModel || !hydrated || saving || checkpointing || analysis.loading) || undefined}
             aria-label="Save model checkpoint"
-            title="Save the working model, then create an immutable checkpoint for downstream reporting"
-            className="caos-primary-action focus-ring disabled:opacity-40"
+            title={!hasIssuerModel
+              ? "Load an issuer model first — the reference fixture cannot be checkpointed"
+              : !hydrated || analysis.loading
+              ? "Preparing the model workspace…"
+              : "Save the working model, then create an immutable checkpoint for downstream reporting"}
+            className="caos-action-primary focus-ring"
           >
             {saving || checkpointing ? "Saving..." : "Save checkpoint"}
           </button>
           <button
-            onClick={handleExport}
-            disabled={!hasIssuerModel || exporting}
-            title="Export the committee pack (.xlsx — model grid, scenarios, assumptions, headline facts, overrides)"
-            className="inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
+            onClick={() => { if (hasIssuerModel && !exporting) handleExport(); }}
+            aria-disabled={(!hasIssuerModel || exporting) || undefined}
+            title={!hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : "Export the committee pack (.xlsx — model grid, scenarios, assumptions, headline facts, overrides)"}
+            className="hidden md:inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
           >
             {exporting ? "EXPORTING..." : "▦ EXPORT MODEL"}
           </button>
@@ -791,6 +795,19 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         <>
           {/* Lower-frequency editors live in the drawer to keep the top bar at
               the <=5 visible-actions contract (Save, Export, undo, redo, Checkpoints). */}
+          {restoreError ? (
+            <button type="button" onClick={retryRestore} className="md:hidden caos-action-secondary focus-ring w-full justify-start">
+              Retry saved model
+            </button>
+          ) : null}
+          {saveConflict ? (
+            <button type="button" onClick={() => { setSaveConflict(false); retryRestore(); }} className="md:hidden caos-action-secondary focus-ring w-full justify-start">
+              Reload saved model
+            </button>
+          ) : null}
+          <button type="button" onClick={() => { if (hasIssuerModel && !exporting) handleExport(); }} aria-disabled={(!hasIssuerModel || exporting) || undefined} title={!hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : undefined} className="md:hidden caos-action-secondary focus-ring w-full justify-start">
+            {exporting ? "Exporting model…" : "Export model"}
+          </button>
           <button type="button" onClick={() => setShowAssumptions(true)} className="caos-action-secondary focus-ring w-full justify-start">Open assumptions</button>
           <button type="button" onClick={() => setShowScenarios(true)} className="caos-action-secondary focus-ring w-full justify-start">Open scenarios</button>
           {serverCheckpointsIssuerId === issuerId && serverCheckpoints.length ? (
@@ -801,8 +818,9 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => void restoreServerCheckpoint(item)}
-                    disabled={!hydrated || checkpointing || item.issuer_id !== issuerId}
+                    onClick={() => { if (hydrated && !checkpointing && item.issuer_id === issuerId) void restoreServerCheckpoint(item); }}
+                    aria-disabled={(!hydrated || checkpointing || item.issuer_id !== issuerId) || undefined}
+                    title={item.issuer_id !== issuerId ? "Checkpoint belongs to a different issuer" : undefined}
                     className="focus-ring flex w-full items-center justify-between gap-3 rounded px-2 py-1.5 text-left text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text"
                   >
                     <span className="truncate">{item.label}</span>

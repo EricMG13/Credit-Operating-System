@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
@@ -118,7 +119,10 @@ function VirtualCandidateGrid({
                   <span role="gridcell" className="text-caos-text">{display(pickup, "bp")}</span>
                   <span role="gridcell" className="text-caos-muted">{display(candidate.market.bid)} / {display(candidate.market.ask)}</span>
                 </button>
-                <span role="gridcell"><button type="button" aria-pressed={compareIds.has(candidate.id)} onClick={() => onCompare(candidate)} disabled={!compareIds.has(candidate.id) && compareIds.size >= 5} className="caos-action-secondary focus-ring disabled:opacity-40">{compareIds.has(candidate.id) ? "Remove" : "Compare"}</button></span>
+                <span role="gridcell">{(() => {
+                  const atCap = !compareIds.has(candidate.id) && compareIds.size >= 5;
+                  return <button type="button" aria-pressed={compareIds.has(candidate.id)} aria-disabled={atCap || undefined} title={atCap ? "Compare holds at most 5 candidates — remove one first" : undefined} onClick={() => { if (!atCap) onCompare(candidate); }} className="caos-action-secondary focus-ring">{compareIds.has(candidate.id) ? "Remove" : "Compare"}</button>;
+                })()}</span>
               </div>
             );
           })}
@@ -231,10 +235,23 @@ export function RVScreenerWorkbench() {
       kind="analytical"
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text shrink-0">RV Screener</span>{screen ? <span className="tabular text-caos-2xs text-caos-muted min-w-0 truncate" title={`${screen.snapshot_source_label ?? "Snapshot"} · ${screen.snapshot_id}`}>{screen.snapshot_source_label ?? "Snapshot"} · {screen.snapshot_id.slice(0, 8)}</span> : null}</>}
       status={<span className="tabular text-caos-2xs uppercase text-caos-accent">View: {roleLabel} · composition only</span>}
-      primaryAction={<button type="button" onClick={reviewTop} disabled={!context || busy} className="caos-primary-action focus-ring disabled:opacity-40">{busy ? "Running…" : screen ? "Review top candidate" : "Run screen"}</button>}
+      primaryAction={<ActionReason
+        reason={contextState.loading
+          ? "Preparing analysis workspace…"
+          : contextState.error
+          ? "Analysis workspace unavailable — reload to retry"
+          : busy
+          ? "Screen in progress"
+          : screen && screen.candidates.length === 0
+          ? "No candidates returned — adjust the screen filters"
+          : null}
+        reasonDisplay="hidden"
+        onClick={reviewTop}
+        className="caos-action-primary focus-ring"
+      >{busy ? "Running…" : screen ? "Review top candidate" : "Run screen"}</ActionReason>}
       contextualControls={<>{headStat("Universe", context?.sector_id ?? "All")}{headStat("Actionable", String(screen?.counts.actionable ?? 0), (screen?.counts.actionable ?? 0) > 0 ? "var(--caos-success)" : undefined)}{headStat(classificationLabel("screen-only"), String(screen?.counts["screen-only"] ?? 0), (screen?.counts["screen-only"] ?? 0) > 0 ? "var(--caos-warning)" : undefined)}<button type="button" onClick={() => setImportOpen(true)} className="caos-action-secondary focus-ring">Import pricing</button></>}
       utilityLabel="RV utilities"
-      utilityControls={<div className="space-y-4 text-caos-xs"><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section><button type="button" onClick={() => contextState.patch({ filters: { ...(context?.filters ?? {}), rv: screen?.filters ?? {} } })} disabled={!screen} className="caos-action-secondary focus-ring disabled:opacity-40">Save current screen</button></div>}
+      utilityControls={<div className="space-y-4 text-caos-xs"><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section><ActionReason reason={!screen ? "Run the screen first — a saved screen references its snapshot" : null} onClick={() => void contextState.patch({ filters: { ...(context?.filters ?? {}), rv: screen?.filters ?? {} } })} className="caos-action-secondary focus-ring">Save current screen</ActionReason></div>}
       narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">{screen?.candidates.length ?? 0} instruments</span> }}
     >
       <main className="caos-persona-route rv-workbench min-h-0 flex-1 overflow-hidden p-2">
@@ -242,9 +259,13 @@ export function RVScreenerWorkbench() {
           surface="rv-screener"
           decision={<DecisionHeader state={decisionState} defaultOpen />}
           primary={<section className="min-h-0 h-full overflow-hidden flex flex-col p-3 border border-caos-border" aria-label="RV candidate workspace">
-          <div className="mb-2 flex flex-wrap items-center gap-1" role="tablist" aria-label="RV views">{(["table", "distribution", "compare"] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={view === value} onClick={() => updateUrlState({ view: value === "table" ? null : value })} disabled={value === "compare" && compareIds.size < 2} className={`caos-action-secondary focus-ring disabled:opacity-40 ${view === value ? "border-caos-accent text-caos-text" : ""}`}>{value}{value === "compare" ? ` (${compareIds.size})` : ""}</button>)}{screen ? <div className="ml-auto"><AuthorityLine authority={screen.authority} /></div> : null}</div>
+          <div className="mb-2 flex flex-wrap items-center gap-1" role="tablist" aria-label="RV views">{(["table", "distribution", "compare"] as const).map((value) => {
+            const gated = value === "compare" && compareIds.size < 2;
+            return <button key={value} type="button" role="tab" aria-selected={view === value} aria-disabled={gated || undefined} title={gated ? "Mark at least 2 candidates with each row's Compare action" : undefined} onClick={() => { if (!gated) updateUrlState({ view: value === "table" ? null : value }); }} className={`caos-action-secondary focus-ring ${view === value ? "border-caos-accent text-caos-text" : ""}`}>{value}{value === "compare" ? ` (${compareIds.size})` : ""}</button>;
+          })}{screen ? <div className="ml-auto"><AuthorityLine authority={screen.authority} /></div> : null}</div>
           {error ? <div className="mb-2 rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">{error}</div> : null}
-          {!screen ? <div className="grid min-h-0 flex-1 place-items-center rounded-md border border-dashed border-caos-border p-6 text-center"><div><p className="tabular text-caos-xs uppercase tracking-widest text-caos-accent">Immutable snapshot required</p><p className="mt-2 max-w-lg text-caos-sm leading-relaxed text-caos-muted">Run the screen to normalize the reference pricing sheet. Reference observations can surface candidates but can never produce an actionable recommendation.</p></div></div> : null}
+          {contextState.error ? <div className="mb-2 rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">Analysis workspace unavailable — the screen cannot run without it. <button type="button" className="text-caos-accent focus-ring" onClick={() => window.location.reload()}>Reload to retry</button></div> : null}
+          {!screen ? <div className="grid min-h-0 flex-1 place-items-center rounded-md border border-dashed border-caos-border p-6 text-center"><div><p className="tabular text-caos-xs uppercase tracking-widest text-caos-accent">{contextState.loading ? "Preparing workspace" : "Immutable snapshot required"}</p><p className="mt-2 max-w-lg text-caos-sm leading-relaxed text-caos-muted">{contextState.loading ? "Resolving the analysis context — the screen unlocks in a moment." : "Run the screen to normalize the reference pricing sheet. Reference observations can surface candidates but can never produce an actionable recommendation."}</p></div></div> : null}
           {screen && view === "table" ? <DominantTableRegion ownerId="rv-candidates" label="Ranked RV candidates" className="min-h-0 flex-1"><VirtualCandidateGrid candidates={screen.candidates} selectedId={selected?.id ?? null} compareIds={compareIds} onSelect={(candidate) => { setSelected(candidate); updateUrlState({ selected: candidate.id }, "replace"); }} onCompare={toggleCompare} /></DominantTableRegion> : null}
           {screen && view === "distribution" ? <div className="min-h-0 flex-1 overflow-auto"><SemanticVisualization spec={distributionSpec} /></div> : null}
           {screen && view === "compare" ? <div className="min-h-0 flex-1 overflow-auto"><div className="grid gap-3 xl:grid-cols-2">{compared.map((candidate) => <article key={candidate.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><h2 className="text-caos-sm font-semibold text-caos-text">{candidate.borrower}</h2><span className="ml-auto tabular text-caos-2xs uppercase text-caos-warning">{classificationLabel(candidate.classification)}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-caos-xs"><div><dt className="text-caos-muted">DM</dt><dd className="tabular text-caos-text">{display(candidate.market.dm, "bp")}</dd></div><div><dt className="text-caos-muted">Pickup</dt><dd className="tabular text-caos-text">{display((candidate.pitch.market_relative_value as Record<string, unknown>).dm_pickup_bps, "bp")}</dd></div><div><dt className="text-caos-muted">Ranking</dt><dd className="text-caos-text">{display(candidate.market.ranking)}</dd></div><div><dt className="text-caos-muted">Maturity</dt><dd className="text-caos-text">{display(candidate.market.maturity)}</dd></div></dl><p className="mt-3 text-caos-xs text-caos-warning">{candidate.missing_gates.join(" · ") || "All gates satisfied"}</p></article>)}</div></div> : null}

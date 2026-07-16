@@ -56,7 +56,7 @@ describe("Deep Research recovery boundaries", () => {
     render(<ResearchPage />);
 
     expect((await screen.findByRole("alert")).textContent).toContain("Research configuration unavailable");
-    expect((screen.getAllByRole("button", { name: "Research configuration unavailable" })[1] as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Research configuration unavailable" })[1].getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Retry configuration" }));
 
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" }).length).toBeGreaterThan(0));

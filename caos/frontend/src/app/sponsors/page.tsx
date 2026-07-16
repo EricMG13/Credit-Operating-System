@@ -100,6 +100,10 @@ function SponsorsView() {
   }, [patchSponsorsContext, selected, sponsorsContext]);
 
   const openSponsorIssuer = (issuerId: string) => {
+    // Navigate first — the context patch reconciles in the background and a
+    // rejection (rate limit) surfaces via AnalysisContextSaveState instead of
+    // silently eating the click.
+    openProfile(issuerId);
     const context = analysis.context;
     if (context) {
       void analysis.patch({
@@ -108,10 +112,8 @@ function SponsorsView() {
           ...context.surface_state,
           sponsors: { ...(context.surface_state.sponsors ?? {}), selected_ids: [issuerId] },
         },
-      }).then(() => openProfile(issuerId)).catch(() => undefined);
-      return;
+      }).catch(() => undefined);
     }
-    openProfile(issuerId);
   };
 
   return (
@@ -120,9 +122,10 @@ function SponsorsView() {
       primaryAction={
         <button
           type="button"
-          disabled={!selected}
-          onClick={() => document.getElementById("sponsor-record")?.focus()}
-          className="caos-primary-action focus-ring disabled:opacity-40"
+          aria-disabled={(!selected) || undefined}
+          title={!selected ? "Select a sponsor row first" : undefined}
+          onClick={() => { if (selected) document.getElementById("sponsor-record")?.focus(); }}
+          className="caos-action-primary focus-ring"
         >
           Review selected sponsor
         </button>
