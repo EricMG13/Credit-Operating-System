@@ -259,7 +259,7 @@ def test_agenda_rejects_report_from_a_different_run(ic_client):
 
     issuer_id, portfolio_id, run_id = _seed_ready("ic-report-a")
     _other_issuer, _other_portfolio, other_run_id = _seed_ready("ic-report-b")
-    owner = "ic-report-owner"
+    owner = "ic-report-a-owner"
 
     async def seed_report():
         async with AsyncSessionLocal() as db:
@@ -827,7 +827,7 @@ def test_duplicate_vote_race_resolves_as_one_success_and_one_conflict(ic_client)
     from main import app
 
     issuer_id, _portfolio_id, run_id = _seed_ready("ic-vote-race")
-    app.dependency_overrides[get_identity] = _identity("ic-vote-racer")
+    app.dependency_overrides[get_identity] = _identity("ic-vote-race-owner")
     decision = ic_client.post(
         "/api/decisions",
         json={

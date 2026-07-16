@@ -610,14 +610,15 @@ async def test_shutdown_cancellation_marks_run_failed(seeded_db, monkeypatch):
 
     monkeypatch.setattr(run_executor, "execute_run", slow)
 
+    ex = InProcessExecutor()
+    await ex.start()
+
     async with AsyncSessionLocal() as s:
         run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
         s.add(run)
         await s.commit()
         run_id = run.id
 
-    ex = InProcessExecutor()
-    await ex.start()
     await ex.enqueue(run_id)
     await asyncio.sleep(0.1)  # let the task enter execute_run
     await ex.stop()           # cancels in-flight + awaits the mark-failed handler
