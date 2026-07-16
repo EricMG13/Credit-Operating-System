@@ -33,8 +33,16 @@ export function ConceptHotkeys() {
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (!e.altKey) return;
       if (isEditable(e.target)) return;
+      // "?" (no Alt) opens the shortcut reference — every binding the overlay
+      // documents lives in lib/shortcuts.ts.
+      if (!e.altKey) {
+        if (e.key === "?" && !e.metaKey && !e.ctrlKey) {
+          e.preventDefault();
+          window.dispatchEvent(new Event("caos:help-open"));
+        }
+        return;
+      }
 
       if (["s", "S", "k", "K", "c", "C"].includes(e.key)) {
         e.preventDefault();

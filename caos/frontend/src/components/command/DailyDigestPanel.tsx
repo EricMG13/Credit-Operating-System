@@ -14,13 +14,17 @@ export function DailyDigestPanel({ digest }: { digest: DailyDigest }) {
   const cov = digest.coverage || {};
   const act = digest.activity_24h || {};
   const failed = act.runs_failed ?? 0;
-  const stats: { l: string; v: string; color?: string }[] = [
+  // Aggregate-only cells state their cohort in a title — the digest payload
+  // carries no per-issuer ids for these, so an honest definition beats a fake
+  // click-through.
+  const stats: { l: string; v: string; color?: string; title?: string }[] = [
     {
       l: "WARF (eq-wt)",
       v: digest.warf != null ? `${digest.warf.toLocaleString("en-US")} · ${digest.warf_band ?? "—"}` : "no rated names",
+      title: "Equal-weighted WARF over covered issuers with an agency rating on file — holdings are not par-weighted.",
     },
-    { l: "Rated / covered", v: `${cov.rated ?? 0} rated · of ${cov.issuers ?? 0}` },
-    { l: "Complete runs", v: `${cov.with_complete_run ?? 0} runs · of ${cov.issuers ?? 0}` },
+    { l: "Rated / covered", v: `${cov.rated ?? 0} rated · of ${cov.issuers ?? 0}`, title: "Covered issuers with an agency rating on file." },
+    { l: "Complete runs", v: `${cov.with_complete_run ?? 0} runs · of ${cov.issuers ?? 0}`, title: "Covered issuers with at least one complete analytical run." },
     {
       l: "Runs 24h",
       v: `${act.runs_completed ?? 0} done · ${failed} failed`,
@@ -33,7 +37,7 @@ export function DailyDigestPanel({ digest }: { digest: DailyDigest }) {
           4 columns collapse to one word per line. */}
       <div className="grid grid-cols-2 gap-px bg-caos-border/50 border-b border-caos-border">
         {stats.map((s) => (
-          <div key={s.l} className="bg-caos-panel px-3 py-2">
+          <div key={s.l} className="bg-caos-panel px-3 py-2" title={s.title}>
             <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{s.l}</div>
             <div className="tabular text-caos-xl" style={{ color: s.color || "var(--caos-text)" }}>{s.v}</div>
           </div>

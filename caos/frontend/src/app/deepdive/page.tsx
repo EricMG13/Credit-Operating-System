@@ -658,6 +658,10 @@ function DeepDive() {
                         <span key={p.key} className="flex items-center gap-0.5" aria-hidden="true">
                           <span className="tabular text-caos-2xs text-caos-muted">{p.n}</span>
                           {p.dot}
+                          {/* the word the glyph encodes, visible where width
+                              allows — glyph-only clusters read as memorized
+                              corpus (2026-07-16 critique H6) */}
+                          <span className="hidden xl:inline tabular text-caos-2xs text-caos-muted">{p.word.split(" ").slice(1).join(" ")}</span>
                         </span>
                       ))}
                     </span>

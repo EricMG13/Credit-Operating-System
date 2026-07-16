@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/components/shared/AuthProvider";
 import { RoleViewProvider } from "@/components/shared/RoleViewProvider";
 import { ConceptHotkeys } from "@/components/shared/ConceptHotkeys";
+import { ShortcutHelp } from "@/components/shared/ShortcutHelp";
 import { AskProvider, AskLauncher } from "@/components/shared/Ask";
 import { NotificationProvider } from "@/components/shared/Notifications";
 import { IssuerProfileOverlayProvider, IssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <IssuerProfileOverlayProvider>
           <AskProvider>
             <ConceptHotkeys />
+            <ShortcutHelp />
             {/* ⌘K/Ctrl+K global palette; Alt+K stays direct-to-Ask. */}
             <CommandPalette />
             {/* Skip links — first focusables; visible only on keyboard focus (WCAG 2.4.1). */}
