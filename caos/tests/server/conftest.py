@@ -33,6 +33,18 @@ os.environ.setdefault("CAOS_TEST", "1")  # NullPool so async + TestClient loops 
 # Demo seeding is now OFF by default (prod safe-by-default, #34); the TestClient
 # lifespan suite relies on the seeded demo issuers / reference deal, so opt in here.
 os.environ.setdefault("CAOS_DEMO_SEED", "true")
+# main.py hashes every inline <script> under the static Next export ONCE at
+# import time (module-level _INLINE_SCRIPT_HASHES) and its deployed-posture
+# lifespan guard refuses to boot without at least one hash. Some test modules
+# `from main import app` at their own top level, importing main during pytest
+# collection — before any fixture (even session-scoped) can run — so this has
+# to be a real file on disk, staged here, before conftest finishes importing.
+_STATIC_DIR = Path(f"{_TMP}/static")
+_STATIC_DIR.mkdir(parents=True, exist_ok=True)
+(_STATIC_DIR / "index.html").write_text(
+    "<!doctype html><html><body><script>window.__caosTestBoot=1;</script></body></html>"
+)
+os.environ.setdefault("CAOS_STATIC_DIR", str(_STATIC_DIR))
 
 import pytest_asyncio
 
