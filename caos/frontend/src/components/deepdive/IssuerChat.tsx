@@ -133,13 +133,13 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
   live?: LiveRunState;
   issuerName?: string;
 }) {
-  // Persist per run (live) so transcripts don't bleed across issuers; the
-  // reference deal keeps its stable seeded key.
+  // Keep transcripts tab-scoped so sensitive analyst questions do not persist
+  // on a shared workstation after the browser session ends.
   const cacheKey = "caos-chat-" + (live?.runId || "atlf-2641");
   const label = live?.runId ? (issuerName || "this issuer") : DEAL.code;
   const runLabel = live?.runId ? "run " + live.runId.slice(0, 8) : "RUN #2641";
   const [msgs, setMsgs] = useState<Msg[]>(() => {
-    try { return JSON.parse(localStorage.getItem(cacheKey) || "[]") || []; } catch { return []; }
+    try { return JSON.parse(sessionStorage.getItem(cacheKey) || "[]") || []; } catch { return []; }
   });
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -157,7 +157,7 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
   useEffect(() => {
     requestGeneration.current += 1;
     let restored: Msg[] = [];
-    try { restored = JSON.parse(localStorage.getItem(cacheKey) || "[]") || []; } catch {}
+    try { restored = JSON.parse(sessionStorage.getItem(cacheKey) || "[]") || []; } catch {}
     setMsgs(restored);
     setInput("");
     setBusy(false);
@@ -165,7 +165,7 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
   }, [cacheKey]);
   useEffect(() => {
     if (loadedCacheKey !== cacheKey) return;
-    try { localStorage.setItem(cacheKey, JSON.stringify(msgs)); } catch {}
+    try { sessionStorage.setItem(cacheKey, JSON.stringify(msgs)); } catch {}
   }, [cacheKey, loadedCacheKey, msgs]);
   useEffect(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs, busy]);
   useEffect(() => { inputRef.current?.focus(); }, []);

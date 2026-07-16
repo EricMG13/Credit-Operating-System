@@ -49,6 +49,28 @@ def test_record_usage_and_llm_allowed():
     assert budget.llm_allowed() is True  # no budget set → always allowed
 
 
+def test_cost_telemetry_prefers_provider_cost_and_never_guesses_unknown_models():
+    provider_usage = SimpleNamespace(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+        cost=0.000123,
+    )
+    assert budget._estimated_cost(provider_usage, "deepseek/deepseek-v4-pro") == pytest.approx(0.000123)
+
+    unknown = SimpleNamespace(
+        input_tokens=10,
+        output_tokens=5,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    assert budget._estimated_cost(unknown, "future-provider/model") is None
+    assert budget._estimated_cost(unknown, "claude-opus-4-8") == pytest.approx(
+        (10 * 5 + 5 * 25) / 1_000_000
+    )
+
+
 # ── Enforcement seam (no real LLM; _llm_addbacks is monkeypatched) ───────────
 def test_exhausted_budget_skips_llm_and_falls_back(monkeypatch):
     called = {"llm": False}

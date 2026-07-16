@@ -1,5 +1,7 @@
 """Shared analysis context and Findings Tray ownership contracts."""
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 
@@ -296,6 +298,30 @@ def test_context_artifact_and_surface_patches_merge_without_erasing_siblings():
         assert body["surface_state"]["issuers"]["query"] == "telecom"
         assert body["surface_state"]["pipeline"]["view"] == "graph"
 
+        nested = client.patch(f"/api/analysis/contexts/{context['id']}", json={
+            "surface_state": {"issuers": {
+                "view": "coverage", "filters": {"rating": "B"},
+            }},
+            "filters": {"lane": "credit"},
+            "selected": {"issuer": "issuer-1"},
+        })
+        assert nested.status_code == 200, nested.text
+        issuer_state = nested.json()["surface_state"]["issuers"]
+        assert issuer_state["query"] == "telecom"
+        assert issuer_state["view"] == "coverage"
+        next_nested = client.patch(f"/api/analysis/contexts/{context['id']}", json={
+            "surface_state": {"issuers": {"filters": {"sector": "telecom"}}},
+            "filters": {"basis": "adjusted"},
+            "selected": {"run": "run-1"},
+        })
+        assert next_nested.status_code == 200, next_nested.text
+        next_body = next_nested.json()
+        assert next_body["surface_state"]["issuers"]["filters"] == {
+            "rating": "B", "sector": "telecom",
+        }
+        assert next_body["filters"] == {"lane": "credit", "basis": "adjusted"}
+        assert next_body["selected"] == {"issuer": "issuer-1", "run": "run-1"}
+
     app.dependency_overrides.clear()
 
 
@@ -322,11 +348,68 @@ def test_context_patch_rejects_stale_revision():
             json={"name": "Stale writer", "expected_revision": 1},
         )
         assert stale.status_code == 409
+        assert stale.json()["detail"]["current_revision"] == 2
         assert client.get(
             f"/api/analysis/contexts/{context['id']}"
         ).json()["name"] == "First writer"
 
     app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_postgres_two_session_disjoint_context_patches_survive(seeded_db):
+    """The production row lock must merge both writers, not last-write a JSON column."""
+    import asyncio
+
+    from database import AnalysisContextRecord, AsyncSessionLocal, engine
+    from identity import CallerIdentity
+    from routes.analysis import ContextPatch, patch_context
+
+    if engine.dialect.name != "postgresql":
+        pytest.skip("requires PostgreSQL SELECT FOR UPDATE semantics")
+
+    caller = CallerIdentity(
+        id="analysis-two-session",
+        email="analysis-two-session@example.test",
+        full_name="Analysis Two Session",
+    )
+    async with AsyncSessionLocal() as session:
+        row = AnalysisContextRecord(analyst_id=caller.id, name="Concurrent context")
+        session.add(row)
+        await session.commit()
+        context_id = row.id
+
+    async def write(body: ContextPatch):
+        async with AsyncSessionLocal() as session:
+            await patch_context(context_id, body, db=session, caller=caller)
+            await session.commit()
+
+    await asyncio.gather(
+        write(ContextPatch(
+            artifacts={"sponsor_id": "sponsor-concurrent"},
+            surface_state={"command": {
+                "active_id": "issuer-1", "filters": {"rating": "B"},
+            }},
+            filters={"lane": "credit"},
+        )),
+        write(ContextPatch(
+            artifacts={"research_job_id": None},
+            surface_state={"command": {
+                "view": "portfolio", "filters": {"sector": "telecom"},
+            }},
+            filters={"basis": "adjusted"},
+        )),
+    )
+
+    async with AsyncSessionLocal() as session:
+        row = await session.get(AnalysisContextRecord, context_id)
+        assert row.artifacts["sponsor_id"] == "sponsor-concurrent"
+        assert row.surface_state["command"]["active_id"] == "issuer-1"
+        assert row.surface_state["command"]["view"] == "portfolio"
+        assert row.surface_state["command"]["filters"] == {
+            "rating": "B", "sector": "telecom",
+        }
+        assert row.filters == {"lane": "credit", "basis": "adjusted"}
 
 
 def test_report_draft_is_owned_revision_checked_and_not_publishable_without_checkpoint():

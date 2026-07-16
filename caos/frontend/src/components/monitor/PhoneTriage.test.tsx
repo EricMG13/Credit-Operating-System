@@ -123,4 +123,26 @@ describe("PhoneTriage", () => {
     expect(screen.getByText("resolved: Reviewed, no action needed.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Ack" })).toBeNull(); // action row gone once resolved
   });
+
+  it("preserves a failed resolution note and retries the exact mutation", async () => {
+    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
+    getAlertStates.mockResolvedValue([]);
+    setAlertState.mockRejectedValueOnce(new Error("resolve unavailable")).mockResolvedValueOnce({
+      id: "1", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "resolved",
+      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
+      resolved_at: "2026-07-12T09:10:00Z", resolution_note: "Keep this note",
+    });
+    render(<PhoneTriage />);
+    await screen.findByText("EG Group");
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    const note = screen.getByPlaceholderText("resolution note (optional)…") as HTMLInputElement;
+    fireEvent.change(note, { target: { value: "Keep this note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("resolve unavailable");
+    expect(note.value).toBe("Keep this note");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(setAlertState).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText("Resolved")).toBeTruthy());
+  });
 });

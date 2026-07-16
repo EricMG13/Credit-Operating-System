@@ -47,7 +47,7 @@ from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
 from engine.metricengine import MetricFactEntry, build_metric_facts
 from engine.queryinsights import fingerprint, fingerprint_issuer
-from config import get_settings
+from config import document_egress_allowed, get_settings
 from retrieval import retrieve_corpus
 
 logger = logging.getLogger("caos")
@@ -61,7 +61,10 @@ _VALID_CLAIM_TYPES = ("observation", "causal-hypothesis", "risk-flag")
 
 
 def available() -> bool:
-    return presets.can_run_model(presets.model_for(presets.HEAVY))
+    return (
+        document_egress_allowed()
+        and presets.can_run_model(presets.model_for(presets.HEAVY))
+    )
 
 
 def _text_of(resp) -> str:
@@ -69,9 +72,10 @@ def _text_of(resp) -> str:
 
 
 def _question_hash(question: str, capability_id: Optional[str] = None,
-                   issuer_id: Optional[str] = None) -> str:
+                   issuer_id: Optional[str] = None,
+                   analyst_id: Optional[str] = None) -> str:
     norm = re.sub(r"\s+", " ", question.strip().lower())
-    scoped = "\0".join((capability_id or "", issuer_id or "", norm))
+    scoped = "\0".join((analyst_id or "", capability_id or "", issuer_id or "", norm))
     return hashlib.sha256(scoped.encode()).hexdigest()
 
 
@@ -259,6 +263,7 @@ async def _apply_entailment_demotions(payload: dict, hits: list,  # noqa: C901
 
 async def _generate(db: AsyncSession, question: str, capability_id: Optional[str],  # noqa: C901
                     issuer_id: Optional[str],
+                    analyst_id: Optional[str] = None,
                     tier: str = presets.HEAVY) -> dict:
     """Retrieve → answer → gate. Returns the validated payload (no persistence).
     Raises on LLM/parse failure so the caller can surface an explicit error.
@@ -268,6 +273,8 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
     stack runs identically regardless of tier, so a weaker model simply produces
     more drop-heavy replies (more self-correction retries, still bounded) rather
     than ungated claims."""
+    if not document_egress_allowed():
+        raise RuntimeError("Document egress is disabled for the grounded-answer lane.")
     issuer_ids = [issuer_id] if issuer_id else None
 
     # 1. Fetch query vector embedding if API key is present
@@ -287,7 +294,8 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
     # analyst-ratified graph peers' chunks (the recall fix for cross-issuer
     # exposure questions). Unscoped stays whole-corpus (expansion is a no-op).
     hits = await retrieve_corpus(db, question, k=_RETRIEVE_K * 2,
-                                 issuer_ids=issuer_ids, expand_graph=bool(issuer_ids))
+                                 issuer_ids=issuer_ids, expand_graph=bool(issuer_ids),
+                                 analyst_id=analyst_id)
     if not hits:
         return {"answer": "", "sentences": [], "citations": [], "unavailable": True,
                 "reason": "No source chunks matched — nothing to ground an answer on."}
@@ -356,6 +364,8 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
     payload: Optional[dict] = None
     feedback_payload: Optional[dict] = None
     selected_model: Optional[str] = None
+    selected_attempt = 0
+    attempt_diagnostics: list[dict] = []
     for attempt in range(_MAX_GENERATION_ATTEMPTS):
         feedback = (
             _build_feedback_note(feedback_payload)
@@ -383,11 +393,20 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
             logger.exception("Self-correction retry failed; keeping prior payload")
             break
         attempt_payload = _validate(reply, hits, metric_facts)
+        score = _attempt_score(attempt_payload)
+        attempt_diagnostics.append({
+            "attempt": attempt + 1,
+            "surviving_sentences": len(attempt_payload.get("sentences") or []),
+            "drop_rate": attempt_payload.get("drop_rate", 0.0),
+            "drop_reasons": list(attempt_payload.get("drop_reasons") or []),
+            "score": list(score),
+        })
         # Take-better: a retry replaces the selected answer only when it strictly
         # improves survivors/validation cleanliness. A clean-but-empty repair can
         # therefore never erase a partially grounded first answer.
-        if payload is None or _attempt_score(attempt_payload) > _attempt_score(payload):
+        if payload is None or score > _attempt_score(payload):
             payload = attempt_payload
+            selected_attempt = attempt + 1
             selected_model = str(getattr(resp, "model", None) or presets.model_for(tier))
         feedback_payload = attempt_payload
         if not _should_retry(attempt_payload):
@@ -406,6 +425,11 @@ async def _generate(db: AsyncSession, question: str, capability_id: Optional[str
     # payload contract stays stable for the client).
     payload.pop("drop_rate", None)
     payload.pop("drop_reasons", None)
+    payload["self_correction"] = {
+        "attempted": len(attempt_diagnostics) > 1,
+        "selected_attempt": selected_attempt,
+        "attempts": attempt_diagnostics,
+    }
     payload["model"] = selected_model or presets.model_for(tier)
     return payload
 
@@ -414,7 +438,7 @@ async def answer(db: AsyncSession, question: str, *, capability_id: Optional[str
                  issuer_id: Optional[str] = None, analyst_id: Optional[str] = None,
                  force: bool = False) -> dict:
     """Grounded AI answer for one scoped question, cached by corpus fingerprint."""
-    qhash = _question_hash(question, capability_id, issuer_id)
+    qhash = _question_hash(question, capability_id, issuer_id, analyst_id)
     if issuer_id:
         fp = await fingerprint_issuer(db, issuer_id)
     else:
@@ -423,14 +447,18 @@ async def answer(db: AsyncSession, question: str, *, capability_id: Optional[str
     if not force:
         row = (await db.execute(
             select(QueryAnswer)
-            .where(QueryAnswer.question_hash == qhash, QueryAnswer.data_fingerprint == fp)
+            .where(
+                QueryAnswer.question_hash == qhash,
+                QueryAnswer.data_fingerprint == fp,
+                QueryAnswer.analyst_id == analyst_id,
+            )
             .order_by(QueryAnswer.created_at.desc())
         )).scalars().first()
         if row is not None:
             return {**row.payload, "model": row.model,
                     "created_at": row.created_at.isoformat(), "cached": True}
 
-    payload = await _generate(db, question, capability_id, issuer_id)
+    payload = await _generate(db, question, capability_id, issuer_id, analyst_id)
     model = payload.pop("model", None)
     row = QueryAnswer(question_hash=qhash, data_fingerprint=fp, model=model,
                       payload=payload, analyst_id=analyst_id)

@@ -126,7 +126,10 @@ class Settings(BaseSettings):
     model_tier_strong: str = "deepseek/deepseek-v4-pro"   # BALANCED heavy
     model_tier_top: str = "claude-opus-4-8"               # MAX heavy
 
-    embedding_model: str = "text-embedding-004"
+    # text-embedding-004 was shut down on 2026-01-14. Keep the persisted vector
+    # width at 768 while using Google's supported, automatically-normalized
+    # replacement model.
+    embedding_model: str = "gemini-embedding-2"
     embedding_dim: int = 768
     # Source documents may contain MNPI or contractual confidential information.
     # External synthesis/embedding egress is opt-in even when provider keys exist.
@@ -203,6 +206,8 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 2_000
     max_pdf_extracted_chars: int = 16_000_000
     upload_parse_timeout_s: float = 120.0
+    max_documents_per_issuer: int = 250
+    max_chunks_per_issuer: int = 5_000
 
     # ClamAV malware scan for uploads (avscan.py / SECURITY.md §4).
     # Empty host is permitted only for local development. When set, every user upload is streamed to
@@ -326,6 +331,19 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def document_egress_allowed(settings: "Settings | None" = None) -> bool:
+    """Single fail-closed policy for source-derived external-model calls.
+
+    A provider key proves technical availability, not permission to transmit
+    issuer documents, module outputs, or analyst notes. Every lane that can
+    carry that material must consult this predicate before making a call.
+    """
+    s = settings or get_settings()
+    # Some deterministic test/integration seams pass a settings-like object.
+    # Missing permission must degrade closed, never raise or imply consent.
+    return bool(getattr(s, "caos_document_egress_enabled", False))
 
 
 def is_deployed(settings: "Settings | None" = None) -> bool:

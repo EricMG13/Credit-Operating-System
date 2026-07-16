@@ -124,12 +124,16 @@ export function parseAssumptions(raw: string | null): Assumptions | null {
 
 export function loadAssumptions(issuerId: string): Assumptions {
   if (typeof window === "undefined") return DEFAULT_ASSUMPTIONS;
-  const namespaced = parseAssumptions(localStorage.getItem(keyFor(issuerId)));
+  const namespaced = parseAssumptions(sessionStorage.getItem(keyFor(issuerId)));
   if (namespaced) return namespaced;
   // One-time migration: only the reference issuer adopts the legacy global value.
   if (issuerId === ATLF_REFERENCE_ISSUER_ID) {
     const legacy = parseAssumptions(localStorage.getItem(LEGACY_KEY));
-    if (legacy) return legacy;
+    if (legacy) {
+      localStorage.removeItem(LEGACY_KEY);
+      sessionStorage.setItem(keyFor(issuerId), JSON.stringify(legacy));
+      return legacy;
+    }
   }
   return DEFAULT_ASSUMPTIONS;
 }
@@ -141,7 +145,7 @@ export function saveAssumptions(issuerId: string, a: Assumptions): void {
     baseYears: sanitizeYears(a.baseYears),
     downYears: sanitizeYears(a.downYears),
   };
-  try { localStorage.setItem(keyFor(issuerId), JSON.stringify(sanitized)); } catch { /* private mode / quota */ }
+  try { sessionStorage.setItem(keyFor(issuerId), JSON.stringify(sanitized)); } catch { /* private mode / quota */ }
 }
 
 /** Count of fields in a case that differ from the agent baseline (panel chip). */

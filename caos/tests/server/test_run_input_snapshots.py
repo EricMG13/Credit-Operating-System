@@ -6,7 +6,7 @@ from sqlalchemy import delete
 from analysis_contracts import ArtifactRef
 from database import AsyncSessionLocal, Document, DocumentChunk, SourceManifest
 from engine.fixtures import REFERENCE_ISSUER_ID
-from retrieval import build_issuer_index, rank_with_index
+from retrieval import build_issuer_index, rank_with_index, retrieve_corpus
 from run_inputs import snapshot_run_inputs
 
 
@@ -16,6 +16,7 @@ async def test_context_snapshot_is_approved_and_excludes_later_or_unreferenced_d
     async with AsyncSessionLocal() as db:
         selected = Document(
             issuer_id=REFERENCE_ISSUER_ID,
+            analyst_id=analyst_id,
             doc_type="Document",
             file_name="selected.pdf",
             storage_key="test/selected.pdf",
@@ -24,6 +25,7 @@ async def test_context_snapshot_is_approved_and_excludes_later_or_unreferenced_d
         )
         unselected = Document(
             issuer_id=REFERENCE_ISSUER_ID,
+            analyst_id=analyst_id,
             doc_type="Document",
             file_name="later.pdf",
             storage_key="test/later.pdf",
@@ -86,6 +88,7 @@ async def test_draft_manifest_snapshot_fails_closed(seeded_db):
     async with AsyncSessionLocal() as db:
         document = Document(
             issuer_id=REFERENCE_ISSUER_ID,
+            analyst_id=analyst_id,
             doc_type="Document",
             file_name="draft.pdf",
             storage_key="test/draft.pdf",
@@ -124,4 +127,99 @@ async def test_draft_manifest_snapshot_fails_closed(seeded_db):
         finally:
             await db.execute(delete(SourceManifest).where(SourceManifest.id == manifest_id))
             await db.execute(delete(Document).where(Document.id == document_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_withdrawn_document_is_excluded_from_future_runs_and_retrieval(seeded_db):
+    analyst_id = "withdrawal-analyst"
+    async with AsyncSessionLocal() as db:
+        document = Document(
+            issuer_id=REFERENCE_ISSUER_ID,
+            analyst_id=analyst_id,
+            doc_type="Document",
+            file_name="withdrawn.pdf",
+            storage_key="test/withdrawn.pdf",
+            uploaded_by=analyst_id,
+            chunk_count=1,
+            status="withdrawn",
+        )
+        db.add(document)
+        await db.flush()
+        db.add(DocumentChunk(
+            document_id=document.id,
+            seq=0,
+            text="withdrawn secret covenant evidence",
+        ))
+        await db.commit()
+        document_id = document.id
+
+        try:
+            index = await build_issuer_index(
+                db, REFERENCE_ISSUER_ID, document_ids=[document_id]
+            )
+            assert rank_with_index(index, "withdrawn secret covenant") == []
+            snapshot = await snapshot_run_inputs(
+                db,
+                issuer_id=REFERENCE_ISSUER_ID,
+                analyst_id=analyst_id,
+                input_refs=None,
+            )
+            assert document_id not in snapshot.document_ids
+        finally:
+            await db.execute(delete(DocumentChunk).where(
+                DocumentChunk.document_id == document_id
+            ))
+            await db.execute(delete(Document).where(Document.id == document_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_cross_corpus_retrieval_never_reads_another_analysts_private_document(seeded_db):
+    async with AsyncSessionLocal() as db:
+        documents = [
+            Document(
+                issuer_id=REFERENCE_ISSUER_ID,
+                analyst_id=owner,
+                doc_type="Document",
+                file_name=name,
+                storage_key=f"test/{name}",
+                uploaded_by=owner,
+                chunk_count=1,
+            )
+            for owner, name in [
+                (None, "institutional.pdf"),
+                ("analyst-a", "analyst-a.pdf"),
+                ("analyst-b", "analyst-b.pdf"),
+            ]
+        ]
+        db.add_all(documents)
+        await db.flush()
+        for document in documents:
+            db.add(DocumentChunk(
+                document_id=document.id,
+                seq=0,
+                text=f"isolationmarker evidence in {document.file_name}",
+            ))
+        await db.commit()
+        document_ids = [document.id for document in documents]
+
+        try:
+            analyst_a_hits = await retrieve_corpus(
+                db, "isolationmarker", analyst_id="analyst-a", rerank=False
+            )
+            assert {hit.doc for hit in analyst_a_hits} == {
+                "institutional.pdf",
+                "analyst-a.pdf",
+            }
+
+            institutional_hits = await retrieve_corpus(
+                db, "isolationmarker", rerank=False
+            )
+            assert {hit.doc for hit in institutional_hits} == {"institutional.pdf"}
+        finally:
+            await db.execute(delete(DocumentChunk).where(
+                DocumentChunk.document_id.in_(document_ids)
+            ))
+            await db.execute(delete(Document).where(Document.id.in_(document_ids)))
             await db.commit()

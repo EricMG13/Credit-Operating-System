@@ -37,6 +37,7 @@ import { useTypedUrlState } from "@/lib/typed-url-state";
 import { getPortfolios, type FreshnessState, type PortfolioSummary } from "@/lib/api";
 import { portfolioLabApi, type CommandPortfolioSnapshot } from "@/lib/portfolio-lab";
 import { SurfaceState } from "@/components/shared/SurfaceState";
+import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 
 const COMMAND_URL_KEYS = ["dataset", "selected", "portfolio"] as const;
 type CommandDataset = "changes" | "positions" | "coverage" | "governance";
@@ -137,7 +138,9 @@ function CommandCenter() {
   }, [portfolioDirectoryLoading, requestedPortfolioId, selectedPortfolioId, updateUrlState]);
   // Shared CP-5/CP-0 governance queues and central freshness digest. When the
   // portfolio is offline, consumers retain their explicit seeded fallbacks.
-  const { digest, live: digestLive, loading: digestLoading, liveQa, liveFailed, liveGapsItems, liveMixed } = useGovernanceSources(portfolio);
+  const { digest, live: digestLive, loading: digestLoading, error: digestError, liveQa, liveFailed, liveGapsItems, liveMixed } = useGovernanceSources(portfolio);
+  const qaStatus = portfolio.loading ? "loading" : portfolio.error ? "error" : "ready";
+  const digestStatus = digestLoading ? "loading" : digestError ? "error" : "ready";
 
   // Stable IDs keep duplicate/reused tickers from selecting the wrong issuer.
   const liveSelected = selected
@@ -204,8 +207,10 @@ function CommandCenter() {
         : { kind: "unavailable", message: "Central evidence freshness unavailable" },
   };
 
+  const commandContext = analysis.context;
+  const patchCommandContext = analysis.patch;
   useEffect(() => {
-    const context = analysis.context;
+    const context = commandContext;
     if (!context) return;
     const current = context.surface_state.command;
     if (
@@ -215,7 +220,7 @@ function CommandCenter() {
       && current?.filters?.portfolio_id === selectedPortfolioId
       && context.portfolio_scope === selectedPortfolioId
     ) return;
-    void analysis.patch({
+    void patchCommandContext({
       portfolio_scope: selectedPortfolioId,
       surface_state: {
         ...context.surface_state,
@@ -226,8 +231,8 @@ function CommandCenter() {
           filters: { ...current?.filters, role: roleView, portfolio_id: selectedPortfolioId },
         },
       },
-    });
-  }, [analysis, dataset, roleView, selected, selectedPortfolioId]);
+    }).catch(() => undefined);
+  }, [commandContext, dataset, patchCommandContext, roleView, selected, selectedPortfolioId]);
 
   useEffect(() => {
     if (!analysis.context?.id) return;
@@ -313,7 +318,7 @@ function CommandCenter() {
           }}
         >Open top change</button>
       }
-      status={<span className="tabular text-caos-2xs text-caos-muted">{commandSnapshot?.as_of ? `Holdings as of ${commandSnapshot.as_of}` : digestAsOf ? `Observed ${digestAsOf}` : "Holdings date unavailable"}</span>}
+      status={<><span className="tabular text-caos-2xs text-caos-muted">{commandSnapshot?.as_of ? `Holdings as of ${commandSnapshot.as_of}` : digestAsOf ? `Observed ${digestAsOf}` : "Holdings date unavailable"}</span><AnalysisContextSaveState analysis={analysis} /></>}
       contextualControls={
         <>
           {portfolioDirectory.length > 0 ? (
@@ -354,6 +359,14 @@ function CommandCenter() {
           description="Portfolio posture and governance queues beside the ranked-change worklist."
           count={portfolio.loading ? "Loading" : portfolio.error ? "Live coverage unavailable" : `${portfolio.coveredCount}/${portfolio.issuerCount} covered`}
           viewLabel={`View: ${roleView === "pm" ? "PM" : roleView === "qa" ? "QA" : "Analyst"}`}
+          filters={
+            <Link
+              href={analysis.context ? contextHref("/query", analysis.context.id) : "/query"}
+              className="caos-action-secondary no-underline focus-ring whitespace-nowrap"
+            >
+              Open cross-issuer Query
+            </Link>
+          }
         />
         <div id="ranked-changes" className="caos-persona-route command-workbench flex-1 min-h-0" tabIndex={-1}>
           <PersonaWorkbench
@@ -367,7 +380,7 @@ function CommandCenter() {
                   {([ ["Changes", "changes"], ["Positions", "positions"], ["Live coverage", "coverage"], ["Governance", "governance"] ] as const).map(([label, mode]) => <button key={mode} type="button" role="tab" aria-selected={dataset === mode} onClick={() => updateUrlState({ dataset: mode, selected: null })} className="caos-action-secondary focus-ring whitespace-nowrap">{label}</button>)}
                 </div>}
               >
-                {dataset === "changes" ? <RankedChanges /> : dataset === "governance" ? <GovernancePanel liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : (
+                {dataset === "changes" ? <RankedChanges /> : dataset === "governance" ? <GovernancePanel qaStatus={qaStatus} digestStatus={digestStatus} liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : (
                   <DominantTableRegion ownerId="command-worklist" label={dataset === "positions" ? "Persisted portfolio positions" : "Live coverage worklist"} className="h-full min-h-0">
                     {dataset === "positions" ? positionsContent : portfolio.loading ? <SurfaceState kind="loading" title="Loading live coverage" className="m-auto max-w-md" /> : portfolio.error && portfolio.rows.length === 0 ? <SurfaceState kind="offline" title="Live coverage unavailable" detail="Latest-run coverage could not be loaded." className="m-auto max-w-md" /> : portfolio.rows.length === 0 ? <SurfaceState kind="empty" title="No live coverage" detail="No completed analytical runs are available." className="m-auto max-w-md" primaryAction={<Link href="/upload" className="caos-action-primary no-underline focus-ring">Start document intake</Link>} /> : <div className="overflow-x-auto h-full flex flex-col"><LiveCoverage rows={portfolio.rows} selected={selected} onSelect={(value) => updateUrlState({ selected: value }, "replace")} /></div>}
                   </DominantTableRegion>
@@ -381,7 +394,6 @@ function CommandCenter() {
                 <button type="button" onClick={() => void generateInsight()} className="caos-action-secondary focus-ring m-2">{insight ? "Refresh cited brief" : "Generate cited brief"}</button>
                 {insight ? <article className="p-2 pt-0 grid gap-2"><p className="text-caos-sm text-caos-text">{insight.summary}</p><ul className="grid gap-1">{insight.claims.map((claim) => <li key={claim.id} className="text-caos-xs text-caos-muted">{claim.statement} · sources {claim.evidence_ids.join(", ") || "missing"}</li>)}</ul></article> : <p role="status" className="p-2 pt-0 text-caos-xs text-caos-muted">{insightMessage ?? "No cited brief generated."}</p>}
               </PanelShell>
-              <Link href={analysis.context ? contextHref("/query", analysis.context.id) : "/query"} className="caos-action-secondary no-underline focus-ring">Open cross-issuer Query</Link>
             </div>}
           />
         </div>

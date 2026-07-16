@@ -25,7 +25,9 @@ interface ModelAuthorityRouteProps {
 /** Route-level authority boundary: legacy is restricted to the explicit reference issuer. */
 export function ModelAuthorityRoute({
   renderLegacy = () => null,
-  renderV2 = (props) => <ModelV2Workbench {...props} />,
+  renderV2 = (props) => (
+    <ModelV2Workbench key={`${props.issuerId}|${props.exactRunId ?? "latest"}`} {...props} />
+  ),
 }: ModelAuthorityRouteProps = {}) {
   const searchParams = useSearchParams();
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;

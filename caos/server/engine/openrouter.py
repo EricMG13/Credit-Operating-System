@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import httpx
 import logging
+import math
 from typing import Any, List, Optional
 
 from config import get_settings
@@ -22,11 +23,12 @@ class _ToolUseBlock:
         self.input = inp
 
 class _Usage:
-    def __init__(self, input_tokens: int, output_tokens: int):
+    def __init__(self, input_tokens: int, output_tokens: int, cost: Optional[float] = None):
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
         self.cache_read_input_tokens = 0
         self.cache_creation_input_tokens = 0
+        self.cost = cost
 
 class _Response:
     def __init__(self, content: List[Any], usage: _Usage, stop_reason: str):
@@ -126,9 +128,17 @@ def _normalize_response(data: dict) -> _Response:
             stop_reason = "tool_use"
             
     usage_data = data.get("usage", {})
+    raw_cost = usage_data.get("cost")
+    try:
+        provider_cost = float(raw_cost) if raw_cost is not None else None
+    except (TypeError, ValueError):
+        provider_cost = None
+    if provider_cost is not None and (not math.isfinite(provider_cost) or provider_cost < 0):
+        provider_cost = None
     usage = _Usage(
         input_tokens=usage_data.get("prompt_tokens", 0),
-        output_tokens=usage_data.get("completion_tokens", 0)
+        output_tokens=usage_data.get("completion_tokens", 0),
+        cost=provider_cost,
     )
     
     return _Response(blocks, usage, stop_reason)

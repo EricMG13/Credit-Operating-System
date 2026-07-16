@@ -20,6 +20,8 @@ def test_security_headers_present(client):
     assert "microphone=()" in h["Permissions-Policy"]
     assert h["X-Content-Type-Options"] == "nosniff"
     assert "frame-ancestors 'self'" in h["Content-Security-Policy"]
+    assert "script-src 'self' 'unsafe-inline'" not in h["Content-Security-Policy"]
+    assert "script-src 'self' 'sha256-" in h["Content-Security-Policy"]
     # HSTS present but intentionally without `preload` (internal / self-signed CA).
     assert "max-age=" in h["Strict-Transport-Security"]
     assert "preload" not in h["Strict-Transport-Security"]

@@ -77,13 +77,16 @@ AUTHORITY = {
 
 
 def _payload_hash(payload: dict) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False, default=str)
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), allow_nan=False, default=str
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @pytest.mark.asyncio
 async def test_binary_export_runs_renderer_off_event_loop(monkeypatch):
     import report_exports
+    from routes.reports import _MAX_REPORT_VERSION_BYTES, _bounded_composition
 
     started = threading.Event()
     release = threading.Event()
@@ -98,15 +101,29 @@ async def test_binary_export_runs_renderer_off_event_loop(monkeypatch):
 
     monkeypatch.setattr(report_exports, "render_report_xlsx", _blocking_renderer)
     monkeypatch.setattr(report_exports, "_export_sem", None)
-    task = asyncio.create_task(
-        render_report_export(
-            export_format="xlsx",
-            version_id="version-thread",
-            document_sha256="a" * 64,
-            payload={},
-            authority={},
-        )
+    empty = json.dumps(
+        {"document": {"blob": ""}},
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+        default=str,
     )
+    maximum_payload = {
+        "document": {"blob": "x" * (_MAX_REPORT_VERSION_BYTES - len(empty))}
+    }
+    canonical = _bounded_composition(
+        maximum_payload,
+        label="Report version",
+        max_bytes=_MAX_REPORT_VERSION_BYTES,
+    )
+    assert len(canonical.encode("utf-8")) == _MAX_REPORT_VERSION_BYTES
+    task = asyncio.create_task(render_report_export(
+        export_format="xlsx",
+        version_id="version-thread",
+        document_sha256="a" * 64,
+        payload=maximum_payload,
+        authority={},
+    ))
     for _ in range(100):
         if started.is_set():
             break
@@ -145,18 +162,16 @@ async def test_binary_export_respects_configured_concurrency_cap(monkeypatch):
     )
     monkeypatch.setattr(report_exports, "_export_sem", None)
 
-    results = await asyncio.gather(
-        *(
-            render_report_export(
-                export_format="pdf",
-                version_id=f"version-{index}",
-                document_sha256="b" * 64,
-                payload={},
-                authority={},
-            )
-            for index in range(3)
+    results = await asyncio.gather(*(
+        render_report_export(
+            export_format="pdf",
+            version_id=f"version-{index}",
+            document_sha256="b" * 64,
+            payload={},
+            authority={},
         )
-    )
+        for index in range(3)
+    ))
 
     assert results == [b"rendered"] * 3
     assert peak == 1
@@ -167,51 +182,23 @@ def _v2_report_payload() -> dict:
     draft = ModelDraftPayload(
         reporting_currency="GBP",
         reporting_unit="millions",
-        periods=[
-            ModelPeriodInput(
-                period_key="FY2026",
-                label="FY26e",
-                kind="forecast",
-                revenue=800,
-                reported_ebitda=100,
-                adjustments=10,
-                cash=20,
-                taxes=5,
-                capex=10,
-                working_capital_change=-2,
-                other_cash_flow=0,
-                authority=authority,
-            )
-        ],
-        debt_instruments=[
-            DebtInstrument(
-                instrument_id="tlb-1",
-                name="First-lien term loan",
-                priority=1,
-                seniority="1L",
-                currency="GBP",
-                rate_type="floating",
-                authority=authority,
-                periods=[
-                    DebtPeriod(
-                        period_key="FY2026",
-                        opening_balance=200,
-                        closing_balance=190,
-                        draws=0,
-                        repayments=10,
-                        scheduled_amortization=0,
-                        commitment=200,
-                        benchmark_rate=0.05,
-                        spread_rate=0.03,
-                        commitment_fee_rate=0,
-                        pik_rate=0,
-                        cash_fees=1,
-                        hedge_effect=0,
-                        fx_rate=1,
-                    )
-                ],
-            )
-        ],
+        periods=[ModelPeriodInput(
+            period_key="FY2026", label="FY26e", kind="forecast", revenue=800,
+            reported_ebitda=100, adjustments=10, cash=20, taxes=5, capex=10,
+            working_capital_change=-2, other_cash_flow=0, authority=authority,
+        )],
+        debt_instruments=[DebtInstrument(
+            instrument_id="tlb-1", name="First-lien term loan", priority=1,
+            seniority="1L", currency="GBP", rate_type="floating",
+            authority=authority,
+            periods=[DebtPeriod(
+                period_key="FY2026", opening_balance=200, closing_balance=190,
+                draws=0, repayments=10, scheduled_amortization=0,
+                commitment=200, benchmark_rate=0.05, spread_rate=0.03,
+                commitment_fee_rate=0, pik_rate=0, cash_fees=1,
+                hedge_effect=0, fx_rate=1,
+            )],
+        )],
         overrides=[
             CellOverride(
                 node_id="calc:FY2026:adjusted_ebitda",
@@ -234,7 +221,9 @@ def _v2_report_payload() -> dict:
         ],
         source_ids=["run-1"],
     )
-    calculation = calculate_model(draft, evaluated_at=datetime(2026, 7, 14, tzinfo=timezone.utc))
+    calculation = calculate_model(
+        draft, evaluated_at=datetime(2026, 7, 14, tzinfo=timezone.utc)
+    )
     return {
         **PAYLOAD,
         "model": {
@@ -292,7 +281,13 @@ def test_xlsx_export_preserves_exact_model_engine_result_and_debt_components():
     assert "Model Overrides" in workbook.sheetnames
     model_rows = list(workbook["Model"].iter_rows(min_row=2, values_only=True))
     model_headers = next(workbook["Model"].iter_rows(max_row=1, values_only=True))
-    cover = {key: value for key, value in workbook["Cover"].iter_rows(min_row=4, max_col=2, values_only=True) if key}
+    cover = {
+        key: value
+        for key, value in workbook["Cover"].iter_rows(
+            min_row=4, max_col=2, values_only=True
+        )
+        if key
+    }
     assert model_rows[0][0] == "FY2026"
     assert model_rows[0][4] == 110
     assert model_rows[0][5] == 16.6
@@ -307,7 +302,9 @@ def test_xlsx_export_preserves_exact_model_engine_result_and_debt_components():
     assert debt_rows[0][7] == pytest.approx(5.85)
     assert cover["Model reporting currency"] == "GBP"
     assert cover["Model reporting unit"] == "millions"
-    override_rows = list(workbook["Model Overrides"].iter_rows(min_row=2, values_only=True))
+    override_rows = list(
+        workbook["Model Overrides"].iter_rows(min_row=2, values_only=True)
+    )
     assert override_rows[0] == (
         "ACTIVE AT REPORT EVENT",
         "calc:FY2026:adjusted_ebitda",
@@ -335,17 +332,12 @@ def test_xlsx_debt_schedule_does_not_depend_on_an_override_ledger():
     payload = _v2_report_payload()
     payload["model"]["payload"]["overrides"] = []
 
-    workbook = load_workbook(
-        BytesIO(
-            render_report_xlsx(
-                version_id="version-model-no-overrides",
-                document_sha256="6" * 64,
-                payload=payload,
-                authority=AUTHORITY,
-            )
-        ),
-        read_only=True,
-    )
+    workbook = load_workbook(BytesIO(render_report_xlsx(
+        version_id="version-model-no-overrides",
+        document_sha256="6" * 64,
+        payload=payload,
+        authority=AUTHORITY,
+    )), read_only=True)
 
     assert "Model" in workbook.sheetnames
     assert "Debt Schedule" in workbook.sheetnames
@@ -358,15 +350,13 @@ def test_xlsx_export_neutralizes_formula_injection_in_every_text_surface():
         "document": {
             **PAYLOAD["document"],
             "issuer_id": '=HYPERLINK("https://example.invalid","issuer")',
-            "sections": [
-                {
-                    "module_id": "+SUM(1,1)",
-                    "module_name": "@malicious-name",
-                    "confidence": "-1+1",
-                    "qa_status": "=CMD()",
-                    "summary": {"=hostile.path": "@hostile-value"},
-                }
-            ],
+            "sections": [{
+                "module_id": "+SUM(1,1)",
+                "module_name": "@malicious-name",
+                "confidence": "-1+1",
+                "qa_status": "=CMD()",
+                "summary": {"=hostile.path": "@hostile-value"},
+            }],
         },
     }
     hostile_authority = {
@@ -381,12 +371,19 @@ def test_xlsx_export_neutralizes_formula_injection_in_every_text_surface():
         authority=hostile_authority,
     )
     workbook = load_workbook(BytesIO(content), read_only=True, data_only=False)
-    assert not any(cell.data_type == "f" for sheet in workbook.worksheets for row in sheet.iter_rows() for cell in row)
+    assert not any(
+        cell.data_type == "f"
+        for sheet in workbook.worksheets
+        for row in sheet.iter_rows()
+        for cell in row
+    )
     assert workbook["Cover"]["B6"].value.startswith("'=")
     assert workbook["Module Summary"]["A2"].value.startswith("'+")
     assert workbook["Module Summary"]["B2"].value.startswith("'@")
     hostile_sheet = next(
-        sheet for sheet in workbook.worksheets if sheet.title not in {"Cover", "Module Summary", "Sources - Audit"}
+        sheet for sheet in workbook.worksheets if sheet.title not in {
+            "Cover", "Module Summary", "Sources - Audit"
+        }
     )
     assert hostile_sheet["A4"].value.startswith("'=")
     assert hostile_sheet["B4"].value.startswith("'@")
@@ -423,13 +420,11 @@ def test_reviewed_composition_and_exact_model_round_trip_in_pdf_and_xlsx():
             "file": "issuer-1-memo",
             "icon": "document",
             "srcs": [],
-            "sections": [
-                {
-                    "t": "text",
-                    "title": "CP-1 · Reviewed conclusion",
-                    "body": "Analyst-edited downside conclusion retained.",
-                }
-            ],
+            "sections": [{
+                "t": "text",
+                "title": "CP-1 · Reviewed conclusion",
+                "body": "Analyst-edited downside conclusion retained.",
+            }],
         },
         "editorial": {
             "source_run_id": "run-1",
@@ -474,7 +469,10 @@ def test_reviewed_composition_and_exact_model_round_trip_in_pdf_and_xlsx():
     assert "Model reporting currency" in compact_text
     assert "GBP" in text
     assert "MODEL ENGINE V2 - CALCULATION - GBP MILLIONS" in compact_text
-    assert "MODEL ENGINE V2 - DEBT SCHEDULE - MILLIONS - REPORTING CURRENCY GBP" in compact_text
+    assert (
+        "MODEL ENGINE V2 - DEBT SCHEDULE - MILLIONS - REPORTING CURRENCY GBP"
+        in compact_text
+    )
     assert "MODEL ENGINE V2 - OVERRIDE LEDGER" in compact_text
     assert "ACTIVE AT REPORT EVENT | calc:FY2026:adjusted_ebitda" in compact_text
     assert "INACTIVE AT REPORT EVENT | input:FY2026:cash" in compact_text
@@ -489,32 +487,23 @@ def test_partial_model_exports_prominent_availability_gaps_and_warnings():
         "gaps": ["FY2026: total debt is required"],
         "warnings": ["Manual input requires review"],
     }
-    workbook = load_workbook(
-        BytesIO(
-            render_report_xlsx(
-                version_id="version-partial",
-                document_sha256="7" * 64,
-                payload=payload,
-                authority=AUTHORITY,
-            )
-        ),
-        read_only=True,
-    )
+    workbook = load_workbook(BytesIO(render_report_xlsx(
+        version_id="version-partial",
+        document_sha256="7" * 64,
+        payload=payload,
+        authority=AUTHORITY,
+    )), read_only=True)
     ledger = list(workbook["Model Gaps - Warnings"].iter_rows(values_only=True))
     assert ("Availability", "partial") in ledger
     assert ("Gap", "FY2026: total debt is required") in ledger
     assert ("Warning", "Manual input requires review") in ledger
     workbook.close()
-    pdf = PdfReader(
-        BytesIO(
-            render_report_pdf(
-                version_id="version-partial",
-                document_sha256="7" * 64,
-                payload=payload,
-                authority=AUTHORITY,
-            )
-        )
-    )
+    pdf = PdfReader(BytesIO(render_report_pdf(
+        version_id="version-partial",
+        document_sha256="7" * 64,
+        payload=payload,
+        authority=AUTHORITY,
+    )))
     text = "\n".join(page.extract_text() or "" for page in pdf.pages)
     assert "partial" in text
     assert "FY2026: total debt is required" in text
@@ -548,36 +537,33 @@ def test_insufficient_model_without_periods_keeps_xlsx_gap_ledger():
             },
         },
     }
-    workbook = load_workbook(
-        BytesIO(
-            render_report_xlsx(
-                version_id="report-insufficient",
-                document_sha256="c" * 64,
-                payload=payload,
-                authority=AUTHORITY,
-            )
-        ),
-        read_only=True,
-    )
+    workbook = load_workbook(BytesIO(render_report_xlsx(
+        version_id="report-insufficient",
+        document_sha256="c" * 64,
+        payload=payload,
+        authority=AUTHORITY,
+    )), read_only=True)
     assert "Model" not in workbook.sheetnames
     assert "Model Gaps - Warnings" in workbook.sheetnames
     rows = list(workbook["Model Gaps - Warnings"].iter_rows(values_only=True))
-    cover = {key: value for key, value in workbook["Cover"].iter_rows(min_row=4, max_col=2, values_only=True) if key}
+    cover = {
+        key: value
+        for key, value in workbook["Cover"].iter_rows(
+            min_row=4, max_col=2, values_only=True
+        )
+        if key
+    }
     assert ("Availability", "insufficient_inputs") in rows
     assert ("Gap", "No forecast periods are available") in rows
     assert cover["Model reporting currency"] == "GBP"
     assert cover["Model reporting unit"] == "millions"
     workbook.close()
-    pdf = PdfReader(
-        BytesIO(
-            render_report_pdf(
-                version_id="report-insufficient",
-                document_sha256="c" * 64,
-                payload=payload,
-                authority=AUTHORITY,
-            )
-        )
-    )
+    pdf = PdfReader(BytesIO(render_report_pdf(
+        version_id="report-insufficient",
+        document_sha256="c" * 64,
+        payload=payload,
+        authority=AUTHORITY,
+    )))
     text = "\n".join(page.extract_text() or "" for page in pdf.pages)
     compact_text = " ".join(text.split())
     assert "Model reporting currency" in compact_text
@@ -597,44 +583,23 @@ def test_binary_exports_render_each_non_current_evaluated_state(state):
             "reason": f"fixture_{state}",
         },
     }
-    xlsx = load_workbook(
-        BytesIO(
-            render_report_xlsx(
-                version_id="version-state",
-                document_sha256="e" * 64,
-                payload=PAYLOAD,
-                authority=authority,
-            )
-        ),
-        read_only=True,
-    )
+    xlsx = load_workbook(BytesIO(render_report_xlsx(
+        version_id="version-state", document_sha256="e" * 64,
+        payload=PAYLOAD, authority=authority,
+    )), read_only=True)
     assert xlsx["Cover"]["B14"].value == state.upper()
     xlsx.close()
-    pdf = PdfReader(
-        BytesIO(
-            render_report_pdf(
-                version_id="version-state",
-                document_sha256="e" * 64,
-                payload=PAYLOAD,
-                authority=authority,
-            )
-        )
-    )
+    pdf = PdfReader(BytesIO(render_report_pdf(
+        version_id="version-state", document_sha256="e" * 64,
+        payload=PAYLOAD, authority=authority,
+    )))
     text = "\n".join(page.extract_text() or "" for page in pdf.pages)
     assert state.upper() in text
 
 
 @pytest.mark.asyncio
-async def test_version_export_endpoint_returns_owned_binary_files_and_headers(
-    seeded_db,
-):
-    from database import (
-        AnalysisContextRecord,
-        AsyncSessionLocal,
-        ModelCheckpoint,
-        ReportVersion,
-        Run,
-    )
+async def test_version_export_endpoint_returns_owned_binary_files_and_headers(seeded_db):
+    from database import AnalysisContextRecord, AsyncSessionLocal, ModelCheckpoint, ReportVersion, Run
     from identity import CallerIdentity, get_identity
     from main import app
 
@@ -646,56 +611,37 @@ async def test_version_export_endpoint_returns_owned_binary_files_and_headers(
     version_id = f"report-export-version-{suffix}"
     payload_hash = _payload_hash(PAYLOAD)
     async with AsyncSessionLocal() as db:
-        db.add_all(
-            [
-                AnalysisContextRecord(
-                    id=context_id,
-                    analyst_id="report-export-owner",
-                    name="Export verification",
-                    issuer_ids=[issuer_id],
-                    artifacts={},
-                ),
-                Run(
-                    id=run_id,
-                    issuer_id=issuer_id,
-                    analyst_id="report-export-owner",
-                    status="complete",
-                    qa_status="Passed",
-                    committee_status="Committee Ready",
-                    completed_at=datetime.now(timezone.utc),
-                ),
-            ]
-        )
+        db.add_all([
+            AnalysisContextRecord(
+                id=context_id, analyst_id="report-export-owner",
+                name="Export verification", issuer_ids=[issuer_id], artifacts={},
+            ),
+            Run(
+                id=run_id, issuer_id=issuer_id, analyst_id="report-export-owner",
+                status="complete", qa_status="Passed", committee_status="Committee Ready",
+                completed_at=datetime.now(timezone.utc),
+            ),
+        ])
         await db.flush()
-        db.add(
-            ModelCheckpoint(
-                id=checkpoint_id,
-                issuer_id=issuer_id,
-                analyst_id="report-export-owner",
-                context_id=context_id,
-                issuer_run_id=run_id,
-                label="Export snapshot",
-                payload_hash="d" * 64,
-                payload={},
-                authority={},
-            )
-        )
+        db.add(ModelCheckpoint(
+            id=checkpoint_id, issuer_id=issuer_id, analyst_id="report-export-owner",
+            context_id=context_id, issuer_run_id=run_id,
+            label="Export snapshot", payload_hash="d" * 64, payload={}, authority={},
+        ))
         await db.flush()
-        db.add(
-            ReportVersion(
-                id=version_id,
-                context_id=context_id,
-                analyst_id="report-export-owner",
+        db.add(ReportVersion(
+            id=version_id,
+            context_id=context_id,
+            analyst_id="report-export-owner",
             run_id=run_id,
             model_checkpoint_id=checkpoint_id,
             thesis_version_id=None,
             status="published",
             payload=PAYLOAD,
-                document_sha256=payload_hash,
-                authority=AUTHORITY,
-                created_at=datetime.now(timezone.utc),
-            )
-        )
+            document_sha256=payload_hash,
+            authority=AUTHORITY,
+            created_at=datetime.now(timezone.utc),
+        ))
         await db.commit()
     app.dependency_overrides[get_identity] = lambda: CallerIdentity(
         id="report-export-owner",

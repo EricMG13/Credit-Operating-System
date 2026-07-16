@@ -830,7 +830,10 @@ async def patch_context(
     if expected_revision is not None and row.revision != expected_revision:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            f"Analysis context changed (current revision {row.revision}). Refresh and retry.",
+            {
+                "message": "Analysis context changed. Refresh and retry.",
+                "current_revision": row.revision,
+            },
         )
     if "sector_id" in changes:
         await _ensure_taxonomy(db)
@@ -872,10 +875,36 @@ async def patch_context(
         await _validate_artifact_refs(db, refs, context_id=context_id, caller=caller)
         changes["artifacts"] = refs.model_dump(mode="json")
     if "surface_state" in changes:
-        merged_surface_state = {**(row.surface_state or {}), **(changes["surface_state"] or {})}
+        merged_surface_state = dict(row.surface_state or {})
+        for surface, surface_patch in (changes["surface_state"] or {}).items():
+            if surface_patch is None:
+                merged_surface_state.pop(surface, None)
+                continue
+            prior_surface = merged_surface_state.get(surface)
+            merged_surface = {
+                **(prior_surface if isinstance(prior_surface, dict) else {}),
+                **surface_patch,
+            }
+            if "filters" in surface_patch:
+                prior_filters = (
+                    prior_surface.get("filters", {})
+                    if isinstance(prior_surface, dict) else {}
+                )
+                merged_surface["filters"] = {
+                    **(prior_filters if isinstance(prior_filters, dict) else {}),
+                    **(surface_patch.get("filters") or {}),
+                }
+            merged_surface_state[surface] = merged_surface
         changes["surface_state"] = AnalysisSurfaceState.model_validate(
             merged_surface_state
         ).model_dump(mode="json", by_alias=True, exclude_none=True)
+    for legacy_field in ("filters", "selected"):
+        if legacy_field in changes:
+            prior = getattr(row, legacy_field) or {}
+            changes[legacy_field] = {
+                **(prior if isinstance(prior, dict) else {}),
+                **(changes[legacy_field] or {}),
+            }
     if "issuer_ids" in changes or "instrument_ids" in changes:
         await _validate_context_subjects(
             db,

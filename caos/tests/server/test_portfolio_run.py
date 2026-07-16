@@ -107,6 +107,24 @@ async def test_bound_portfolio_access_or_calculation_failure_blocks_cp3c(seeded_
 
 
 @pytest.mark.asyncio
+async def test_missing_bound_portfolio_blocks_instead_of_claiming_uningested(seeded_db):
+    from database import AsyncSessionLocal, Issuer
+    from engine.portfoliofit import synthesize_portfolio_fit
+
+    async with AsyncSessionLocal() as session:
+        issuer = Issuer(name="Missing Bound Book Issuer")
+        session.add(issuer)
+        await session.flush()
+
+        out = await synthesize_portfolio_fit(
+            _cp3(), _cp1(), session, issuer, "missing-portfolio-id"
+        )
+        assert out.runtime_output["module_status"] == "Blocked"
+        assert out.confidence == "Insufficient Information"
+        assert "not ingested" not in out.runtime_output["note"].lower()
+
+
+@pytest.mark.asyncio
 async def test_bound_portfolio_database_failure_propagates_for_rollback(seeded_db, monkeypatch):
     from database import AsyncSessionLocal, Issuer
     from engine import portfoliofit

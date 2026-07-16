@@ -161,6 +161,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
   // from a generic failure (retry the same save).
   const [saveConflict, setSaveConflict] = useState(false);
   const [serverCheckpoints, setServerCheckpoints] = useState<ModelCheckpointDTO[]>([]);
+  const [serverCheckpointsIssuerId, setServerCheckpointsIssuerId] = useState<string | null>(null);
   const [checkpointing, setCheckpointing] = useState(false);
   const [checkpointNotice, setCheckpointNotice] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
@@ -215,7 +216,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
     flashPasteNotice(parts.join(" · "));
   };
 
-  // Overrides localStorage key is per-issuer so a live issuer never inherits the
+  // Overrides session key is per-issuer so a live issuer never inherits the
   // reference demo's fabricated overrides (cross-issuer contamination). Legacy
   // global key is adopted once, and only by the reference issuer.
   const ovKey = "caos-d-overrides:" + issuerId;
@@ -236,6 +237,9 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
     setRestoreError(false);
     setSaveError(false);
     setSaveConflict(false);
+    setSaving(false);
+    setCheckpointing(false);
+    setCheckpointNotice(null);
     savedSnapshot.current = null;
     // locals track what was actually loaded so the dirty-baseline snapshot below
     // reflects restored state, not the stale render closure.
@@ -243,10 +247,13 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
     let la: Assumptions = DEFAULT_ASSUMPTIONS;
     const lc: Set<string> = new Set();
     try {
-      let raw = localStorage.getItem(ovKey);
+      let raw = sessionStorage.getItem(ovKey);
       if (raw == null && isReference) {
         const legacy = localStorage.getItem("caos-d-overrides");
-        if (legacy != null) raw = legacy; // reference issuer inherits old demo state
+        if (legacy != null) {
+          raw = legacy; // reference issuer inherits old demo state once
+          localStorage.removeItem("caos-d-overrides");
+        }
       }
       const o = sanitizeOverrides(JSON.parse(raw || "{}"));
       if (o) { lo = o; replaceOverrides(o); }
@@ -281,7 +288,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
   // the persist effects below write through on every change once hydrated.)
   const retryRestore = () => setRestoreNonce((n) => n + 1);
   // persist only after restore — writing earlier clobbers stored state with defaults
-  useEffect(() => { if (hydrated) try { localStorage.setItem(ovKey, JSON.stringify(overrides)); } catch {} }, [hydrated, ovKey, overrides]);
+  useEffect(() => { if (hydrated) try { sessionStorage.setItem(ovKey, JSON.stringify(overrides)); } catch {} }, [hydrated, ovKey, overrides]);
   useEffect(() => { if (hydrated) saveAssumptions(issuerId, assumptions); }, [hydrated, issuerId, assumptions]);
   useEffect(() => {
     const onCollapse = () => {
@@ -329,25 +336,40 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
   // Bind the existing spreadsheet instrument to the shared analysis identity.
   // This is additive metadata only: calculations and grid state remain owned by
   // the pre-existing Model Builder implementation above.
+  const syncContext = analysis.context;
+  const patchContext = analysis.patch;
   useEffect(() => {
-    const active = analysis.context;
+    const active = syncContext;
     if (!active) return;
     const issuerIds = active.issuer_ids.includes(issuerId)
       ? active.issuer_ids
       : [...active.issuer_ids, issuerId];
     const nextRunId = eng.runId ?? active.artifacts.issuer_run_id;
     if (issuerIds === active.issuer_ids && nextRunId === active.artifacts.issuer_run_id) return;
-    void analysis.patch({
+    void patchContext({
       issuer_ids: issuerIds,
       artifacts: { issuer_run_id: nextRunId },
     }).catch(() => setCheckpointNotice("Analysis context could not be updated."));
-  }, [analysis, eng.runId, issuerId]);
+  }, [eng.runId, issuerId, patchContext, syncContext]);
 
   useEffect(() => {
     let cancelled = false;
+    const requestedIssuerId = issuerId;
+    // Do not leave issuer A's restore controls mounted during issuer B's fetch.
+    setServerCheckpoints([]);
+    setServerCheckpointsIssuerId(null);
     getModelCheckpoints(issuerId)
-      .then((rows) => { if (!cancelled) setServerCheckpoints(rows); })
-      .catch(() => { if (!cancelled) setServerCheckpoints([]); });
+      .then((rows) => {
+        if (cancelled || rows.some((row) => row.issuer_id !== requestedIssuerId)) return;
+        setServerCheckpoints(rows);
+        setServerCheckpointsIssuerId(requestedIssuerId);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setServerCheckpoints([]);
+          setServerCheckpointsIssuerId(null);
+        }
+      });
     return () => { cancelled = true; };
   }, [issuerId]);
   const model = useMemo(
@@ -477,11 +499,13 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
       setSaveError(true);
       return null;
     }
+    const generation = hydrateGeneration.current;
+    const targetIssuerId = issuerId;
     setSaving(true);
     setSaveError(false);
     setSaveConflict(false);
     try {
-      const saved = await saveIssuerModel(issuerId, {
+      const saved = await saveIssuerModel(targetIssuerId, {
         version: 1,
         assumptions,
         overrides,
@@ -489,40 +513,50 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         view: { showQuarters, showAssumptions, showScenarios },
         model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
       }, savedAt);
+      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return null;
       setSavedAt(saved.updated_at);
       // re-baseline the dirty flag to the just-saved state
       savedSnapshot.current = serializeSavable(assumptions, overrides, collapsedRows);
       return saved;
     } catch (e) {
+      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return null;
       if (axios.isAxiosError(e) && e.response?.status === 409) setSaveConflict(true);
       else setSaveError(true);
       return null;
     } finally {
-      setSaving(false);
+      if (generation === hydrateGeneration.current) setSaving(false);
     }
   };
 
   const saveCheckpoint = async () => {
     if (!hydrated) return;
+    const generation = hydrateGeneration.current;
+    const targetIssuerId = issuerId;
     setCheckpointing(true);
     setCheckpointNotice(null);
     try {
       const saved = await saveCurrentModel();
-      if (!saved) return;
+      if (!saved || generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return;
       if (!analysis.context) {
         setCheckpointNotice(analysis.error
           ? `Working draft saved. Checkpoint unavailable: ${analysis.error}`
           : "Working draft saved. Checkpoint will be available when analysis context is ready.");
         return;
       }
-      const checkpoint = await createModelCheckpoint(issuerId, {
+      const checkpoint = await createModelCheckpoint(targetIssuerId, {
         context_id: analysis.context.id,
         label: `Checkpoint ${fmtLocalDateTime(new Date())}`,
         issuer_run_id: eng.runId ?? undefined,
         parent_checkpoint_id: analysis.context.artifacts.model_checkpoint_id ?? undefined,
         expected_updated_at: saved.updated_at,
       });
+      if (
+        generation !== hydrateGeneration.current
+        || hydratedIssuerId !== targetIssuerId
+        || checkpoint.issuer_id !== targetIssuerId
+      ) return;
       setServerCheckpoints((rows) => [checkpoint, ...rows.filter((row) => row.id !== checkpoint.id)]);
+      setServerCheckpointsIssuerId(targetIssuerId);
       await analysis.patch({
         artifacts: {
           issuer_run_id: eng.runId ?? analysis.context.artifacts.issuer_run_id,
@@ -531,29 +565,38 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
       });
       setCheckpointNotice(`Checkpoint ${checkpoint.id.slice(0, 8)} saved.`);
     } catch (reason) {
+      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return;
       setCheckpointNotice(axios.isAxiosError(reason)
         ? String(reason.response?.data?.detail ?? "Checkpoint could not be saved.")
         : "Checkpoint could not be saved.");
     } finally {
-      setCheckpointing(false);
+      if (generation === hydrateGeneration.current) setCheckpointing(false);
     }
   };
 
   const restoreServerCheckpoint = async (checkpoint: ModelCheckpointDTO) => {
+    if (!hydrated || serverCheckpointsIssuerId !== issuerId || checkpoint.issuer_id !== issuerId) {
+      setCheckpointNotice("Checkpoint list changed with the active issuer. Reload the issuer before restoring.");
+      return;
+    }
     if (dirty && !window.confirm("Restore this immutable checkpoint and replace the current unsaved draft?")) return;
+    const generation = hydrateGeneration.current;
+    const targetIssuerId = issuerId;
     setCheckpointing(true);
     setCheckpointNotice(null);
     try {
       const restored = await restoreModelCheckpoint(checkpoint.id, savedAt);
+      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return;
       setSavedAt(restored.updated_at);
       setRestoreNonce((nonce) => nonce + 1);
       setCheckpointNotice(`Restored ${checkpoint.label}.`);
     } catch (reason) {
+      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return;
       setCheckpointNotice(axios.isAxiosError(reason)
         ? String(reason.response?.data?.detail ?? "Checkpoint could not be restored.")
         : "Checkpoint could not be restored.");
     } finally {
-      setCheckpointing(false);
+      if (generation === hydrateGeneration.current) setCheckpointing(false);
     }
   };
 
@@ -750,7 +793,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
               the <=5 visible-actions contract (Save, Export, undo, redo, Checkpoints). */}
           <button type="button" onClick={() => setShowAssumptions(true)} className="caos-action-secondary focus-ring w-full justify-start">Open assumptions</button>
           <button type="button" onClick={() => setShowScenarios(true)} className="caos-action-secondary focus-ring w-full justify-start">Open scenarios</button>
-          {serverCheckpoints.length ? (
+          {serverCheckpointsIssuerId === issuerId && serverCheckpoints.length ? (
             <details className="relative">
               <summary className="caos-secondary-action focus-ring cursor-pointer">Server checkpoints · {serverCheckpoints.length}</summary>
               <div className="absolute right-0 top-full z-40 mt-1 w-80 max-h-72 overflow-auto rounded border border-caos-border bg-caos-panel p-1 shadow-xl">
@@ -759,6 +802,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
                     key={item.id}
                     type="button"
                     onClick={() => void restoreServerCheckpoint(item)}
+                    disabled={!hydrated || checkpointing || item.issuer_id !== issuerId}
                     className="focus-ring flex w-full items-center justify-between gap-3 rounded px-2 py-1.5 text-left text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text"
                   >
                     <span className="truncate">{item.label}</span>
@@ -949,7 +993,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
                 />
               </div>
               {showScenarios ? (
-                <ScenarioPanel model={model} downside={eng.downside} issuerId={issuerId} runId={eng.runId} onCollapse={() => setShowScenarios(false)} />
+                <ScenarioPanel model={model} downside={eng.downside} downsideState={eng.downsideState} issuerId={issuerId} runId={eng.runId} onCollapse={() => setShowScenarios(false)} />
               ) : (
                 <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => setShowScenarios(true)} />
               )}

@@ -88,19 +88,29 @@ function stopSharedDayInterval() {
   }
 }
 function startSharedDayInterval() {
-  if (sharedIntervalId !== null || !sharedState.playing || sharedState.sim.done) return;
+  if (sharedIntervalId !== null || sharedListeners.size === 0 || !sharedState.playing || sharedState.sim.done) return;
   sharedIntervalId = setInterval(() => {
     sharedState = { ...sharedState, sim: stepSim(sharedState.sim, SIM_PLAN, null) };
     notifySharedDay();
     if (sharedState.sim.done) stopSharedDayInterval();
   }, 650 / sharedState.speed);
 }
-if (typeof window !== "undefined") startSharedDayInterval();
+// Started lazily by the first subscriber (below), not at module load: an
+// unconditional top-level start here has no owner to stop it when a consumer
+// never mounts, and under per-test-file module isolation every file that
+// imports this module — even indirectly — spawns another orphaned interval
+// in the same worker process, none of them ever cleared (each closes over
+// its own now-unreachable module instance), which compounds across a test
+// run until the process OOMs.
 
 export function useSharedDayRun(): SimRun {
   const subscribe = useCallback((cb: () => void) => {
     sharedListeners.add(cb);
-    return () => sharedListeners.delete(cb);
+    startSharedDayInterval();
+    return () => {
+      sharedListeners.delete(cb);
+      if (sharedListeners.size === 0) stopSharedDayInterval();
+    };
   }, []);
   const getSnapshot = useCallback(() => sharedState, []);
   const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);

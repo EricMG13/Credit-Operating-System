@@ -17,7 +17,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 const DRAFT_WITH_ROW = {
   status: "draft", ai_generated: true, ratified: false, export_allowed: false,
@@ -154,5 +157,63 @@ describe("AlertInbox", () => {
     fireEvent.click(screen.getByText("+ Resolved (1)"));
     expect(screen.getByText("Resolved")).toBeTruthy();
     expect(screen.getByText("resolved: Refinanced, no longer material.")).toBeTruthy();
+  });
+
+  it("preserves assignment input and surfaces a retryable mutation failure", async () => {
+    getAutonomyDraft.mockResolvedValue(DRAFT_WITH_ROW);
+    getAlertStates.mockResolvedValue([]);
+    setAlertState.mockRejectedValueOnce(new Error("assignment unavailable")).mockResolvedValueOnce({
+      id: "1", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "open",
+      assignee: "j.mora", note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
+    });
+    render(<AlertInbox />);
+    const input = await screen.findByPlaceholderText("assign to…") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "j.mora" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("assignment unavailable");
+    expect(input.value).toBe("j.mora");
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(setAlertState).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("guards rapid duplicate acknowledgements", async () => {
+    getAutonomyDraft.mockResolvedValue(DRAFT_WITH_ROW);
+    getAlertStates.mockResolvedValue([]);
+    let resolveAck!: (value: never) => void;
+    setAlertState.mockImplementationOnce(() => new Promise((resolve) => { resolveAck = resolve; }));
+    render(<AlertInbox />);
+    const ack = await screen.findByRole("button", { name: "Ack" });
+    fireEvent.click(ack);
+    fireEvent.click(ack);
+    expect(setAlertState).toHaveBeenCalledTimes(1);
+    resolveAck({
+      id: "1", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "ack",
+      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
+    } as never);
+    await waitFor(() => expect(screen.getByText("Ack/assigned")).toBeTruthy());
+  });
+
+  it("claims the custom ack-selected batch synchronously across duplicate events", async () => {
+    getAutonomyDraft.mockResolvedValue(DRAFT_WITH_ROW);
+    getAlertStates.mockResolvedValue([]);
+    let resolveAck!: (value: never) => void;
+    setAlertState.mockImplementationOnce(() => new Promise((resolve) => { resolveAck = resolve; }));
+    render(<AlertInbox />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    await screen.findByText("1 alert selected");
+
+    act(() => {
+      window.dispatchEvent(new Event("caos:monitor-ack-selected"));
+      window.dispatchEvent(new Event("caos:monitor-ack-selected"));
+    });
+    expect(setAlertState).toHaveBeenCalledTimes(1);
+
+    resolveAck({
+      id: "1", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "ack",
+      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
+    } as never);
+    await waitFor(() => expect(screen.getByText("Ack/assigned")).toBeTruthy());
   });
 });

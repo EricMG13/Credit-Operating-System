@@ -345,8 +345,10 @@ def test_qa_endpoint_reports_findings(client, atlf_run):
     assert qa["qa_status"] == "Restricted"
     assert qa["findings_by_severity"]["CRITICAL"] == 0
     assert qa["findings_by_severity"]["MATERIAL"] == 3
-    assert any(f["finding_id"] == "RUN-INPUT-AUTHORITY" for f in qa["findings"])
     assert any(f["module_id"] == "CP-1" for f in qa["findings"])
+    assert any(
+        f["finding_id"] == "RUN-INPUT-AUTHORITY" for f in qa["findings"]
+    )
 
 
 def test_cp1_evidence_resolves_to_ingested_chunks(client, atlf_run):

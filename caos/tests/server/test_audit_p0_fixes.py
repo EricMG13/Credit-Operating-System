@@ -205,6 +205,10 @@ async def test_extract_json_prepends_untrusted_rule(monkeypatch):
     extractor can't ship without the "data, not instructions" rule (engine/llm_safety.py)."""
     from engine import llm_safety
 
+    monkeypatch.setattr(
+        llm_safety.get_settings(), "caos_document_egress_enabled", True
+    )
+
     captured = {}
 
     class _Hit:

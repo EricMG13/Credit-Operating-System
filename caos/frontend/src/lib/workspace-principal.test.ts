@@ -27,4 +27,16 @@ describe("workspace principal cache isolation", () => {
     expect(localStorage.getItem("caos.principal.id")).toBe("a2");
     expect(window.location.search).toBe("?issuer=i1");
   });
+
+  it("treats unmarked legacy workspace state as untrusted", () => {
+    localStorage.setItem("caos-d-overrides:i1", "legacy draft");
+    sessionStorage.setItem("caos-chat-run-1", "legacy transcript");
+
+    bindWorkspacePrincipal("a1");
+
+    expect(localStorage.getItem("caos-d-overrides:i1")).toBeNull();
+    expect(sessionStorage.getItem("caos-chat-run-1")).toBeNull();
+    expect(localStorage.getItem("caos.principal.id")).toBe("a1");
+    expect(window.location.search).toBe("?issuer=i1");
+  });
 });

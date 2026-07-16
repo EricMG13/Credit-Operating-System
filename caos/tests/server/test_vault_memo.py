@@ -156,6 +156,56 @@ def _post_memo(client, filename, body, memo_type="market-commentary"):
     )
 
 
+@pytest.mark.asyncio
+async def test_memo_fingerprint_advances_only_after_commit_and_rebuilds_after_failure(
+    seeded_db, vault_dir, monkeypatch
+):
+    import database
+    from database import AnalystLink, AsyncSessionLocal, Issuer
+    from sqlalchemy import select
+
+    memo = vault_dir / "Desk.md"
+    memo.write_text("Exposure update for [[Vault Fingerprint Acceptance]].\n")
+    async with AsyncSessionLocal() as session:
+        session.add(Issuer(name="Vault Fingerprint Acceptance", ticker="VFA"))
+        await session.commit()
+
+    original_factory = database.AsyncSessionLocal
+    failing_session = original_factory()
+    real_commit = failing_session.commit
+
+    async def fail_commit():
+        raise RuntimeError("forced memo-link commit failure")
+
+    monkeypatch.setattr(failing_session, "commit", fail_commit)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(database, "AsyncSessionLocal", lambda: failing_session)
+        dependency = database.get_db()
+        session = await anext(dependency)
+        assert await vault_export.sync_analyst_memos(session) == 1
+        assert vault_export._last_vault_mtime == 0.0
+        assert vault_export._last_vault_file_count == 0
+        with pytest.raises(RuntimeError, match="forced memo-link commit failure"):
+            await anext(dependency)
+
+    # Restore a healthy commit and retry through the same dependency-owned
+    # transaction boundary. Because the failed transaction never advanced the
+    # fingerprint, the same unchanged file is scanned and rebuilt.
+    monkeypatch.setattr(failing_session, "commit", real_commit)
+    dependency = database.get_db()
+    session = await anext(dependency)
+    assert await vault_export.sync_analyst_memos(session) == 1
+    with pytest.raises(StopAsyncIteration):
+        await anext(dependency)
+
+    assert vault_export._last_vault_file_count == 1
+    assert vault_export._last_vault_mtime > 0
+    async with AsyncSessionLocal() as session:
+        links = (await session.execute(select(AnalystLink))).scalars().all()
+    assert len(links) == 1
+    assert links[0].source_note == "Desk"
+
+
 def test_upload_memo_vaults_autolinks_and_feeds_query_graph(client, vault_dir):
     issuers = client.get("/api/issuers", headers=AUTH).json()
     assert issuers, "demo seed expected"

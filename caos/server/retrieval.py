@@ -20,7 +20,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
-from sqlalchemy import select, func, desc
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import Document, DocumentChunk, engine, DocumentChunkEmbedding
@@ -108,12 +108,27 @@ def bm25_rank(query: str, corpus: Sequence[Tuple[str, str]], k: int = 5) -> List
 _corpus_cache: dict = {}
 
 
+def _document_scope(analyst_id: Optional[str]):
+    """Private documents are visible only to their owner; NULL is institutional."""
+    if analyst_id is None:
+        return Document.analyst_id.is_(None)
+    return or_(Document.analyst_id == analyst_id, Document.analyst_id.is_(None))
+
+
 async def _corpus_version(db: AsyncSession) -> tuple:
     row = (await db.execute(
-        select(func.count(Document.id), func.max(Document.uploaded_at))
+        select(
+            func.count(Document.id),
+            func.max(Document.uploaded_at),
+            func.max(Document.withdrawn_at),
+        ).where(Document.status == "active")
     )).one()
-    chunks = (await db.execute(select(func.count(DocumentChunk.id)))).scalar() or 0
-    return (int(row[0] or 0), int(chunks), str(row[1] or ""))
+    chunks = (await db.execute(
+        select(func.count(DocumentChunk.id))
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .where(Document.status == "active")
+    )).scalar() or 0
+    return (int(row[0] or 0), int(chunks), str(row[1] or ""), str(row[2] or ""))
 
 
 def cosine_similarity(v1: list[float], v2: list[float]) -> float:
@@ -174,7 +189,13 @@ def rrf_fusion(bm25_hits: list[Hit], vector_hits: list[Hit], limit: int = 5, k_r
     return fused
 
 
-async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> List[Hit]:
+async def retrieve(
+    db: AsyncSession,
+    issuer_id: str,
+    query: str,
+    k: int = 5,
+    analyst_id: Optional[str] = None,
+) -> List[Hit]:
     """Hybrid (BM25 + Semantic Vector) retrieval for an issuer's document chunks against ``query``."""
     # 1. BM25 Search
     if engine.dialect.name == "postgresql":
@@ -187,6 +208,8 @@ async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> 
             .join(Document, Document.id == DocumentChunk.document_id)
             .where(
                 Document.issuer_id == issuer_id,
+                Document.status == "active",
+                _document_scope(analyst_id),
                 DocumentChunk.tsv.op("@@")(func.websearch_to_tsquery("english", query))
             )
             .order_by(desc("score"))
@@ -199,7 +222,11 @@ async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> 
             await db.execute(
                 select(DocumentChunk.id, DocumentChunk.text)
                 .join(Document, Document.id == DocumentChunk.document_id)
-                .where(Document.issuer_id == issuer_id)
+                .where(
+                    Document.issuer_id == issuer_id,
+                    Document.status == "active",
+                    _document_scope(analyst_id),
+                )
                 .limit(_CORPUS_SCAN_CAP)
             )
         ).all()
@@ -230,6 +257,8 @@ async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> 
             .join(DocumentChunkEmbedding, DocumentChunkEmbedding.chunk_hash == DocumentChunk.chunk_hash)
             .where(
                 Document.issuer_id == issuer_id,
+                Document.status == "active",
+                _document_scope(analyst_id),
                 DocumentChunkEmbedding.model == model
             )
             .order_by(desc("score"))
@@ -250,6 +279,8 @@ async def retrieve(db: AsyncSession, issuer_id: str, query: str, k: int = 5) -> 
             .join(DocumentChunkEmbedding, DocumentChunkEmbedding.chunk_hash == DocumentChunk.chunk_hash)
             .where(
                 Document.issuer_id == issuer_id,
+                Document.status == "active",
+                _document_scope(analyst_id),
                 DocumentChunkEmbedding.model == model
             )
             .limit(_CORPUS_SCAN_CAP)
@@ -284,6 +315,7 @@ async def build_issuer_index(
         select(DocumentChunk.id, DocumentChunk.text)
         .join(Document, Document.id == DocumentChunk.document_id)
         .where(Document.issuer_id == issuer_id)
+        .where(Document.status == "active")
         .where(Document.doc_type != "analyst-memo")
     )
     if document_ids is not None:
@@ -300,6 +332,7 @@ async def retrieve_corpus(  # noqa: C901
     issuer_ids: Optional[Sequence[str]] = None,
     expand_graph: bool = False,
     rerank: bool = True,
+    analyst_id: Optional[str] = None,
 ) -> List[CorpusHit]:
     """Hybrid (BM25 + Semantic Vector) cross-issuer search with RRF fusion.
 
@@ -330,10 +363,14 @@ async def retrieve_corpus(  # noqa: C901
                 func.ts_rank_cd(DocumentChunk.tsv, func.websearch_to_tsquery("english", query)).label("score")
             )
             .join(Document, Document.id == DocumentChunk.document_id)
-            .where(DocumentChunk.tsv.op("@@")(func.websearch_to_tsquery("english", query)))
+            .where(
+                Document.status == "active",
+                DocumentChunk.tsv.op("@@")(func.websearch_to_tsquery("english", query)),
+            )
         )
         if issuer_ids:
             stmt = stmt.where(Document.issuer_id.in_(list(issuer_ids)))
+        stmt = stmt.where(_document_scope(analyst_id))
         stmt = stmt.order_by(desc("score")).limit(k * 2)
         rows = (await db.execute(stmt)).all()
         bm25_hits = [
@@ -346,7 +383,7 @@ async def retrieve_corpus(  # noqa: C901
         # cardinality would explode a cache.
         index = meta = None
         version = None
-        if not issuer_ids:
+        if not issuer_ids and analyst_id is None:
             version = await _corpus_version(db)
             cached = _corpus_cache.get("corpus")
             if cached and cached[0] == version:
@@ -355,9 +392,11 @@ async def retrieve_corpus(  # noqa: C901
             stmt = (
                 select(DocumentChunk.id, DocumentChunk.text, Document.issuer_id, Document.file_name)
                 .join(Document, Document.id == DocumentChunk.document_id)
+                .where(Document.status == "active")
             )
             if issuer_ids:
                 stmt = stmt.where(Document.issuer_id.in_(list(issuer_ids)))
+            stmt = stmt.where(_document_scope(analyst_id))
             stmt = stmt.limit(_CORPUS_SCAN_CAP)
             rows = (await db.execute(stmt)).all()
             meta = {r[0]: (r[2], r[3]) for r in rows}
@@ -396,10 +435,11 @@ async def retrieve_corpus(  # noqa: C901
             )
             .join(Document, Document.id == DocumentChunk.document_id)
             .join(DocumentChunkEmbedding, DocumentChunkEmbedding.chunk_hash == DocumentChunk.chunk_hash)
-            .where(DocumentChunkEmbedding.model == model)
+            .where(DocumentChunkEmbedding.model == model, Document.status == "active")
         )
         if issuer_ids:
             stmt = stmt.where(Document.issuer_id.in_(list(issuer_ids)))
+        stmt = stmt.where(_document_scope(analyst_id))
         stmt = stmt.order_by(desc("score")).limit(k * 2)
         rows = (await db.execute(stmt)).all()
         vector_hits = [
@@ -417,10 +457,11 @@ async def retrieve_corpus(  # noqa: C901
             )
             .join(Document, Document.id == DocumentChunk.document_id)
             .join(DocumentChunkEmbedding, DocumentChunkEmbedding.chunk_hash == DocumentChunk.chunk_hash)
-            .where(DocumentChunkEmbedding.model == model)
+            .where(DocumentChunkEmbedding.model == model, Document.status == "active")
         )
         if issuer_ids:
             stmt = stmt.where(Document.issuer_id.in_(list(issuer_ids)))
+        stmt = stmt.where(_document_scope(analyst_id))
         stmt = stmt.limit(_CORPUS_SCAN_CAP)
         rows = (await db.execute(stmt)).all()
         python_hits = await asyncio.to_thread(python_vector_search, query_vector, rows, k * 2)
@@ -446,7 +487,10 @@ async def retrieve_corpus(  # noqa: C901
 
 
 async def retrieve_corpus_by_issuer(  # noqa: C901
-    db: AsyncSession, query: str, issuer_ids: Sequence[str]
+    db: AsyncSession,
+    query: str,
+    issuer_ids: Sequence[str],
+    analyst_id: Optional[str] = None,
 ) -> dict[str, CorpusHit]:
     """Hybrid (BM25 + Semantic Vector) single best-matching chunk per issuer with RRF fusion."""
     if not issuer_ids:
@@ -466,6 +510,8 @@ async def retrieve_corpus_by_issuer(  # noqa: C901
             .join(Document, Document.id == DocumentChunk.document_id)
             .where(
                 Document.issuer_id.in_(list(issuer_ids)),
+                Document.status == "active",
+                _document_scope(analyst_id),
                 DocumentChunk.tsv.op("@@")(func.websearch_to_tsquery("english", query))
             )
             .order_by(Document.issuer_id, desc("score"))
@@ -479,7 +525,11 @@ async def retrieve_corpus_by_issuer(  # noqa: C901
         rows = (await db.execute(
             select(DocumentChunk.id, DocumentChunk.text, Document.issuer_id, Document.file_name)
             .join(Document, Document.id == DocumentChunk.document_id)
-            .where(Document.issuer_id.in_(list(issuer_ids)))
+            .where(
+                Document.issuer_id.in_(list(issuer_ids)),
+                Document.status == "active",
+                _document_scope(analyst_id),
+            )
             .limit(_CORPUS_SCAN_CAP)
         )).all()
         meta = {r[0]: (r[2], r[3]) for r in rows}
@@ -519,6 +569,8 @@ async def retrieve_corpus_by_issuer(  # noqa: C901
             .join(DocumentChunkEmbedding, DocumentChunkEmbedding.chunk_hash == DocumentChunk.chunk_hash)
             .where(
                 Document.issuer_id.in_(list(issuer_ids)),
+                Document.status == "active",
+                _document_scope(analyst_id),
                 DocumentChunkEmbedding.model == model
             )
             .order_by(Document.issuer_id, desc("score"))
@@ -541,6 +593,8 @@ async def retrieve_corpus_by_issuer(  # noqa: C901
             .join(DocumentChunkEmbedding, DocumentChunkEmbedding.chunk_hash == DocumentChunk.chunk_hash)
             .where(
                 Document.issuer_id.in_(list(issuer_ids)),
+                Document.status == "active",
+                _document_scope(analyst_id),
                 DocumentChunkEmbedding.model == model
             )
             .limit(_CORPUS_SCAN_CAP)

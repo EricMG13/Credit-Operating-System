@@ -105,7 +105,10 @@ describe("Settings · Models tab", () => {
               current: {
                 model_lanes: { heavy: "model-b" },
                 email_intelligence: { approved_senders: ["remote@desk.test"] },
-                workspace: { model_builder: { warn_on_unsaved_leave: false } },
+                workspace: {
+                  model_builder: { warn_on_unsaved_leave: false, density: "remote" },
+                  concurrent_surface: { preserved: true },
+                },
                 revision: 8,
               },
             },
@@ -115,7 +118,10 @@ describe("Settings · Models tab", () => {
       .mockResolvedValueOnce({
         model_lanes: { heavy: "model-b" },
         email_intelligence: { approved_senders: ["remote@desk.test"] },
-        workspace: { model_builder: { warn_on_unsaved_leave: true } },
+        workspace: {
+          model_builder: { warn_on_unsaved_leave: true, density: "remote" },
+          concurrent_surface: { preserved: true },
+        },
         revision: 9,
       });
 
@@ -128,7 +134,10 @@ describe("Settings · Models tab", () => {
       workspace: { model_builder: { warn_on_unsaved_leave: true } },
     });
     expect(patchAnalystSettings).toHaveBeenNthCalledWith(2, 8, {
-      workspace: { model_builder: { warn_on_unsaved_leave: true } },
+      workspace: {
+        model_builder: { warn_on_unsaved_leave: true, density: "remote" },
+        concurrent_surface: { preserved: true },
+      },
     });
   });
 

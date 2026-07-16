@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import document_egress_allowed
 from database import QueryOverlay
 from engine import llm_client, presets, querygraph
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
@@ -48,10 +49,13 @@ _CONFIDENCE = {"High", "Medium", "Low"}
 
 
 def available() -> bool:
-    """True when a resolved Query model has its provider key."""
+    """True only when the model exists and document egress is approved."""
     return (
-        presets.can_run_model(presets.route_model())
-        or presets.can_run_model(presets.model_for(presets.HEAVY))
+        document_egress_allowed()
+        and (
+            presets.can_run_model(presets.route_model())
+            or presets.can_run_model(presets.model_for(presets.HEAVY))
+        )
     )
 
 
@@ -265,8 +269,11 @@ async def overlay(
                 "suggested_walks": [], "capability_id": capability_id,
                 "model": None, "created_at": None, "cached": False}
 
+    if not document_egress_allowed():
+        raise RuntimeError("Document egress is disabled for the query-overlay lane.")
+
     terms = " ".join([graph.get("title", ""), *[n.get("label", "") for n in graph["nodes"][:12]]])
-    hits = await retrieve_corpus(db, terms, k=_RETRIEVE_K)
+    hits = await retrieve_corpus(db, terms, k=_RETRIEVE_K, analyst_id=analyst_id)
     grounding = "\n\n".join(f"[chunk {h.chunk_id}]\n{h.text}" for h in hits) or "(no chunks in the vault)"
 
     caps = await querygraph.capabilities(db)

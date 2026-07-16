@@ -16,13 +16,13 @@
 // draftToAlertRows, alert_states) with AlertInbox/RankedChanges, so the same
 // alert reads identically everywhere; only the layout is phone-specific.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, requiredActionFor, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
-import { getAlertStates, setAlertState, type AlertStateDTO } from "@/lib/api";
+import { getAlertStates, setAlertState, toErrorMessage, type AlertStateDTO } from "@/lib/api";
 
 // Touch targets are 44px on phone (vs 32px desktop) — Sam's persona
 // resolution. Every actionable control here uses this class.
@@ -46,6 +46,10 @@ export function PhoneTriage() {
   const [assigneeInput, setAssigneeInput] = useState("");
   const [resolving, setResolving] = useState(false);
   const [resolveNote, setResolveNote] = useState("");
+  const [mutationPending, setMutationPending] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const mutationPendingRef = useRef(false);
+  const retryMutationRef = useRef<(() => Promise<void>) | null>(null);
 
   const rows = draft ? draftToAlertRows(draft) : [];
   // Untouched alerts first — an analyst triaging on a phone wants the ones
@@ -82,6 +86,13 @@ export function PhoneTriage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ordered.map((r) => r.key).join(","), currentKey]);
 
+  useEffect(() => {
+    // A retry belongs to the alert that produced it. Never carry a failed
+    // mutation onto the next card where retrying would update a hidden alert.
+    setMutationError(null);
+    retryMutationRef.current = null;
+  }, [currentKey]);
+
   if (loading) {
     return <div className="px-3 py-4 tabular text-caos-xs text-caos-muted">loading…</div>;
   }
@@ -110,6 +121,22 @@ export function PhoneTriage() {
   const resolved = state?.state === "resolved";
   const impact = formatImpact(current);
   const applyState = (next: AlertStateDTO) => setStates((m) => new Map(m).set(current.key, next));
+  const performMutation = async (action: () => Promise<void>) => {
+    if (mutationPendingRef.current) return;
+    retryMutationRef.current = action;
+    mutationPendingRef.current = true;
+    setMutationPending(true);
+    setMutationError(null);
+    try {
+      await action();
+      retryMutationRef.current = null;
+    } catch (reason) {
+      setMutationError(toErrorMessage(reason, "Alert workflow update failed"));
+    } finally {
+      mutationPendingRef.current = false;
+      setMutationPending(false);
+    }
+  };
 
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-3 p-3 overflow-y-auto">
@@ -185,10 +212,13 @@ export function PhoneTriage() {
             />
             <button
               type="button"
-              disabled={!assigneeInput.trim()}
+              disabled={!assigneeInput.trim() || mutationPending}
               onClick={() => {
-                setAlertState(current.key, acked ? "ack" : "open", { assignee: assigneeInput.trim() }).then(applyState);
-                setAssigneeInput("");
+                const assignee = assigneeInput.trim();
+                void performMutation(async () => {
+                  applyState(await setAlertState(current.key, acked ? "ack" : "open", { assignee }));
+                  setAssigneeInput("");
+                });
               }}
               className={`${TOUCH} px-3 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target`}
             >
@@ -198,8 +228,8 @@ export function PhoneTriage() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={acked}
-              onClick={() => setAlertState(current.key, "ack").then(applyState)}
+              disabled={acked || mutationPending}
+              onClick={() => void performMutation(async () => applyState(await setAlertState(current.key, "ack")))}
               className={`${TOUCH} flex-1 tabular text-caos-md rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target`}
             >
               Ack
@@ -223,15 +253,25 @@ export function PhoneTriage() {
               />
               <button
                 type="button"
+                disabled={mutationPending}
                 onClick={() => {
-                  setAlertState(current.key, "resolved", { resolutionNote: resolveNote || undefined }).then(applyState);
-                  setResolving(false);
-                  setResolveNote("");
+                  const note = resolveNote;
+                  void performMutation(async () => {
+                    applyState(await setAlertState(current.key, "resolved", { resolutionNote: note || undefined }));
+                    setResolving(false);
+                    setResolveNote("");
+                  });
                 }}
                 className={`${TOUCH} px-3 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target`}
               >
                 Confirm
               </button>
+            </div>
+          ) : null}
+          {mutationError ? (
+            <div role="alert" className="flex items-center gap-2 rounded border border-caos-critical/50 px-2 py-2 text-caos-xs text-caos-critical">
+              <span className="flex-1">{mutationError}. Input was preserved.</span>
+              <button type="button" disabled={mutationPending} className={`${TOUCH} px-2 rounded border border-caos-border focus-ring`} onClick={() => { const retry = retryMutationRef.current; if (retry) void performMutation(retry); }}>Retry</button>
             </div>
           ) : null}
         </div>

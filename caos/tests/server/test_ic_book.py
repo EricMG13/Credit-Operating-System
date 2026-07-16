@@ -36,7 +36,11 @@ def ic_client():
 
 
 def _seed_ready(
-    prefix: str, *, team_id: str | None = None, committee_status: str = "Committee Ready"
+    prefix: str,
+    *,
+    team_id: str | None = None,
+    committee_status: str = "Committee Ready",
+    analyst_id: str | None = None,
 ) -> tuple[str, str, str]:
     from database import AsyncSessionLocal, Issuer, Portfolio, Run
 
@@ -53,7 +57,7 @@ def _seed_ready(
                 status="complete",
                 qa_status="Passed",
                 committee_status=committee_status,
-                analyst_id=f"{prefix}-owner",
+                analyst_id=analyst_id or f"{prefix}-owner",
                 completed_at=datetime.now(timezone.utc),
             )
             db.add_all([issuer, portfolio, run])
@@ -257,9 +261,13 @@ def test_agenda_rejects_report_from_a_different_run(ic_client):
     from identity import get_identity
     from main import app
 
-    issuer_id, portfolio_id, run_id = _seed_ready("ic-report-a")
-    _other_issuer, _other_portfolio, other_run_id = _seed_ready("ic-report-b")
-    owner = "ic-report-a-owner"
+    owner = "ic-report-owner"
+    issuer_id, portfolio_id, run_id = _seed_ready(
+        "ic-report-a", analyst_id=owner
+    )
+    _other_issuer, _other_portfolio, other_run_id = _seed_ready(
+        "ic-report-b", analyst_id=owner
+    )
 
     async def seed_report():
         async with AsyncSessionLocal() as db:

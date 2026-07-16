@@ -16,7 +16,7 @@ vi.mock("@/components/shared/RequireAuth", () => ({
 }));
 vi.mock("@/lib/engine/useModelEngine", () => ({
   useModelEngine: () => ({
-    anchor: null, downside: null, runId: null, committeeStatus: null, live: false,
+    anchor: null, downside: null, downsideState: "unavailable", runId: null, committeeStatus: null, live: false,
     loading: false, phase: "error",
   }),
 }));

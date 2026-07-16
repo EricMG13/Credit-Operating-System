@@ -11,7 +11,7 @@
 // empty draft) — the caller (Monitor page) decides what DEMO fallback to
 // show in that case; this component never fabricates rows.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { BatchBar } from "@/components/shared/BatchBar";
@@ -25,6 +25,7 @@ import {
   refreshAlertEvents,
   reopenDecision,
   setAlertState,
+  toErrorMessage,
   type AlertEventDTO,
   type AlertStateDTO,
   type IcDecision,
@@ -48,6 +49,7 @@ function ReopenDecision({ row }: { row: AlertRow }) {
   const material = /covenant|rating/i.test([row.metric, row.event, row.reason].filter(Boolean).join(" "));
   const [decision, setDecision] = useState<IcDecision | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!material || !row.issuerId) return;
     let alive = true;
@@ -58,18 +60,24 @@ function ReopenDecision({ row }: { row: AlertRow }) {
   }, [material, row.issuerId]);
   if (!decision || decision.status === "reopened") return null;
   return (
+    <>
     <button
       type="button"
       disabled={busy}
       onClick={async () => {
+        if (busy) return;
         setBusy(true);
+        setError(null);
         try { setDecision(await reopenDecision(decision.id, row.key)); }
+        catch (reason) { setError(toErrorMessage(reason, "IC decision was not reopened")); }
         finally { setBusy(false); }
       }}
       className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-warning text-caos-warning transition-caos focus-ring disabled:opacity-50 caos-target"
     >
-      {busy ? "Reopening…" : "Reopen IC"}
+      {busy ? "Reopening…" : error ? "Retry reopen" : "Reopen IC"}
     </button>
+    {error ? <span role="alert" className="text-caos-2xs text-caos-critical">{error}</span> : null}
+    </>
   );
 }
 
@@ -86,13 +94,31 @@ function Row({
   state: AlertStateDTO | undefined;
   selected: boolean;
   onToggleSelect: () => void;
-  onAck: () => void;
-  onAssign: (name: string) => void;
-  onResolve: (note: string) => void;
+  onAck: () => Promise<void>;
+  onAssign: (name: string) => Promise<void>;
+  onResolve: (note: string) => Promise<void>;
 }) {
   const [assigneeInput, setAssigneeInput] = useState("");
   const [resolving, setResolving] = useState(false);
   const [resolveNote, setResolveNote] = useState("");
+  const [pending, setPending] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const pendingRef = useRef(false);
+  const perform = async (action: () => Promise<void>, onSuccess?: () => void) => {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    setPending(true);
+    setActionError(null);
+    try {
+      await action();
+      onSuccess?.();
+    } catch (reason) {
+      setActionError(toErrorMessage(reason, "Alert workflow update failed"));
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
+    }
+  };
   const acked = state?.state === "ack";
   const resolved = state?.state === "resolved";
   const impact = formatImpact(row);
@@ -151,19 +177,19 @@ function Row({
           />
           <button
             type="button"
-            disabled={!assigneeInput.trim()}
-            onClick={() => {
-              onAssign(assigneeInput.trim());
-              setAssigneeInput("");
-            }}
+            disabled={!assigneeInput.trim() || pending}
+            onClick={() => void perform(
+              () => onAssign(assigneeInput.trim()),
+              () => setAssigneeInput(""),
+            )}
             className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
           >
             Assign
           </button>
           <button
             type="button"
-            disabled={acked}
-            onClick={onAck}
+            disabled={acked || pending}
+            onClick={() => void perform(onAck)}
             className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
           >
             Ack
@@ -179,7 +205,11 @@ function Row({
               />
               <button
                 type="button"
-                onClick={() => { onResolve(resolveNote); setResolving(false); setResolveNote(""); }}
+                disabled={pending}
+                onClick={() => void perform(
+                  () => onResolve(resolveNote),
+                  () => { setResolving(false); setResolveNote(""); },
+                )}
                 className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target"
               >
                 Confirm resolve
@@ -202,6 +232,7 @@ function Row({
             </button>
           )}
           <ReopenDecision row={row} />
+          {actionError ? <span role="alert" className="text-caos-2xs text-caos-critical">{actionError} — retry the same action.</span> : null}
         </div>
       ) : null}
     </div>
@@ -214,6 +245,8 @@ export function AlertInbox() {
   const [events, setEvents] = useState<Map<string, AlertEventDTO>>(new Map());
   const [selected, setSelected] = useState<string[]>([]);
   const [resolvedOpen, setResolvedOpen] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const ackSelectedPending = useRef(false);
 
   const rows = draft ? draftToAlertRows(draft) : [];
 
@@ -261,8 +294,16 @@ export function AlertInbox() {
 
   useEffect(() => {
     const acknowledgeSelected = () => {
+      // Custom events are synchronous: two rapid dispatches arrive before the
+      // first render can disable anything. Claim the batch in a ref before any
+      // await so each selected event produces at most one durable transition.
+      if (ackSelectedPending.current || selected.length === 0) return;
+      ackSelectedPending.current = true;
+      setMutationError(null);
       void Promise.all(selected.map(async (key) => applyState(key, await persistState(key, "ack"))))
-        .then(() => setSelected([]));
+        .then(() => setSelected([]))
+        .catch((reason) => setMutationError(toErrorMessage(reason, "Selected alerts were not acknowledged")))
+        .finally(() => { ackSelectedPending.current = false; });
     };
     window.addEventListener("caos:monitor-ack-selected", acknowledgeSelected);
     return () => window.removeEventListener("caos:monitor-ack-selected", acknowledgeSelected);
@@ -282,6 +323,7 @@ export function AlertInbox() {
 
   return (
     <div>
+      {mutationError ? <p role="alert" className="border-b border-caos-border px-3 py-2 text-caos-xs text-caos-critical">{mutationError}. Selection was preserved; retry Ack.</p> : null}
       <BatchBar
         selected={selected}
         onClear={() => setSelected([])}
@@ -301,15 +343,15 @@ export function AlertInbox() {
           state={states.get(row.key)}
           selected={selected.includes(row.key)}
           onToggleSelect={() => toggleSelect(row.key)}
-          onAck={() => persistState(row.key, "ack").then((r) => applyState(row.key, r))}
-          onAssign={(name) =>
-            persistState(row.key, states.get(row.key)?.state === "ack" ? "ack" : "open", { assignee: name }).then(
-              (r) => applyState(row.key, r),
-            )
-          }
-          onResolve={(note) =>
-            persistState(row.key, "resolved", { resolutionNote: note || undefined }).then((r) => applyState(row.key, r))
-          }
+          onAck={async () => applyState(row.key, await persistState(row.key, "ack"))}
+          onAssign={async (name) => applyState(
+            row.key,
+            await persistState(row.key, states.get(row.key)?.state === "ack" ? "ack" : "open", { assignee: name }),
+          )}
+          onResolve={async (note) => applyState(
+            row.key,
+            await persistState(row.key, "resolved", { resolutionNote: note || undefined }),
+          )}
         />
       ))}
       {resolvedRows.length > 0 ? (
@@ -330,9 +372,9 @@ export function AlertInbox() {
                   state={states.get(row.key)}
                   selected={false}
                   onToggleSelect={() => {}}
-                  onAck={() => {}}
-                  onAssign={() => {}}
-                  onResolve={() => {}}
+                  onAck={async () => {}}
+                  onAssign={async () => {}}
+                  onResolve={async () => {}}
                 />
               ))
             : null}

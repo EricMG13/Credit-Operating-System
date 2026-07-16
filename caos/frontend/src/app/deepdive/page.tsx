@@ -340,19 +340,21 @@ function DeepDive() {
       }
     : { whatChanged: unavailableDeepState, whyItMatters: unavailableDeepState, requiredAction: unavailableDeepState, evidenceHealth: unavailableDeepState };
 
+  const syncContext = analysis.context;
+  const patchContext = analysis.patch;
   useEffect(() => {
-    const active = analysis.context;
+    const active = syncContext;
     if (!active) return;
     const issuerIds = active.issuer_ids.includes(issuerId)
       ? active.issuer_ids
       : [...active.issuer_ids, issuerId];
     const runId = live.runId ?? active.artifacts.issuer_run_id;
     if (issuerIds === active.issuer_ids && runId === active.artifacts.issuer_run_id) return;
-    void analysis.patch({
+    void patchContext({
       issuer_ids: issuerIds,
-      artifacts: { ...active.artifacts, issuer_run_id: runId },
+      artifacts: { issuer_run_id: runId },
     }).catch(() => setAffirmNotice("Analysis context could not be updated."));
-  }, [analysis, issuerId, live.runId]);
+  }, [issuerId, live.runId, patchContext, syncContext]);
 
   const affirmView = async () => {
     const context = analysis.context;
@@ -836,7 +838,14 @@ function DeepDive() {
             </div>
           )}
         </Panel>
-        <DecisionRail open={decisionOpen} onToggle={() => setDecisionOpen(!decisionOpen)} council={live.council} isReference={isReference} issuerCode={code} />
+        <DecisionRail
+          open={decisionOpen}
+          onToggle={() => setDecisionOpen(!decisionOpen)}
+          council={live.council}
+          councilState={isReference ? "ready" : live.loading ? "loading" : live.phase === "error" ? "error" : live.runId ? "ready" : "unavailable"}
+          isReference={isReference}
+          issuerCode={code}
+        />
       </div>
 
       {evModal && reports ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}

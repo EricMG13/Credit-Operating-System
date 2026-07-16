@@ -52,6 +52,13 @@ describe("ScenarioPanel", () => {
     expect(screen.queryByText(/RESET/)).toBeNull();
   });
 
+  it("renders an explicit unknown state when the optional CP-2B read fails", () => {
+    render(<ScenarioPanel model={model} downside={null} downsideState="error" />);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("CP-2B unknown");
+    expect(alert.textContent).toContain("optional CP-2B read failed");
+  });
+
   it("applying a preset re-centers the lens: shows the active card + delta summary, and RESET reverts", () => {
     render(<ScenarioPanel model={model} />);
 

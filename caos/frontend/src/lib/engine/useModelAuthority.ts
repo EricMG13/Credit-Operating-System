@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   getModelV2,
   getSettings,
@@ -180,20 +180,28 @@ export function useModelAuthority<TLegacy>({
   exactRunId,
   buildLegacyModel,
 }: UseModelAuthorityOptions<TLegacy>): ModelAuthorityState<TLegacy> {
-  const [state, setState] = useState<ModelAuthorityState<TLegacy>>(() =>
-    failClosed("authority-loading", "unknown"),
+  const scopeKey = JSON.stringify([issuerId, exactRunId ?? null]);
+  const loadingState = useMemo<ModelAuthorityState<TLegacy>>(
+    () => failClosed("authority-loading", "unknown"),
+    [],
   );
+  const [resolved, setResolved] = useState<{
+    scopeKey: string;
+    state: ModelAuthorityState<TLegacy>;
+  }>(() => ({ scopeKey, state: loadingState }));
 
   useEffect(() => {
     let active = true;
-    setState(failClosed("authority-loading", "unknown"));
+    setResolved({ scopeKey, state: loadingState });
     void resolveModelAuthority({ issuerId, exactRunId, buildLegacyModel }).then((resolved) => {
-      if (active) setState(resolved);
+      if (active) setResolved({ scopeKey, state: resolved });
     });
     return () => {
       active = false;
     };
-  }, [buildLegacyModel, exactRunId, issuerId]);
+  }, [buildLegacyModel, exactRunId, issuerId, loadingState, scopeKey]);
 
-  return state;
+  // Effects run after render. Scope the stored result during render itself so
+  // an A response is never paired with B's issuer prop for even one frame.
+  return resolved.scopeKey === scopeKey ? resolved.state : loadingState;
 }

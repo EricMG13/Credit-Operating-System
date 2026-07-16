@@ -24,7 +24,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from typing import List, Sequence
+from typing import List, Optional, Sequence
 
 from sqlalchemy import select, delete, insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +37,9 @@ logger = logging.getLogger("caos.memochunks")
 MEMO_DOC_TYPE = "analyst-memo"
 
 
-async def _delete_prior_memo_docs(db: AsyncSession, title: str) -> None:
+async def _delete_prior_memo_docs(
+    db: AsyncSession, title: str, analyst_id: Optional[str]
+) -> None:
     """Idempotently remove any prior ``analyst-memo`` Documents (and their chunks
     + lineage edges) for the same title before re-creating. The FK structure has
     no cascade, and lineage references chunks/parents by string id, so delete in
@@ -47,6 +49,7 @@ async def _delete_prior_memo_docs(db: AsyncSession, title: str) -> None:
         select(Document.id).where(
             Document.doc_type == MEMO_DOC_TYPE,
             Document.file_name == title,
+            Document.analyst_id == analyst_id,
         )
     )).scalars().all()
     if not prior_docs:
@@ -72,6 +75,8 @@ async def chunk_memo_into_corpus(
     body_text: str,
     linked_issuer_ids: Sequence[str],
     uploaded_by: str,
+    *,
+    analyst_id: Optional[str] = None,
 ) -> List[str]:
     """Chunk an analyst memo into ``document_chunks`` so Q2 retrieval can cite it.
 
@@ -94,13 +99,14 @@ async def chunk_memo_into_corpus(
     if not chunks:
         return []
 
-    await _delete_prior_memo_docs(db, title)
+    await _delete_prior_memo_docs(db, title, analyst_id)
 
     storage_key = f"memo:{title}"
     created_doc_ids: List[str] = []
     for issuer_id in linked:
         doc = Document(
             issuer_id=issuer_id,
+            analyst_id=analyst_id,
             doc_type=MEMO_DOC_TYPE,
             run_mode=None,
             file_name=title,

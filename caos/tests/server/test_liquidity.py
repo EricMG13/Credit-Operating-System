@@ -73,3 +73,43 @@ def test_interest_runway_none_on_inf_ebitda():
     assert ro["disclosed_liquidity_musd"] == 200.0
     assert ro["annual_cash_interest_musd"] is None
     assert ro["months_liquidity_covers_interest"] is None
+
+
+def test_zero_liquidity_claim_is_finite_and_reconciles_to_zero(monkeypatch):
+    import engine.liquidity as liquidity
+
+    monkeypatch.setattr(liquidity, "scan_liquidity", lambda _pairs: [{
+        "source": "Cash and cash equivalents",
+        "amount_musd": 0.0,
+        "chunk_id": "zero-cash",
+    }])
+    p = asyncio.run(liquidity.synthesize_liquidity(
+        _retrieve([("zero-cash", "Cash and cash equivalents were nil.")]),
+        cp1=_cp1(),
+    ))
+
+    assert p.runtime_output["disclosed_liquidity_musd"] == 0.0
+    assert p.runtime_output["months_liquidity_covers_interest"] == 0.0
+    assert "~$0M" in p.claims[0].claim_text
+    assert "~0 months" in p.claims[0].claim_text
+
+
+def test_negative_liquidity_is_excluded_from_claim_and_loudly_degraded(monkeypatch):
+    import engine.liquidity as liquidity
+
+    monkeypatch.setattr(liquidity, "scan_liquidity", lambda _pairs: [{
+        "source": "Undrawn revolving credit facility",
+        "amount_musd": -25.0,
+        "chunk_id": "negative-rcf",
+    }])
+    p = asyncio.run(liquidity.synthesize_liquidity(
+        _retrieve([("negative-rcf", "Revolver availability was reported.")]),
+        cp1=_cp1(),
+    ))
+
+    assert p.runtime_output["disclosed_liquidity_musd"] is None
+    assert p.runtime_output["months_liquidity_covers_interest"] is None
+    assert p.confidence == "Insufficient Information"
+    assert any("Negative" in flag for flag in p.limitation_flags)
+    assert "-25" not in p.claims[0].claim_text
+    assert "$-" not in p.claims[0].claim_text

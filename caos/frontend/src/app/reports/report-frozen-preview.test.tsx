@@ -50,7 +50,7 @@ vi.mock("@/lib/engine/useLiveRun", () => ({
 }));
 vi.mock("@/lib/engine/useModelEngine", () => ({
   useModelEngine: () => ({
-    anchor: null, downside: null, runId: "run-1", committeeStatus: "Committee Ready",
+    anchor: null, downside: null, downsideState: "unavailable", runId: "run-1", committeeStatus: "Committee Ready",
     live: true, loading: false, phase: "complete",
   }),
 }));

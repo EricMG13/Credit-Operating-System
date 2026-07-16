@@ -19,6 +19,7 @@ from sqlalchemy import select
 from database import (
     AnalystWatchlist, AsyncSessionLocal, Issuer, MetricFact, QueryInsight, Run,
 )
+from conftest import requires_pg
 from engine import queryinsights
 
 
@@ -291,3 +292,72 @@ def test_watchlist_route_keys_per_analyst():
                 assert "local-dev" in by_analyst and by_analyst["local-dev"] == {"k1"}
                 assert "analyst-two" in by_analyst and by_analyst["analyst-two"] == {"k2"}
         asyncio.run(_check())
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_two_sessions_serialize_disjoint_full_watchlist_replacements(
+    seeded_db, monkeypatch
+):
+    """A replacement that waits on the owner lock must re-read after the first
+    transaction commits; the final set is one complete request, never a union."""
+    import rate_limit
+    from database import Analyst
+    from identity import CallerIdentity
+    from routes.query import WatchlistUpdate, replace_watchlist
+
+    monkeypatch.setattr(rate_limit, "hit", lambda *_args, **_kwargs: True)
+    analyst_id = "watchlist-serialization-owner"
+    caller = CallerIdentity(
+        id=analyst_id,
+        email="watchlist@example.test",
+        full_name="Watchlist Owner",
+        source="profile",
+    )
+    async with AsyncSessionLocal() as session:
+        session.add(Analyst(
+            id=analyst_id,
+            name="Watchlist Serialization Owner",
+            email="watchlist@example.test",
+        ))
+        await _add_issuer(session, "serial-a", "Serial A")
+        await _add_issuer(session, "serial-b", "Serial B")
+        await session.commit()
+
+    first = AsyncSessionLocal()
+    first_tx = await first.begin()
+    await first.execute(
+        select(Analyst.id).where(Analyst.id == analyst_id).with_for_update()
+    )
+    await replace_watchlist(
+        WatchlistUpdate(issuer_ids=["serial-a"]), db=first, caller=caller
+    )
+
+    second_started = asyncio.Event()
+
+    async def second_replacement():
+        async with AsyncSessionLocal() as second:
+            async with second.begin():
+                second_started.set()
+                await replace_watchlist(
+                    WatchlistUpdate(issuer_ids=["serial-b"]),
+                    db=second,
+                    caller=caller,
+                )
+
+    second_task = asyncio.create_task(second_replacement())
+    await second_started.wait()
+    await asyncio.sleep(0.05)
+    assert not second_task.done(), "the second transaction must wait on the owner row"
+
+    await first_tx.commit()
+    await first.close()
+    await second_task
+
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            select(AnalystWatchlist.issuer_id).where(
+                AnalystWatchlist.analyst_id == analyst_id
+            )
+        )).scalars().all()
+    assert rows == ["serial-b"]

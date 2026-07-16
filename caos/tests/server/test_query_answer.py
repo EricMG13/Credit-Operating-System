@@ -42,7 +42,11 @@ def _fake_anthropic(monkeypatch, text: str, calls: list):
 
 
 def _wire(monkeypatch, hits=HITS, fp="fp0"):
-    async def _retrieve(db, query, k=8, issuer_ids=None, expand_graph=False):
+    from config import get_settings
+
+    async def _retrieve(
+        db, query, k=8, issuer_ids=None, expand_graph=False, analyst_id=None
+    ):
         return list(hits)
 
     async def _fp(db):
@@ -50,6 +54,7 @@ def _wire(monkeypatch, hits=HITS, fp="fp0"):
 
     monkeypatch.setattr(queryanswer, "retrieve_corpus", _retrieve)
     monkeypatch.setattr(queryanswer, "fingerprint", _fp)
+    monkeypatch.setattr(get_settings(), "caos_document_egress_enabled", True)
 
 
 @pytest.mark.usefixtures("seeded_db")
@@ -322,6 +327,11 @@ def test_self_correction_keeps_partially_grounded_answer_over_empty_retry(monkey
     assert out["unavailable"] is False
     assert out["answer"] == "Acme carries net leverage of 4.4x."
     assert len(calls) == 2
+    diagnostic = out["self_correction"]
+    assert diagnostic["attempted"] is True
+    assert diagnostic["selected_attempt"] == 1
+    assert len(diagnostic["attempts"]) == 2
+    assert diagnostic["attempts"][0]["surviving_sentences"] > diagnostic["attempts"][1]["surviving_sentences"]
 
 
 # ── Phase 1 remainder: metric-fact SQL lane integration ──────────────────────

@@ -204,6 +204,7 @@ async def vault_exhibit(
 
     doc = Document(
         issuer_id=body.issuer_id,
+        analyst_id=caller.id,
         doc_type=body.doc_type,
         run_mode=body.run_mode.strip().lower(),
         file_name=file_name,

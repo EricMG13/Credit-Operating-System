@@ -122,6 +122,15 @@ def test_pdf_page_bomb_is_rejected_before_text_extraction(monkeypatch):
     assert "page extraction limit" in str(caught.value.detail)
 
 
+def test_issuer_corpus_quota_rejects_before_vault_write(rob_client, monkeypatch):
+    import ingest
+
+    monkeypatch.setattr(ingest.get_settings(), "max_documents_per_issuer", 0)
+    response = _upload_document(rob_client, "quota.pdf", _tiny_pdf())
+    assert response.status_code == 409
+    assert "document limit reached" in response.text
+
+
 # ── document endpoint: degrade rows (vaulted, but LOUD about 0 chunks) ──────
 @pytest.mark.parametrize(
     "name,payload",

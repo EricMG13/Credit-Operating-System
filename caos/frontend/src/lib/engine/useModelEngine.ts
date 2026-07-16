@@ -13,6 +13,7 @@ import { useLatestRunStatus, type RunPhase } from "./useLatestRun";
 export interface ModelEngineState {
   anchor: ModelAnchor | null;
   downside: DownsidePathway | null; // CP-2B first-order EBITDA-shock fragility, if the run produced it
+  downsideState: "ready" | "unavailable" | "error";
   runId: string | null;
   /** Source observation time for decision-state disclosure. */
   asOf?: string | null;
@@ -33,6 +34,7 @@ export interface ModelEngineState {
 interface ModelEngineValue {
   anchor: ModelAnchor | null;
   downside: DownsidePathway | null;
+  downsideState: "ready" | "unavailable" | "error";
   runId: string | null;
   asOf?: string | null;
   committeeStatus: string | null;
@@ -40,15 +42,19 @@ interface ModelEngineValue {
 }
 
 const EMPTY_VALUE: ModelEngineValue = {
-  anchor: null, downside: null, runId: null, committeeStatus: null, live: false,
+  anchor: null, downside: null, downsideState: "unavailable", runId: null, committeeStatus: null, live: false,
 };
 
 async function getOptionalModule(runId: string, moduleId: string) {
   try {
-    return await getModule(runId, moduleId);
+    return { value: await getModule(runId, moduleId), state: "ready" as const };
   } catch (reason) {
-    if (axios.isAxiosError(reason) && reason.response?.status === 404) return null;
-    throw reason;
+    if (axios.isAxiosError(reason) && reason.response?.status === 404) {
+      return { value: null, state: "unavailable" as const };
+    }
+    // CP-2B is an optional readout: its transport failure must not discard a
+    // valid CP-1 anchor, but it also must not masquerade as an observed empty.
+    return { value: null, state: "error" as const };
   }
 }
 
@@ -60,14 +66,16 @@ export function useModelEngine(issuerId: string): ModelEngineState {
     async (latest) => {
       // CP-1 drives the anchor (primary); CP-2B is a bonus readout — guard its
       // fetch so a Blocked/absent CP-2B never rejects the pair and drops the anchor.
-      const [cp1, cp2b] = await Promise.all([
+      const [cp1, cp2bRead] = await Promise.all([
         getModule(latest.id, "CP-1"),
         getOptionalModule(latest.id, "CP-2B"),
       ]);
       const anchor = cp1ToAnchor(cp1);
+      const downside = cp2bRead.value ? cp2bToDownside(cp2bRead.value) : null;
       return {
         anchor,
-        downside: cp2b ? cp2bToDownside(cp2b) : null,
+        downside,
+        downsideState: cp2bRead.state === "error" ? "error" : downside ? "ready" : "unavailable",
         runId: latest.id,
         asOf: latest.as_of_date ?? latest.created_at,
         committeeStatus: latest.committee_status,

@@ -51,6 +51,14 @@ async def test_sector_versions_and_disjoint_ratifications_are_serialized(seeded_
     first, second = await asyncio.gather(create_review(), create_review())
     assert sorted((first.version, second.version)) == [1, 2]
 
+    async with AsyncSessionLocal() as session:
+        backdated = await create_sector_review(
+            SectorReviewCreate(context_id=context_id, as_of="2019-01-01T00:00:00Z"),
+            db=session,
+            caller=caller,
+        )
+    assert backdated.version == 3
+
     review = second if second.version == 2 else first
     section_ids = [section.id for section in review.sections[:2]]
 
@@ -68,7 +76,7 @@ async def test_sector_versions_and_disjoint_ratifications_are_serialized(seeded_
 
     await asyncio.gather(*(ratify(section_id) for section_id in section_ids))
 
-    review_ids = [first.id, second.id]
+    review_ids = [first.id, second.id, backdated.id]
     async with AsyncSessionLocal() as session:
         row = await session.get(SectorReviewRun, review.id)
         normalized = (await session.execute(select(SectorReviewRatification).where(

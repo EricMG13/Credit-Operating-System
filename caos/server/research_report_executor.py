@@ -28,14 +28,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import and_, or_, select, update
 
 from config import get_settings
-from database import (
-    AsyncSessionLocal,
-    IssuerResearchReport,
-    Issuer,
-    ModuleOutput,
-    Run,
-    engine,
-)
+from database import AsyncSessionLocal, IssuerResearchReport, Issuer, ModuleOutput, Run, engine
 from research_report import (
     ResearchReportResult,
     build_module_digest,
@@ -133,17 +126,23 @@ async def _run_report(
         claim: ReportClaim | None = None
 
         async def _save_progress(p: dict) -> None:
-            assert claim is not None
-            result = await session.execute(update(IssuerResearchReport).where(_owned_attempt(claim)).values(progress=p))
+            if claim is None:
+                raise ReportOwnershipLost(
+                    f"report {report_id} progress arrived before an attempt was claimed"
+                )
+            result = await session.execute(
+                update(IssuerResearchReport)
+                .where(_owned_attempt(claim))
+                .values(progress=p)
+            )
             await session.commit()
             if result.rowcount != 1:
-                raise ReportOwnershipLost(f"report {report_id} ownership lost while saving progress")
+                raise ReportOwnershipLost(
+                    f"report {report_id} ownership lost while saving progress"
+                )
 
         try:
             if owner_token is None:
-                # SQLite/in-process execution has no queue claimer. Establish an
-                # attempt-unique owner durably before any fallible setup so every
-                # later progress/terminal write can be fenced to this attempt.
                 next_attempt = int(report.attempts or 0) + 1
                 claim = ReportClaim(
                     report_id=report_id,
@@ -164,7 +163,9 @@ async def _run_report(
                 )
                 await session.commit()
                 if lease_result.rowcount != 1:
-                    raise ReportOwnershipLost(f"report {report_id} ownership lost while establishing lease")
+                    raise ReportOwnershipLost(
+                        f"report {report_id} ownership lost while establishing lease"
+                    )
             else:
                 if attempt is None:
                     raise ValueError("pre-claimed report execution requires an attempt")
@@ -174,7 +175,9 @@ async def _run_report(
                     or report.worker_id != claim.owner_token
                     or report.attempts != claim.attempt
                 ):
-                    raise ReportOwnershipLost(f"report {report_id} was reclaimed before execution started")
+                    raise ReportOwnershipLost(
+                        f"report {report_id} was reclaimed before execution started"
+                    )
 
             # Load the run + issuer
             run = await session.get(Run, report.run_id)
@@ -188,15 +191,14 @@ async def _run_report(
                 return
 
             # Load module outputs for this run
-            mod_rows = list(
-                (await session.execute(select(ModuleOutput).where(ModuleOutput.run_id == run.id))).scalars().all()
-            )
+            mod_rows = list((await session.execute(
+                select(ModuleOutput).where(ModuleOutput.run_id == run.id)
+            )).scalars().all())
             mods = {m.module_id: m for m in mod_rows}
 
             if len(mods) < 3:
                 await _mark_failed(
-                    session,
-                    claim,
+                    session, claim,
                     f"insufficient module coverage — {len(mods)} modules present, need ≥3",
                 )
                 return
@@ -227,11 +229,11 @@ async def _run_report(
             markdown = (
                 result.markdown
                 if result.demo
-                else render_validated_research_report(result.payload, truncated=result.truncated)
+                else render_validated_research_report(
+                    result.payload, truncated=result.truncated
+                )
             )
 
-            # Terminal completion is fenced to the exact attempt. A stale
-            # worker that finishes after re-claim cannot overwrite its sibling.
             completion = await session.execute(
                 update(IssuerResearchReport)
                 .where(_owned_attempt(claim))
@@ -248,11 +250,11 @@ async def _run_report(
                         "modules": [
                             {
                                 "module_id": d.module_id,
-                        "module_name": d.module_name,
-                        "layer": d.layer,
-                        "confidence": d.confidence,
-                        "qa_status": d.qa_status,
-                    }
+                                "module_name": d.module_name,
+                                "layer": d.layer,
+                                "confidence": d.confidence,
+                                "qa_status": d.qa_status,
+                            }
                             for d in digest
                         ],
                         "module_count": len(digest),
@@ -269,15 +271,16 @@ async def _run_report(
             )
             await session.commit()
             if completion.rowcount != 1:
-                raise ReportOwnershipLost(f"report {report_id} ownership lost before completion")
+                raise ReportOwnershipLost(
+                    f"report {report_id} ownership lost before completion"
+                )
 
         except ReportOwnershipLost:
             await session.rollback()
             logger.warning("research report %s stopped after ownership loss", report_id)
         except asyncio.CancelledError:
             logger.warning(
-                "research report %s cancelled during shutdown — marking failed",
-                report_id,
+                "research report %s cancelled during shutdown — marking failed", report_id,
             )
             if claim is not None:
                 await _mark_failed(session, claim, "worker shutdown during synthesis")
@@ -405,21 +408,15 @@ class ReportQueueWorker:
     async def _reap_orphans(self) -> None:
         async with AsyncSessionLocal() as s:
             async with s.begin():
-                rows = list(
-                    (
-                        await s.execute(
-                            select(IssuerResearchReport)
-                            .where(
-                                IssuerResearchReport.status == "running",
-                                IssuerResearchReport.lease_expires_at < _now(),
-                                IssuerResearchReport.attempts >= self._settings.caos_report_max_attempts,
-                            )
-                            .with_for_update(skip_locked=True)
-                        )
+                rows = list((await s.execute(
+                    select(IssuerResearchReport)
+                    .where(
+                        IssuerResearchReport.status == "running",
+                        IssuerResearchReport.lease_expires_at < _now(),
+                        IssuerResearchReport.attempts >= self._settings.caos_report_max_attempts,
                     )
-                    .scalars()
-                    .all()
-                )
+                    .with_for_update(skip_locked=True)
+                )).scalars().all())
                 for row in rows:
                     claim = ReportClaim(row.id, row.worker_id, row.attempts)
                     await s.execute(
@@ -434,12 +431,7 @@ class ReportQueueWorker:
                     )
 
     async def _heartbeat(self) -> None:
-        """Extend only the exact attempts still owned by this worker.
-
-        A zero-row update means a sibling has reclaimed or completed the row.
-        Cancel the stale task so it stops spending tokens; its cancellation and
-        terminal writes are fenced and therefore cannot overwrite the sibling.
-        """
+        """Extend exact attempts and cancel stale tasks after ownership loss."""
         claims = list(self._inflight_claims.values())
         if not claims:
             return
@@ -448,7 +440,9 @@ class ReportQueueWorker:
         async with AsyncSessionLocal() as s:
             for claim in claims:
                 result = await s.execute(
-                    update(IssuerResearchReport).where(_owned_attempt(claim)).values(lease_expires_at=_now() + lease)
+                    update(IssuerResearchReport)
+                    .where(_owned_attempt(claim))
+                    .values(lease_expires_at=_now() + lease)
                 )
                 if result.rowcount != 1:
                     lost.append(claim)
@@ -456,8 +450,7 @@ class ReportQueueWorker:
         for claim in lost:
             logger.warning(
                 "research report %s heartbeat lost ownership for attempt %d",
-                claim.report_id,
-                claim.attempt,
+                claim.report_id, claim.attempt,
             )
             task = self._inflight_tasks.get(claim.report_id)
             if task is not None and not task.done():
@@ -485,7 +478,9 @@ class ReportQueueWorker:
                     .with_for_update(skip_locked=True)
                 )
                 if self._inflight_claims:
-                    stmt = stmt.where(IssuerResearchReport.id.notin_(tuple(self._inflight_claims)))
+                    stmt = stmt.where(
+                        IssuerResearchReport.id.notin_(tuple(self._inflight_claims))
+                    )
                 row = (await s.execute(stmt)).scalar_one_or_none()
                 if row is None:
                     return None
@@ -514,13 +509,11 @@ class ReportQueueWorker:
                     claim = await self._claim_one()
                     if claim is None:
                         break
-                    task = asyncio.create_task(
-                        _run_report(
-                            claim.report_id,
-                            owner_token=claim.owner_token,
-                            attempt=claim.attempt,
-                        )
-                    )
+                    task = asyncio.create_task(_run_report(
+                        claim.report_id,
+                        owner_token=claim.owner_token,
+                        attempt=claim.attempt,
+                    ))
                     self._inflight.add(task)
                     self._inflight_claims[claim.report_id] = claim
                     self._inflight_tasks[claim.report_id] = task

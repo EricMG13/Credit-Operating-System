@@ -69,7 +69,8 @@ def test_normalize_response_text():
         }],
         "usage": {
             "prompt_tokens": 10,
-            "completion_tokens": 5
+            "completion_tokens": 5,
+            "cost": 0.00042,
         }
     }
     
@@ -79,6 +80,7 @@ def test_normalize_response_text():
     assert r.content[0].text == "hello response"
     assert r.usage.input_tokens == 10
     assert r.usage.output_tokens == 5
+    assert r.usage.cost == pytest.approx(0.00042)
     assert r.stop_reason == "end_turn"
 
 def test_normalize_response_tool_call():

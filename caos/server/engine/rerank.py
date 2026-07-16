@@ -32,7 +32,7 @@ import math
 from dataclasses import replace
 from typing import Any, List, Optional, Sequence
 
-from config import get_settings
+from config import document_egress_allowed, get_settings
 from engine import llm_client, presets
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
 from retrieval_types import CorpusHit
@@ -129,7 +129,7 @@ async def rerank(
         return hits
 
     settings = get_settings()
-    if not settings.rerank_enabled:
+    if not settings.rerank_enabled or not document_egress_allowed(settings):
         return hits
 
     if not presets.can_run_model(presets.rerank_model()):

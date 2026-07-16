@@ -335,17 +335,18 @@ def test_golden_e2e_keyed_llm_lane_vsat(e2e_client, monkeypatch):
         # appearing here means the LLM trust surface widened — re-review
         # llm-safety invariants before re-freezing.
         assert set(calls) == {"CP-2"}, calls
-        # The keyed lane intentionally has no analyst-ratified input manifest.
-        # Live runs without that immutable authority must remain Restricted.
+        # The fake live lane deliberately has no ratified input manifest. It may
+        # prove the synthesis/provenance seam, but it must not become committee
+        # releasable merely because the model call succeeded.
         assert run["qa_status"] == "Restricted", run
         assert run["committee_status"] == "Restricted", run
-        # Gate honesty on the synthetic citation: offline retrieval is empty,
-        # so the fake's claim cites "no source" — CP-5B must surface that as
-        # the unresolved-citation MINOR finding, never silently resolve it.
+        # Gate honesty on both missing input authority and the synthetic
+        # citation: offline retrieval is empty, so the fake cites "no source".
         qa = e2e_client.get(f"/api/runs/{run['id']}/qa")
         assert qa.status_code == 200, qa.text
         assert any(
-            f["finding_id"] == "RUN-INPUT-AUTHORITY" and f["severity"] == "MATERIAL"
+            f["finding_id"] == "RUN-INPUT-AUTHORITY"
+            and f["severity"] == "MATERIAL"
             for f in qa.json()["findings"]
         ), qa.json()["findings"]
         assert any(

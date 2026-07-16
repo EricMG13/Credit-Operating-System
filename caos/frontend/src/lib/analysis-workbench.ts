@@ -405,10 +405,66 @@ export function mergeContextIntoCurrentUrl(href: string, contextId: string) {
   return `${current.pathname}${current.search}${current.hash}`;
 }
 
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sparseNestedDelta<T extends Record<string, unknown>>(
+  incoming: T,
+  current: Record<string, unknown>,
+): T {
+  return Object.fromEntries(
+    Object.entries(incoming).filter(([key, value]) => !sameJsonValue(value, current[key])),
+  ) as T;
+}
+
+function sparseContextPatch(changes: AnalysisContextPatch, current: AnalysisContext): AnalysisContextPatch {
+  const sparse = { ...changes };
+  if (changes.artifacts) {
+    sparse.artifacts = sparseNestedDelta(
+      changes.artifacts as Record<string, unknown>,
+      current.artifacts as unknown as Record<string, unknown>,
+    ) as Partial<AnalysisArtifactRefs>;
+  }
+  if (changes.surface_state) {
+    const surfaceDelta: Record<string, unknown> = {};
+    for (const [surface, entry] of Object.entries(changes.surface_state)) {
+      if (!entry) continue;
+      const currentEntry = current.surface_state[surface as AnalysisSurfaceName] ?? {};
+      const entryDelta = sparseNestedDelta(
+        entry as Record<string, unknown>,
+        currentEntry as Record<string, unknown>,
+      );
+      if (entry.filters) {
+        const filterDelta = sparseNestedDelta(
+          entry.filters,
+          currentEntry.filters ?? {},
+        );
+        if (Object.keys(filterDelta).length > 0) entryDelta.filters = filterDelta;
+        else delete entryDelta.filters;
+      }
+      if (Object.keys(entryDelta).length > 0) surfaceDelta[surface] = entryDelta;
+    }
+    sparse.surface_state = surfaceDelta as AnalysisContext["surface_state"];
+  }
+  if (changes.filters) {
+    const filterDelta = sparseNestedDelta(changes.filters, current.filters);
+    sparse.filters = filterDelta;
+  }
+  if (changes.selected) {
+    sparse.selected = sparseNestedDelta(changes.selected, current.selected);
+  }
+  return sparse;
+}
+
 const pendingContextCreates = new Map<string, Promise<AnalysisContext>>();
 
-function createContextOnce(defaults: { name: string; sector_id?: string }, principalId: string) {
-  const key = `${principalId}|${defaults.name}|${defaults.sector_id ?? ""}`;
+function createContextOnce(
+  defaults: { name: string; sector_id?: string },
+  principalId: string,
+  principalGeneration: number,
+) {
+  const key = `${principalId}@${principalGeneration}|${defaults.name}|${defaults.sector_id ?? ""}`;
   const pending = pendingContextCreates.get(key);
   if (pending) return pending;
   const created = analysisApi.createContext({ name: defaults.name, sector_id: defaults.sector_id })
@@ -418,7 +474,7 @@ function createContextOnce(defaults: { name: string; sector_id?: string }, princ
 }
 
 export function useAnalysisContext(defaults: { name: string; sector_id?: string; context_id?: string | null }) {
-  const { user } = useAuth();
+  const { user, principalGeneration = 0 } = useAuth();
   const principalId = user?.id ?? "unresolved";
   const defaultName = defaults.name;
   const defaultSectorId = defaults.sector_id;
@@ -445,6 +501,7 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
     patchGeneration.current += 1;
     patchRequest.current += 1;
     lastPatchRef.current = null;
+    mutationQueue.current = Promise.resolve();
     setMutationState("idle");
     setMutationError(null);
     let cancelled = false;
@@ -459,7 +516,11 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
           : initialUrl.searchParams.get("context");
         const value = contextId
           ? await analysisApi.getContext(contextId)
-          : await createContextOnce({ name: defaultName, sector_id: defaultSectorId }, principalId);
+          : await createContextOnce(
+            { name: defaultName, sector_id: defaultSectorId },
+            principalId,
+            principalGeneration,
+          );
         if (cancelled || generation !== loadGeneration.current) return;
         setContext(value);
         window.dispatchEvent(new CustomEvent("caos:analysis-context", { detail: value }));
@@ -484,15 +545,16 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
     };
     void load();
     return () => { cancelled = true; };
-  }, [defaultName, defaultSectorId, hasExplicitContextId, principalId, requestedContextId]);
+  }, [defaultName, defaultSectorId, hasExplicitContextId, principalGeneration, principalId, requestedContextId]);
 
   const patch = useCallback(async (changes: AnalysisContextPatch) => {
     const initial = contextRef.current;
     if (!initial) return null;
+    const sparseChanges = sparseContextPatch(changes, initial);
     const contextId = initial.id;
     const scopeGeneration = patchGeneration.current;
     const requestId = ++patchRequest.current;
-    lastPatchRef.current = changes;
+    lastPatchRef.current = sparseChanges;
     setMutationState("saving");
     setMutationError(null);
 
@@ -503,7 +565,7 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
         let value: AnalysisContext;
         try {
           value = await analysisApi.patchContext(contextId, {
-            ...changes,
+            ...sparseChanges,
             expected_revision: current.revision,
           });
         } catch (reason) {
@@ -512,7 +574,7 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
           current = await analysisApi.getContext(contextId);
           if (scopeGeneration !== patchGeneration.current) return null;
           value = await analysisApi.patchContext(contextId, {
-            ...changes,
+            ...sparseChanges,
             expected_revision: current.revision,
           });
         }

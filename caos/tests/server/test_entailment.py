@@ -32,6 +32,7 @@ def _wire(monkeypatch, resp_text: str, calls: list, available: bool = True):
     monkeypatch.setattr(presets, "can_run_model", lambda _m: available)
     monkeypatch.setattr(presets, "model_for", lambda _c: "fake-light-model")
     monkeypatch.setattr(presets, "effort_for", lambda _c: "low")
+    monkeypatch.setattr(entailment, "document_egress_allowed", lambda: True)
 
 
 # ── should_demote (pure) ─────────────────────────────────────────────────────
@@ -109,6 +110,7 @@ def test_check_entailment_llm_exception_returns_empty(monkeypatch):
     monkeypatch.setattr(presets, "can_run_model", lambda _m: True)
     monkeypatch.setattr(presets, "model_for", lambda _c: "m")
     monkeypatch.setattr(presets, "effort_for", lambda _c: "low")
+    monkeypatch.setattr(entailment, "document_egress_allowed", lambda: True)
     claims = [entailment.EntailmentClaim(0, "x", ["e"])]
     out = asyncio.run(entailment.check_entailment(claims))
     assert out == {}  # fault-isolated — timeout never reaches the caller

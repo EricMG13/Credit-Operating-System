@@ -27,6 +27,7 @@ interface AuthUser {
 
 interface AuthContextType {
   user: AuthUser | null;
+  principalGeneration: number;
   loading: boolean;
   error: boolean; // API unreachable (not "needs login")
   needsLogin: boolean; // resolved, but no analyst profile yet
@@ -35,6 +36,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
+  principalGeneration: 0,
   loading: true,
   error: false,
   needsLogin: false,
@@ -65,12 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [needsLogin, setNeedsLogin] = useState(false);
+  const [principalGeneration, setPrincipalGeneration] = useState(0);
   const refreshGeneration = useRef(0);
   const userRef = useRef<AuthUser | null>(null);
   userRef.current = user;
 
   // fallow-ignore-next-line complexity
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (workspaceAlreadyCleared = false) => {
     const generation = ++refreshGeneration.current;
     if (loginBypassEnabled()) {
       bindWorkspacePrincipal(LOGIN_BYPASS_USER.id);
@@ -97,13 +100,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       // 401 = no identity yet → show the login landing. Anything else = API down.
       const unauthorized = axios.isAxiosError(e) && e.response?.status === 401;
-      if (unauthorized) clearWorkspaceStorage();
+      if (unauthorized && !workspaceAlreadyCleared) clearWorkspaceStorage();
       setNeedsLogin(unauthorized);
       setError(!unauthorized);
     } finally {
       if (generation === refreshGeneration.current) setLoading(false);
     }
   }, []);
+
+  const invalidateAndRefresh = useCallback((clearImmediately = true) => {
+    // A 401 or a cross-tab principal-marker change is already evidence that
+    // the mounted workspace belongs to a principal that is no longer current.
+    // Tear it down synchronously; waiting for the /me round-trip would leave
+    // the prior analyst's request-scoped React state visible and interactive.
+    ++refreshGeneration.current;
+    userRef.current = null;
+    if (clearImmediately) clearWorkspaceStorage();
+    setUser(null);
+    setLoading(true);
+    setError(false);
+    setNeedsLogin(false);
+    setPrincipalGeneration((value) => value + 1);
+    void refresh(clearImmediately);
+  }, [refresh]);
 
   useEffect(() => {
     refresh();
@@ -117,13 +136,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // revoked profile cookie to the proxy identity (200s keep flowing under a
   // different id, so only a re-check of /me surfaces it).
   useEffect(() => {
-    const onLost = () => { refresh(); };
-    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    const onLost = () => { invalidateAndRefresh(); };
+    const onVisible = () => {
+      // Visibility is the only signal for a same-tab silent SSO swap. Suspend
+      // the old principal immediately, but retain its caches until /me proves a
+      // different principal (bindWorkspacePrincipal) or a 401 (refresh catch).
+      if (document.visibilityState === "visible") invalidateAndRefresh(false);
+    };
     const onStorage = (event: StorageEvent) => {
       if (event.key !== PRINCIPAL_STORAGE_KEY) return;
       if (event.newValue === userRef.current?.id) return;
-      clearWorkspaceStorage();
-      refresh();
+      invalidateAndRefresh();
     };
     window.addEventListener("caos:auth-lost", onLost);
     window.addEventListener("storage", onStorage);
@@ -133,10 +156,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh]);
+  }, [invalidateAndRefresh]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, needsLogin, refresh }}>
+    <AuthContext.Provider value={{ user, principalGeneration, loading, error, needsLogin, refresh }}>
       <Fragment key={user?.id ?? (needsLogin ? "needs-login" : "anonymous")}>{children}</Fragment>
     </AuthContext.Provider>
   );

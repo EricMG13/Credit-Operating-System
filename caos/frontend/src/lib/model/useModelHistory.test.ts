@@ -26,6 +26,14 @@ function emptySettings(workspace: Record<string, unknown> = {}) {
   return { model_lanes: {}, email_intelligence: { approved_senders: [] }, workspace };
 }
 
+function mockWorkspaceServer(initial: Record<string, unknown> = {}) {
+  let workspace = initial;
+  mockUpdateAnalystWorkspace.mockImplementation(async (patch) => {
+    workspace = patch(workspace);
+    return emptySettings(workspace);
+  });
+}
+
 describe("useModelHistory · undo/redo", () => {
   it("undo reverts the most recent setOverrides edit; redo reapplies it", async () => {
     mockGetAnalystSettings.mockResolvedValue(emptySettings());
@@ -138,10 +146,7 @@ describe("useModelHistory · undo/redo", () => {
 describe("useModelHistory · checkpoints", () => {
   it("checkpoint() snapshots the current overrides, persists it per-issuer, and ignores a blank name", async () => {
     mockGetAnalystSettings.mockResolvedValue(emptySettings());
-    mockUpdateAnalystWorkspace.mockImplementation(async (patch) => {
-      const next = patch({});
-      return { model_lanes: {}, email_intelligence: { approved_senders: [] }, ...next };
-    });
+    mockWorkspaceServer();
     const { result } = renderHook(() => useModelHistory("issuer-1"));
     await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
 
@@ -160,7 +165,7 @@ describe("useModelHistory · checkpoints", () => {
 
   it("caps checkpoints at 10, dropping the oldest", async () => {
     mockGetAnalystSettings.mockResolvedValue(emptySettings());
-    mockUpdateAnalystWorkspace.mockResolvedValue(emptySettings());
+    mockWorkspaceServer();
     const { result } = renderHook(() => useModelHistory("issuer-1"));
     await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
 
@@ -174,7 +179,7 @@ describe("useModelHistory · checkpoints", () => {
 
   it("restoreCheckpoint applies the snapshot as an undoable edit", async () => {
     mockGetAnalystSettings.mockResolvedValue(emptySettings());
-    mockUpdateAnalystWorkspace.mockResolvedValue(emptySettings());
+    mockWorkspaceServer();
     const { result } = renderHook(() => useModelHistory("issuer-1"));
     await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
 
@@ -203,7 +208,7 @@ describe("useModelHistory · checkpoints", () => {
 
   it("deleteCheckpoint removes it locally and persists the trimmed list", async () => {
     mockGetAnalystSettings.mockResolvedValue(emptySettings());
-    mockUpdateAnalystWorkspace.mockResolvedValue(emptySettings());
+    mockWorkspaceServer();
     const { result } = renderHook(() => useModelHistory("issuer-1"));
     await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
 
@@ -240,5 +245,51 @@ describe("useModelHistory · checkpoints", () => {
     expect(result.current.checkpoints).toHaveLength(0);
     expect(mockUpdateAnalystWorkspace).not.toHaveBeenCalled();
     expect(result.current.persistenceError).toBeTruthy();
+  });
+
+  it("keeps failed saves out of local state and permits an explicit retry", async () => {
+    mockGetAnalystSettings.mockResolvedValue(emptySettings());
+    mockUpdateAnalystWorkspace
+      .mockRejectedValueOnce(new Error("write failed"))
+      .mockImplementationOnce(async (patch) => emptySettings(patch({})));
+    const { result } = renderHook(() => useModelHistory("issuer-1"));
+    await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
+
+    await act(async () => {
+      expect(await result.current.checkpoint("Base case")).toBe(false);
+    });
+    expect(result.current.checkpoints).toEqual([]);
+    expect(result.current.persistenceState).toBe("error");
+
+    await act(async () => {
+      expect(await result.current.checkpoint("Base case")).toBe(true);
+    });
+    expect(result.current.checkpoints).toHaveLength(1);
+    expect(result.current.persistenceState).toBe("ready");
+  });
+
+  it("rebases create on the current server issuer list and preserves a concurrent checkpoint", async () => {
+    mockGetAnalystSettings.mockResolvedValue(emptySettings());
+    const remote = { id: "remote", name: "Other tab", at: "2026-01-01T00:00:00Z", overrides: { "q1:rev": 7 } };
+    mockWorkspaceServer({ model_checkpoints: { "issuer-1": [remote] } });
+    const { result } = renderHook(() => useModelHistory("issuer-1"));
+    await waitFor(() => expect(result.current.persistenceState).toBe("ready"));
+
+    await act(async () => { expect(await result.current.checkpoint("This tab")).toBe(true); });
+
+    expect(result.current.checkpoints.map((item) => item.name)).toEqual(["This tab", "Other tab"]);
+  });
+
+  it("rebases delete on the current server issuer list and preserves a concurrent checkpoint", async () => {
+    const local = { id: "local", name: "Delete me", at: "2026-01-01T00:00:00Z", overrides: {} };
+    const remote = { id: "remote", name: "Other tab", at: "2026-01-02T00:00:00Z", overrides: {} };
+    mockGetAnalystSettings.mockResolvedValue(emptySettings({ model_checkpoints: { "issuer-1": [local] } }));
+    mockWorkspaceServer({ model_checkpoints: { "issuer-1": [local, remote] } });
+    const { result } = renderHook(() => useModelHistory("issuer-1"));
+    await waitFor(() => expect(result.current.checkpoints).toHaveLength(1));
+
+    await act(async () => { expect(await result.current.deleteCheckpoint("local")).toBe(true); });
+
+    expect(result.current.checkpoints).toEqual([remote]);
   });
 });

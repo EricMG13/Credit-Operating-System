@@ -195,8 +195,20 @@ export function QueryInvestigationWorkbench() {
   const runGeneration = useRef(0);
   const runningRef = useRef(false);
   const pinningRef = useRef(false);
-  const contextId = contextState.context?.id ?? null;
-  const querySessionId = contextState.context?.query_session_id ?? null;
+  const activeContextId = contextState.context?.id ?? null;
+  const activeQuerySessionId = contextState.context?.query_session_id ?? null;
+  const activeContextIdRef = useRef<string | null>(activeContextId);
+  activeContextIdRef.current = activeContextId;
+
+  useEffect(() => {
+    // A run belongs to the exact context that created it. Scope navigation
+    // invalidates the completion synchronously via the render-updated ref and
+    // resets the pending UI when the new context commits.
+    runGeneration.current += 1;
+    runningRef.current = false;
+    setRunning(false);
+    setRunError(null);
+  }, [activeContextId]);
 
   useEffect(() => {
     if (urlState.lane === "graph" || urlState.lane === "grounded" || urlState.lane === "metric") {
@@ -210,20 +222,20 @@ export function QueryInvestigationWorkbench() {
     const generation = ++historyGeneration.current;
     setHistory([]);
     setHistoryError(null);
-    if (!contextId) {
+    if (!activeContextId) {
       historyContextId.current = null;
       setRun(null);
       return;
     }
-    if (historyContextId.current !== contextId) {
-      historyContextId.current = contextId;
+    if (historyContextId.current !== activeContextId) {
+      historyContextId.current = activeContextId;
       setRun(null);
     }
-    analysisApi.listQueryRuns(contextId).then((rows) => {
+    analysisApi.listQueryRuns(activeContextId).then((rows) => {
       if (generation !== historyGeneration.current) return;
       setHistory(rows);
-      if (urlState.run || querySessionId) {
-        const latest = rows.find((item) => item.id === (urlState.run ?? querySessionId));
+      if (urlState.run || activeQuerySessionId) {
+        const latest = rows.find((item) => item.id === (urlState.run ?? activeQuerySessionId));
         if (latest) setRun(latest);
       }
     }).catch((error) => {
@@ -232,7 +244,7 @@ export function QueryInvestigationWorkbench() {
       }
     });
     return () => { historyGeneration.current += 1; };
-  }, [contextId, querySessionId, urlState.run]);
+  }, [activeContextId, activeQuerySessionId, urlState.run]);
 
   useEffect(() => {
     let current = true;
@@ -253,10 +265,11 @@ export function QueryInvestigationWorkbench() {
     updateUrlState({ lane: next === "metric" ? null : next }, "replace");
   };
 
+  const setAnalysisContext = contextState.setContext;
   const runQuery = useCallback(async () => {
-    if (!contextState.context || !question.trim() || runningRef.current) return;
+    if (!activeContextId || !question.trim() || runningRef.current) return;
     const generation = ++runGeneration.current;
-    const contextId = contextState.context.id;
+    const contextId = activeContextId;
     runningRef.current = true;
     setRunning(true);
     setRunError(null);
@@ -267,22 +280,24 @@ export function QueryInvestigationWorkbench() {
         selected_lane: lane,
         capability_id: lane === "graph" ? capabilityId : undefined,
       });
-      if (generation !== runGeneration.current || contextState.context?.id !== contextId) return;
+      if (generation !== runGeneration.current || activeContextIdRef.current !== contextId) return;
       setRun(next);
       updateUrlState({ run: next.id, lane: next.selected_lane === "metric" ? null : next.selected_lane }, "replace");
       setHistory((current) => [next, ...current.filter((item) => item.id !== next.id)].slice(0, 100));
-      contextState.setContext({ ...contextState.context, query_session_id: next.id });
+      setAnalysisContext((current) => current?.id === contextId
+        ? { ...current, query_session_id: next.id }
+        : current);
     } catch (error) {
-      if (generation === runGeneration.current) {
+      if (generation === runGeneration.current && activeContextIdRef.current === contextId) {
         setRunError(toErrorMessage(error, "Query could not be run"));
       }
     } finally {
-      if (generation === runGeneration.current) {
+      if (generation === runGeneration.current && activeContextIdRef.current === contextId) {
         runningRef.current = false;
         setRunning(false);
       }
     }
-  }, [capabilityId, contextState, lane, question, updateUrlState]);
+  }, [activeContextId, capabilityId, lane, question, setAnalysisContext, updateUrlState]);
 
   const missing = useMemo(() => Array.isArray(run?.result.missing_dependencies) ? run.result.missing_dependencies.map(String) : [], [run]);
   const decisionState: DecisionContextState = {

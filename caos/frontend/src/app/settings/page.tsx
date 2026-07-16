@@ -131,6 +131,37 @@ function ConfigVal({ v }: { v: boolean | number | string }) {
   return <span className="tabular text-caos-md text-caos-text">{String(v)}</span>;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+// Workspace is replaced as one top-level server field, so retain a nested
+// intent separately from the materialized payload. On a 409 that intent can be
+// applied to the authoritative workspace without replaying stale siblings.
+function nestedDelta(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, unknown> {
+  const delta: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(after)) {
+    const prior = before[key];
+    if (isPlainRecord(value) && isPlainRecord(prior)) {
+      const child = nestedDelta(prior, value);
+      if (Object.keys(child).length) delta[key] = child;
+    } else if (JSON.stringify(prior) !== JSON.stringify(value)) {
+      delta[key] = value;
+    }
+  }
+  return delta;
+}
+
+function applyNestedDelta(base: Record<string, unknown>, delta: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...base };
+  for (const [key, value] of Object.entries(delta)) {
+    next[key] = isPlainRecord(value)
+      ? applyNestedDelta(isPlainRecord(base[key]) ? base[key] : {}, value)
+      : value;
+  }
+  return next;
+}
+
 // Dense analyst page (browser-local defaults + server config mirror); same
 // structural shape as ModelBuilder/ReportStudio. Splitting it would only
 // prop-drill state for no readability gain.
@@ -242,10 +273,16 @@ function Settings() {
   const persistAnalystPatch = (patch: AnalystPatch, optimistic: AnalystSettings) => {
     const persist = async () => {
       let base = confirmedSettingsRef.current;
+      const materialize = (current: AnalystSettings): AnalystPatch => ({
+        ...patch,
+        ...(patch.workspace
+          ? { workspace: applyNestedDelta(current.workspace || {}, patch.workspace) }
+          : {}),
+      });
       try {
         let savedSettings: AnalystSettings;
         try {
-          savedSettings = await patchAnalystSettings(base.revision ?? 0, patch);
+          savedSettings = await patchAnalystSettings(base.revision ?? 0, materialize(base));
         } catch (error) {
           const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
           const detail = response?.data?.detail as { message?: unknown; current?: AnalystSettings } | undefined;
@@ -254,7 +291,7 @@ function Settings() {
           // top-level fields this interaction changed, preserving sibling edits.
           base = detail.current;
           confirmedSettingsRef.current = base;
-          savedSettings = await patchAnalystSettings(base.revision ?? 0, patch);
+          savedSettings = await patchAnalystSettings(base.revision ?? 0, materialize(base));
         }
         confirmedSettingsRef.current = savedSettings;
         if (analystSettingsRef.current === optimistic) {
@@ -288,11 +325,13 @@ function Settings() {
     // can therefore rebase this intent without deleting a sibling tab's fields.
     const prevSettings = analystSettingsRef.current;
     const patch: AnalystPatch = {};
-    for (const key of ["model_lanes", "email_intelligence", "role_view", "workspace"] as const) {
+    for (const key of ["model_lanes", "email_intelligence", "role_view"] as const) {
       if (JSON.stringify(prevSettings[key]) !== JSON.stringify(next[key])) {
         Object.assign(patch, { [key]: next[key] });
       }
     }
+    const workspace = nestedDelta(prevSettings.workspace || {}, next.workspace || {});
+    if (Object.keys(workspace).length) patch.workspace = workspace;
     if (Object.keys(patch).length === 0) return;
     analystSettingsRef.current = next;
     setAnalystSettings(next);

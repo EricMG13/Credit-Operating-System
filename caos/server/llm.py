@@ -13,7 +13,7 @@ from typing import List, Optional
 import anthropic
 from pydantic import BaseModel
 
-from config import get_settings
+from config import document_egress_allowed, get_settings
 from engine import llm_client, presets
 
 settings = get_settings()
@@ -69,7 +69,7 @@ def _get_client() -> anthropic.AsyncAnthropic:
 
 
 def llm_configured() -> bool:
-    return bool(settings.anthropic_api_key)
+    return bool(settings.anthropic_api_key) and document_egress_allowed(settings)
 
 
 async def ask_issuer(messages: List[ChatTurn]) -> str:

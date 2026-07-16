@@ -1116,8 +1116,17 @@ export const patchAnalystSettings = (
 export const updateAnalystWorkspace = async (
   patch: (workspace: Record<string, unknown>) => Record<string, unknown>,
 ): Promise<AnalystSettings> => {
-  const current = await getAnalystSettings();
-  return patchAnalystSettings(current.revision ?? 0, { workspace: patch(current.workspace || {}) });
+  let current = await getAnalystSettings();
+  try {
+    return await patchAnalystSettings(current.revision ?? 0, { workspace: patch(current.workspace || {}) });
+  } catch (reason) {
+    const detail = axios.isAxiosError(reason) && reason.response?.status === 409
+      ? reason.response.data?.detail as { current?: AnalystSettings } | undefined
+      : undefined;
+    if (!detail?.current) throw reason;
+    current = detail.current;
+    return patchAnalystSettings(current.revision ?? 0, { workspace: patch(current.workspace || {}) });
+  }
 };
 
 export interface SavedModelDTO {

@@ -26,7 +26,7 @@ def get_mock_embedding(text: str, dim: int = 768) -> List[float]:
 
 
 async def get_embeddings(texts: List[str]) -> List[List[float]]:
-    """Batch-embeds texts using Gemini's text-embedding-004.
+    """Batch-embed texts using the configured supported Gemini model.
 
     Missing egress consent/key, provider failure, or malformed output yields no
     vectors. Mock vectors remain available to unit tests but are never persisted
@@ -40,12 +40,22 @@ async def get_embeddings(texts: List[str]) -> List[List[float]]:
         return []
 
     try:
+        from google.genai import types
+
         from engine.gemini import get_client
         client = get_client()
         # google-genai Client.aio.models.embed_content returns ContentEmbedding objects
         response = await client.aio.models.embed_content(
             model=settings.embedding_model,
-            contents=texts,
+            # Embedding 2 aggregates a bare list into one vector. Explicit
+            # Content objects preserve the one-input/one-vector contract.
+            contents=[
+                types.Content(parts=[types.Part.from_text(text=text)])
+                for text in texts
+            ],
+            config=types.EmbedContentConfig(
+                output_dimensionality=settings.embedding_dim,
+            ),
         )
         if response and hasattr(response, "embeddings"):
             vectors = [list(embedding.values) for embedding in response.embeddings]

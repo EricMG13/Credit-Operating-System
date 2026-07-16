@@ -27,4 +27,18 @@ describe("GovernancePanel", () => {
     render(<GovernancePanel liveQa={[]} liveGaps={[]} staleRows={[]} />);
     expect(screen.getByText(/No stale sources/)).toBeTruthy();
   });
+
+  it("never renders green all-clears while live QA or digest status is unknown", () => {
+    render(
+      <GovernancePanel
+        qaStatus="loading"
+        digestStatus="error"
+        staleRows={[]}
+      />,
+    );
+    expect(screen.queryByText(/No stale sources/)).toBeNull();
+    expect(screen.queryByText(/QA queue clear/)).toBeNull();
+    expect(screen.getAllByText(/cannot be marked clear/)).toHaveLength(6);
+    expect(screen.getAllByRole("alert")).toHaveLength(2);
+  });
 });

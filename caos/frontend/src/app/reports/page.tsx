@@ -37,6 +37,7 @@ import { DecisionRoomDrawer } from "@/components/decisions/DecisionRoomDrawer";
 import { useAnalysisContext } from "@/lib/analysis-workbench";
 import { buildLiveReports, reportFromVersion } from "@/lib/reports/live-builder";
 import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
+import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { derivedFreshness, useIssuerFreshness } from "@/lib/engine/useFreshness";
 import { freshnessDetail, resolveReportFreshnessTarget, toProvFreshness } from "@/lib/freshness";
 
@@ -407,18 +408,20 @@ function ReportStudio() {
     ? { ...rep, sections: rep.sections.slice(0, frozenReviewedSectionCount) }
     : rep;
 
+  const reportsContext = analysis.context;
+  const patchReportsContext = analysis.patch;
   useEffect(() => {
-    const context = analysis.context;
+    const context = reportsContext;
     if (!context || !live.runId || context.artifacts.issuer_run_id === live.runId) return;
-    void analysis.patch({
+    void patchReportsContext({
       issuer_ids: isReference ? context.issuer_ids : Array.from(new Set([...context.issuer_ids, issuerId])),
       artifacts: { issuer_run_id: live.runId },
       surface_state: {
         ...context.surface_state,
         reports: { ...context.surface_state.reports, active_id: activeId, view: editMode ? "edit" : "preview" },
       },
-    });
-  }, [activeId, analysis, editMode, isReference, issuerId, live.runId]);
+    }).catch(() => undefined);
+  }, [activeId, editMode, isReference, issuerId, live.runId, patchReportsContext, reportsContext]);
 
   const toggleSec = (i: number) => {
     if (!rep || !canEditComposition) return;
@@ -746,6 +749,7 @@ function ReportStudio() {
               : "Review frozen preview"}
         </button>
       }
+      status={<AnalysisContextSaveState analysis={analysis} />}
       utilityLabel="Report utilities"
       utilityControls={
         <div className="grid gap-3 min-w-[17rem]">

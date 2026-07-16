@@ -54,13 +54,18 @@ const SEV_TAG: Record<string, string> = {
 // Committee Review (CP-5C): live semantic-review findings, grouped by seat.
 // Opt-in on the backend; empty here in the offline/seeded demo, where it
 // documents the capability without implying a fault.
-function CouncilReview({ council }: { council: FindingDTO[] }) {
+function CouncilReview({ council, state }: { council: FindingDTO[]; state: "loading" | "ready" | "error" | "unavailable" }) {
   const ordered = [...council].sort(
     (a, b) => (a.lane ?? 99) - (b.lane ?? 99) || a.finding_id.localeCompare(b.finding_id),
   );
   return (
     <Panel title="Committee Review · CP-5C" className="shrink-0">
-      {ordered.length === 0 ? (
+      {state !== "ready" ? (
+        <div role={state === "error" ? "alert" : "status"} className="px-3 py-2.5 text-caos-lg text-caos-muted leading-snug">
+          <span className="tabular text-caos-xs uppercase tracking-wider text-caos-warning">△ Committee review unknown</span>
+          <p className="mt-1">{state === "loading" ? "Checking CP-5C findings…" : state === "error" ? "CP-5C findings could not be read; do not infer an all-clear." : "A completed run is required to establish CP-5C findings."}</p>
+        </div>
+      ) : ordered.length === 0 ? (
         <div className="px-3 py-2.5 text-caos-lg text-caos-muted leading-snug">
           No live committee findings. CP-5C runs an adversarial reviewer panel when
           enabled; flagged reasoning surfaces here and gates the run alongside CP-5B.
@@ -202,12 +207,14 @@ export function DecisionRail({
   open,
   onToggle,
   council = [],
+  councilState = "ready",
   isReference = true,
   issuerCode,
 }: {
   open: boolean;
   onToggle: () => void;
   council?: FindingDTO[];
+  councilState?: "loading" | "ready" | "error" | "unavailable";
   isReference?: boolean;
   issuerCode?: string;
 }) {
@@ -242,7 +249,7 @@ export function DecisionRail({
         <NoIssuerRailOutput code={code} onCollapse={onToggle} />
       )}
 
-      <CouncilReview council={council} />
+      <CouncilReview council={council} state={councilState} />
 
       {isReference ? <Panel title="IC Verdict · CP-6A" className="shrink-0">
         <div className="px-3 py-2.5">

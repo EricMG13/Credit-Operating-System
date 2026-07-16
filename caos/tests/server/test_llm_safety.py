@@ -60,10 +60,30 @@ def test_first_json_object_rejects_non_finite_literals():
 # ── AISEC-1: the untrusted-wrap is the load-bearing indirect-injection control;
 # enforce it can't be silently dropped or bypassed by a new extractor. ──────────
 
+def test_extract_json_does_not_touch_documents_when_egress_is_disabled(monkeypatch):
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "caos_document_egress_enabled", False)
+    called = False
+
+    async def _retrieve(query, k):
+        nonlocal called
+        called = True
+        return [SimpleNamespace(chunk_id="c1", text="private filing text")]
+
+    assert asyncio.run(
+        extract_json(_retrieve, query="q", k=1, system="s")
+    ) is None
+    assert called is False
+
+
 def test_extract_json_always_fences_grounding(monkeypatch):
     """The shared scaffold must wrap retrieved chunks in the untrusted delimiters
     before they reach Claude — even when a chunk carries injected 'instructions'."""
     import anthropic
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "caos_document_egress_enabled", True)
 
     captured: dict = {}
 
@@ -113,9 +133,12 @@ def test_extract_json_validates_against_schema(monkeypatch):
     """L-2: with a schema, a well-typed reply returns the validated model; a
     wrong-typed reply degrades to None (like a no-JSON reply)."""
     import anthropic
+    from config import get_settings
     from typing import Optional
 
     from pydantic import BaseModel
+
+    monkeypatch.setattr(get_settings(), "caos_document_egress_enabled", True)
 
     class _Shape(BaseModel):
         pct: Optional[float] = None

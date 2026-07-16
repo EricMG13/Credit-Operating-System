@@ -363,22 +363,23 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     }
   }, [issuerParam, issuers]);
 
+  const syncContext = analysis.context;
+  const patchContext = analysis.patch;
   useEffect(() => {
-    if (!selectedIssuer || !analysis.context) return;
-    const context = analysis.context;
+    if (!selectedIssuer || !syncContext) return;
+    const context = syncContext;
     const issuerIds = context.issuer_ids.includes(selectedIssuer.id)
       ? context.issuer_ids
       : [...context.issuer_ids, selectedIssuer.id];
     const current = context.surface_state.upload;
     if (issuerIds === context.issuer_ids && current?.selected_ids?.[0] === selectedIssuer.id && current.view === step) return;
-    void analysis.patch({
+    void patchContext({
       issuer_ids: issuerIds,
       surface_state: {
-        ...context.surface_state,
         upload: { ...(current ?? {}), selected_ids: [selectedIssuer.id], view: step },
       },
     }).catch(() => setError("The selected issuer could not be linked to this analysis context."));
-  }, [analysis, selectedIssuer, step]);
+  }, [patchContext, selectedIssuer, step, syncContext]);
 
   const modeMeta = RUN_MODES.find((m) => m.k === runMode);
   const okCount = outcomes.filter((o) => o.result).length;

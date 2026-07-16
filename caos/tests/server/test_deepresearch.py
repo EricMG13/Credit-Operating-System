@@ -68,7 +68,7 @@ def test_brief_rejects_unknown_ai_mode():
 # ── Source-URL scheme guard (web-sourced URL → analyst-clickable href) ────────
 def test_collect_sources_drops_non_http_schemes():
     """A web_search result carries model/web-sourced URLs straight to a clickable
-    href under CSP script-src 'unsafe-inline'. Anything not http(s) (javascript:,
+    href. Anything not http(s) (javascript:,
     data:, leading whitespace) must be dropped so it can't become a click-to-exec."""
     block = SimpleNamespace(
         type="web_search_tool_result",

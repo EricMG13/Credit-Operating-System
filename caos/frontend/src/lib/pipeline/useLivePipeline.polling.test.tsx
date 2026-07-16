@@ -90,4 +90,15 @@ describe("useLivePipelineStatus exact-run polling", () => {
       response: { status: 500 },
     });
   });
+
+  it("never accepts a CP-X transport failure as a complete LIVE surface", async () => {
+    mocks.getRun.mockResolvedValue(exactRun("complete"));
+    mocks.getModule.mockRejectedValue({ isAxiosError: true, response: { status: 503 } });
+
+    const { result } = renderHook(() => useLivePipelineStatus("issuer-exact", "run-exact"));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.phase).toBe("error");
+    expect(result.current.value).toBeNull();
+  });
 });

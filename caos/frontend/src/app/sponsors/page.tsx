@@ -17,6 +17,7 @@ import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { SurfaceState } from "@/components/shared/SurfaceState";
+import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import {
   getSponsors, getSponsorTrackRecord,
@@ -80,21 +81,23 @@ function SponsorsView() {
     return () => { stale = true; };
   }, [selected, recordRetry]);
 
+  const sponsorsContext = analysis.context;
+  const patchSponsorsContext = analysis.patch;
   useEffect(() => {
-    const context = analysis.context;
+    const context = sponsorsContext;
     if (!context || !selected) return;
     if (
       context.artifacts.sponsor_id === selected
       && context.surface_state.sponsors?.active_id === selected
     ) return;
-    void analysis.patch({
+    void patchSponsorsContext({
       artifacts: { ...context.artifacts, sponsor_id: selected },
       surface_state: {
         ...context.surface_state,
         sponsors: { ...(context.surface_state.sponsors ?? {}), active_id: selected, view: "track-record" },
       },
-    }).catch(() => {});
-  }, [analysis, selected]);
+    }).catch(() => undefined);
+  }, [patchSponsorsContext, selected, sponsorsContext]);
 
   const openSponsorIssuer = (issuerId: string) => {
     const context = analysis.context;
@@ -105,7 +108,8 @@ function SponsorsView() {
           ...context.surface_state,
           sponsors: { ...(context.surface_state.sponsors ?? {}), selected_ids: [issuerId] },
         },
-      }).catch(() => {});
+      }).then(() => openProfile(issuerId)).catch(() => undefined);
+      return;
     }
     openProfile(issuerId);
   };
@@ -123,6 +127,7 @@ function SponsorsView() {
           Review selected sponsor
         </button>
       }
+      status={<AnalysisContextSaveState analysis={analysis} />}
       contextualControls={
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">
           {sponsors === null ? "Loading register" : sponsorsError ? "Register unavailable" : `${sponsors.length} sponsors`}

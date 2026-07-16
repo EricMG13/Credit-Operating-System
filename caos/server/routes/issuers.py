@@ -23,7 +23,7 @@ from engine.metrics import better_fact
 from engine.periods import is_finite_number
 from freshness import POLICY_VERSION, FreshnessEvaluation, ReportingCadence, evaluate_freshness
 from identity import CallerIdentity, get_identity, get_write_identity, require_write_role
-from tenancy import new_issuer_team, require_issuer, scope_issuers, tenancy_enabled
+from tenancy import new_issuer_team, require_issuer, scope_issuers
 
 router = APIRouter()
 
@@ -107,6 +107,8 @@ class IssuerDocumentResponse(BaseModel):
     source_kind: Optional[str] = None
     effective_period_end: Optional[date] = None
     source_published_at: Optional[datetime] = None
+    status: str = "active"
+    withdrawn_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -456,16 +458,48 @@ async def list_issuer_documents(
 ):
     # Gate on the issuer's team (documents inherit it); no-op behavior change when
     # tenancy is off (the guard only runs when enabled).
-    if tenancy_enabled():
-        require_issuer(caller, await db.get(Issuer, issuer_id))
+    require_issuer(caller, await db.get(Issuer, issuer_id))
     result = await db.execute(
         select(Document)
-        .where(Document.issuer_id == issuer_id)
+        .where(
+            Document.issuer_id == issuer_id,
+            Document.status == "active",
+            or_(Document.analyst_id == caller.id, Document.analyst_id.is_(None)),
+        )
         .order_by(Document.uploaded_at.desc())
         .limit(limit)
         .offset(offset)
     )
     return result.scalars().all()
+
+
+@router.post(
+    "/{issuer_id}/documents/{document_id}/withdraw",
+    response_model=IssuerDocumentResponse,
+)
+async def withdraw_issuer_document(
+    issuer_id: str,
+    document_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_write_identity),
+):
+    """Withdraw a source from all future retrieval while preserving old run lineage."""
+    require_issuer(caller, await db.get(Issuer, issuer_id))
+    document = (await db.execute(
+        select(Document).where(
+            Document.id == document_id,
+            Document.issuer_id == issuer_id,
+            Document.analyst_id == caller.id,
+        ).with_for_update()
+    )).scalar_one_or_none()
+    if document is None:
+        raise HTTPException(404, "Document not found.")
+    if document.status != "withdrawn":
+        document.status = "withdrawn"
+        document.withdrawn_at = datetime.now(timezone.utc)
+        document.withdrawn_by = caller.id
+        await db.flush()
+    return document
 
 
 # ── Issuer profile (per-name roll-up) ────────────────────────────────────────

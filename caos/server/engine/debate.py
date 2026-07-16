@@ -30,7 +30,7 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-from config import get_settings
+from config import document_egress_allowed, get_settings
 from engine import budget, llm_client, presets
 from engine.llm_safety import UNTRUSTED_RULE, wrap_untrusted
 from engine.periods import is_finite_number
@@ -367,7 +367,7 @@ class LiveDebater:
 def get_debater() -> "FixtureDebater | LiveDebater":
     """Live only when the debate is enabled and a key is set; else deterministic."""
     s = get_settings()
-    if s.debate_enabled and s.anthropic_api_key:
+    if s.debate_enabled and s.anthropic_api_key and document_egress_allowed(s):
         return LiveDebater()
     return FixtureDebater()
 

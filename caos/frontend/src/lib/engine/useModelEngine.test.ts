@@ -38,7 +38,7 @@ describe("useModelEngine · phase (M-4)", () => {
     const { phase: _p2, ...backendErrorRest } = backendError.result.current;
     expect(noCoverageRest).toEqual(backendErrorRest);
     expect(noCoverageRest).toEqual({
-      anchor: null, downside: null, runId: null, committeeStatus: null, live: false, loading: false,
+      anchor: null, downside: null, downsideState: "unavailable", runId: null, committeeStatus: null, live: false, loading: false,
     });
   });
 
@@ -64,6 +64,7 @@ describe("useModelEngine · phase (M-4)", () => {
     await waitFor(() => expect(missing.result.current.phase).toBe("complete"));
     expect(missing.result.current.anchor?.ltmRevenue).toBe(100);
     expect(missing.result.current.downside).toBeNull();
+    expect(missing.result.current.downsideState).toBe("unavailable");
 
     vi.mocked(listRuns).mockResolvedValueOnce([{
       id: "run-2", issuer_id: "issuer-2", status: "complete", qa_status: "Passed",
@@ -73,7 +74,9 @@ describe("useModelEngine · phase (M-4)", () => {
       .mockResolvedValueOnce(cp1)
       .mockRejectedValueOnce({ isAxiosError: true, response: { status: 500 } });
     const broken = renderHook(() => useModelEngine("issuer-2"));
-    await waitFor(() => expect(broken.result.current.phase).toBe("error"));
-    expect(broken.result.current.anchor).toBeNull();
+    await waitFor(() => expect(broken.result.current.phase).toBe("complete"));
+    expect(broken.result.current.anchor?.ltmRevenue).toBe(100);
+    expect(broken.result.current.downside).toBeNull();
+    expect(broken.result.current.downsideState).toBe("error");
   });
 });

@@ -40,6 +40,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 describe("Model Builder · paste + undo/redo (G3)", () => {

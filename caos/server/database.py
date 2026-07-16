@@ -300,6 +300,9 @@ class Document(Base):
     source_kind: Mapped[Optional[str]] = mapped_column(String(32))
     effective_period_end: Mapped[Optional[date]] = mapped_column(Date)
     source_published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    withdrawn_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    withdrawn_by: Mapped[Optional[str]] = mapped_column(String(255))
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_by: Mapped[Optional[str]] = mapped_column(String(255))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -665,11 +668,16 @@ class SectorReviewRun(Base):
 
     __tablename__ = "sector_review_runs"
     __table_args__ = (
+        UniqueConstraint(
+            "analyst_id", "sector", "version",
+            name="uq_sector_review_analyst_sector_version",
+        ),
         Index("ix_sector_review_runs_sector_as_of", "sector", "as_of"),
     )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     sector: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
     timeframe: Mapped[str] = mapped_column(String(32), nullable=False)
     as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     posture: Mapped[str] = mapped_column(String(32), nullable=False)

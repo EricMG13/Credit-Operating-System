@@ -53,6 +53,7 @@ def _enable_rerank(monkeypatch, scores_fn=None, window=20, has_key: bool = True)
         rerank_enabled=True,
         rerank_model_tier="cheap",
         rerank_window=window,
+        caos_document_egress_enabled=True,
     )
     monkeypatch.setattr(rerank_mod, "get_settings", lambda: base)
     monkeypatch.setattr("engine.presets.can_run_model", lambda _m: has_key)

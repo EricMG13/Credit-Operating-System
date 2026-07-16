@@ -9,9 +9,12 @@ Locally the same process runs with a dev identity, SQLite, and on-disk storage.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -126,6 +129,11 @@ async def lifespan(app: FastAPI):
         )
     require_postgres_in_production(settings)
     require_malware_scanner_in_production(settings)
+    if is_deployed(settings) and not _INLINE_SCRIPT_HASHES:
+        raise RuntimeError(
+            "The production static export contains no hashable Next.js bootstrap "
+            "scripts; refusing to boot with a CSP that would require unsafe-inline."
+        )
     await init_db()
     if settings.caos_demo_seed:
         await seed_demo_data()
@@ -205,15 +213,39 @@ app = FastAPI(
 )
 
 # ─── Security headers ───────────────────────────────────────────────────────
-# Applied to every response (API + static). The Next static export ships inline
-# bootstrap/RSC scripts and uses inline style attributes throughout, so the CSP
-# must allow 'unsafe-inline' for script/style — a static export can't carry a
-# per-request nonce. The remaining directives still constrain origins, framing,
-# base-uri and form targets. frame-ancestors is 'self'; relax it only if the app
-# is ever embedded cross-origin (e.g. inside another product's iframe).
+# Applied to every response (API + static).
+_INLINE_SCRIPT_RE = re.compile(
+    rb"<script\b(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _static_inline_script_hashes(static_dir: Path) -> tuple[str, ...]:
+    """CSP hashes for every inline bootstrap block in the static Next export."""
+    if not static_dir.is_dir():
+        return ()
+    hashes: set[str] = set()
+    for html_path in static_dir.rglob("*.html"):
+        try:
+            html = html_path.read_bytes()
+        except OSError:
+            continue
+        for script in _INLINE_SCRIPT_RE.findall(html):
+            digest = base64.b64encode(hashlib.sha256(script).digest()).decode("ascii")
+            hashes.add(f"'sha256-{digest}'")
+    return tuple(sorted(hashes))
+
+
+_STATIC_DIR = Path(settings.caos_static_dir)
+_INLINE_SCRIPT_HASHES = _static_inline_script_hashes(_STATIC_DIR)
+_SCRIPT_SRC = " ".join(("'self'", *_INLINE_SCRIPT_HASHES))
+
+# A static export cannot carry per-request nonces. Hash its actual bootstrap
+# blocks instead, so executable script no longer needs unsafe-inline. Inline
+# style attributes remain necessary for current chart/layout surfaces.
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
+    f"script-src {_SCRIPT_SRC}; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; "
     "font-src 'self'; "
@@ -412,7 +444,7 @@ async def api_not_found(path: str):  # type: ignore[no-untyped-def]
 
 
 # ─── Static frontend (Next.js export) ─────────────────────────────────────
-_static = Path(settings.caos_static_dir)
+_static = _STATIC_DIR
 if _static.is_dir():
     app.mount("/", StaticFiles(directory=str(_static), html=True), name="frontend")
 

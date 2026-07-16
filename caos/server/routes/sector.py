@@ -15,7 +15,7 @@ from weakref import WeakValueDictionary
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -777,7 +777,11 @@ async def _owned_review(
 
 def _review_v2(row: SectorReviewRun) -> SectorReviewV2:
     try:
-        return SectorReviewV2.model_validate(row.payload)
+        review = SectorReviewV2.model_validate(row.payload)
+        if review.version != row.version:
+            review.version = row.version
+            review.authority.version_id = f"v{row.version}"
+        return review
     except Exception as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, "Sector review uses the legacy contract.") from exc
 
@@ -986,22 +990,17 @@ async def create_sector_review(
         context.sector_id = requested_sector
         label = CANONICAL_SECTORS[requested_sector][0]
         now = _parse_dt(body.as_of) or datetime.now(timezone.utc)
-        previous = (await db.execute(
-            select(SectorReviewRun)
+        previous_version = (await db.execute(
+            select(func.max(SectorReviewRun.version))
             .where(
                 SectorReviewRun.sector == requested_sector,
                 SectorReviewRun.analyst_id == caller.id,
             )
-            .order_by(SectorReviewRun.created_at.desc())
-            .limit(1)
-        )).scalar_one_or_none()
-        try:
-            previous_version = int((previous.payload or {}).get("version", 0)) if previous else 0
-        except (TypeError, ValueError):
-            previous_version = 0
+        )).scalar_one_or_none() or 0
         signals = await _query_signals(db, sector=label, limit=50)
         row = SectorReviewRun(
             sector=requested_sector,
+            version=previous_version + 1,
             timeframe=body.timeframe,
             as_of=now,
             posture="Unratified",

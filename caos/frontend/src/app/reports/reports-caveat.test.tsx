@@ -31,7 +31,7 @@ vi.mock("@/lib/engine/useLiveRun", () => ({
 }));
 vi.mock("@/lib/engine/useModelEngine", () => ({
   useModelEngine: () => ({
-    anchor: mockRunId ? LIVE_ANCHOR : null, downside: null, runId: mockRunId,
+    anchor: mockRunId ? LIVE_ANCHOR : null, downside: null, downsideState: "unavailable", runId: mockRunId,
     committeeStatus: mockRunId ? "Draft Only" : null, live: !!mockRunId, loading: false,
     phase: mockPhase ?? (mockRunId ? "complete" : "none"),
   }),

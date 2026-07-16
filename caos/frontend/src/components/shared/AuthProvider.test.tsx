@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, act } from "@testing-library/react";
+import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 
 vi.mock("@/lib/api", () => ({
   PRINCIPAL_STORAGE_KEY: "caos.principal.id",
@@ -53,7 +54,7 @@ describe("AuthProvider — mid-session identity loss (SEAM4-1)", () => {
 
     expect(await screen.findByText("login-landing")).toBeTruthy();
     expect(mockGetMe).toHaveBeenCalledTimes(2); // mount + event
-    expect(mockClearWorkspaceStorage).toHaveBeenCalledTimes(1);
+    expect(mockClearWorkspaceStorage).toHaveBeenCalled();
   });
 
   it("re-resolves on tab refocus (catches the silent SSO principal swap)", async () => {
@@ -64,6 +65,32 @@ describe("AuthProvider — mid-session identity loss (SEAM4-1)", () => {
 
     await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
     expect(mockGetMe).toHaveBeenCalledTimes(2); // visibilityState defaults to "visible" in jsdom
+  });
+
+  it("unmounts principal A synchronously while a same-tab SSO recheck for B is pending", async () => {
+    let resolveSecond!: (value: typeof PROFILE_B) => void;
+    const oldWorkspaceUnmounted = vi.fn();
+    function Workspace() {
+      useEffect(() => () => { oldWorkspaceUnmounted(); }, []);
+      return <Consumer />;
+    }
+    mockGetMe
+      .mockResolvedValueOnce(PROFILE)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    render(<AuthProvider><Workspace /></AuthProvider>);
+    expect(await screen.findByText("Eric Gub")).toBeTruthy();
+    const priorUnmounts = oldWorkspaceUnmounted.mock.calls.length;
+
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+
+    expect(screen.queryByText("Eric Gub")).toBeNull();
+    expect(screen.getByText("loading")).toBeTruthy();
+    await waitFor(() => expect(oldWorkspaceUnmounted).toHaveBeenCalledTimes(priorUnmounts + 1));
+    // An ordinary focus check does not erase caches before identity is known.
+    expect(mockClearWorkspaceStorage).not.toHaveBeenCalled();
+
+    await act(async () => { resolveSecond(PROFILE_B); });
+    expect(await screen.findByText("Second Analyst")).toBeTruthy();
   });
 
   it("ignores an older refresh that settles after a newer principal", async () => {
@@ -82,9 +109,18 @@ describe("AuthProvider — mid-session identity loss (SEAM4-1)", () => {
   });
 
   it("refreshes when another tab changes the principal marker", async () => {
-    mockGetMe.mockResolvedValueOnce(PROFILE).mockResolvedValueOnce(PROFILE_B);
-    render(<AuthProvider><Consumer /></AuthProvider>);
+    let resolveSecond!: (value: typeof PROFILE_B) => void;
+    const oldWorkspaceUnmounted = vi.fn();
+    function Workspace() {
+      useEffect(() => () => { oldWorkspaceUnmounted(); }, []);
+      return <Consumer />;
+    }
+    mockGetMe
+      .mockResolvedValueOnce(PROFILE)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    render(<AuthProvider><Workspace /></AuthProvider>);
     expect(await screen.findByText("Eric Gub")).toBeTruthy();
+    const unmountsBeforePrincipalChange = oldWorkspaceUnmounted.mock.calls.length;
 
     await act(async () => {
       window.dispatchEvent(new StorageEvent("storage", {
@@ -94,6 +130,12 @@ describe("AuthProvider — mid-session identity loss (SEAM4-1)", () => {
       }));
     });
 
+    expect(screen.queryByText("Eric Gub")).toBeNull();
+    expect(screen.getByText("loading")).toBeTruthy();
+    await waitFor(() => expect(oldWorkspaceUnmounted).toHaveBeenCalledTimes(
+      unmountsBeforePrincipalChange + 1,
+    ));
+    await act(async () => { resolveSecond(PROFILE_B); });
     expect(await screen.findByText("Second Analyst")).toBeTruthy();
     expect(mockClearWorkspaceStorage).toHaveBeenCalledTimes(1);
   });

@@ -32,6 +32,7 @@ import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 import type { RunListItemDTO } from "@/lib/engine/types";
 import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
+import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { useIssuerFreshness } from "@/lib/engine/useFreshness";
 import { resolvePipelineFreshnessRunId } from "@/lib/freshness";
 
@@ -174,23 +175,25 @@ function PipelineVisualizer() {
     router.replace(`/pipeline?${query.toString()}`);
   };
 
+  const pipelineContext = analysis.context;
+  const patchPipelineContext = analysis.patch;
   useEffect(() => {
-    const context = analysis.context;
+    const context = pipelineContext;
     if (!context) return;
     const nextArtifacts = runParam && context.artifacts.issuer_run_id !== runParam
       ? { ...context.artifacts, issuer_run_id: runParam }
       : context.artifacts;
     const current = context.surface_state.pipeline;
     if (current?.active_id === (runParam ?? null) && current?.view === view && nextArtifacts === context.artifacts) return;
-    void analysis.patch({
+    void patchPipelineContext({
       artifacts: nextArtifacts,
       issuer_ids: issuerId === ATLF_REFERENCE_ISSUER_ID ? context.issuer_ids : Array.from(new Set([...context.issuer_ids, issuerId])),
       surface_state: {
         ...context.surface_state,
         pipeline: { ...current, active_id: runParam, view },
       },
-    });
-  }, [analysis, issuerId, runParam, view]);
+    }).catch(() => undefined);
+  }, [issuerId, patchPipelineContext, pipelineContext, runParam, view]);
 
   // Double-click a module → its output register in the Concept C deep-dive.
   // CP-0 is the L0 intake stage, so it opens Document Intake; INFRA nodes
@@ -297,6 +300,7 @@ function PipelineVisualizer() {
           OPEN SELECTED RUN
         </Link>
       }
+      status={<AnalysisContextSaveState analysis={analysis} />}
       contextualControls={
         <Link
           href={analysis.context ? contextHref("/upload", analysis.context.id, { issuer: issuerId }) : `/upload?issuer=${encodeURIComponent(issuerId)}`}

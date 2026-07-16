@@ -54,6 +54,40 @@ afterEach(() => {
 });
 
 describe("Model route calculation authority", () => {
+  it("never renders issuer A authority or actions under issuer B while B resolves", async () => {
+    vi.mocked(getSettings).mockResolvedValue({
+      features: { model_engine_v2_enabled: true },
+    } as never);
+    let resolveIssuerB!: (value: ModelV2ReadResponse) => void;
+    vi.mocked(getModelV2)
+      .mockResolvedValueOnce({ ...response, detail: "issuer A authority" })
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveIssuerB = resolve; }));
+
+    const { rerender } = render(
+      <ModelAuthorityRoute
+        renderV2={({ issuerId, initialResponse }) => (
+          <button type="button">{issuerId}:{initialResponse.detail}</button>
+        )}
+      />,
+    );
+    expect(await screen.findByRole("button", { name: /issuer-1:issuer A authority/ })).toBeTruthy();
+
+    navigation.search = "issuer=issuer-2&context=context-1";
+    rerender(
+      <ModelAuthorityRoute
+        renderV2={({ issuerId, initialResponse }) => (
+          <button type="button">{issuerId}:{initialResponse.detail}</button>
+        )}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /issuer-1:issuer A authority/ })).toBeNull();
+    expect(screen.getByText("Resolving model authority")).toBeTruthy();
+
+    await waitFor(() => expect(getModelV2).toHaveBeenCalledWith("issuer-2"));
+    resolveIssuerB({ ...response, detail: "issuer B authority" });
+    expect(await screen.findByRole("button", { name: /issuer-2:issuer B authority/ })).toBeTruthy();
+  });
+
   it("renders v2 without importing or calling the legacy calculator when the feature is on", async () => {
     vi.mocked(getSettings).mockResolvedValue({
       features: { model_engine_v2: true, model_engine_v2_enabled: false },

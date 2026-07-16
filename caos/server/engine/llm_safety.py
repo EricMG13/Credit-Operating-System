@@ -25,7 +25,7 @@ from typing import Any, Optional, Sequence, Tuple, Type
 
 from pydantic import BaseModel, ValidationError
 
-from config import get_settings
+from config import document_egress_allowed, get_settings
 from engine import llm_client, presets
 
 # NOTE: deepresearch.py's SYSTEM_PROMPT carries an equivalent, independently-
@@ -144,6 +144,8 @@ async def extract_json(
     "0 < pct < 1") stay in the caller; the schema only constrains shape/types.
     """
     settings = get_settings()
+    if not document_egress_allowed(settings):
+        return None
     hits = await retrieve(query, k)
     if not hits:
         return None

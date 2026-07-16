@@ -55,6 +55,7 @@ from database import (
 )
 
 from engine import llm_client, presets, querygraph
+from config import document_egress_allowed
 from engine.grounding import all_grounded
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
 from engine.metrics import headline_fact_predicates
@@ -78,8 +79,11 @@ _SEV_RANK = {"CRITICAL": 0, "MATERIAL": 1, "MINOR": 2}
 
 
 def available() -> bool:
-    """True when the resolved brief model has its provider key."""
-    return presets.can_run_model(presets.model_for(presets.HEAVY))
+    """True only when the model exists and source-derived egress is approved."""
+    return (
+        document_egress_allowed()
+        and presets.can_run_model(presets.model_for(presets.HEAVY))
+    )
 
 
 def _text_of(resp) -> str:

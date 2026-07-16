@@ -41,7 +41,11 @@ function isCheckpoint(v: unknown): v is ModelCheckpoint {
     typeof c.name === "string" &&
     typeof c.at === "string" &&
     !!c.overrides &&
-    typeof c.overrides === "object"
+    typeof c.overrides === "object" &&
+    !Array.isArray(c.overrides) &&
+    Object.values(c.overrides as Record<string, unknown>).every(
+      (value) => typeof value === "number" && Number.isFinite(value),
+    )
   );
 }
 
@@ -86,6 +90,7 @@ export function useModelHistory(issuerId: string): UseModelHistory {
   const [persistenceState, setPersistenceState] = useState<UseModelHistory["persistenceState"]>("loading");
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const loadedIssuer = useRef<string | null>(null);
+  const persistenceBusy = useRef(false);
   const checkpointsRef = useRef<ModelCheckpoint[]>([]);
   checkpointsRef.current = checkpoints;
 
@@ -98,6 +103,7 @@ export function useModelHistory(issuerId: string): UseModelHistory {
   // issuers must not let a Ctrl+Z on issuer B undo into issuer A's state.
   useEffect(() => {
     loadedIssuer.current = null;
+    persistenceBusy.current = false;
     setOverridesState({});
     setCheckpoints([]);
     setPersistenceState("loading");
@@ -169,24 +175,30 @@ export function useModelHistory(issuerId: string): UseModelHistory {
 
   const checkpoint = useCallback(async (name: string) => {
     const trimmed = name.trim();
-    if (!trimmed || loadedIssuer.current !== issuerId || persistenceState === "loading" || persistenceState === "saving") return false;
+    if (!trimmed || loadedIssuer.current !== issuerId || persistenceBusy.current || persistenceState === "loading") return false;
     const next: ModelCheckpoint = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name: trimmed,
       at: new Date().toISOString(),
       overrides,
     };
-    const list = [next, ...checkpointsRef.current].slice(0, MAX_CHECKPOINTS);
+    persistenceBusy.current = true;
     setPersistenceState("saving");
     setPersistenceError(null);
     try {
-      await updateAnalystWorkspace((ws) => writeCheckpoints(ws, issuerId, list));
+      const saved = await updateAnalystWorkspace((ws) => {
+        const current = readCheckpoints(ws, issuerId);
+        const list = [next, ...current.filter((candidate) => candidate.id !== next.id)].slice(0, MAX_CHECKPOINTS);
+        return writeCheckpoints(ws, issuerId, list);
+      });
       if (loadedIssuer.current !== issuerId) return false;
-      setCheckpoints(list);
+      setCheckpoints(readCheckpoints(saved.workspace, issuerId));
+      persistenceBusy.current = false;
       setPersistenceState("ready");
       return true;
     } catch (reason) {
       if (loadedIssuer.current === issuerId) {
+        persistenceBusy.current = false;
         setPersistenceState("error");
         setPersistenceError(toErrorMessage(reason, "Checkpoint could not be saved."));
       }
@@ -195,7 +207,7 @@ export function useModelHistory(issuerId: string): UseModelHistory {
   }, [issuerId, overrides, persistenceState]);
 
   const restoreCheckpoint = useCallback((id: string) => {
-    if (loadedIssuer.current !== issuerId || persistenceState === "loading" || persistenceState === "saving") return false;
+    if (loadedIssuer.current !== issuerId || persistenceBusy.current || persistenceState === "loading") return false;
     const cp = checkpointsRef.current.find((candidate) => candidate.id === id);
     if (!cp) return false;
     setOverrides(cp.overrides); // itself a user-undoable action
@@ -203,19 +215,25 @@ export function useModelHistory(issuerId: string): UseModelHistory {
   }, [issuerId, persistenceState, setOverrides]);
 
   const deleteCheckpoint = useCallback(async (id: string) => {
-    if (loadedIssuer.current !== issuerId || persistenceState === "loading" || persistenceState === "saving") return false;
-    const list = checkpointsRef.current.filter((candidate) => candidate.id !== id);
-    if (list.length === checkpointsRef.current.length) return false;
+    if (loadedIssuer.current !== issuerId || persistenceBusy.current || persistenceState === "loading") return false;
+    if (!checkpointsRef.current.some((candidate) => candidate.id === id)) return false;
+    persistenceBusy.current = true;
     setPersistenceState("saving");
     setPersistenceError(null);
     try {
-      await updateAnalystWorkspace((ws) => writeCheckpoints(ws, issuerId, list));
+      const saved = await updateAnalystWorkspace((ws) => writeCheckpoints(
+        ws,
+        issuerId,
+        readCheckpoints(ws, issuerId).filter((candidate) => candidate.id !== id),
+      ));
       if (loadedIssuer.current !== issuerId) return false;
-      setCheckpoints(list);
+      setCheckpoints(readCheckpoints(saved.workspace, issuerId));
+      persistenceBusy.current = false;
       setPersistenceState("ready");
       return true;
     } catch (reason) {
       if (loadedIssuer.current === issuerId) {
+        persistenceBusy.current = false;
         setPersistenceState("error");
         setPersistenceError(toErrorMessage(reason, "Checkpoint could not be deleted."));
       }

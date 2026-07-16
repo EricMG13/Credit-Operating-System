@@ -407,7 +407,7 @@ function ScenarioBuilder({
 // drivers and is independent of base-case nudges (only downside-case sliders
 // and the Scenario Builder deltas — layered onto both cases — move it). This is
 // correct, not a stale column.
-export function ScenarioPanel({ model, downside, issuerId = "", runId = null, onCollapse }: { model: Model; downside?: DownsidePathway | null; issuerId?: string; runId?: string | null; onCollapse?: () => void }) {
+export function ScenarioPanel({ model, downside, downsideState = "unavailable", issuerId = "", runId = null, onCollapse }: { model: Model; downside?: DownsidePathway | null; downsideState?: "ready" | "unavailable" | "error"; issuerId?: string; runId?: string | null; onCollapse?: () => void }) {
   const [active, setActive] = useState<ActiveScenario | null>(null);
   const [mode, setMode] = useState<"model" | "network">("model");
   const sc = useMemo(() => buildScenarios(model, active?.deltas), [model, active]);
@@ -432,7 +432,12 @@ export function ScenarioPanel({ model, downside, issuerId = "", runId = null, on
               <div className="border-t border-caos-border" />
               <DownsideFragility downside={downside} />
             </>
-          ) : null}
+          ) : (
+            <div role={downsideState === "error" ? "alert" : "status"} className="rounded border border-caos-border px-2 py-2 text-caos-xs text-caos-muted">
+              <span className="tabular uppercase tracking-wider text-caos-warning">△ Downside fragility · CP-2B unknown</span>
+              <p className="mt-1">{downsideState === "error" ? "The optional CP-2B read failed; no all-clear inference is available." : "This run did not establish a CP-2B downside pathway."}</p>
+            </div>
+          )}
           <div className="border-t border-caos-border" />
           <Tornado sc={sc} />
           <div className="border-t border-caos-border" />

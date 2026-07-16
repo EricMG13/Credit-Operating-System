@@ -310,6 +310,20 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const [pinning, setPinning] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
   const pinningRef = useRef(false);
+  const pinGeneration = useRef(0);
+  const activeContextId = contextState.context?.id ?? null;
+  const activeContextIdRef = useRef<string | null>(activeContextId);
+  const activeQueryRunIdRef = useRef<string | null>(queryRun?.id ?? null);
+  activeContextIdRef.current = activeContextId;
+  activeQueryRunIdRef.current = queryRun?.id ?? null;
+
+  useEffect(() => {
+    pinGeneration.current += 1;
+    pinningRef.current = false;
+    setPinning(false);
+    setPinned(false);
+    setPinError(null);
+  }, [activeContextId, queryRun?.id]);
 
   const capById = useMemo(() => {
     const m = new Map<string, { label: string; enabled: boolean; reason: string | null }>();
@@ -340,6 +354,9 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const runSeq = useRef(0);
   const run = useCallback((capId: string) => {
     const seq = ++runSeq.current;
+    pinGeneration.current += 1;
+    pinningRef.current = false;
+    setPinning(false);
     setHasQueried(true);
     setRunning(true);
     setGraphErr(null);
@@ -392,12 +409,15 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const pinQueryFinding = useCallback(async () => {
     const context = contextState.context;
     if (!context || !queryRun || pinned || pinningRef.current) return;
+    const generation = ++pinGeneration.current;
+    const contextId = context.id;
+    const queryRunId = queryRun.id;
     pinningRef.current = true;
     setPinning(true);
     setPinError(null);
     try {
       await analysisApi.createFinding({
-        context_id: context.id,
+        context_id: contextId,
         kind: "global-ask-answer",
         title: graph?.title || queryRun.question,
         body: queryRun.question,
@@ -405,12 +425,22 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
         source_run_id: queryRun.id,
         evidence: { result: queryRun.result, source_ids: queryRun.authority.source_ids },
       });
-      setPinned(true);
+      if (
+        generation === pinGeneration.current
+        && activeContextIdRef.current === contextId
+        && activeQueryRunIdRef.current === queryRunId
+      ) setPinned(true);
     } catch (error) {
-      setPinError(toErrorMessage(error, "Finding was not pinned"));
+      if (
+        generation === pinGeneration.current
+        && activeContextIdRef.current === contextId
+        && activeQueryRunIdRef.current === queryRunId
+      ) setPinError(toErrorMessage(error, "Finding was not pinned"));
     } finally {
-      pinningRef.current = false;
-      setPinning(false);
+      if (generation === pinGeneration.current) {
+        pinningRef.current = false;
+        setPinning(false);
+      }
     }
   }, [contextState.context, graph?.title, pinned, queryRun]);
 

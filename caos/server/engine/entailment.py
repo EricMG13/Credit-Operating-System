@@ -33,6 +33,7 @@ from typing import Dict, List
 
 from pydantic import BaseModel, Field, ValidationError
 
+from config import document_egress_allowed
 from engine import llm_client, presets
 from engine.llm_safety import UNTRUSTED_RULE, first_json_object, wrap_untrusted
 
@@ -94,7 +95,10 @@ _SYSTEM = (
 
 def available() -> bool:
     """True when the resolved LIGHT entailment model has its provider key."""
-    return presets.can_run_model(presets.model_for(presets.LIGHT))
+    return (
+        document_egress_allowed()
+        and presets.can_run_model(presets.model_for(presets.LIGHT))
+    )
 
 
 def _text_of(resp) -> str:

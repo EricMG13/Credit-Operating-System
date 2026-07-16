@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_CASE, parseAssumptions, saveAssumptions } from "./assumptions";
 
-afterEach(() => localStorage.clear());
+afterEach(() => { localStorage.clear(); sessionStorage.clear(); });
 
 describe("persisted assumptions validation", () => {
   it("accepts only known finite numeric case and year fields", () => {
@@ -26,7 +26,7 @@ describe("persisted assumptions validation", () => {
       down: { ...DEFAULT_CASE, mTax: Number.POSITIVE_INFINITY },
       baseYears: { 0: { mCapex: Number.NEGATIVE_INFINITY } },
     });
-    const stored = JSON.parse(localStorage.getItem("caos-d-assumptions:issuer-1") || "{}");
+    const stored = JSON.parse(sessionStorage.getItem("caos-d-assumptions:issuer-1") || "{}");
     expect(stored.base.mInt).toBe(DEFAULT_CASE.mInt);
     expect(stored.down.mTax).toBe(DEFAULT_CASE.mTax);
     expect(stored.baseYears).toEqual({});

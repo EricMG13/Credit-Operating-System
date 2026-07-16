@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from analysis_contracts import ArtifactRef
@@ -86,6 +86,8 @@ async def snapshot_run_inputs(
     document_stmt = select(Document).where(
         Document.issuer_id == issuer_id,
         Document.doc_type != "analyst-memo",
+        Document.status == "active",
+        or_(Document.analyst_id == analyst_id, Document.analyst_id.is_(None)),
     )
     if input_refs is not None:
         if requested_documents:

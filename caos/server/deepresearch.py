@@ -176,8 +176,8 @@ def _collect_sources(block, out: List[Source]) -> None:
         for item in getattr(block, "content", None) or []:
             url = getattr(item, "url", None)
             # Web-sourced URL → analyst-clickable href; drop anything not http(s)
-            # so a poisoned source can't smuggle a javascript:/data: URI (CSP runs
-            # script-src 'unsafe-inline', so it wouldn't block one either).
+            # so a poisoned source can't smuggle a javascript:/data: URI. Keep
+            # this boundary safe even if response headers are absent.
             if url and str(url).lower().startswith(("http://", "https://")):
                 out.append(Source(title=getattr(item, "title", "") or url, url=url))
     except Exception:  # noqa: BLE001 — sources are best-effort, never fatal

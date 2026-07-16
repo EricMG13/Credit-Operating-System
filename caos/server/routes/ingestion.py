@@ -17,7 +17,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status, BackgroundTasks
 from pydantic import BaseModel
-from sqlalchemy import select, insert
+from sqlalchemy import func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import avscan
@@ -149,7 +149,39 @@ async def _vault_document(
 ) -> IngestionResponse:
     # Gate on the issuer's team: no uploading documents into another team's issuer
     # (no-op when tenancy is off). Also covers the missing-issuer 404.
-    require_issuer(caller, await db.get(Issuer, issuer_id))
+    issuer = (await db.execute(
+        select(Issuer).where(Issuer.id == issuer_id).with_for_update()
+    )).scalar_one_or_none()
+    require_issuer(caller, issuer)
+    chunks = ingest.chunk_text(text)
+    settings = get_settings()
+    owned_docs = or_(Document.analyst_id == caller.id, Document.analyst_id.is_(None))
+    active_docs = (await db.execute(
+        select(func.count(Document.id)).where(
+            Document.issuer_id == issuer_id,
+            Document.status == "active",
+            owned_docs,
+        )
+    )).scalar() or 0
+    active_chunks = (await db.execute(
+        select(func.count(DocumentChunk.id))
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .where(
+            Document.issuer_id == issuer_id,
+            Document.status == "active",
+            owned_docs,
+        )
+    )).scalar() or 0
+    if active_docs >= settings.max_documents_per_issuer:
+        raise HTTPException(
+            409,
+            "Issuer document limit reached; withdraw superseded sources before uploading more.",
+        )
+    if active_chunks + len(chunks) > settings.max_chunks_per_issuer:
+        raise HTTPException(
+            413,
+            "Upload would exceed the issuer corpus chunk limit; split scope or withdraw superseded sources.",
+        )
 
     # Off-thread the vault write (up to MAX_UPLOAD_MB) so a large/slow disk write
     # doesn't block the event loop — matching the extract_* calls in the callers.
@@ -157,10 +189,9 @@ async def _vault_document(
     register_rollback_cleanup(
         db, lambda stored_key=key: ingest.remove_uncommitted(stored_key)
     )
-    chunks = ingest.chunk_text(text)
-
     doc = Document(
         issuer_id=issuer_id,
+        analyst_id=caller.id,
         doc_type=doc_type,
         run_mode=run_mode,
         file_name=file.filename or "upload.bin",
@@ -567,7 +598,7 @@ async def upload_memo(  # noqa: C901
     try:
         from engine.memochunks import chunk_memo_into_corpus
         memo_doc_ids = await chunk_memo_into_corpus(
-            db, path.stem, text, linked_ids, caller.email,
+            db, path.stem, text, linked_ids, caller.email, analyst_id=caller.id,
         )
         if memo_doc_ids:
             from engine.embeddings import embed_chunks_for_document

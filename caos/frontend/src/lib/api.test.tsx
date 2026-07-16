@@ -9,7 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it, expect, afterEach } from "vitest";
 import { AxiosError } from "axios";
 
-import { api, toErrorMessage, getResearchStatus, edgarVaultUrls } from "./api";
+import { api, toErrorMessage, getResearchStatus, edgarVaultUrls, updateAnalystWorkspace } from "./api";
 
 const err422 = {
   response: {
@@ -139,5 +139,51 @@ describe("edgarVaultUrls (M-12)", () => {
   it("all URLs fail: still throws (unchanged all-fail behavior)", async () => {
     api.defaults.adapter = byUrl({ "u/a": 503, "u/b": 503 }) as never;
     await expect(edgarVaultUrls("i1", "u/a,u/b")).rejects.toBeTruthy();
+  });
+});
+
+describe("updateAnalystWorkspace concurrency", () => {
+  const origAdapter = api.defaults.adapter;
+  afterEach(() => { api.defaults.adapter = origAdapter; });
+
+  it("replays the workspace function on the authoritative 409 base", async () => {
+    let patchCalls = 0;
+    let replayBody: Record<string, unknown> | null = null;
+    const remote = {
+      model_lanes: {}, email_intelligence: {}, revision: 8,
+      workspace: { concurrent_surface: { preserved: true } },
+    };
+    api.defaults.adapter = (async (config: { method?: string; data?: unknown }) => {
+      if (config.method === "get") {
+        return { data: { model_lanes: {}, email_intelligence: {}, revision: 7, workspace: {} }, status: 200, statusText: "OK", headers: {}, config: config as never };
+      }
+      patchCalls += 1;
+      if (patchCalls === 1) {
+        throw new AxiosError("conflict", "ERR_BAD_REQUEST", config as never, null, {
+          status: 409, statusText: "Conflict", headers: {}, config: config as never,
+          data: { detail: { message: "Settings changed elsewhere.", current: remote } },
+        });
+      }
+      replayBody = JSON.parse(String(config.data)) as Record<string, unknown>;
+      return {
+        data: { ...remote, workspace: replayBody.workspace, revision: 9 },
+        status: 200, statusText: "OK", headers: {}, config: config as never,
+      };
+    }) as never;
+
+    const saved = await updateAnalystWorkspace((workspace) => ({
+      ...workspace,
+      model_checkpoints: { issuer: ["new"] },
+    }));
+
+    expect(patchCalls).toBe(2);
+    expect(replayBody).toMatchObject({
+      expected_revision: 8,
+      workspace: {
+        concurrent_surface: { preserved: true },
+        model_checkpoints: { issuer: ["new"] },
+      },
+    });
+    expect(saved.workspace?.concurrent_surface).toEqual({ preserved: true });
   });
 });

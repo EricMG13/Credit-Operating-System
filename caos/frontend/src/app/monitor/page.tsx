@@ -42,6 +42,7 @@ import { SemanticVisualization, type VisualizationSpec } from "@/components/char
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { analysisApi, contextHref, type InsightArtifact, useAnalysisContext } from "@/lib/analysis-workbench";
 import { useTypedUrlState } from "@/lib/typed-url-state";
+import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 
 const MONITOR_URL_KEYS = ["dataset", "severity", "selected"] as const;
 
@@ -72,7 +73,9 @@ function Monitor() {
   // Governance's shared queue (Command shows the identical categories from the
   // same live sources — QA queues visible from both, per the handoff).
   const portfolio = usePortfolio();
-  const { digest, live: digestLive, liveQa, liveFailed, liveGapsItems, liveMixed } = useGovernanceSources(portfolio);
+  const { digest, live: digestLive, loading: digestLoading, error: digestError, liveQa, liveFailed, liveGapsItems, liveMixed } = useGovernanceSources(portfolio);
+  const qaStatus = portfolio.loading ? "loading" : portfolio.error ? "error" : "ready";
+  const digestStatus = digestLoading ? "loading" : digestError ? "error" : "ready";
   // Default: demo disclosure open when there's nothing live to show, closed
   // once live rows exist. `null` = follow that default; a click overrides for
   // the session (same disclosure pattern as DecisionHeader).
@@ -120,24 +123,26 @@ function Monitor() {
       }
     : { whatChanged: monitorUnavailable, whyItMatters: monitorUnavailable, requiredAction: monitorUnavailable, evidenceHealth: monitorUnavailable };
 
+  const monitorContext = analysis.context;
+  const patchMonitorContext = analysis.patch;
   useEffect(() => {
     const updateSelection = (event: Event) => {
       const detail = (event as CustomEvent<{ count: number; eventId: string | null }>).detail;
       setSelectedAlertCount(detail?.count ?? 0);
       updateUrlState({ selected: detail?.eventId ?? null }, "replace");
-      const context = analysis.context;
+      const context = monitorContext;
       if (!context || !detail?.eventId || context.artifacts.alert_event_id === detail.eventId) return;
-      void analysis.patch({
+      void patchMonitorContext({
         artifacts: { ...context.artifacts, alert_event_id: detail.eventId },
         surface_state: {
           ...context.surface_state,
           monitor: { ...context.surface_state.monitor, active_id: detail.eventId },
         },
-      });
+      }).catch(() => undefined);
     };
     window.addEventListener("caos:monitor-selection", updateSelection);
     return () => window.removeEventListener("caos:monitor-selection", updateSelection);
-  }, [analysis, updateUrlState]);
+  }, [monitorContext, patchMonitorContext, updateUrlState]);
 
   useEffect(() => {
     if (!analysis.context?.id) return;
@@ -236,7 +241,12 @@ function Monitor() {
           </span>
         </>
       }
-      status={draftAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Observed {draftAsOf}</span> : null}
+      status={
+        <>
+          {draftAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Observed {draftAsOf}</span> : null}
+          <AnalysisContextSaveState analysis={analysis} />
+        </>
+      }
       utilityLabel="Replay controls"
       utilityControls={<div className="grid gap-3"><SimControls run={run} /><span className="tabular text-caos-xs text-caos-muted">{simState} · {run.clock} ET</span>{analysis.context ? <Link href={contextHref("/command", analysis.context.id)} className="caos-action-secondary no-underline focus-ring">Open Command</Link> : null}</div>}
       narrowContract={{
@@ -265,7 +275,7 @@ function Monitor() {
               right={<div role="tablist" aria-label="Monitor dataset" className="flex items-center gap-1"><button type="button" role="tab" aria-selected={dataset === "alerts"} onClick={() => updateUrlState({ dataset: "alerts" })} className="caos-action-secondary focus-ring">Alerts</button><button type="button" role="tab" aria-selected={dataset === "email"} onClick={() => updateUrlState({ dataset: "email" })} className="caos-action-secondary focus-ring">Email intake</button><button type="button" role="tab" aria-selected={dataset === "governance"} onClick={() => updateUrlState({ dataset: "governance" })} className="caos-action-secondary focus-ring">Governance</button></div>}
             >
               <DominantTableRegion ownerId="monitor-alert-inbox" label={dataset === "email" ? "Email intelligence worklist" : dataset === "governance" ? "Governance worklist" : "Alert inbox worklist"} className="h-full">
-                {dataset === "email" ? <EmailIntel /> : dataset === "governance" ? <GovernancePanel liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : isPhone ? <PhoneTriage /> : <>
+                {dataset === "email" ? <EmailIntel /> : dataset === "governance" ? <GovernancePanel qaStatus={qaStatus} digestStatus={digestStatus} liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : isPhone ? <PhoneTriage /> : <>
                   <AlertInbox />
                   <button type="button" onClick={() => setDemoOverride(!showDemo)} aria-expanded={showDemo} className="w-full flex items-center gap-2 px-3 min-h-8 tabular text-caos-2xs uppercase tracking-widest text-caos-muted hover:text-caos-text transition-caos focus-ring border-t border-caos-border/50 caos-target">
                     {showDemo ? "− " : "+ "}Demo replay · CP-MON-H seeded tape

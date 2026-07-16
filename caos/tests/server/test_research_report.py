@@ -7,6 +7,7 @@ GET by id poll).
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,18 +26,10 @@ sys.path.insert(0, str(SERVER_DIR))
 
 class FakeModuleOutput:
     """Minimal stand-in for the ModuleOutput ORM model."""
-
-    def __init__(
-        self,
-        module_id,
-        module_name="",
-        runtime_output=None,
-        confidence="Medium",
-        qa_status="Passed",
-        committee_status="Committee Ready",
-        limitation_flags=None,
-        downstream_consumers=None,
-    ):
+    def __init__(self, module_id, module_name="", runtime_output=None,
+                 confidence="Medium", qa_status="Passed",
+                 committee_status="Committee Ready",
+                 limitation_flags=None, downstream_consumers=None):
         self.module_id = module_id
         self.module_name = module_name or module_id
         self.runtime_output = runtime_output or {}
@@ -50,94 +43,71 @@ class FakeModuleOutput:
 class TestResolvePath:
     def test_simple_key(self):
         from research_report import _resolve_path
-
         assert _resolve_path({"a": 1}, "a") == 1
 
     def test_nested_key(self):
         from research_report import _resolve_path
-
         assert _resolve_path({"a": {"b": 2}}, "a.b") == 2
 
     def test_missing_key_returns_none(self):
         from research_report import _resolve_path
-
         assert _resolve_path({"a": 1}, "b") is None
 
     def test_missing_intermediate_returns_none(self):
         from research_report import _resolve_path
-
         assert _resolve_path({"a": 1}, "a.b.c") is None
 
     def test_non_dict_intermediate_returns_none(self):
         from research_report import _resolve_path
-
         assert _resolve_path({"a": 1}, "a.b") is None
 
     def test_empty_path_returns_none(self):
         from research_report import _resolve_path
-
         assert _resolve_path({"a": 1}, "") is None
 
     def test_none_obj_returns_none(self):
         from research_report import _resolve_path
-
         assert _resolve_path(None, "a") is None
 
 
 class TestExtractOverallView:
     def test_canonical_key_found(self):
         from research_report import _extract_overall_view
-
         ro = {"overall_liquidity_view": "Liquidity is adequate with 18mo runway."}
         assert "18mo" in _extract_overall_view(ro, "CP-2E")
 
     def test_fallback_to_overall_view(self):
         from research_report import _extract_overall_view
-
         ro = {"overall_view": "General summary text."}
         assert "General" in _extract_overall_view(ro, "CP-2E")
 
     def test_nested_dict_narrative(self):
         from research_report import _extract_overall_view
-
         ro = {"overall_view": {"narrative": "Nested narrative text."}}
         assert "Nested" in _extract_overall_view(ro, "CP-2E")
 
     def test_empty_when_nothing_found(self):
         from research_report import _extract_overall_view
-
         assert _extract_overall_view({}, "CP-2E") == ""
 
     def test_whitespace_only_treated_as_empty(self):
         from research_report import _extract_overall_view
-
         assert _extract_overall_view({"overall_view": "   "}, "CP-2E") == ""
 
 
 class TestBuildModuleDigest:
     def test_empty_mods_returns_empty_list(self):
         from research_report import build_module_digest
-
         assert build_module_digest({}) == []
 
     def test_single_module_with_figures(self):
         from research_report import build_module_digest
-
         mods = {
             "CP-1": FakeModuleOutput(
-                "CP-1",
-                "CanonicalDataFoundation",
+                "CP-1", "CanonicalDataFoundation",
                 runtime_output={
-                    "summary": {
-                        "revenue": 1200,
-                        "adj_ebitda": 300,
-                        "ebitda_margin": 25.0,
-                    },
-                    "headline": {
-                        "net_leverage": 3.5,
-                        "interest_coverage": 4.2,
-                        "fcf": 150,
-                    },
+                    "summary": {"revenue": 1200, "adj_ebitda": 300, "ebitda_margin": 25.0},
+                    "headline": {"net_leverage": 3.5, "interest_coverage": 4.2, "fcf": 150},
                 },
             ),
         }
@@ -160,11 +130,9 @@ class TestBuildModuleDigest:
 
     def test_nan_value_excluded(self):
         from research_report import build_module_digest
-
         mods = {
             "CP-1": FakeModuleOutput(
-                "CP-1",
-                runtime_output={
+                "CP-1", runtime_output={
                     "summary": {"revenue": float("nan")},
                     "headline": {"net_leverage": 3.5},
                 },
@@ -178,11 +146,9 @@ class TestBuildModuleDigest:
 
     def test_inf_value_excluded(self):
         from research_report import build_module_digest
-
         mods = {
             "CP-1": FakeModuleOutput(
-                "CP-1",
-                runtime_output={
+                "CP-1", runtime_output={
                     "headline": {"net_leverage": float("inf")},
                 },
             ),
@@ -194,11 +160,9 @@ class TestBuildModuleDigest:
 
     def test_non_numeric_signal_stored_as_label(self):
         from research_report import build_module_digest
-
         mods = {
             "CP-2B": FakeModuleOutput(
-                "CP-2B",
-                runtime_output={"fragility": "LOW"},
+                "CP-2B", runtime_output={"fragility": "LOW"},
             ),
         }
         digests = build_module_digest(mods)
@@ -210,7 +174,6 @@ class TestBuildModuleDigest:
 
     def test_multiple_modules_sorted(self):
         from research_report import build_module_digest
-
         mods = {
             "CP-2B": FakeModuleOutput("CP-2B"),
             "CP-1": FakeModuleOutput("CP-1"),
@@ -220,17 +183,14 @@ class TestBuildModuleDigest:
 
     def test_phase4_modules_follow_registry_order_not_lexicographic_order(self):
         from research_report import build_module_digest
-
         mods = {
             "CP-4C": FakeModuleOutput("CP-4C"),
-            "CP-4D": FakeModuleOutput(
-                "CP-4D",
-                runtime_output={"overall_structural_view": "Structural view is limited by security evidence."},
-            ),
-            "CP-2G": FakeModuleOutput(
-                "CP-2G",
-                runtime_output={"overall_credit_view": "Transition exposure is directional."},
-            ),
+            "CP-4D": FakeModuleOutput("CP-4D", runtime_output={
+                "overall_structural_view": "Structural view is limited by security evidence."
+            }),
+            "CP-2G": FakeModuleOutput("CP-2G", runtime_output={
+                "overall_credit_view": "Transition exposure is directional."
+            }),
         }
         digests = build_module_digest(mods)
         assert [d.module_id for d in digests] == ["CP-2G", "CP-4D", "CP-4C"]
@@ -239,11 +199,9 @@ class TestBuildModuleDigest:
 
     def test_overall_view_extracted(self):
         from research_report import build_module_digest
-
         mods = {
             "CP-2E": FakeModuleOutput(
-                "CP-2E",
-                runtime_output={
+                "CP-2E", runtime_output={
                     "overall_liquidity_view": "Adequate liquidity.",
                 },
             ),
@@ -254,7 +212,6 @@ class TestBuildModuleDigest:
     def test_dict_runtime_output_handled(self):
         """When mods values are plain dicts (not ORM objects), still works."""
         from research_report import build_module_digest
-
         mods = {
             "CP-1": {
                 "module_name": "CP-1",
@@ -272,22 +229,15 @@ class TestBuildModuleDigest:
 class TestValidateReportFigures:
     def test_all_figures_verified(self):
         from research_report import validate_report_figures
-
         mods = {
             "CP-1": FakeModuleOutput(
-                "CP-1",
-                runtime_output={"headline": {"net_leverage": 3.5}},
+                "CP-1", runtime_output={"headline": {"net_leverage": 3.5}},
             ),
         }
         payload = {
             "key_metrics": [
-                {
-                    "label": "Net leverage",
-                    "value": 3.5,
-                    "unit": "x",
-                    "source_module_id": "CP-1",
-                    "source_path": "headline.net_leverage",
-                },
+                {"label": "Net leverage", "value": 3.5, "unit": "x",
+                 "source_module_id": "CP-1", "source_path": "headline.net_leverage"},
             ],
             "sections": [],
         }
@@ -299,22 +249,15 @@ class TestValidateReportFigures:
 
     def test_mismatched_figure_dropped(self):
         from research_report import validate_report_figures
-
         mods = {
             "CP-1": FakeModuleOutput(
-                "CP-1",
-                runtime_output={"headline": {"net_leverage": 3.5}},
+                "CP-1", runtime_output={"headline": {"net_leverage": 3.5}},
             ),
         }
         payload = {
             "key_metrics": [
-                {
-                    "label": "Net leverage",
-                    "value": 9.9,
-                    "unit": "x",
-                    "source_module_id": "CP-1",
-                    "source_path": "headline.net_leverage",
-                },
+                {"label": "Net leverage", "value": 9.9, "unit": "x",
+                 "source_module_id": "CP-1", "source_path": "headline.net_leverage"},
             ],
             "sections": [],
         }
@@ -327,16 +270,9 @@ class TestValidateReportFigures:
 
     def test_missing_source_module_dropped(self):
         from research_report import validate_report_figures
-
         payload = {
             "key_metrics": [
-                {
-                    "label": "X",
-                    "value": 1,
-                    "unit": "",
-                    "source_module_id": "",
-                    "source_path": "",
-                },
+                {"label": "X", "value": 1, "unit": "", "source_module_id": "", "source_path": ""},
             ],
             "sections": [],
         }
@@ -347,16 +283,10 @@ class TestValidateReportFigures:
 
     def test_module_not_in_run_unverified(self):
         from research_report import validate_report_figures
-
         payload = {
             "key_metrics": [
-                {
-                    "label": "X",
-                    "value": 1,
-                    "unit": "",
-                    "source_module_id": "CP-99",
-                    "source_path": "x",
-                },
+                {"label": "X", "value": 1, "unit": "",
+                 "source_module_id": "CP-99", "source_path": "x"},
             ],
             "sections": [],
         }
@@ -367,33 +297,24 @@ class TestValidateReportFigures:
 
     def test_section_figures_validated(self):
         from research_report import validate_report_figures
-
         mods = {
             "CP-2B": FakeModuleOutput(
-                "CP-2B",
-                runtime_output={"fragility": "LOW"},
+                "CP-2B", runtime_output={"fragility": "LOW"},
             ),
         }
         payload = {
             "key_metrics": [],
-            "sections": [
-                {
-                    "id": "l2-downside",
-                    "layer": "L2",
-                    "title": "Downside",
-                    "narrative_markdown": "",
-                    "contributing_modules": ["CP-2B"],
-                    "key_figures": [
-                        {
-                            "label": "Fragility",
-                            "value": "LOW",
-                            "unit": "",
-                            "source_module_id": "CP-2B",
-                            "source_path": "fragility",
-                        },
-                    ],
-                }
-            ],
+            "sections": [{
+                "id": "l2-downside",
+                "layer": "L2",
+                "title": "Downside",
+                "narrative_markdown": "",
+                "contributing_modules": ["CP-2B"],
+                "key_figures": [
+                    {"label": "Fragility", "value": "LOW", "unit": "",
+                     "source_module_id": "CP-2B", "source_path": "fragility"},
+                ],
+            }],
         }
         result = validate_report_figures(payload, mods)
         assert result.verified == 1
@@ -401,19 +322,13 @@ class TestValidateReportFigures:
 
     def test_both_none_values_match(self):
         from research_report import validate_report_figures
-
         mods = {
             "CP-1": FakeModuleOutput("CP-1", runtime_output={"x": None}),
         }
         payload = {
             "key_metrics": [
-                {
-                    "label": "X",
-                    "value": None,
-                    "unit": "",
-                    "source_module_id": "CP-1",
-                    "source_path": "x",
-                },
+                {"label": "X", "value": None, "unit": "",
+                 "source_module_id": "CP-1", "source_path": "x"},
             ],
             "sections": [],
         }
@@ -422,19 +337,13 @@ class TestValidateReportFigures:
 
     def test_nan_in_payload_dropped(self):
         from research_report import validate_report_figures
-
         mods = {
             "CP-1": FakeModuleOutput("CP-1", runtime_output={"x": 1.0}),
         }
         payload = {
             "key_metrics": [
-                {
-                    "label": "X",
-                    "value": float("nan"),
-                    "unit": "",
-                    "source_module_id": "CP-1",
-                    "source_path": "x",
-                },
+                {"label": "X", "value": float("nan"), "unit": "",
+                 "source_module_id": "CP-1", "source_path": "x"},
             ],
             "sections": [],
         }
@@ -446,54 +355,28 @@ class TestValidateReportFigures:
 class TestRenderSectionsMarkdown:
     def test_minimal_payload_renders(self):
         from research_report import _render_sections_markdown
-
         payload = {
-            "masthead": {
-                "as_of_date": "2026-07-07",
-                "run_id": "r1",
-                "prompt_version": "abc123",
-                "analyst": "test",
-            },
-            "bottom_line": {
-                "summary": "Credit is sound.",
-                "action_bias": "Core Hold",
-                "thesis": "Durable cash flows.",
-                "gated": False,
-            },
+            "masthead": {"as_of_date": "2026-07-07", "run_id": "r1",
+                         "prompt_version": "abc123", "analyst": "test"},
+            "bottom_line": {"summary": "Credit is sound.", "action_bias": "Core Hold",
+                            "thesis": "Durable cash flows.", "gated": False},
             "key_metrics": [
-                {
-                    "label": "Net leverage",
-                    "value": 3.5,
-                    "unit": "x",
-                    "source_module_id": "CP-1",
-                },
+                {"label": "Net leverage", "value": 3.5, "unit": "x",
+                 "source_module_id": "CP-1"},
             ],
-            "sections": [
-                {
-                    "id": "l1-financials",
-                    "layer": "L1",
-                    "title": "Financial Profile",
-                    "narrative_markdown": "Revenue grew 5%.",
-                    "contributing_modules": ["CP-1", "CP-1B"],
-                    "key_figures": [],
-                }
-            ],
-            "outlook": {
-                "horizon": "12-24 months",
-                "narrative_markdown": "Stable outlook.",
-                "forward_signals": [],
-            },
+            "sections": [{
+                "id": "l1-financials", "layer": "L1", "title": "Financial Profile",
+                "narrative_markdown": "Revenue grew 5%.",
+                "contributing_modules": ["CP-1", "CP-1B"],
+                "key_figures": [],
+            }],
+            "outlook": {"horizon": "12-24 months", "narrative_markdown": "Stable outlook.",
+                        "forward_signals": []},
             "risks": {"narrative_markdown": "Low fragility."},
             "gaps": [],
-            "provenance": [
-                {
-                    "module_id": "CP-1",
-                    "module_name": "CP-1",
-                    "confidence": "High",
-                    "qa_status": "Passed",
-                    "deep_dive_href": "/deepdive",
-                }
-            ],
+            "provenance": [{"module_id": "CP-1", "module_name": "CP-1",
+                            "confidence": "High", "qa_status": "Passed",
+                            "deep_dive_href": "/deepdive"}],
         }
         md = _render_sections_markdown(payload)
         assert "Research Report" in md
@@ -506,20 +389,10 @@ class TestRenderSectionsMarkdown:
 
     def test_gated_action_bias_shown(self):
         from research_report import _render_sections_markdown
-
         payload = {
-            "masthead": {
-                "as_of_date": "",
-                "run_id": "",
-                "prompt_version": "",
-                "analyst": "",
-            },
-            "bottom_line": {
-                "summary": "",
-                "action_bias": "Overweight",
-                "thesis": "",
-                "gated": True,
-            },
+            "masthead": {"as_of_date": "", "run_id": "", "prompt_version": "", "analyst": ""},
+            "bottom_line": {"summary": "", "action_bias": "Overweight",
+                            "thesis": "", "gated": True},
             "key_metrics": [],
             "sections": [],
             "outlook": {"horizon": "", "narrative_markdown": "", "forward_signals": []},
@@ -531,10 +404,7 @@ class TestRenderSectionsMarkdown:
         assert "GATED" in md
 
     def test_validation_mutates_payload_before_public_render(self):
-        from research_report import (
-            render_validated_research_report,
-            validate_report_figures,
-        )
+        from research_report import render_validated_research_report, validate_report_figures
 
         mods = {
             "CP-1": FakeModuleOutput("CP-1", runtime_output={"leverage": 4.0}),
@@ -542,26 +412,13 @@ class TestRenderSectionsMarkdown:
         }
         payload = {
             "masthead": {},
-            "bottom_line": {
-                "summary": "",
-                "action_bias": "Add / Increase",
-                "thesis": "",
-                "gated": False,
-            },
-            "key_metrics": [
-                {
-                    "label": "Unsupported leverage",
-                    "value": 9.9,
-                    "unit": "x",
-                    "source_module_id": "CP-1",
-                    "source_path": "leverage",
-                }
-            ],
-            "sections": [],
-            "outlook": {"forward_signals": []},
-            "risks": {},
-            "gaps": [],
-            "provenance": [],
+            "bottom_line": {"summary": "", "action_bias": "Add / Increase", "thesis": "", "gated": False},
+            "key_metrics": [{
+                "label": "Unsupported leverage", "value": 9.9, "unit": "x",
+                "source_module_id": "CP-1", "source_path": "leverage",
+            }],
+            "sections": [], "outlook": {"forward_signals": []},
+            "risks": {}, "gaps": [], "provenance": [],
         }
 
         validate_report_figures(payload, mods)
@@ -590,16 +447,20 @@ class _FakeReportStream:
 
 def _fake_report_client(responses):
     remaining = iter(responses)
-    messages = SimpleNamespace(stream=lambda **_kwargs: _FakeReportStream(next(remaining)))
-    return SimpleNamespace(messages=messages)
+    return SimpleNamespace(messages=SimpleNamespace(
+        stream=lambda **_kwargs: _FakeReportStream(next(remaining))
+    ))
 
 
-def _fake_report_message(*blocks, stop_reason="end_turn"):
+def _fake_report_message(*blocks):
     return SimpleNamespace(
-        content=list(blocks),
-        stop_reason=stop_reason,
+        content=list(blocks), stop_reason="end_turn",
         usage=SimpleNamespace(input_tokens=2, output_tokens=3),
     )
+
+
+async def _noop_trace(*_args, **_kwargs):
+    return None
 
 
 @pytest.mark.asyncio
@@ -610,11 +471,8 @@ async def test_live_synthesis_returns_structured_payload_without_markdown(monkey
     msg = _fake_report_message(SimpleNamespace(type="tool_use", input=payload))
     monkeypatch.setattr(research_report, "llm_configured", lambda: True)
     monkeypatch.setattr(research_report, "_get_client", lambda: _fake_report_client([msg]))
+    monkeypatch.setattr(research_report.budget, "trace_llm", _noop_trace)
 
-    async def _trace(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(research_report.budget, "trace_llm", _trace)
     result = await research_report.synthesize_research_report([], "Issuer")
 
     assert result.payload == payload
@@ -629,19 +487,12 @@ async def test_live_synthesis_repair_exception_fails_closed(monkeypatch):
     first = _fake_report_message(SimpleNamespace(type="text", text="unsafe prose"))
     monkeypatch.setattr(research_report, "llm_configured", lambda: True)
     monkeypatch.setattr(
-        research_report,
-        "_get_client",
+        research_report, "_get_client",
         lambda: _fake_report_client([first, RuntimeError("repair unavailable")]),
     )
+    monkeypatch.setattr(research_report.budget, "trace_llm", _noop_trace)
 
-    async def _trace(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(research_report.budget, "trace_llm", _trace)
-    with pytest.raises(
-        research_report.ResearchReportSynthesisError,
-        match="structured report repair failed",
-    ):
+    with pytest.raises(research_report.ResearchReportSynthesisError, match="structured report repair failed"):
         await research_report.synthesize_research_report([], "Issuer")
 
 
@@ -652,93 +503,70 @@ async def test_live_synthesis_second_missing_tool_fails_closed(monkeypatch):
     first = _fake_report_message(SimpleNamespace(type="text", text=""))
     second = _fake_report_message(SimpleNamespace(type="text", text="still prose"))
     monkeypatch.setattr(research_report, "llm_configured", lambda: True)
-    monkeypatch.setattr(
-        research_report,
-        "_get_client",
-        lambda: _fake_report_client([first, second]),
-    )
+    monkeypatch.setattr(research_report, "_get_client", lambda: _fake_report_client([first, second]))
+    monkeypatch.setattr(research_report.budget, "trace_llm", _noop_trace)
 
-    async def _trace(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(research_report.budget, "trace_llm", _trace)
-    with pytest.raises(
-        research_report.ResearchReportSynthesisError,
-        match="structured report missing after repair",
-    ):
+    with pytest.raises(research_report.ResearchReportSynthesisError, match="structured report missing after repair"):
         await research_report.synthesize_research_report([], "Issuer")
 
 
 class TestFiguresEqual:
     def test_exact_numeric_match(self):
         from research_report import _figures_equal
-
         assert _figures_equal(3.5, 3.5) is True
 
     def test_close_numeric_match(self):
         from research_report import _figures_equal
-
         assert _figures_equal(3.51, 3.5) is True  # diff=0.01, tolerance=max(3.5*0.001=0.0035, floor=0.01)=0.01
 
     def test_far_numeric_mismatch(self):
         from research_report import _figures_equal
-
         assert _figures_equal(4.0, 3.5) is False
 
     def test_string_case_insensitive_match(self):
         from research_report import _figures_equal
-
         assert _figures_equal("LOW", "low") is True
 
     def test_string_mismatch(self):
         from research_report import _figures_equal
-
         assert _figures_equal("LOW", "HIGH") is False
 
     def test_both_none(self):
         from research_report import _figures_equal
-
         assert _figures_equal(None, None) is True
 
     def test_one_none(self):
         from research_report import _figures_equal
-
         assert _figures_equal(None, 1.0) is False
 
     def test_nan_not_equal(self):
         from research_report import _figures_equal
-
         assert _figures_equal(float("nan"), float("nan")) is False
 
     def test_large_value_mismatch_detected(self):
         """$1,200M vs $1,250M (diff=50) should fail — 0.1% tolerance = $1.25, diff=50 >> tolerance."""
         from research_report import _figures_equal
-
         assert _figures_equal(1250, 1200) is False
 
     def test_small_diff_within_tolerance(self):
         """3.50 vs 3.51 (diff=0.01) passes — tolerance = max(3.5*0.001, 0.01) = 0.01."""
         from research_report import _figures_equal
-
         assert _figures_equal(3.51, 3.5) is True
 
     def test_small_diff_exceeds_tolerance(self):
         """3.50 vs 3.53 (diff=0.03) fails — tolerance is 0.01."""
         from research_report import _figures_equal
-
         assert _figures_equal(3.53, 3.5) is False
 
     def test_zero_value_tolerance_floor(self):
         """0.0 vs 0.005 (diff=0.005) passes — tolerance floors at 0.01."""
         from research_report import _figures_equal
-
         assert _figures_equal(0.005, 0.0) is True
 
 
 class TestValidateOutlookSignals:
     def test_forward_signal_verified_module_passes(self):
         from research_report import validate_report_figures
-
         mods = {
             "CP-2C": FakeModuleOutput("CP-2C"),
         }
@@ -749,19 +577,10 @@ class TestValidateOutlookSignals:
                 "horizon": "12m",
                 "narrative_markdown": "",
                 "forward_signals": [
-                    {
-                        "signal": "Maturity wall Q4 2026",
-                        "source_module_id": "CP-2C",
-                        "timing": "Q4 2026",
-                    },
+                    {"signal": "Maturity wall Q4 2026", "source_module_id": "CP-2C", "timing": "Q4 2026"},
                 ],
             },
-            "bottom_line": {
-                "summary": "",
-                "action_bias": "Core Hold",
-                "thesis": "",
-                "gated": False,
-            },
+            "bottom_line": {"summary": "", "action_bias": "Core Hold", "thesis": "", "gated": False},
         }
         result = validate_report_figures(payload, mods)
         assert result.unverified == []
@@ -769,7 +588,6 @@ class TestValidateOutlookSignals:
 
     def test_forward_signal_unverified_module_dropped(self):
         from research_report import validate_report_figures
-
         mods = {}
         payload = {
             "key_metrics": [],
@@ -778,19 +596,10 @@ class TestValidateOutlookSignals:
                 "horizon": "12m",
                 "narrative_markdown": "",
                 "forward_signals": [
-                    {
-                        "signal": "Fabricated signal",
-                        "source_module_id": "CP-MON",
-                        "timing": "2027",
-                    },
+                    {"signal": "Fabricated signal", "source_module_id": "CP-MON", "timing": "2027"},
                 ],
             },
-            "bottom_line": {
-                "summary": "",
-                "action_bias": "Core Hold",
-                "thesis": "",
-                "gated": False,
-            },
+            "bottom_line": {"summary": "", "action_bias": "Core Hold", "thesis": "", "gated": False},
         }
         result = validate_report_figures(payload, mods)
         assert len(result.unverified) == 1
@@ -799,7 +608,6 @@ class TestValidateOutlookSignals:
 
     def test_forward_signal_missing_module_id_dropped(self):
         from research_report import validate_report_figures
-
         payload = {
             "key_metrics": [],
             "sections": [],
@@ -810,12 +618,7 @@ class TestValidateOutlookSignals:
                     {"signal": "No source", "source_module_id": "", "timing": ""},
                 ],
             },
-            "bottom_line": {
-                "summary": "",
-                "action_bias": "Core Hold",
-                "thesis": "",
-                "gated": False,
-            },
+            "bottom_line": {"summary": "", "action_bias": "Core Hold", "thesis": "", "gated": False},
         }
         result = validate_report_figures(payload, {})
         assert len(result.dropped) == 1
@@ -825,7 +628,6 @@ class TestValidateOutlookSignals:
 class TestValidateActionBias:
     def test_action_bias_matches_cp6a_passes(self):
         from research_report import validate_report_figures
-
         mods = {
             "CP-6A": FakeModuleOutput("CP-6A", runtime_output={"action_bias": "Core Hold"}),
         }
@@ -833,12 +635,7 @@ class TestValidateActionBias:
             "key_metrics": [],
             "sections": [],
             "outlook": {"horizon": "", "narrative_markdown": "", "forward_signals": []},
-            "bottom_line": {
-                "summary": "",
-                "action_bias": "Core Hold",
-                "thesis": "",
-                "gated": False,
-            },
+            "bottom_line": {"summary": "", "action_bias": "Core Hold", "thesis": "", "gated": False},
         }
         result = validate_report_figures(payload, mods)
         assert result.dropped == []
@@ -846,7 +643,6 @@ class TestValidateActionBias:
 
     def test_action_bias_mismatch_gates_report(self):
         from research_report import validate_report_figures
-
         mods = {
             "CP-6A": FakeModuleOutput("CP-6A", runtime_output={"action_bias": "Avoid"}),
         }
@@ -854,12 +650,7 @@ class TestValidateActionBias:
             "key_metrics": [],
             "sections": [],
             "outlook": {"horizon": "", "narrative_markdown": "", "forward_signals": []},
-            "bottom_line": {
-                "summary": "",
-                "action_bias": "Add / Increase",
-                "thesis": "",
-                "gated": False,
-            },
+            "bottom_line": {"summary": "", "action_bias": "Add / Increase", "thesis": "", "gated": False},
         }
         result = validate_report_figures(payload, mods)
         assert len(result.dropped) == 1
@@ -869,17 +660,11 @@ class TestValidateActionBias:
     def test_action_bias_no_cp6a_module_skips_validation(self):
         """When CP-6A is not in mods, the action_bias is left alone (cannot validate what's absent)."""
         from research_report import validate_report_figures
-
         payload = {
             "key_metrics": [],
             "sections": [],
             "outlook": {"horizon": "", "narrative_markdown": "", "forward_signals": []},
-            "bottom_line": {
-                "summary": "",
-                "action_bias": "Avoid",
-                "thesis": "",
-                "gated": False,
-            },
+            "bottom_line": {"summary": "", "action_bias": "Avoid", "thesis": "", "gated": False},
         }
         result = validate_report_figures(payload, {})
         assert result.dropped == []
@@ -887,6 +672,158 @@ class TestValidateActionBias:
 
 
 # ── Background execution: sweep-on-boot (mirrors test_research_jobs.py) ─────
+
+
+async def _seed_durable_report(*, suffix: str = "") -> str:
+    """Persist the minimum trusted run/digest needed by ``_run_report``."""
+    from database import AsyncSessionLocal, Issuer, IssuerResearchReport, ModuleOutput, Run
+
+    async with AsyncSessionLocal() as session:
+        issuer = Issuer(name=f"Durable report acceptance {suffix}")
+        session.add(issuer)
+        await session.flush()
+        run = Run(
+            issuer_id=issuer.id,
+            analyst_id="acceptance-analyst",
+            status="complete",
+            prompt_version="acceptance-v1",
+        )
+        session.add(run)
+        await session.flush()
+        session.add_all([
+            ModuleOutput(
+                run_id=run.id,
+                module_id="CP-1",
+                module_name="CanonicalDataFoundation",
+                runtime_output={"headline": {"net_leverage": 4.0}},
+            ),
+            ModuleOutput(
+                run_id=run.id,
+                module_id="CP-2E",
+                module_name="LiquidityCashFlowBridge",
+                runtime_output={"overall_liquidity_view": "Adequate."},
+            ),
+            ModuleOutput(
+                run_id=run.id,
+                module_id="CP-6A",
+                module_name="CreditRecommendation",
+                runtime_output={"action_bias": "Avoid"},
+            ),
+        ])
+        report = IssuerResearchReport(
+            issuer_id=issuer.id,
+            run_id=run.id,
+            analyst_id="acceptance-analyst",
+        )
+        session.add(report)
+        await session.commit()
+        return report.id
+
+
+@pytest.mark.asyncio
+async def test_run_report_validates_before_persisting_payload_and_markdown(
+    seeded_db, monkeypatch
+):
+    """The durable boundary must validate both public report artifacts."""
+    import research_report_executor
+    from database import AsyncSessionLocal, IssuerResearchReport
+    from research_report import ResearchReportResult
+
+    payload = {
+        "masthead": {"as_of_date": "2026-07-16", "run_id": "run", "prompt_version": "v1", "analyst": "a"},
+        "bottom_line": {
+            "summary": "Unvalidated model output.",
+            "action_bias": "Add / Increase",
+            "thesis": "Unvalidated thesis.",
+            "gated": False,
+        },
+        "key_metrics": [{
+            "label": "Invented leverage",
+            "value": 9.9,
+            "unit": "x",
+            "source_module_id": "CP-1",
+            "source_path": "headline.net_leverage",
+        }],
+        "sections": [],
+        "outlook": {"horizon": "", "narrative_markdown": "", "forward_signals": []},
+        "risks": {"narrative_markdown": ""},
+        "gaps": [],
+        "provenance": [],
+    }
+
+    async def synthesize(**_kwargs):
+        return ResearchReportResult(
+            payload=payload,
+            markdown="UNVALIDATED 9.9x",
+            demo=False,
+            truncated=True,
+            tokens_used=17,
+        )
+
+    monkeypatch.setattr(research_report_executor, "synthesize_research_report", synthesize)
+    report_id = await _seed_durable_report(suffix="validate")
+    await research_report_executor.execute_report_by_id(report_id)
+
+    async with AsyncSessionLocal() as session:
+        report = await session.get(IssuerResearchReport, report_id)
+
+    assert report.status == "complete"
+    assert report.payload["key_metrics"] == []
+    assert report.payload["bottom_line"]["gated"] is True
+    assert "9.9" not in json.dumps(report.payload)
+    assert "9.9x" not in report.markdown
+    assert "Invented leverage" not in report.markdown
+    assert "(GATED)" in report.markdown
+    assert report.markdown.startswith("> **Report may be incomplete**")
+    assert report.truncated is True
+    assert report.validation["dropped"][0]["reason"] == "value mismatch"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("responses", "expected_error"),
+    [
+        (
+            [
+                _fake_report_message(SimpleNamespace(type="text", text="unsafe prose")),
+                RuntimeError("repair provider unavailable " + "x" * 2_000),
+            ],
+            "structured report repair failed",
+        ),
+        (
+            [
+                _fake_report_message(SimpleNamespace(type="text", text="unsafe prose")),
+                _fake_report_message(SimpleNamespace(type="text", text="still no tool payload")),
+            ],
+            "structured report missing after repair",
+        ),
+    ],
+)
+async def test_configured_live_repair_failure_is_durable_and_never_demo(
+    seeded_db, monkeypatch, responses, expected_error
+):
+    """Both repair failures stay failed, bounded, and explicitly non-demo."""
+    import research_report
+    import research_report_executor
+    from database import AsyncSessionLocal, IssuerResearchReport
+
+    monkeypatch.setattr(research_report, "llm_configured", lambda: True)
+    monkeypatch.setattr(research_report, "_get_client", lambda: _fake_report_client(responses))
+    monkeypatch.setattr(research_report.budget, "trace_llm", _noop_trace)
+    report_id = await _seed_durable_report(suffix=expected_error)
+
+    await research_report_executor.execute_report_by_id(report_id)
+
+    async with AsyncSessionLocal() as session:
+        report = await session.get(IssuerResearchReport, report_id)
+
+    assert report.status == "failed"
+    assert report.demo is False
+    assert report.payload is None and report.markdown is None
+    assert report.error == expected_error
+    assert len(report.error) <= 512
+    assert report.completed_at is not None
+    assert report.attempts == 1 and report.worker_id
 
 
 @pytest.mark.asyncio
@@ -924,10 +861,7 @@ async def test_report_executor_does_not_sweep_live_leased_report(seeded_db):
 
     async with AsyncSessionLocal() as s:
         live = IssuerResearchReport(
-            status="running",
-            issuer_id="i2",
-            run_id="r1",
-            analyst_id="t",
+            status="running", issuer_id="i2", run_id="r1", analyst_id="t",
             worker_id="sibling-replica:123",
             lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
         )
@@ -953,10 +887,7 @@ async def test_report_executor_sweeps_expired_leased_report(seeded_db):
 
     async with AsyncSessionLocal() as s:
         dead = IssuerResearchReport(
-            status="running",
-            issuer_id="i4",
-            run_id="r1",
-            analyst_id="t",
+            status="running", issuer_id="i4", run_id="r1", analyst_id="t",
             worker_id="dead-replica:456",
             lease_expires_at=datetime.now(timezone.utc) - timedelta(minutes=10),
         )
@@ -1011,20 +942,15 @@ async def test_stale_report_attempt_cannot_mark_sibling_failed(seeded_db):
 
     async with AsyncSessionLocal() as s:
         report = IssuerResearchReport(
-            status="running",
-            issuer_id="fenced-i",
-            run_id="fenced-r",
-            analyst_id="t",
-            attempts=2,
-            worker_id="new-owner",
+            status="running", issuer_id="fenced-i", run_id="fenced-r",
+            analyst_id="t", attempts=2, worker_id="new-owner",
         )
         s.add(report)
         await s.commit()
         report_id = report.id
 
-    stale = ReportClaim(report_id, "old-owner", 1)
     async with AsyncSessionLocal() as s:
-        await _mark_failed(s, stale, "stale failure")
+        await _mark_failed(s, ReportClaim(report_id, "old-owner", 1), "stale failure")
 
     async with AsyncSessionLocal() as s:
         report = await s.get(IssuerResearchReport, report_id)
@@ -1042,12 +968,8 @@ async def test_report_heartbeat_cancels_task_after_ownership_loss(seeded_db):
 
     async with AsyncSessionLocal() as s:
         report = IssuerResearchReport(
-            status="running",
-            issuer_id="heartbeat-i",
-            run_id="heartbeat-r",
-            analyst_id="t",
-            attempts=2,
-            worker_id="sibling-owner",
+            status="running", issuer_id="heartbeat-i", run_id="heartbeat-r",
+            analyst_id="t", attempts=2, worker_id="sibling-owner",
         )
         s.add(report)
         await s.commit()
@@ -1106,7 +1028,6 @@ def test_create_report_201_and_poll_after_run(client):
 
     # Poll until complete (demo mode — no API key, so it completes instantly)
     import time
-
     deadline = time.time() + 30
     while time.time() < deadline:
         poll = client.get(f"/api/issuers/{iid}/research-report/{job['id']}")
@@ -1181,9 +1102,7 @@ async def test_create_report_recovers_from_concurrent_insert_conflict(monkeypatc
             pass
 
     out = await issuers_route.create_research_report(
-        "iss-1",
-        caller=SimpleNamespace(id="a1"),
-        db=_DB(),
+        "iss-1", caller=SimpleNamespace(id="a1"), db=_DB(),
     )
     assert out.id == "winner-report" and out.status == "failed"
 
@@ -1206,7 +1125,6 @@ def test_get_latest_report_returns_cached(client):
 
     # Poll to completion
     import time
-
     deadline = time.time() + 30
     while time.time() < deadline:
         poll = client.get(f"/api/issuers/{iid}/research-report/{job_id}")
@@ -1235,7 +1153,6 @@ def test_get_latest_report_is_stale_after_new_run(client):
     job_id = create.json()["id"]
 
     import time
-
     deadline = time.time() + 30
     while time.time() < deadline:
         poll = client.get(f"/api/issuers/{iid}/research-report/{job_id}")
@@ -1307,7 +1224,6 @@ def test_report_payload_has_expected_structure(client):
     job_id = create.json()["id"]
 
     import time
-
     deadline = time.time() + 30
     status = None
     while time.time() < deadline:
@@ -1332,7 +1248,6 @@ def test_report_payload_has_expected_structure(client):
 
 
 # ── Durable executor: settings, lease columns, QueueWorker (Postgres only) ───
-
 
 def test_report_executor_settings_defaults():
     from config import Settings
@@ -1429,12 +1344,8 @@ async def test_report_reaper_fails_exhausted_orphan(seeded_db):
         s.add(run)
         await s.flush()
         report = IssuerResearchReport(
-            issuer_id=issuer.id,
-            run_id=run.id,
-            analyst_id="t",
-            status="running",
-            attempts=3,
-            lease_expires_at=past,
+            issuer_id=issuer.id, run_id=run.id, analyst_id="t",
+            status="running", attempts=3, lease_expires_at=past,
         )
         s.add(report)
         await s.commit()
@@ -1446,3 +1357,128 @@ async def test_report_reaper_fails_exhausted_orphan(seeded_db):
         report = await s.get(IssuerResearchReport, report_id)
         assert report.status == "failed"
         assert "max attempts" in (report.error or "")
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_report_heartbeat_renews_same_attempt_after_original_lease_interval(
+    seeded_db,
+):
+    """A long synthesis remains owned when its heartbeat runs after the lease's
+    original deadline; renewal is fenced by owner token and attempt."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    from database import AsyncSessionLocal, IssuerResearchReport
+    from research_report_executor import ReportClaim, ReportQueueWorker
+
+    report_id = await _seed_durable_report(suffix="heartbeat-renewal")
+    owner = "heartbeat-owner"
+    async with AsyncSessionLocal() as session:
+        report = await session.get(IssuerResearchReport, report_id)
+        report.status = "running"
+        report.attempts = 1
+        report.worker_id = owner
+        report.lease_expires_at = datetime.now(timezone.utc) + timedelta(milliseconds=50)
+        await session.commit()
+
+    worker = ReportQueueWorker()
+    worker._settings = SimpleNamespace(caos_report_lease_seconds=2)
+    worker._inflight_claims[report_id] = ReportClaim(report_id, owner, 1)
+    await asyncio.sleep(0.08)
+    heartbeat_at = datetime.now(timezone.utc)
+    await worker._heartbeat()
+
+    async with AsyncSessionLocal() as session:
+        report = await session.get(IssuerResearchReport, report_id)
+    assert report.status == "running"
+    assert report.worker_id == owner and report.attempts == 1
+    assert report.lease_expires_at > heartbeat_at + timedelta(seconds=1)
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_sibling_worker_reclaims_expired_report_as_new_fenced_attempt(seeded_db):
+    """A crashed owner's expired lease is reclaimable without reusing its fence."""
+    from datetime import datetime, timedelta, timezone
+
+    from database import AsyncSessionLocal, IssuerResearchReport
+    from research_report_executor import ReportQueueWorker
+
+    report_id = await _seed_durable_report(suffix="sibling-reclaim")
+    async with AsyncSessionLocal() as session:
+        report = await session.get(IssuerResearchReport, report_id)
+        report.status = "running"
+        report.attempts = 1
+        report.worker_id = "crashed-sibling"
+        report.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await session.commit()
+
+    claim = await ReportQueueWorker()._claim_one()
+    assert claim is not None and claim.report_id == report_id
+    assert claim.attempt == 2
+    assert claim.owner_token != "crashed-sibling"
+
+    async with AsyncSessionLocal() as session:
+        report = await session.get(IssuerResearchReport, report_id)
+    assert report.status == "running"
+    assert report.attempts == 2 and report.worker_id == claim.owner_token
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_stale_report_completion_is_rejected_after_sibling_reclaim(
+    seeded_db, monkeypatch
+):
+    """An old synthesis may finish, but its terminal payload cannot clobber the
+    sibling attempt that reclaimed the durable row."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    import research_report_executor
+    from database import AsyncSessionLocal, IssuerResearchReport
+    from research_report import ResearchReportResult
+
+    report_id = await _seed_durable_report(suffix="stale-completion")
+    async with AsyncSessionLocal() as session:
+        report = await session.get(IssuerResearchReport, report_id)
+        report.status = "running"
+        report.attempts = 1
+        report.worker_id = "old-owner"
+        report.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=1)
+        await session.commit()
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def delayed_synthesis(**_kwargs):
+        entered.set()
+        await release.wait()
+        return ResearchReportResult(
+            payload={"masthead": {}, "bottom_line": {}, "key_metrics": [], "sections": []},
+            demo=False,
+        )
+
+    monkeypatch.setattr(
+        research_report_executor, "synthesize_research_report", delayed_synthesis
+    )
+    stale_task = asyncio.create_task(research_report_executor._run_report(
+        report_id, owner_token="old-owner", attempt=1
+    ))
+    await entered.wait()
+
+    async with AsyncSessionLocal() as session:
+        report = await session.get(IssuerResearchReport, report_id)
+        report.attempts = 2
+        report.worker_id = "new-owner"
+        report.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=2)
+        await session.commit()
+
+    release.set()
+    await stale_task
+
+    async with AsyncSessionLocal() as session:
+        report = await session.get(IssuerResearchReport, report_id)
+    assert report.status == "running"
+    assert report.attempts == 2 and report.worker_id == "new-owner"
+    assert report.payload is None and report.markdown is None

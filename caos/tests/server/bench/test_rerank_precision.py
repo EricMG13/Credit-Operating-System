@@ -39,6 +39,7 @@ def _enable_rerank_lane(monkeypatch):
     (no network) + a pretended provider key, so the lane actually re-ranks."""
     monkeypatch.setattr(rerank_mod, "get_settings", lambda: SimpleNamespace(
         rerank_enabled=True, rerank_model_tier="cheap", rerank_window=20,
+        caos_document_egress_enabled=True,
     ))
     monkeypatch.setattr("engine.presets.can_run_model", lambda _m: True)
     monkeypatch.setattr("engine.presets.rerank_model", lambda: "fake/cheap")

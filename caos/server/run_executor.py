@@ -17,7 +17,7 @@ from sqlalchemy import and_, or_, select, update
 from config import get_settings
 from database import AsyncSessionLocal, Run, engine
 from engine import budget
-from engine.runner import execute_run
+from engine.runner import RetryableRunTransactionError, execute_run
 from executor_base import InProcessTaskExecutor
 from notification_service import (
     emit_run_terminal_notification,
@@ -76,7 +76,44 @@ async def execute_run_by_id(
             return
         committed = False
         try:
-            await execute_run(session, run)
+            # A DB failure inside a session-bound synthesizer poisons the shared
+            # transaction. Roll it back and retry once with a freshly loaded Run
+            # before making the durable attempt terminal; pure calculation errors
+            # still follow the normal per-module blocked path.
+            for transaction_attempt in range(2):
+                try:
+                    await execute_run(session, run)
+                    break
+                except RetryableRunTransactionError:
+                    active_budget = budget.current_budget()
+                    spent_before_rollback = active_budget.used if active_budget else 0
+                    await session.rollback()
+                    if transaction_attempt == 1:
+                        raise
+                    logger.warning(
+                        "retrying run %s after session-bound transaction failure",
+                        run_id,
+                    )
+                    session.expire_all()
+                    run = await session.get(Run, run_id)
+                    if run is None:
+                        raise RuntimeError(f"run {run_id} vanished before retry")
+                    if expected_attempt is not None and (
+                        run.status != "running"
+                        or run.attempts != expected_attempt
+                        or run.worker_id != expected_worker_id
+                    ):
+                        logger.warning(
+                            "run %s lost ownership before transaction retry", run_id
+                        )
+                        return
+                    # LLM traces commit independently, but run.tokens_used was
+                    # part of the poisoned transaction. Persist the in-memory
+                    # spend before retry so the next execute_run rehydrates a
+                    # cumulative budget and cannot rebill from zero.
+                    if spent_before_rollback > (run.tokens_used or 0):
+                        run.tokens_used = spent_before_rollback
+                        await session.commit()
             if expected_attempt is not None:
                 # Read scalar columns directly so the identity map cannot hide a
                 # lease re-claim committed by another worker.
@@ -209,32 +246,46 @@ class InProcessExecutor(InProcessTaskExecutor):
     def __init__(self) -> None:
         super().__init__()
         self._sem: asyncio.Semaphore | None = None
+        self._inflight_ids: set[str] = set()
 
     async def start(self) -> None:  # no background loop needed
         self._sem = asyncio.Semaphore(get_settings().caos_run_concurrency)
         # Hard-crash recovery. A SIGKILL/power-loss skips stop()'s mark-failed
-        # handler, stranding a run in 'running' (or 'queued') forever — SQLite
-        # has no reaper (the Postgres QueueWorker self-heals via _reap_orphans).
-        # start() runs in lifespan before any request is served and this executor
-        # has no in-flight tasks yet, so every non-terminal run is provably such a
-        # strand. Sweep them so they don't zombie.
+        # handler, stranding a run in 'running' forever — SQLite has no reaper
+        # (the Postgres QueueWorker self-heals via _reap_orphans). A queued row,
+        # however, has not started and remains valid durable work, so resume it.
         # ponytail: sweep-on-boot, not a heartbeat — sound for one process.
         async with AsyncSessionLocal() as session:
             stranded = list((await session.execute(
-                select(Run).where(Run.status.in_(("running", "queued")))
+                select(Run).where(Run.status == "running")
             )).scalars().all())
             for run in stranded:
                 run.status = "failed"
                 run.error = "abandoned (process restart)"
                 run.lease_expires_at = None
                 await _emit_terminal_notification(session, run)
+            queued_ids = list((await session.execute(
+                select(Run.id)
+                .where(Run.status == "queued")
+                .order_by(Run.created_at, Run.id)
+            )).scalars().all())
             await session.commit()
+        for run_id in queued_ids:
+            await self.enqueue(run_id)
 
     async def enqueue(self, run_id: str) -> None:
+        if run_id in self._inflight_ids:
+            return
+        self._inflight_ids.add(run_id)
+
         async def _run_with_sem():
-            assert self._sem is not None
-            async with self._sem:
-                await execute_run_by_id(run_id)
+            try:
+                assert self._sem is not None
+                async with self._sem:
+                    await execute_run_by_id(run_id)
+            finally:
+                self._inflight_ids.discard(run_id)
+
         self._spawn(_run_with_sem())
 
 

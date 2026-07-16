@@ -84,18 +84,41 @@ function Category({ title, children }: { title: string; children: React.ReactNod
   );
 }
 
+type SourceStatus = "loading" | "error" | "ready";
+
+function SourceUnavailable({ source, status }: { source: string; status: Exclude<SourceStatus, "ready"> }) {
+  const loading = status === "loading";
+  return (
+    <div
+      role={loading ? "status" : "alert"}
+      className="m-3 rounded-md border border-caos-warning/45 bg-caos-panel px-3 py-2.5 text-caos-muted"
+    >
+      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning">
+        {loading ? "… STATUS PENDING" : "⚠ STATUS UNAVAILABLE"}
+      </div>
+      <div className="mt-0.5 text-caos-md leading-snug">
+        {source} has not resolved, so this category cannot be marked clear.
+      </div>
+    </div>
+  );
+}
+
 export function GovernancePanel({
   liveQa,
   liveFailedGates,
   liveGaps,
   liveMixedOrigin,
   staleRows,
+  qaStatus = "ready",
+  digestStatus = "ready",
 }: {
   liveQa?: QaQueueItem[];
   liveFailedGates?: QaQueueItem[];
   liveGaps?: GapItem[];
   liveMixedOrigin?: DigestWatchRow[];
   staleRows: DigestWatchRow[];
+  qaStatus?: SourceStatus;
+  digestStatus?: SourceStatus;
 }) {
   const aging = staleRows.filter((r) => r.detail !== "never run");
   const neverRun = staleRows.filter((r) => r.detail === "never run");
@@ -103,42 +126,54 @@ export function GovernancePanel({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-2.5">
       <Category title="QA Queue · CP-5 open findings">
-        <QaQueue items={liveQa} />
+        {qaStatus === "ready"
+          ? <QaQueue items={liveQa ?? []} />
+          : <SourceUnavailable source="Live CP-5 status" status={qaStatus} />}
       </Category>
       <Category title="Failed Gates · committee gate">
-        <QaQueue
-          items={liveFailedGates}
-          noFallback
-          emptyLabel="No failed gates"
-          emptyBody="No committee-gate failures beyond CP-5 severity. New non-severity gate failures land here."
-        />
+        {qaStatus === "ready" ? (
+          <QaQueue
+            items={liveFailedGates ?? []}
+            noFallback
+            emptyLabel="No failed gates"
+            emptyBody="No committee-gate failures beyond CP-5 severity. New non-severity gate failures land here."
+          />
+        ) : <SourceUnavailable source="Live committee-gate status" status={qaStatus} />}
       </Category>
       <Category title="Source Gaps · CP-0 gap log">
-        <GapsList items={liveGaps} />
+        {qaStatus === "ready"
+          ? <GapsList items={liveGaps ?? []} />
+          : <SourceUnavailable source="Live CP-0 source status" status={qaStatus} />}
       </Category>
       <Category title="Mixed Origin · reference + live run">
-        <WatchList
-          rows={liveMixedOrigin ?? []}
-          badge="MIXED"
-          badgeColor="var(--caos-accent)"
-          emptyBody="No mixed-origin runs — every covered issuer's tabs share one provenance."
-        />
+        {qaStatus === "ready" ? (
+          <WatchList
+            rows={liveMixedOrigin ?? []}
+            badge="MIXED"
+            badgeColor="var(--caos-accent)"
+            emptyBody="No mixed-origin runs — every covered issuer's tabs share one provenance."
+          />
+        ) : <SourceUnavailable source="Live provenance status" status={qaStatus} />}
       </Category>
       <Category title="Stale Sources · digest watch">
-        <WatchList
-          rows={aging}
-          badge="STALE"
-          badgeColor="var(--caos-warning)"
-          emptyBody="No stale sources — every covered issuer is within the freshness window."
-        />
+        {digestStatus === "ready" ? (
+          <WatchList
+            rows={aging}
+            badge="STALE"
+            badgeColor="var(--caos-warning)"
+            emptyBody="No stale sources — every covered issuer is within the freshness window."
+          />
+        ) : <SourceUnavailable source="Daily digest freshness" status={digestStatus} />}
       </Category>
       <Category title="Overdue Refresh · never run">
-        <WatchList
-          rows={neverRun}
-          badge="OVERDUE"
-          badgeColor="var(--caos-critical)"
-          emptyBody="No overdue refreshes — every covered issuer has run at least once."
-        />
+        {digestStatus === "ready" ? (
+          <WatchList
+            rows={neverRun}
+            badge="OVERDUE"
+            badgeColor="var(--caos-critical)"
+            emptyBody="No overdue refreshes — every covered issuer has run at least once."
+          />
+        ) : <SourceUnavailable source="Daily digest coverage" status={digestStatus} />}
       </Category>
     </div>
   );

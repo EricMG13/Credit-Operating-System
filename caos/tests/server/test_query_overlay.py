@@ -51,6 +51,8 @@ def _fake_anthropic(monkeypatch, text: str, calls: list):
 
 
 def _wire_graph(monkeypatch):
+    from config import get_settings
+
     async def _build(db, cap_id, issuer_id=None):
         if cap_id != "peer-set":
             raise KeyError(cap_id)
@@ -59,13 +61,14 @@ def _wire_graph(monkeypatch):
     async def _caps(db):
         return CAPS
 
-    async def _retrieve(db, query, k=8, issuer_ids=None):
+    async def _retrieve(db, query, k=8, issuer_ids=None, analyst_id=None):
         return [SimpleNamespace(chunk_id="c1", text="Beta supplies Gamma."),
                 SimpleNamespace(chunk_id="c2", text="Acme 10-K.")]
 
     monkeypatch.setattr(queryoverlay.querygraph, "build_graph", _build)
     monkeypatch.setattr(queryoverlay.querygraph, "capabilities", _caps)
     monkeypatch.setattr(queryoverlay, "retrieve_corpus", _retrieve)
+    monkeypatch.setattr(get_settings(), "caos_document_egress_enabled", True)
 
 
 OVERLAY_REPLY = """

@@ -22,6 +22,7 @@ import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState, t
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { SurfaceState } from "@/components/shared/SurfaceState";
+import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { BatchBar } from "@/components/shared/BatchBar";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
@@ -133,8 +134,10 @@ function IssuersDirectory() {
   // Restore and persist only the validated directory state. Legacy context
   // `filters`/`selected` remain readable server-side, but this route writes the
   // discriminated `issuers` surface contract from now on.
+  const issuerContext = analysis.context;
+  const patchIssuerContext = analysis.patch;
   useEffect(() => {
-    const context = analysis.context;
+    const context = issuerContext;
     if (!context || hydratedContext.current === context.id) return;
     hydratedContext.current = context.id;
     const saved = context.surface_state.issuers;
@@ -145,10 +148,10 @@ function IssuersDirectory() {
       const [col, dir] = saved.sort.split(":");
       if (SORTABLE.has(col) && (dir === "asc" || dir === "desc")) setSort({ col, dir });
     }
-  }, [analysis.context]);
+  }, [issuerContext]);
 
   useEffect(() => {
-    const context = analysis.context;
+    const context = issuerContext;
     if (!context || hydratedContext.current !== context.id) return;
     const issuerIds = Array.from(new Set([...context.issuer_ids, ...selected]));
     const persistedFilters = Object.fromEntries(
@@ -167,16 +170,16 @@ function IssuersDirectory() {
       && JSON.stringify(context.surface_state.issuers ?? {}) === JSON.stringify(nextSurface)
     ) return;
     const timer = window.setTimeout(() => {
-      void analysis.patch({
+      void patchIssuerContext({
         issuer_ids: issuerIds,
         surface_state: {
           ...context.surface_state,
           issuers: nextSurface,
         },
-      }).catch(() => {});
+      }).catch(() => undefined);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [analysis, filters, query, selected, sort]);
+  }, [filters, issuerContext, patchIssuerContext, query, selected, sort]);
 
   const openIssuer = (issuerId: string) => {
     const context = analysis.context;
@@ -187,7 +190,8 @@ function IssuersDirectory() {
           ...context.surface_state,
           issuers: { ...(context.surface_state.issuers ?? {}), active_id: issuerId, selected_ids: selected },
         },
-      }).catch(() => {});
+      }).then(() => openProfile(issuerId)).catch(() => undefined);
+      return;
     }
     openProfile(issuerId);
   };
@@ -320,6 +324,7 @@ function IssuersDirectory() {
           + NEW ISSUER
         </button>
       }
+      status={<AnalysisContextSaveState analysis={analysis} />}
       contextualControls={
         <Link
           href={analysis.context ? contextHref("/upload", analysis.context.id) : "/upload"}

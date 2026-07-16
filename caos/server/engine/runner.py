@@ -65,6 +65,10 @@ from retrieval import build_issuer_index, rank_with_index
 
 logger = logging.getLogger("caos.engine")
 
+
+class RetryableRunTransactionError(RuntimeError):
+    """A session-bound synthesizer invalidated the run transaction."""
+
 # Human-readable methodology label. The persisted ``run.prompt_version`` appends a
 # content fingerprint of the active-prompt corpus actually used (see _stamp_prompt_
 # version) so editing any ACTIVE_PROMPT.md changes the stamped version — runs stay
@@ -295,14 +299,16 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
                 return await resolve_binding(ctx)
             except SynthesisError as e:
                 return e
-            except SQLAlchemyError:
+            except SQLAlchemyError as exc:
                 if module_id in _SESSION_SYNTH:
                     # The shared AsyncSession may now require rollback. Do not
                     # convert this into a persistable Blocked payload and keep
                     # using a poisoned transaction; abort the run attempt so the
                     # executor's failure path rolls it back.
                     logger.exception("session-bound synth database failure for %s", module_id)
-                    raise
+                    raise RetryableRunTransactionError(
+                        f"session-bound synthesis failed for {module_id}"
+                    ) from exc
                 logger.exception("unexpected database error for pure synth %s", module_id)
                 return SynthesisError("unexpected database error during synthesis")
             except Exception as e:  # noqa: BLE001 — isolate the fault to this module

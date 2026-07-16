@@ -32,9 +32,19 @@ def upgrade() -> None:
             ["analyst_id", "idempotency_key"],
             unique=True,
         )
+    with op.batch_alter_table("documents", schema=None) as batch_op:
+        batch_op.add_column(
+            sa.Column("status", sa.String(16), nullable=False, server_default="active")
+        )
+        batch_op.add_column(sa.Column("withdrawn_at", sa.DateTime(timezone=True), nullable=True))
+        batch_op.add_column(sa.Column("withdrawn_by", sa.String(255), nullable=True))
 
 
 def downgrade() -> None:
+    with op.batch_alter_table("documents", schema=None) as batch_op:
+        batch_op.drop_column("withdrawn_by")
+        batch_op.drop_column("withdrawn_at")
+        batch_op.drop_column("status")
     with op.batch_alter_table("runs", schema=None) as batch_op:
         batch_op.drop_index("uq_runs_analyst_idempotency")
         batch_op.drop_column("idempotency_request_hash")

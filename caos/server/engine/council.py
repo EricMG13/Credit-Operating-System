@@ -38,7 +38,7 @@ import logging
 from dataclasses import asdict, dataclass, replace
 from typing import Dict, List, Sequence
 
-from config import get_settings
+from config import document_egress_allowed, get_settings
 from engine import budget, llm_client, presets
 from engine.gate import SEVERITY_RANK, Finding
 from engine.llm_safety import first_json_value
@@ -344,6 +344,6 @@ def _merge(findings: Sequence[Finding]) -> List[Finding]:
 def get_reviewer():
     """Live only when the council is enabled and a key is set; else the no-op."""
     s = get_settings()
-    if s.council_enabled and s.anthropic_api_key:
+    if s.council_enabled and s.anthropic_api_key and document_egress_allowed(s):
         return LiveReviewer()
     return FixtureReviewer()

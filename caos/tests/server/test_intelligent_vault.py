@@ -80,7 +80,7 @@ async def test_llm_run_ledger(seeded_db):
     class DummyResponse:
         usage = DummyUsage()
         stop_reason = "stop_reason_test"
-        model = "test-model-sonnet"
+        model = "claude-opus-4-8"
 
     resp = DummyResponse()
     
@@ -89,7 +89,7 @@ async def test_llm_run_ledger(seeded_db):
         await budget.trace_llm(
             resp,
             lane="test-lane-xyz",
-            model="test-model-sonnet",
+            model="claude-opus-4-8",
             ms=250.0,
             fallback=False,
             prompt_hash="test-prompt-hash-123"
@@ -104,11 +104,11 @@ async def test_llm_run_ledger(seeded_db):
         
         assert record is not None
         assert record.lane == "test-lane-xyz"
-        assert record.model == "test-model-sonnet"
+        assert record.model == "claude-opus-4-8"
         assert record.prompt_hash == "test-prompt-hash-123"
         assert record.prompt_tokens == 50
         assert record.completion_tokens == 120
-        assert record.cost > 0.0
+        assert record.cost == pytest.approx((50 * 5 + 120 * 25) / 1_000_000)
         assert record.latency_ms == 250
 
 
@@ -127,6 +127,39 @@ async def test_structure_aware_chunking():
     # Check that chunks respect paragraph boundaries (they are split by double newlines)
     for c in chunks:
         assert len(c.split("\n\n")) >= 1
+
+
+@pytest.mark.asyncio
+async def test_live_embedding_request_preserves_batch_shape(monkeypatch):
+    from types import SimpleNamespace
+
+    from config import get_settings
+    from engine import embeddings, gemini
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "caos_document_egress_enabled", True)
+    monkeypatch.setattr(settings, "gemini_api_key", "test-key")
+    monkeypatch.setattr(settings, "embedding_model", "gemini-embedding-2")
+    captured = {}
+
+    class _Models:
+        async def embed_content(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                embeddings=[
+                    SimpleNamespace(values=[0.1] * settings.embedding_dim),
+                    SimpleNamespace(values=[0.2] * settings.embedding_dim),
+                ]
+            )
+
+    fake_client = SimpleNamespace(aio=SimpleNamespace(models=_Models()))
+    monkeypatch.setattr(gemini, "get_client", lambda: fake_client)
+
+    vectors = await embeddings.get_embeddings(["first", "second"])
+    assert len(vectors) == 2
+    assert captured["model"] == "gemini-embedding-2"
+    assert len(captured["contents"]) == 2
+    assert captured["config"].output_dimensionality == settings.embedding_dim
 
 
 @pytest.mark.asyncio

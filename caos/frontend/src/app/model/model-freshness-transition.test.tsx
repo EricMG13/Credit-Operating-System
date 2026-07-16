@@ -54,7 +54,7 @@ vi.mock("@/lib/engine/useModelEngine", () => ({
       ltmRevenue: 1_000, ltmAdjEbitda: 200, netDebt: 800,
       netLeverage: 4, intCov: 2,
     },
-    downside: null, runId: "run-shared", committeeStatus: "Committee Ready",
+    downside: null, downsideState: "unavailable", runId: "run-shared", committeeStatus: "Committee Ready",
     live: true, loading: false, phase: "complete", asOf: "2026-07-14T00:00:00Z",
   }),
 }));

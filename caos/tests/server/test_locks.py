@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from conftest import requires_pg
 from engine import locks
 
 
@@ -186,3 +187,42 @@ async def test_unlock_failure_does_not_mask_body_exception(monkeypatch):
     with pytest.raises(ValueError, match="body failed"):
         async with locks.advisory_lock(Session(), 43):
             raise ValueError("body failed")
+
+
+@requires_pg
+@pytest.mark.asyncio
+async def test_real_postgres_unlock_failure_invalidates_physical_connection(seeded_db):
+    """Terminate the lock-owning backend while the critical section is active.
+    The failed unlock must invalidate that physical connection before it can be
+    returned to the pool, and PostgreSQL must release the dead session's lock."""
+    import asyncio
+
+    from sqlalchemy import event, text
+
+    from database import AsyncSessionLocal, engine
+
+    invalidated = asyncio.Event()
+
+    def on_invalidate(_dbapi_connection, _connection_record, _exception):
+        invalidated.set()
+
+    event.listen(engine.sync_engine, "invalidate", on_invalidate)
+    key = locks.key_from_str("real-unlock-invalidation")
+    try:
+        async with AsyncSessionLocal() as owner:
+            with pytest.raises(Exception):  # driver-specific disconnect class
+                async with locks.advisory_lock(owner, key) as acquired:
+                    assert acquired is True
+                    pid = (await owner.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+                    async with engine.begin() as killer:
+                        terminated = (await killer.execute(
+                            text("SELECT pg_terminate_backend(:pid)"), {"pid": pid}
+                        )).scalar_one()
+                    assert terminated is True
+
+        await asyncio.wait_for(invalidated.wait(), timeout=2)
+        async with AsyncSessionLocal() as replacement:
+            assert await locks.try_advisory_lock(replacement, key) is True
+            await locks.release_advisory_lock(replacement, key)
+    finally:
+        event.remove(engine.sync_engine, "invalidate", on_invalidate)

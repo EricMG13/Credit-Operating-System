@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -109,6 +110,65 @@ def record_usage(resp) -> None:
             b.record(_input_tokens(it), getattr(it, "output_tokens", 0) or 0)
 
 
+def _estimated_cost(usage, model: str) -> Optional[float]:
+    """Return provider-reported cost, else a bounded exact-model estimate.
+
+    Unknown models deliberately return ``None``. Recording a Sonnet estimate for
+    every unfamiliar model made OpenRouter/DeepSeek and new Opus telemetry look
+    precise while being materially wrong.
+    """
+    raw_provider_cost = getattr(usage, "cost", None)
+    if raw_provider_cost is not None:
+        try:
+            provider_cost = float(raw_provider_cost)
+        except (TypeError, ValueError):
+            provider_cost = math.nan
+        if math.isfinite(provider_cost) and provider_cost >= 0:
+            return provider_cost
+
+    m = model.lower()
+    in_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+    cache_read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
+    cache_write = int(getattr(usage, "cache_creation_input_tokens", 0) or 0)
+    out_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+
+    # Standard, non-batch list prices per MTok. Keep this exact and small; add a
+    # model only with a dated provider-source check. Cache reads/writes use the
+    # common 0.1x/1.25x modifiers for these supported direct-provider lanes.
+    prices: Optional[tuple[float, float]] = None
+    if "claude-opus-4-8" in m:
+        prices = (5.0, 25.0)
+    elif "gemini-2.5-flash" in m:
+        prices = (0.30, 2.50)
+    elif "gemini-2.5-pro" in m:
+        prices = (
+            (2.50, 15.0)
+            if in_tokens + cache_read + cache_write > 200_000
+            else (1.25, 10.0)
+        )
+    elif "gemini-3.5-flash" in m:
+        prices = (1.50, 9.0)
+    elif "gemini-3-flash-preview" in m:
+        prices = (0.50, 3.0)
+    elif "gemini-3.1-flash-lite" in m:
+        prices = (0.25, 1.50)
+    elif "gemini-3.1-pro-preview" in m:
+        prices = (
+            (4.0, 18.0)
+            if in_tokens + cache_read + cache_write > 200_000
+            else (2.0, 12.0)
+        )
+    if prices is None:
+        return None
+    input_price, output_price = prices
+    return (
+        in_tokens * input_price
+        + cache_read * input_price * 0.1
+        + cache_write * input_price * 1.25
+        + out_tokens * output_price
+    ) / 1_000_000.0
+
+
 async def trace_llm(resp, *, lane: str, model: str, ms: Optional[float] = None,
                     fallback: bool = False, prompt_hash: Optional[str] = None) -> None:
     """M-1: accrue usage onto the run budget AND emit one structured ``caos.llm``
@@ -132,18 +192,7 @@ async def trace_llm(resp, *, lane: str, model: str, ms: Optional[float] = None,
         in_tokens = _input_tokens(usage) if usage is not None else 0
         out_tokens = (getattr(usage, "output_tokens", 0) or 0) if usage is not None else 0
 
-        cost = 0.0
-        m_lower = model.lower()
-        if "sonnet" in m_lower:
-            cost = (in_tokens * 3.0 + out_tokens * 15.0) / 1_000_000.0
-        elif "haiku" in m_lower:
-            cost = (in_tokens * 0.25 + out_tokens * 1.25) / 1_000_000.0
-        elif "gemini-1.5-pro" in m_lower or "gemini-2.0-pro" in m_lower:
-            cost = (in_tokens * 1.25 + out_tokens * 3.75) / 1_000_000.0
-        elif "gemini-1.5-flash" in m_lower or "gemini-2.0-flash" in m_lower:
-            cost = (in_tokens * 0.075 + out_tokens * 0.3) / 1_000_000.0
-        else:
-            cost = (in_tokens * 3.0 + out_tokens * 15.0) / 1_000_000.0
+        cost = _estimated_cost(usage, model)
 
         _trace_logger.info(json.dumps({
             "event": "llm_call",
@@ -153,6 +202,7 @@ async def trace_llm(resp, *, lane: str, model: str, ms: Optional[float] = None,
             "fallback": fallback,
             "input_tokens": in_tokens,
             "output_tokens": out_tokens,
+            "cost": cost,
             "stop_reason": getattr(resp, "stop_reason", None),
             "ms": round(ms, 1) if ms is not None else None,
         }))

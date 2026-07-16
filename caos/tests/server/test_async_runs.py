@@ -199,6 +199,48 @@ async def test_notification_render_failure_uses_minimal_event_and_run_stays_term
         assert events[0].title == "Issuer analysis failed"
 
 
+@pytest.mark.asyncio
+async def test_session_bound_database_failure_rolls_back_and_retries_once(
+    seeded_db, monkeypatch
+):
+    from database import AsyncSessionLocal, Run
+    from engine.fixtures import REFERENCE_ISSUER_ID
+    from engine.runner import RetryableRunTransactionError
+    import run_executor
+
+    calls = 0
+
+    async def transient_portfolio_failure(_session, run):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            run_executor.budget.set_budget(
+                run_executor.budget.RunBudget(limit=1_000, used=125)
+            )
+            raise RetryableRunTransactionError("portfolio read lost connection")
+        assert run.tokens_used == 125
+        run.status = "complete"
+        run.tokens_used = 150
+
+    monkeypatch.setattr(run_executor, "execute_run", transient_portfolio_failure)
+
+    async with AsyncSessionLocal() as session:
+        run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="transaction-retry")
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    await run_executor.execute_run_by_id(run_id)
+
+    async with AsyncSessionLocal() as session:
+        row = await session.get(Run, run_id)
+        assert row is not None
+        assert row.status == "complete"
+        assert row.error is None
+        assert row.tokens_used == 150
+    assert calls == 2
+
+
 import asyncio
 
 
@@ -267,8 +309,7 @@ async def test_inprocess_executor_runs_enqueued(seeded_db):
     from run_executor import InProcessExecutor
 
     # Match real lifespan ordering: the executor starts at boot, then runs are
-    # created and enqueued. (start() now sweeps stranded non-terminal runs, so a
-    # run created *before* start() would be swept — that's the hard-crash path.)
+    # created and enqueued. Pre-existing queued rows are recovered separately.
     ex = InProcessExecutor()
     await ex.start()
 
@@ -291,9 +332,8 @@ async def test_inprocess_executor_runs_enqueued(seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
-    """Hard-crash recovery: a run left 'running'/'queued' by a SIGKILL (no stop())
-    must be swept to 'failed' on the next start() — SQLite has no reaper."""
+async def test_inprocess_start_recovers_nonterminal_runs(seeded_db, monkeypatch):
+    """Hard-crash recovery fails an interrupted attempt but resumes queued work."""
     from database import AsyncSessionLocal, Issuer, Run
     from engine.fixtures import REFERENCE_ISSUER_ID
     from run_executor import InProcessExecutor
@@ -301,8 +341,7 @@ async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
     async with AsyncSessionLocal() as s:
         # A second issuer for the queued row — migrations/0035's active-run
         # unique index (one active run per issuer) means two SIMULTANEOUSLY
-        # active rows can't legitimately share an issuer; the sweep itself
-        # doesn't care about issuer identity, only that both get failed.
+        # active rows can't legitimately share an issuer.
         other = Issuer(name="Sweep Test Co")
         s.add(other)
         await s.flush()
@@ -313,18 +352,28 @@ async def test_inprocess_start_sweeps_stranded_runs(seeded_db):
         await s.commit()
         ids = (stranded_running.id, stranded_queued.id, done.id)
 
-    await InProcessExecutor().start()
+    resumed = asyncio.Event()
+
+    async def _record_resume(run_id: str):
+        if run_id == ids[1]:
+            resumed.set()
+
+    monkeypatch.setattr("run_executor.execute_run_by_id", _record_resume)
+    executor = InProcessExecutor()
+    await executor.start()
+    await asyncio.wait_for(resumed.wait(), timeout=1)
 
     async with AsyncSessionLocal() as s:
         r_running, r_queued, r_done = [await s.get(Run, i) for i in ids]
         assert r_running.status == "failed" and "process restart" in (r_running.error or "")
-        assert r_queued.status == "failed"
+        assert r_queued.status == "queued"  # execute stub proves it was re-enqueued
         assert r_done.status == "complete"  # terminal runs are untouched
         from database import NotificationEvent
         events = list((await s.execute(select(NotificationEvent).where(
             NotificationEvent.subject_id.in_(ids[:2])
         ))).scalars().all())
-        assert {event.subject_id for event in events} == set(ids[:2])
+        assert {event.subject_id for event in events} == {ids[0]}
+    await executor.stop()
 
 
 @pytest.mark.asyncio
@@ -610,15 +659,14 @@ async def test_shutdown_cancellation_marks_run_failed(seeded_db, monkeypatch):
 
     monkeypatch.setattr(run_executor, "execute_run", slow)
 
-    ex = InProcessExecutor()
-    await ex.start()
-
     async with AsyncSessionLocal() as s:
         run = Run(issuer_id=REFERENCE_ISSUER_ID, analyst_id="t")
         s.add(run)
         await s.commit()
         run_id = run.id
 
+    ex = InProcessExecutor()
+    await ex.start()
     await ex.enqueue(run_id)
     await asyncio.sleep(0.1)  # let the task enter execute_run
     await ex.stop()           # cancels in-flight + awaits the mark-failed handler
