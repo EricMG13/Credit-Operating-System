@@ -261,7 +261,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
           { sev: "low", text: "G-02: Q4-25 management accounts missing — CP-1 instructed to construct derived period from sponsor model.", ev: ["E-58"] },
           { sev: "ok", text: "Conflict log: 0 unresolved — CIM vs audit tie-outs within tolerance at intake." },
         ]},
-        { type: "text", title: "CP-0-I · Downstream readiness", body: "Readiness 0.91 — all 21 analytical modules routable. Two gaps logged with degraded-mode instructions attached; neither is blocking. Master index updated; intake export assembled for CP-X." },
+        { type: "text", title: "CP-0-I · Downstream readiness", body: "Readiness 0.91 — all 24 analytical modules routable. Two gaps logged with degraded-mode instructions attached; neither is blocking. Master index updated; intake export assembled for CP-X." },
       ],
     },
     "CP-X": {
@@ -284,7 +284,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
           { sev: "warning", text: "L-04 (from G-01): hedging register absent — CP-2F runs on SFA margins only; consumers CP-6A flagged to weight macro claims accordingly." },
           { sev: "low", text: "G-02 instruction: CP-1 derived Q4-25 carries [Analyst estimate] status; CP-1B told to caveat quarterly comparisons.", ev: ["E-58"] },
         ]},
-        { type: "text", title: "CP-X-07 · Route plan summary", body: "Full run authorized — status READY WITH LIMITATIONS. 21 modules sequenced across 8 waves with one-owner validation clean; CP-2F degraded mode is the only scope deviation. Route template v2.2, J1 join before governance layer." },
+        { type: "text", title: "CP-X-07 · Route plan summary", body: "Full run authorized — status READY WITH LIMITATIONS. 24 modules sequenced across 8 waves with one-owner validation clean; CP-2F degraded mode is the only scope deviation. Route template v2.2, J1 join before governance layer." },
       ],
     },
     "CP-5": {
@@ -301,7 +301,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
         { type: "flags", title: "CP-5-10 · Remediation priority map", items: [
           { sev: "critical", text: "R-1 (blocks committee pack): re-anchor E-44 to conformed CIM p.391, re-run CP-1C metric alignment, then refresh CP-3 RV table and CP-6A weighting row 3.", ev: ["E-44"] },
         ]},
-        { type: "text", title: "CP-5-11 · Clearance decision", body: "CONDITIONAL — one HIGH citation defect open; math, legal, market and consistency audits clean across all 21 modules. CP-RENDER and CP-EXTRACT held until QA-117 remediation lands; no other gating findings." },
+        { type: "text", title: "CP-5-11 · Clearance decision", body: "CONDITIONAL — one HIGH citation defect open; math, legal, market and consistency audits clean across all 24 modules. CP-RENDER and CP-EXTRACT held until QA-117 remediation lands; no other gating findings." },
       ],
     },
     "CP-5B": {

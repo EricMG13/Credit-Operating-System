@@ -79,7 +79,8 @@ export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
     const cycling = draft?.refreshing;
     return (
       <div className="px-3 py-4 flex items-center gap-2">
-        <ConclusionAuthority prov={{ origin: "LIVE", method: "MODELLED", detail: draft?.marking }} />
+        {/* approval={null}: an empty board has no conclusion to be unratified. */}
+        <ConclusionAuthority prov={{ origin: "LIVE", method: "MODELLED", detail: draft?.marking }} approval={null} />
         <span className="tabular text-caos-xs text-caos-muted">
           {cycling ? "cycle running — no changes yet" : "no ranked changes to report"}
         </span>

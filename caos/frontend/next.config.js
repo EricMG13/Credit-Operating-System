@@ -18,6 +18,11 @@ const nextConfig = {
   // the RequireAuth gate on every page. Dev-only effect; the static export still
   // emits folder/index.html for clean URLs.
   skipTrailingSlashRedirect: true,
+  // The dev-tools badge defaults to bottom-left, directly over the rail's
+  // View (Analyst/PM/QA) toggle, silently eating pointer clicks in dev; every
+  // other corner hosts real chrome too (Ask launcher bottom-right, header
+  // actions top). Off entirely — build state still surfaces in the terminal.
+  devIndicators: false,
   images: { unoptimized: true },
   experimental: {
     optimizePackageImports: ["@antv/g2"],

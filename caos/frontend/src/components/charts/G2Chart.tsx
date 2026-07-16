@@ -187,6 +187,18 @@ export function G2Chart({
       }
       else settleTimer = setTimeout(settle, 32);
     };
+    // Reserved-height skeleton while the import + width-settle run — the
+    // container kept its height but painted an empty hole, then the chart
+    // popped in. build()/fail() both clear innerHTML, so this swaps out.
+    if (!el.childElementCount) {
+      const skeleton = document.createElement("div");
+      skeleton.setAttribute("aria-hidden", "true");
+      skeleton.style.cssText =
+        "height:100%;border-radius:2px;" +
+        "background:color-mix(in srgb, var(--caos-elevated) 55%, transparent);";
+      el.appendChild(skeleton);
+    }
+
     // Defer loading g2 until a chart actually mounts; then start sizing.
     // A failed dynamic import (network blip, CDN issue, chunk-load error
     // after a deploy) must not become an unhandled rejection with the chart

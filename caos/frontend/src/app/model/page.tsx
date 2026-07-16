@@ -682,7 +682,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         <ShellIdentity
           tag="MODEL"
           badges={isReference ? (
-            <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">MODEL M-118</span>
+            <span className="tabular text-caos-md text-caos-accent truncate min-w-[8ch]" title="MODEL M-118">MODEL M-118</span>
           ) : eng.runId ? (
             <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">RUN {eng.runId.slice(0, 8)}</span>
           ) : null}

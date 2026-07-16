@@ -204,7 +204,6 @@ export function RVScreenerWorkbench() {
   };
 
   const selectedPickup = selected ? (selected.pitch.market_relative_value as Record<string, unknown> | undefined)?.dm_pickup_bps : null;
-  const roleLabel = roleView === "pm" ? "PM" : roleView === "qa" ? "QA" : "Analyst";
   const pitchOrder = roleView === "pm"
     ? [["3 · Portfolio implementation", "portfolio_implementation"], ["1 · Market relative value", "market_relative_value"], ["2 · Instrument mispricing", "instrument_mispricing"]] as const
     : [["1 · Market relative value", "market_relative_value"], ["2 · Instrument mispricing", "instrument_mispricing"], ["3 · Portfolio implementation", "portfolio_implementation"]] as const;
@@ -234,7 +233,7 @@ export function RVScreenerWorkbench() {
     <EnterprisePage
       kind="analytical"
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text shrink-0">RV Screener</span>{screen ? <span className="tabular text-caos-2xs text-caos-muted min-w-0 truncate" title={`${screen.snapshot_source_label ?? "Snapshot"} · ${screen.snapshot_id}`}>{screen.snapshot_source_label ?? "Snapshot"} · {screen.snapshot_id.slice(0, 8)}</span> : null}</>}
-      status={<span className="tabular text-caos-2xs uppercase text-caos-accent">View: {roleLabel} · composition only</span>}
+      status={<span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>}
       primaryAction={<ActionReason
         reason={contextState.loading
           ? "Preparing analysis workspace…"

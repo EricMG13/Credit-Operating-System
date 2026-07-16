@@ -620,7 +620,7 @@ export function Profile({
   const evidenceAtlas = (
     <Panel title="Evidence Atlas" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Latest run</span>}>
       <dl className="grid gap-1 p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Authority</dt><dd className="tabular text-caos-xs text-caos-text">{profileAuthority?.provenance.origin ?? "Unavailable"} · {profileAuthority?.approval ?? "UNRATIFIED"}</dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Authority</dt><dd className="tabular text-caos-xs text-caos-text">{profileAuthority ? `${profileAuthority.provenance.origin} · ${profileAuthority.approval}` : "Unavailable — no completed run"}</dd></div>
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Freshness</dt><dd><FreshnessIndicator evaluation={profileFreshness} /></dd></div>
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Source readiness</dt><dd className="tabular text-caos-xs text-caos-text">{coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}%` : "Unavailable"}</dd></div>
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Documents</dt><dd className="tabular text-caos-xs text-caos-text">{Number(coverage.documents) || 0}</dd></div>

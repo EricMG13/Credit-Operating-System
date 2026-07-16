@@ -9,23 +9,25 @@ export function ConclusionAuthority({
   approval = "UNRATIFIED",
 }: {
   prov: Provenance;
-  approval?: "UNRATIFIED" | "RATIFIED" | "CONDITIONAL" | "DRAFT";
+  /** null = there is no conclusion to approve (empty/idle state) — the
+   * approval chip is suppressed rather than stamping UNRATIFIED on nothing. */
+  approval?: "UNRATIFIED" | "RATIFIED" | "CONDITIONAL" | "DRAFT" | null;
 }) {
   const label = [
     `Origin ${prov.origin}`,
     prov.method ? `method ${prov.method}` : null,
-    `approval ${approval}`,
+    approval ? `approval ${approval}` : null,
     prov.freshness ? `freshness ${prov.freshness}` : null,
   ].filter(Boolean).join(", ");
 
   return (
     <span className="inline-flex items-center gap-1" aria-label={label} title={prov.detail}>
       <ProvenanceChip prov={prov} />
-      <span
+      {approval ? <span
         className="tabular text-caos-2xs uppercase tracking-wider rounded-sm border border-caos-warning/50 bg-caos-warning/5 px-1.5 py-0.5 text-caos-warning"
       >
         {approval}
-      </span>
+      </span> : null}
     </span>
   );
 }

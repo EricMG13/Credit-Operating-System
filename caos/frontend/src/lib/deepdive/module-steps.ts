@@ -165,7 +165,7 @@ export const MODULE_STEPS: Record<string, StepRow[]> = {
       ["T4C.11", "Capacity Risk Priority Matrix", "ok"], ["T4C.12", "Gaps Ledger", "ok"], ["—", "Overall Covenant Capacity View", "ok"],
     ],
     "CP-5": [
-      ["T5.1", "Input Module Register", "ok", "21 modules"], ["T5.2", "Citation & Evidence Audit", "warning", "QA-117 HIGH open"],
+      ["T5.1", "Input Module Register", "ok", "24 modules"], ["T5.2", "Citation & Evidence Audit", "warning", "QA-117 HIGH open"],
       ["T5.3", "Math / Logic / Definition Audit", "ok", "0 defects"], ["T5.4", "Legal / Structural Claim Audit", "ok"],
       ["T5.5", "RV / Market Claim Audit", "ok"], ["T5.6", "Consistency & Version Audit", "ok"],
       ["T5.7", "Committee-Readiness Audit", "warning", "pack HELD"], ["T5.8", "Export & Evidence Trace Audit", "ok"],

@@ -81,7 +81,7 @@ export interface PlanStep {
 // Simulated run plan: deps drawn from edges; dur in ticks; outcome on completion.
 export const SIM_PLAN: PlanStep[] = [
   { id: "CP-0", deps: [], dur: 4, outcome: "pass", event: "CP-0 PASS — 14 files classified · 2 gaps logged (Q4-25 mgmt accounts, hedging register) · readiness 0.91" },
-  { id: "CP-X", deps: ["CP-0"], dur: 2, outcome: "pass", event: "CP-X route plan locked — 21 modules in scope · CP-2F limitation propagated (no hedging register)" },
+  { id: "CP-X", deps: ["CP-0"], dur: 2, outcome: "pass", event: "CP-X route plan locked — 24 modules in scope · CP-2F limitation propagated (no hedging register)" },
   { id: "CP-1", deps: ["CP-X"], dur: 6, outcome: "pass", event: "CP-1 PASS — 12 periods normalized · 41 KPIs registered · coverage gate GREEN" },
   { id: "CP-1A", deps: ["CP-X"], dur: 5, outcome: "pass", event: "CP-1A PASS — ownership register built · Kestrel Capital 68.4% control" },
   { id: "CP-1B", deps: ["CP-1"], dur: 4, outcome: "warning", event: "CP-1B WARNING — Q1-26 EBITDA bridge variance −4.2% vs sponsor model; conflict logged" },
@@ -201,7 +201,7 @@ function scopedPlan(scope: string[], overrides: Record<string, Partial<PlanStep>
 
 export const RUN_MODES: RunMode[] = [
   {
-    k: "full", label: "COMMITTEE", runId: "RUN #2641", title: "2L TL '31 new-issue review", sub: "CP-X route v2.2 · 21 analytical modules · J1 join",
+    k: "full", label: "COMMITTEE", runId: "RUN #2641", title: "2L TL '31 new-issue review", sub: "CP-X route v2.2 · 24 analytical modules · J1 join",
     drivers: null, plan: SIM_PLAN, complete: null,
     done: { tag: "warning", text: "CLEARANCE: CONDITIONAL — QA-117 open · committee pack HELD" },
   },

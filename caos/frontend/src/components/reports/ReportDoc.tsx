@@ -89,10 +89,10 @@ function E({ p, v, ctx, className }: { p: string; v: string | number | null | un
 function RDHead({ p, title, sub, ctx }: { p: string; title?: string; sub?: string; ctx: EditCtx }) {
   if (!title) return null;
   return (
-    <div className="rd-h">
+    <h2 className="rd-h">
       <span><E p={p + ".title"} v={title} ctx={ctx} /></span>
       {sub ? <span className="rd-h-sub"><E p={p + ".sub"} v={sub} ctx={ctx} /></span> : null}
-    </div>
+    </h2>
   );
 }
 
@@ -173,7 +173,7 @@ function RDText({ s, p, ctx }: { s: Extract<Section, { t: "text" }>; p: string; 
   return (
     <div className="rd-sec">
       <RDHead p={p} title={s.title} ctx={ctx} />
-      {s.subhead ? <div className="rd-subhead"><E p={p + ".subhead"} v={s.subhead} ctx={ctx} /></div> : null}
+      {s.subhead ? <h3 className="rd-subhead"><E p={p + ".subhead"} v={s.subhead} ctx={ctx} /></h3> : null}
       <p className="rd-body"><E p={p + ".body"} v={s.body} ctx={ctx} /></p>
       {s.label ? (
         <div className="rd-lblock">
@@ -189,7 +189,7 @@ function RDList({ s, p, ctx }: { s: Extract<Section, { t: "list" }>; p: string; 
   return (
     <div className="rd-sec">
       <RDHead p={p} title={s.title} ctx={ctx} />
-      {s.subhead ? <div className="rd-subhead"><E p={p + ".subhead"} v={s.subhead} ctx={ctx} /></div> : null}
+      {s.subhead ? <h3 className="rd-subhead"><E p={p + ".subhead"} v={s.subhead} ctx={ctx} /></h3> : null}
       <ul className="rd-list">
         {s.items.map((it, i) => (
           <li key={i}><E p={p + ".i" + i} v={it} ctx={ctx} /></li>

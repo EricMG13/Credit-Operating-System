@@ -19,8 +19,8 @@ export function DailyDigestPanel({ digest }: { digest: DailyDigest }) {
       l: "WARF (eq-wt)",
       v: digest.warf != null ? `${digest.warf.toLocaleString("en-US")} · ${digest.warf_band ?? "—"}` : "no rated names",
     },
-    { l: "Rated / covered", v: `${cov.rated ?? 0} of ${cov.issuers ?? 0}` },
-    { l: "Complete runs", v: `${cov.with_complete_run ?? 0} of ${cov.issuers ?? 0}` },
+    { l: "Rated / covered", v: `${cov.rated ?? 0} rated · of ${cov.issuers ?? 0}` },
+    { l: "Complete runs", v: `${cov.with_complete_run ?? 0} runs · of ${cov.issuers ?? 0}` },
     {
       l: "Runs 24h",
       v: `${act.runs_completed ?? 0} done · ${failed} failed`,
@@ -85,7 +85,7 @@ function WatchList({ title, rows, kind, empty }: {
                 className="w-full text-left px-3 py-1 flex items-baseline gap-2 hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
                 <span className="text-caos-md text-caos-text truncate flex-1 min-w-[10ch]">{r.name}</span>
-                <span className="tabular text-caos-xs truncate shrink text-right min-w-0" style={{ color }} title={r.detail || undefined}>{r.detail || "—"}</span>
+                <span className="tabular text-caos-xs truncate shrink text-right min-w-[6ch]" style={{ color }} title={r.detail || undefined}>{r.detail || "—"}</span>
               </button>
             ))}
           </div>

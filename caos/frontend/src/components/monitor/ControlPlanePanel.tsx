@@ -130,7 +130,11 @@ export function ControlPlanePanel() {
           ))
         )}
       </Category>
-      <div className="md:col-span-2 pt-1 border-t border-caos-border">
+      {/* No col-span here: a span-2 child of this grid-cols-1 grid forces an
+          implicit second column whose auto track swallows the full width and
+          collapses column 1 to 0px — the cards then render on top of each
+          other (2026-07-16 critique P1). */}
+      <div className="pt-1 border-t border-caos-border">
         <Category title="Origin rollup · latest run owner">
           {data.truncated ? (
             <div role="note" className="mx-3 mb-2 tabular text-caos-2xs" style={{ color: "var(--caos-warning)" }}>

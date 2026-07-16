@@ -63,3 +63,17 @@ describe("ControlPlanePanel", () => {
     expect(screen.getByText(/a\.lee · 2 docs/)).toBeTruthy();
   });
 });
+
+// Regression lock for the 2026-07-16 critique P1: a col-span-N class on any
+// child of the single-column ingestion grid forces an implicit second column
+// (computed `grid-template-columns: 0px <rest>`) and the cards render on top
+// of each other. jsdom can't measure layout, so lock the class contract.
+it("keeps the single-column ingestion grid free of col-span children", async () => {
+  mockGetIngestionGaps.mockResolvedValue({ zero_chunk: [], ocr_lane: [], coverage: [], truncated: false, as_of: "2026-07-16T00:00:00Z" });
+  const { container } = render(<ControlPlanePanel />);
+  await waitFor(() => expect(container.querySelector(".grid.grid-cols-1")).toBeTruthy());
+  const grid = container.querySelector(".grid.grid-cols-1")!;
+  for (const child of Array.from(grid.children)) {
+    expect(child.className).not.toMatch(/col-span/);
+  }
+});

@@ -8,7 +8,6 @@ import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { IssuerLink } from "@/components/shared/IssuerLink";
-import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { ActionReason } from "@/components/shared/ActionReason";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { headStat } from "@/components/shared/headStat";
@@ -155,7 +154,20 @@ function QueryResult({ run }: { run: QueryRun | null }) {
           <div className="mt-3 overflow-auto border-t border-caos-border">
             <table className="w-full border-collapse text-left tabular text-caos-xs">
               <thead className="sticky top-0 bg-caos-panel text-caos-muted">
-                <tr><th className="px-2 py-2">#</th><th className="px-2 py-2">Observation</th><th className="px-2 py-2 text-right">{rankLabel}{rankUnit ? ` (${rankUnit})` : ""}</th><th className="px-2 py-2">Details</th></tr>
+                {/* Every backend column renders as a real column — the old
+                    table showed only the rank metric and flattened the rest
+                    into a prose "Details" cell, so a synthesis promising two
+                    metrics delivered a table showing one. */}
+                <tr>
+                  <th className="px-2 py-2">#</th>
+                  <th className="px-2 py-2">Observation</th>
+                  {columns.length ? columns.map((column) => {
+                    const key = stringValue(column.key) ?? "";
+                    const unit = stringValue(column.unit);
+                    return <th key={key} className={`px-2 py-2 text-right ${key === rankKey ? "text-caos-accent" : ""}`}>{stringValue(column.label) ?? key}{unit ? ` (${unit})` : ""}</th>;
+                  }) : <th className="px-2 py-2 text-right">{rankLabel}{rankUnit ? ` (${rankUnit})` : ""}</th>}
+                  {!columns.length ? <th className="px-2 py-2">Details</th> : null}
+                </tr>
               </thead>
               <tbody>
                 {rows.slice(0, 100).map((row, index) => {
@@ -163,11 +175,22 @@ function QueryResult({ run }: { run: QueryRun | null }) {
                   const issuerId = stringValue(issuer?.id) ?? stringValue(row.issuer_id);
                   const label = stringValue(row.label) ?? stringValue(row.name) ?? stringValue(row.company) ?? stringValue(row.issuer_name) ?? stringValue(issuer?.name) ?? `Result ${index + 1}`;
                   const issuerMeta = [stringValue(issuer?.ticker), stringValue(issuer?.industry)].filter(Boolean).join(" · ");
+                  const metrics = row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics) ? row.metrics as Record<string, unknown> : {};
                   // Unit lives in the column header; bare tabular numbers so
                   // decimals align down the column (DESIGN.md aligned-decimals).
                   const rankCell = row.rank_value === undefined ? "—" : formatMetricValue(row.rank_value);
                   const details = issuerMeta || Object.entries(row).filter(([key]) => !["label", "name", "company", "issuer_name", "issuer", "metrics", "rank_value"].includes(key)).slice(0, 4).map(([key, value]) => `${key}: ${stringValue(value) ?? "…"}`).join(" · ");
-                  return <tr key={`${label}-${index}`} className="border-t border-caos-border/70 hover:bg-caos-elevated/40"><td className="px-2 py-2 text-caos-accent">{index + 1}</td><td className="px-2 py-2 font-semibold text-caos-text">{issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}</td><td className="px-2 py-2 text-right text-caos-text">{rankCell}</td><td className="px-2 py-2 text-caos-muted">{details}</td></tr>;
+                  return <tr key={`${label}-${index}`} className="border-t border-caos-border/70 hover:bg-caos-elevated/40">
+                    <td className="px-2 py-2 text-caos-accent">{index + 1}</td>
+                    <td className="px-2 py-2 font-semibold text-caos-text">{issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}{issuerMeta ? <span className="block font-normal text-caos-2xs text-caos-muted">{issuerMeta}</span> : null}</td>
+                    {columns.length ? columns.map((column) => {
+                      const key = stringValue(column.key) ?? "";
+                      const cell = metrics[key] && typeof metrics[key] === "object" ? (metrics[key] as Record<string, unknown>).value : undefined;
+                      const value = key === rankKey && cell === undefined ? row.rank_value : cell;
+                      return <td key={key} className={`px-2 py-2 text-right ${key === rankKey ? "text-caos-text" : "text-caos-muted"}`}>{value === undefined || value === null ? "—" : formatMetricValue(value)}</td>;
+                    }) : <td className="px-2 py-2 text-right text-caos-text">{rankCell}</td>}
+                    {!columns.length ? <td className="px-2 py-2 text-caos-muted">{details}</td> : null}
+                  </tr>;
                 })}
               </tbody>
             </table>
@@ -181,7 +204,6 @@ function QueryResult({ run }: { run: QueryRun | null }) {
 }
 
 export function QueryInvestigationWorkbench() {
-  const { roleView } = useRoleView();
   const contextState = useAnalysisContext({ name: "Cross-coverage investigation" });
   const { values: urlState, update: updateUrlState } = useTypedUrlState(QUERY_URL_KEYS);
   const [question, setQuestion] = useState("");
@@ -351,13 +373,14 @@ export function QueryInvestigationWorkbench() {
   };
 
   const context = contextState.context;
-  const roleLabel = roleView === "pm" ? "PM" : roleView === "qa" ? "QA" : "Analyst";
-  const narrow = { essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">View: {roleLabel}</span> };
+  // The RoleViewSwitch in the compact header already shows the active view —
+  // repeating it here was the double "View:" the critique flagged.
+  const narrow = { essentialControls: null };
   return (
     <EnterprisePage
       kind="analytical"
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text">Query</span>{context ? <span className="tabular text-caos-2xs text-caos-muted">{context.name}</span> : null}</>}
-      status={contextState.loading ? <span className="tabular text-caos-2xs text-caos-muted">Loading context…</span> : contextState.error ? <span className="text-caos-xs text-caos-critical">{contextState.error}</span> : <span className="tabular text-caos-2xs uppercase text-caos-accent">View: {roleLabel} · composition only</span>}
+      status={contextState.loading ? <span className="tabular text-caos-2xs text-caos-muted">Loading context…</span> : contextState.error ? <span className="text-caos-xs text-caos-critical">{contextState.error}</span> : <span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>}
       primaryAction={<button type="button" onClick={() => void runQuery()} disabled={!context || !question.trim() || running} className="caos-primary-action focus-ring disabled:opacity-40">{running ? "Running…" : "Run Query"}</button>}
       contextualControls={<>{headStat("Lane", lane)}{headStat("History", `${history.length} runs`)}</>}
       utilityLabel="Query utilities"

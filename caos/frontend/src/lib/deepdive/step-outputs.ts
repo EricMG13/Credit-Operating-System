@@ -175,7 +175,7 @@ const O0: Record<string, StepOutput> = {
       ]),
     ]},
     "CP-X:Route Plan Summary": { ref: "REF_CP-X · TX.7", out: "Route plan summary", sections: [
-      X("TX.7 · Summary", "Full run authorized, status READY WITH LIMITATIONS. 21 modules sequenced across 8 waves on route template v2.2; one-owner validation clean; J1 join holds the debate layer until every analytical feeder lands. CP-2F degraded mode is the only scope deviation. Expected wall-clock ≈ 46 minutes at current concurrency."),
+      X("TX.7 · Summary", "Full run authorized, status READY WITH LIMITATIONS. 24 modules sequenced across 8 waves on route template v2.2; one-owner validation clean; J1 join holds the debate layer until every analytical feeder lands. CP-2F degraded mode is the only scope deviation. Expected wall-clock ≈ 46 minutes at current concurrency."),
     ]},
 
     /* ================= CP-1 · FinancialSpreading ================= */
@@ -1599,7 +1599,7 @@ const O3: Record<string, StepOutput> = {
       ]),
     ]},
     "CP-5:Clearance Decision": { ref: "REF_CP-5 · T5.11", out: "Clearance decision", sections: [
-      X("CONDITIONAL", "One HIGH citation defect open; math, legal, market and consistency audits clean across all 21 modules. CP-RENDER and CP-EXTRACT held until remediation R-1 lands; debate verdict stands ex-E-44; no other gating findings. No override path short of remediation."),
+      X("CONDITIONAL", "One HIGH citation defect open; math, legal, market and consistency audits clean across all 24 modules. CP-RENDER and CP-EXTRACT held until remediation R-1 lands; debate verdict stands ex-E-44; no other gating findings. No override path short of remediation."),
     ]},
 
     /* ================= CP-5B · Traceability ================= */

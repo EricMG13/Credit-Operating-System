@@ -321,16 +321,25 @@ function ReportStudio() {
     ? exactReportFreshness
     : derivedFreshness(freshnessRead, reportArtifactId);
 
-  // Auto-fit the sheet on first render (and per report) when it overflows the
-  // scroller — the common 1280px laptop otherwise opens to a clipped page. Only
-  // when the analyst has no remembered manual zoom.
+  // Auto-fit the sheet on first render, per report, AND whenever the preview
+  // column resizes (window resize, rail toggles) — a mount-only fit left the
+  // 980px paper clipped under the lineage rail after any reflow. Only when the
+  // analyst has no remembered manual zoom (reports_flow asserts persistence).
   useEffect(() => {
     if (!hydrated) return;
-    let stored = "";
-    try { stored = localStorage.getItem("caos-e-zoom") || ""; } catch {}
-    if (stored) return; // respect a remembered manual zoom
+    const refit = () => {
+      let stored = "";
+      try { stored = localStorage.getItem("caos-e-zoom") || ""; } catch {}
+      if (stored) return; // respect a remembered manual zoom
+      const el = scrollRef.current;
+      if (el && el.scrollWidth > el.clientWidth) fitToWidth();
+    };
+    refit();
     const el = scrollRef.current;
-    if (el && el.scrollWidth > el.clientWidth) fitToWidth();
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(refit);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [hydrated, rep?.id]);
 
   // Keyboard shortcuts for power users: +/- step zoom, f fits, 1..9 pick a report.
@@ -868,7 +877,10 @@ function ReportStudio() {
 
         <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="report-studio-preview flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex py-7 px-6" style={{ justifyContent: "safe center" }}>
-            {rep ? <div style={{ zoom, "--rd-zoom": zoom } as React.CSSProperties}>
+            {/* visibility gates until the stored/auto-fit zoom has applied —
+                first paint at the 0.85 default then a reflow to the fitted
+                zoom read as a broken intermediate render. */}
+            {rep ? <div style={{ zoom, "--rd-zoom": zoom, visibility: hydrated ? "visible" : "hidden" } as React.CSSProperties}>
               <ReportDoc
                 rep={rep}
                 omit={repOmit}

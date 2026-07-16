@@ -39,7 +39,10 @@ export function ShellIdentity({
           </span>
         </>
       )}
-      {badges}
+      {/* Badges shrink and truncate before the title does — a non-shrinking
+          badge (e.g. a model id) in this no-wrap row otherwise pushes the
+          strip into its overflow-hidden clip at narrow desktop widths. */}
+      {badges ? <span className="flex min-w-0 shrink items-center gap-3 overflow-hidden">{badges}</span> : null}
       {title && (
         <Title
           title={typeof title === "string" ? title : undefined}
