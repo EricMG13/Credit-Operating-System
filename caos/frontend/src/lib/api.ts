@@ -484,55 +484,6 @@ export interface SectorFeed {
   notify_pref: string;
   provenance: string;
 }
-export interface SectorSource {
-  source_type: string;
-  ref: string;
-  title: string;
-  url?: string | null;
-  tier: string;
-  provenance: string;
-}
-export interface SectorIssuer {
-  issuer_id?: string | null;
-  name: string;
-  ticker?: string | null;
-  exposure: string;
-}
-export interface SectorSignal {
-  id: string;
-  sector: string;
-  signal_date: string;
-  category: string;
-  severity: string;
-  headline: string;
-  summary: string;
-  materiality_score: number;
-  issuers: SectorIssuer[];
-  sources: SectorSource[];
-  provenance: string;
-  staleness_flag: string;
-  confidence: string;
-}
-export interface SectorReviewSection {
-  id: string;
-  title: string;
-  posture: string;
-  summary: string;
-  signal_ids: string[];
-}
-export interface SectorReview {
-  sector: string;
-  timeframe: string;
-  as_of: string;
-  posture: string;
-  confidence: string;
-  staleness_flag: string;
-  provenance: string;
-  module_status: string;
-  refresh_trigger: string;
-  sections: SectorReviewSection[];
-  signals: SectorSignal[];
-}
 export const getSectorFeeds = (): Promise<SectorFeed[]> =>
   api.get("/api/sector/feeds").then((r) => r.data);
 export const updateSectorFeeds = (feeds: SectorFeed[]): Promise<SectorFeed[]> =>
