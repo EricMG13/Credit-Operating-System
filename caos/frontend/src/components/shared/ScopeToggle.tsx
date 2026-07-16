@@ -30,7 +30,7 @@ export function ScopeToggle({
             aria-pressed={value === m}
             onClick={() => onChange(m)}
             className={
-              "flex-1 tabular text-caos-md capitalize px-2 py-1.5 rounded border transition-caos focus-ring " +
+              "flex-1 tabular text-caos-sm uppercase tracking-wider px-2 py-1.5 rounded border transition-caos focus-ring " +
               (value === m
                 ? "bg-caos-elevated text-caos-text border-caos-accent"
                 : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")

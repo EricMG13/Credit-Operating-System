@@ -61,8 +61,8 @@ export function RankedChanges() {
   if (offline) {
     return (
       <div className="px-3 py-4 flex items-center gap-2">
-        <ProvenanceChip prov={{ origin: "DEMO", detail: "Autonomy engine unreachable — Watchtower has no data to show." }} />
-        <span className="tabular text-caos-xs text-caos-muted">Watchtower unreachable</span>
+        <ProvenanceChip prov={{ origin: "DEMO", detail: "Autonomy engine unreachable — no draft data to show." }} />
+        <span className="tabular text-caos-xs text-caos-muted">Autonomy engine unreachable</span>
       </div>
     );
   }

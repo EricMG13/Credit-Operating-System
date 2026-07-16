@@ -12,6 +12,7 @@ import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { headStat } from "@/components/shared/headStat";
 import { queryCapabilities, toErrorMessage } from "@/lib/api";
+import { fmtUtcDateTime } from "@/lib/format-date";
 import {
   analysisApi,
   contextHref,
@@ -52,19 +53,19 @@ function datum(run: QueryRun | null, value: React.ReactNode, missing: string[]):
     kind: "partial",
     value,
     missingSources: missing,
-    asOf: run.authority.as_of ?? run.updated_at,
+    asOf: fmtUtcDateTime(run.authority.as_of ?? run.updated_at),
     authority: decisionAuthority(run.authority),
   };
   if (run.status === "observed-empty") return {
     kind: "observed-empty",
     message: "Successful query returned no qualifying observations.",
-    asOf: run.authority.as_of ?? run.updated_at,
+    asOf: fmtUtcDateTime(run.authority.as_of ?? run.updated_at),
     authority: decisionAuthority(run.authority),
   };
   return {
     kind: "ready",
     value,
-    asOf: run.authority.as_of ?? run.updated_at,
+    asOf: fmtUtcDateTime(run.authority.as_of ?? run.updated_at),
     authority: decisionAuthority(run.authority),
   };
 }
@@ -313,11 +314,20 @@ export function QueryInvestigationWorkbench() {
     setPinning(true);
     setPinError(null);
     try {
+      // Title mirrors the on-screen headline chain; the question goes in the
+      // body ONLY when it isn't already the title — otherwise the pinned card
+      // printed the same sentence twice (bold title + muted body).
+      const pinTitle =
+        stringValue(run.result.answer) ??
+        stringValue(run.result.summary) ??
+        stringValue(run.result.synthesis) ??
+        stringValue(run.result.interpretation) ??
+        run.question;
       await analysisApi.createFinding({
         context_id: contextState.context.id,
         kind: "query-answer",
-        title: stringValue(run.result.answer) ?? stringValue(run.result.summary) ?? run.question,
-        body: run.question,
+        title: pinTitle,
+        body: pinTitle === run.question ? "" : run.question,
         source_surface: "query",
         source_run_id: run.id,
         evidence: { source_ids: run.authority.source_ids, result: run.result },

@@ -30,7 +30,7 @@ describe("RankedChanges", () => {
   it("shows an honest OFFLINE state when the endpoint is unreachable — never a fabricated list", async () => {
     getAutonomyDraft.mockRejectedValue(new Error("network error"));
     render(<RankedChanges />);
-    await waitFor(() => expect(screen.getByText("Watchtower unreachable")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Autonomy engine unreachable")).toBeTruthy());
     expect(screen.getByText("DEMO")).toBeTruthy();
   });
 

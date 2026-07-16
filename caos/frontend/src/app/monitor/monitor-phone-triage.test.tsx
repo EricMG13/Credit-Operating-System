@@ -43,7 +43,7 @@ describe("Monitor · phone triage breakpoint gate (G6)", () => {
       removeEventListener: vi.fn(),
     }));
     render(<MonitorPage />);
-    await waitFor(() => expect(screen.getByText("Watchtower unreachable")).toBeTruthy()); // PhoneTriage's offline state
+    await waitFor(() => expect(screen.getByText("Autonomy engine unreachable")).toBeTruthy()); // PhoneTriage's offline state
     expect(screen.queryByText("Email Intelligence · CP-MON intake")).toBeNull();
     expect(screen.queryByText("Governance summary")).toBeNull();
     expect(screen.getByRole("tab", { name: "Email intake" })).toBeTruthy();

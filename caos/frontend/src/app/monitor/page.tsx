@@ -104,9 +104,9 @@ function Monitor() {
     approval: draft?.ratified ? "RATIFIED" as const : "UNRATIFIED" as const,
   } : undefined;
   const monitorUnavailable = autonomyLoading
-    ? { kind: "loading" as const, message: "Checking Watchtower draft…" }
+    ? { kind: "loading" as const, message: "Checking autonomy draft…" }
     : autonomyOffline
-      ? { kind: "offline" as const, lastKnown: "Watchtower endpoint unavailable" }
+      ? { kind: "offline" as const, lastKnown: "Autonomy endpoint unavailable" }
       : { kind: "partial" as const, value: "Draft answered without an observation timestamp", missingSources: ["generated_at"], asOf: "timestamp missing" };
   const monitorDecision: DecisionContextState = draftAsOf
     ? {
@@ -270,7 +270,7 @@ function Monitor() {
           decision={<DecisionHeader state={monitorDecision} />}
           primary={
             <PanelShell
-              title={dataset === "email" ? "Email Intelligence · CP-MON intake" : dataset === "governance" ? "Governance queue · CP-5 / CP-0 / Staleness" : isPhone ? "Alert triage · Watchtower" : "Alert inbox · Watchtower"}
+              title={dataset === "email" ? "Email Intelligence · CP-MON intake" : dataset === "governance" ? "Governance queue · CP-5 / CP-0 / Staleness" : isPhone ? "Alert triage · autonomy routing" : "Alert inbox · autonomy routing"}
               className="min-h-0 h-full"
               right={<div role="tablist" aria-label="Monitor dataset" className="flex items-center gap-1"><button type="button" role="tab" aria-selected={dataset === "alerts"} onClick={() => updateUrlState({ dataset: "alerts" })} className="caos-action-secondary focus-ring">Alerts</button><button type="button" role="tab" aria-selected={dataset === "email"} onClick={() => updateUrlState({ dataset: "email" })} className="caos-action-secondary focus-ring">Email intake</button><button type="button" role="tab" aria-selected={dataset === "governance"} onClick={() => updateUrlState({ dataset: "governance" })} className="caos-action-secondary focus-ring">Governance</button></div>}
             >

@@ -59,7 +59,7 @@ describe("PhoneTriage", () => {
   it("shows an honest offline state, never a fabricated card", async () => {
     getAutonomyDraft.mockRejectedValue(new Error("network error"));
     render(<PhoneTriage />);
-    await waitFor(() => expect(screen.getByText("Watchtower unreachable")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Autonomy engine unreachable")).toBeTruthy());
   });
 
   it("shows an honest empty state on a settled empty draft", async () => {

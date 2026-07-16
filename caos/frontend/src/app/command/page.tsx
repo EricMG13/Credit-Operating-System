@@ -374,7 +374,7 @@ function CommandCenter() {
             decision={<div className="grid gap-2"><DecisionHeader state={commandDecision} />{commandSnapshot && commandSnapshot.position_count > 0 ? <CommandPortfolioPosture counts={commandSnapshot.posture_counts} total={commandSnapshot.position_count} portfolioName={commandSnapshot.portfolio.name} /> : null}</div>}
             primary={
               <PanelShell
-                title={dataset === "changes" ? "Ranked Changes · Watchtower draft" : dataset === "positions" ? "Persisted portfolio · positions" : dataset === "coverage" ? "Live Coverage" : "Governance · CP-5 / CP-0 / Staleness"}
+                title={dataset === "changes" ? "Ranked Changes · autonomy draft" : dataset === "positions" ? "Persisted portfolio · positions" : dataset === "coverage" ? "Live Coverage" : "Governance · CP-5 / CP-0 / Staleness"}
                 className="h-full min-h-0"
                 right={<div role="tablist" aria-label="Command dataset" className="flex items-center gap-1 overflow-x-auto">
                   {([ ["Changes", "changes"], ["Positions", "positions"], ["Live coverage", "coverage"], ["Governance", "governance"] ] as const).map(([label, mode]) => <button key={mode} type="button" role="tab" aria-selected={dataset === mode} onClick={() => updateUrlState({ dataset: mode, selected: null })} className="caos-action-secondary focus-ring whitespace-nowrap">{label}</button>)}

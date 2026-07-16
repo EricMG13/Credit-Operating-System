@@ -20,7 +20,7 @@ import {
 } from "@/lib/analysis-workbench";
 import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
 import { useTypedUrlState } from "@/lib/typed-url-state";
-import { fmtUtcDate } from "@/lib/format-date";
+import { fmtUtcDate, fmtUtcDateTime } from "@/lib/format-date";
 
 const SECTOR_URL_KEYS = ["tab", "section", "compare"] as const;
 
@@ -39,10 +39,11 @@ function decisionAuthority(authority: AuthorityEnvelope): DecisionAuthority {
 function reviewDatum(review: SectorReviewV2 | null, value: React.ReactNode, fallback = "No versioned sector review in this context."): DecisionDatumState {
   if (!review) return { kind: "unavailable", message: fallback };
   const authority = decisionAuthority(review.authority);
-  if (review.status === "partial") return { kind: "partial", value, missingSources: review.missing_dependencies, asOf: review.as_of, authority };
-  if (review.status === "stale") return { kind: "stale", value, asOf: review.as_of, authority };
+  const asOf = fmtUtcDateTime(review.as_of);
+  if (review.status === "partial") return { kind: "partial", value, missingSources: review.missing_dependencies, asOf, authority };
+  if (review.status === "stale") return { kind: "stale", value, asOf, authority };
   if (review.status === "error") return { kind: "error", message: "Sector review failed; the prior version remains available." };
-  return { kind: "ready", value, asOf: review.as_of, authority };
+  return { kind: "ready", value, asOf, authority };
 }
 
 export function SectorReviewDossier() {

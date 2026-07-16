@@ -40,6 +40,7 @@
   /* Elevation — drop shadows consolidated from repeated inline values. */
   --shadow-modal: 0 24px 80px -24px rgba(0, 0, 0, 0.9);
   --shadow-pop: 0 8px 28px -10px rgba(0, 0, 0, 0.8);
+  --caos-scroll-shadow: rgba(0, 0, 0, 0.5);
   --caos-rail-width: 216px;
   --radius-sm: 2px;
   --radius-md: 6px;
@@ -56,6 +57,7 @@
   --paper-ink: #16161e;
   --paper-meta: #45454f;
   --paper-note: #55555f;
+  --paper-rule: #9c998e;
   --paper-rule-strong: #6f6c62;
   --paper-subhead: #44444e;
   --paper-link: #1f4fa0;
@@ -270,8 +272,8 @@ body {
   background:
     linear-gradient(color-mix(in srgb, var(--caos-panel) 90%, var(--caos-bg)) 30%, transparent) center top,
     linear-gradient(transparent, color-mix(in srgb, var(--caos-panel) 90%, var(--caos-bg)) 70%) center bottom,
-    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.5), transparent) center top,
-    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.5), transparent) center bottom;
+    radial-gradient(farthest-side at 50% 0, var(--caos-scroll-shadow), transparent) center top,
+    radial-gradient(farthest-side at 50% 100%, var(--caos-scroll-shadow), transparent) center bottom;
   background-repeat: no-repeat;
   background-size: 100% 24px, 100% 24px, 100% 10px, 100% 10px;
   background-attachment: local, local, scroll, scroll;
@@ -308,6 +310,16 @@ body {
 }
 .caos-rail-group[data-active="true"] > h2 { color: var(--caos-accent); }
 
+/* Action grammar (two deliberate tiers, not drift):
+   1. Page-level actions — .caos-action-primary / .caos-action-secondary:
+      UPPERCASE mono, 10.5px, tracked. Anything in a toolbar, header, or
+      panel chrome that commits or navigates.
+   2. In-row micro-actions (Ack, Open →, Unpin): sentence case, smaller,
+      styled per table. Rows read as data; shouting every cell action would
+      bury the page-level hierarchy the uppercase tier exists to carry.
+   Canonical class names are .caos-action-*; the reversed spellings below are
+   legacy aliases kept only so uncommitted branches don't break — new code
+   must use the canonical pair. */
 .caos-primary-action,
 .caos-secondary-action,
 .caos-action-primary,
@@ -524,7 +536,7 @@ main table:not(.rd-table):not(.rv-table) thead th {
 .rd-h-sub { font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 600; letter-spacing: 0.04em; color: var(--paper-meta); text-transform: none; }
 
 .rd-table { width: 100%; border-collapse: collapse; }
-.rd-table th { font-size: 8px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--paper-meta); text-align: left; padding: 1px 0 3px; border-bottom: 1px solid #9c998e; vertical-align: bottom; line-height: 1.25; white-space: nowrap; }
+.rd-table th { font-size: 8px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--paper-meta); text-align: left; padding: 1px 0 3px; border-bottom: 1px solid var(--paper-rule); vertical-align: bottom; line-height: 1.25; white-space: nowrap; }
 .rd-table td { font-size: 9.3px; padding: 2px 0; vertical-align: top; line-height: 1.45; }
 /* Consistent gap between adjacent columns so a right-aligned number never butts
    against the next column's text; first column stays flush-left, last flush-right. */
@@ -1121,7 +1133,7 @@ button.rd-revert-dot:focus-visible {
 .portfolio-lab__stress button,
 .portfolio-lab__insight button,
 .portfolio-lab__insight-actions button,
-.portfolio-lab__next { padding: 0 10px; cursor: pointer; }
+.portfolio-lab__next { padding: 0 10px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em; }
 .portfolio-lab__toolbar button[aria-selected="true"] { border-color: var(--caos-accent); color: var(--caos-accent); }
 .portfolio-lab button[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
 .portfolio-lab__toolbar label,
@@ -1209,6 +1221,17 @@ button.rd-revert-dot:focus-visible {
 .ic-book button:focus-visible, .ic-book select:focus-visible, .ic-book input:focus-visible, .ic-book textarea:focus-visible { outline: 2px solid var(--caos-accent); outline-offset: 2px; }
 .ic-book button:disabled, .ic-book button[aria-disabled="true"] { cursor: not-allowed; opacity: .4; }
 .ic-book select, .ic-book input, .ic-book textarea { min-height: 34px; padding: 6px 8px; font: 12px/1.4 var(--font-sans), sans-serif; }
+/* Native select arrows are the one UA-drawn glyph left in the dark chrome —
+   replace them with the system caret (muted #a1a1b5, a documented token). */
+.ic-book select,
+.portfolio-lab__toolbar select,
+.portfolio-lab__context select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23a1a1b5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
 .ic-book__toolbar label { color: var(--caos-muted); font: 600 9px/1.2 var(--font-mono), monospace; text-transform: uppercase; letter-spacing: .08em; }
 .ic-book__eyebrow { color: var(--caos-muted); font: 600 10px/1.2 var(--font-mono), monospace; text-transform: uppercase; letter-spacing: .11em; }
 /* Full-border alert (no banned side-stripe accent). */

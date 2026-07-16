@@ -420,7 +420,9 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
         context_id: contextId,
         kind: "global-ask-answer",
         title: graph?.title || queryRun.question,
-        body: queryRun.question,
+        // The question is the body only when it isn't already the title —
+        // otherwise the pinned card prints the same sentence twice.
+        body: graph?.title ? queryRun.question : "",
         source_surface: "global-ask",
         source_run_id: queryRun.id,
         evidence: { result: queryRun.result, source_ids: queryRun.authority.source_ids },

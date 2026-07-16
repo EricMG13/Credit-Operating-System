@@ -45,7 +45,7 @@ describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
 
     // Decision context is visible on arrival for the primary analyst persona.
     const header = await screen.findByLabelText("Decision header");
-    expect(header.textContent).toContain("Watchtower endpoint unavailable");
+    expect(header.textContent).toContain("Autonomy endpoint unavailable");
     expect(header.textContent).not.toContain("No material change");
     expect(header.textContent).not.toContain("No action required");
     expect(screen.getByText("Governance summary")).toBeTruthy();
