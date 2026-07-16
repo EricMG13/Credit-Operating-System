@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BP_TABLET, BP_WIDE } from "./useBreakpoint";
+import { BP_COMPACT_SQUEEZE, BP_TABLET, BP_WIDE } from "./useBreakpoint";
 
 const css = readFileSync(join(__dirname, "../app/globals.css"), "utf8");
 
@@ -18,6 +18,11 @@ describe("shell breakpoint contract (globals.css ↔ useBreakpoint)", () => {
     expect(css).toContain(`@media (max-width: ${BP_WIDE - 1}px)`);
     expect(css).toContain(`@media (max-width: ${BP_TABLET - 1}px)`);
     expect(css).toContain(".caos-concept-chips { display: none; }");
+  });
+
+  it("collapses the inline View toggle exactly below the squeeze cutoff", () => {
+    expect(css).toContain(`@media (max-width: ${BP_COMPACT_SQUEEZE - 1}px)`);
+    expect(css).toContain(".caos-compact-view { display: none; }");
   });
 
   it("retires the old 1180px rail cutoff entirely", () => {

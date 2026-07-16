@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, model_validator
 from pydantic_core import PydanticCustomError
 from sqlalchemy import and_, or_, select
@@ -431,6 +431,7 @@ async def get_taxonomy(
 @router.post("/contexts", response_model=AnalysisContext, status_code=status.HTTP_201_CREATED)
 async def create_context(
     body: ContextCreate,
+    response: Response,
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_write_identity),
 ):
@@ -439,6 +440,36 @@ async def create_context(
     sector_id = canonical_sector_id(body.sector_id)
     if body.sector_id and sector_id is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector taxonomy value.")
+    # A bare create (name + optional sector, nothing else) is every surface's
+    # mount-time default. Find-or-create: reuse the analyst's newest matching
+    # context instead of inserting a duplicate row per visit — a 17-route
+    # session otherwise litters dozens of identical contexts AND burns the
+    # 45-writes/min budget on pure navigation. Any explicit scoping (issuers,
+    # instruments, portfolio, artifacts, filters…) still creates fresh.
+    bare = (
+        not body.sub_segments
+        and not body.issuer_ids
+        and not body.instrument_ids
+        and body.portfolio_scope is None
+        and body.as_of is None
+        and not body.artifacts.model_dump(exclude_none=True)
+        and not body.filters
+        and not body.selected
+    )
+    if bare:
+        existing = (await db.execute(
+            select(AnalysisContextRecord)
+            .where(
+                AnalysisContextRecord.analyst_id == caller.id,
+                AnalysisContextRecord.name == body.name,
+                AnalysisContextRecord.sector_id == sector_id,
+            )
+            .order_by(AnalysisContextRecord.updated_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        if existing is not None:
+            response.status_code = status.HTTP_200_OK
+            return _context(existing)
     await _validate_context_subjects(
         db, issuer_ids=body.issuer_ids, instrument_ids=body.instrument_ids, caller=caller
     )

@@ -15,6 +15,10 @@ import { useEffect, useState } from "react";
 export type Breakpoint = "wide" | "desktop" | "tablet" | "mobile";
 
 export const BP_WIDE = 1280;
+// Compact-band squeeze: below this the inline View toggle collapses into the
+// Concepts drawer (globals.css .caos-compact-view). CSS-only cutoff — named
+// here so breakpoints.contract.test.ts pins the two in lockstep.
+export const BP_COMPACT_SQUEEZE = 1150;
 export const BP_DESKTOP = 1024;
 export const BP_TABLET = 768;
 

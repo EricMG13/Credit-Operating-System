@@ -147,6 +147,13 @@ body {
 @media (max-width: 1279px) {
   .caos-compact-nav { display: flex; }
 }
+/* Squeeze cutoff: below 1150px the compact band can't hold the inline View
+   toggle beside a page tag + title without painting over them — the toggle
+   collapses out here and rides inside the Concepts drawer instead
+   (ConceptNav.tsx). Keep in lockstep with breakpoints.contract.test.ts. */
+@media (max-width: 1149px) {
+  .caos-compact-view { display: none; }
+}
 
 @media (max-width: 767px) {
   .caos-concept-chips { display: none; }
@@ -580,7 +587,10 @@ main table:not(.rd-table):not(.rv-table) thead th {
 .rd-prow.rd-b { font-weight: 650; border-top: 1px solid #8e8c80; }
 
 .rd-subhead { font-size: 8.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-subhead); margin: 2px 0 3px; }
-.rd-body { font-size: 9.4px; line-height: 1.62; margin: 0; text-wrap: pretty; }
+/* Body measure capped — full-width 980px prose ran ~160 chars/line, far past
+   the readable band; the cap holds the column while tables/charts keep the
+   full sheet width. */
+.rd-body { font-size: 9.4px; line-height: 1.62; margin: 0; text-wrap: pretty; max-width: 72ch; }
 .rd-lblock { font-size: 9.2px; line-height: 1.55; margin-top: 6px; }
 .rd-lblock-l { font-weight: 650; }
 

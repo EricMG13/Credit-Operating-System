@@ -481,3 +481,36 @@ def test_model_checkpoint_is_immutable_owned_and_restorable():
         assert client.post(f"/api/models/checkpoints/{checkpoint_body['id']}/restore", json={}).status_code == 404
 
     app.dependency_overrides.clear()
+
+
+def test_bare_context_create_finds_or_creates_per_analyst():
+    """A bare create (name + optional sector only) reuses the analyst's newest
+    matching context (200) instead of inserting a duplicate per visit; any
+    explicit scoping still creates fresh (201), and reuse never crosses
+    analysts."""
+    from identity import get_identity
+    from main import app
+
+    with TestClient(app) as client:
+        app.dependency_overrides[get_identity] = _identity("ctx-reuse-a")
+        first = client.post("/api/analysis/contexts", json={"name": "Portfolio command"})
+        assert first.status_code == 201, first.text
+        second = client.post("/api/analysis/contexts", json={"name": "Portfolio command"})
+        assert second.status_code == 200, second.text
+        assert second.json()["id"] == first.json()["id"]
+
+        # Explicit scoping is never coalesced.
+        scoped = client.post("/api/analysis/contexts", json={
+            "name": "Portfolio command",
+            "filters": {"rating": "B"},
+        })
+        assert scoped.status_code == 201, scoped.text
+        assert scoped.json()["id"] != first.json()["id"]
+
+        # A different analyst with the same surface name gets their own row.
+        app.dependency_overrides[get_identity] = _identity("ctx-reuse-b")
+        other = client.post("/api/analysis/contexts", json={"name": "Portfolio command"})
+        assert other.status_code == 201, other.text
+        assert other.json()["id"] != first.json()["id"]
+
+    app.dependency_overrides.clear()

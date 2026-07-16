@@ -375,7 +375,9 @@ def test_malformed_non_string_kind_is_ordinary_422_on_create_and_patch(ref: dict
     with TestClient(app) as client:
         app.dependency_overrides[get_identity] = _identity("lineage-kind-malformed")
         context = client.post("/api/analysis/contexts", json={"name": "Malformed kind"})
-        assert context.status_code == 201, context.text
+        # Bare creates find-or-create: the first param sees 201, later params
+        # reuse the same analyst's context with 200 — either provides the row.
+        assert context.status_code in (200, 201), context.text
         context_id = context.json()["id"]
         for method, path in (
             (client.post, "/api/analysis/contexts"),

@@ -33,6 +33,9 @@ function ConceptsDrawer({
   const [open, setOpen] = useState(false);
   return (
     <MoreDrawer open={open} onOpenChange={setOpen} triggerLabel="Concepts" align="left">
+      <div className="border-b border-caos-border/60 px-2 pb-2">
+        <RoleViewSwitch />
+      </div>
       <nav aria-label="All concepts" className="flex max-h-[70vh] flex-col gap-1 overflow-y-auto">
         {NAV_GROUPS.map((g) => (
           <section key={g.id} aria-label={g.label}>
@@ -248,9 +251,15 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         <span className={compact ? (settingsActive ? "inline" : "hidden") : "inline"}>Settings</span>
       </Link>
       </span>
-      {/* Role view (Analyst/PM/QA) — persistent, secondary; presentation only. */}
-      <span className="h-4 w-px bg-caos-border mx-0.5" />
-      <RoleViewSwitch />
+      {/* Role view (Analyst/PM/QA) — persistent, secondary; presentation
+          only. Below the squeeze cutoff the inline toggle collapses out
+          (globals.css .caos-compact-view) — its non-shrinking width painted
+          over the page tag/title at ~1100px — and the same switch renders
+          inside the Concepts drawer instead. */}
+      <span className="caos-compact-view flex items-center gap-1">
+        <span className="h-4 w-px bg-caos-border mx-0.5" />
+        <RoleViewSwitch />
+      </span>
       {/* Signed-in analyst initials — to the right of the nav on every page. */}
       <span className="h-4 w-px bg-caos-border mx-0.5" />
       <AnalystBadge />
