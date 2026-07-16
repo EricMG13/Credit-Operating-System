@@ -109,6 +109,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const invalidateAndRefresh = useCallback((clearImmediately = true) => {
+    // Nothing authenticated is mounted yet (e.g. still on the login form, or
+    // still loading) — there is no prior principal's state to tear down, so
+    // skip the destructive remount below and just quietly re-check. Doing the
+    // full reset here would flip the Fragment key (needs-login -> anonymous
+    // -> needs-login) on every visibilitychange/storage event and wipe
+    // LoginLanding's in-progress form fields and any just-set submit error.
+    if (!userRef.current) {
+      void refresh(clearImmediately);
+      return;
+    }
     // A 401 or a cross-tab principal-marker change is already evidence that
     // the mounted workspace belongs to a principal that is no longer current.
     // Tear it down synchronously; waiting for the /me round-trip would leave

@@ -108,6 +108,32 @@ describe("AuthProvider — mid-session identity loss (SEAM4-1)", () => {
     expect(screen.queryByText("Eric Gub")).toBeNull();
   });
 
+  it("does not remount the login form on a visibilitychange while still unauthenticated", async () => {
+    const loginFormUnmounted = vi.fn();
+    function LoginFormProbe() {
+      useEffect(() => () => { loginFormUnmounted(); }, []);
+      const { needsLogin, loading } = useAuth();
+      if (loading) return <div>loading</div>;
+      if (needsLogin) return <div>login-landing</div>;
+      return <div>none</div>;
+    }
+    mockGetMe.mockRejectedValue({ isAxiosError: true, response: { status: 401 } });
+    render(<AuthProvider><LoginFormProbe /></AuthProvider>);
+    expect(await screen.findByText("login-landing")).toBeTruthy();
+    const callsBeforeVisibility = mockGetMe.mock.calls.length;
+    const unmountsBeforeVisibility = loginFormUnmounted.mock.calls.length;
+
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+
+    // Still resolves via a quiet refresh...
+    expect(mockGetMe.mock.calls.length).toBeGreaterThan(callsBeforeVisibility);
+    // ...but never tears down the mounted login form (no forced anonymous
+    // interstitial in between), which would otherwise wipe any in-progress
+    // form fields or a just-set submit error.
+    expect(loginFormUnmounted.mock.calls.length).toBe(unmountsBeforeVisibility);
+    expect(screen.getByText("login-landing")).toBeTruthy();
+  });
+
   it("refreshes when another tab changes the principal marker", async () => {
     let resolveSecond!: (value: typeof PROFILE_B) => void;
     const oldWorkspaceUnmounted = vi.fn();
