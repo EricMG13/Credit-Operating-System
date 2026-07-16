@@ -376,6 +376,21 @@ export function QueryInvestigationWorkbench() {
   // The RoleViewSwitch in the compact header already shows the active view —
   // repeating it here was the double "View:" the critique flagged.
   const narrow = { essentialControls: null };
+  // One composer, two homes: the dominant region pre-run, the context rail
+  // once results exist.
+  const composer = (
+    <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">Selected lane</span>
+        {(["metric", "graph", "grounded"] as const).map((value) => <button key={value} type="button" aria-pressed={lane === value} onClick={() => { setLane(value); setManualLane(true); }} className={`caos-action-secondary focus-ring ${lane === value ? "border-caos-accent text-caos-text" : ""}`}>{value}</button>)}
+        {manualLane ? <button type="button" className="tabular text-caos-2xs text-caos-accent focus-ring" onClick={() => { setManualLane(false); setLane(inferLane(question)); }}>Use suggested lane</button> : null}
+      </div>
+      <textarea aria-label="Query coverage" value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring" />
+      {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <button type="button" key={starter} aria-pressed={question === starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</button>)}</div> : null}
+      {capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {capabilityError}</p> : null}
+      {runError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{runError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void runQuery()}>Retry query</button></p> : null}
+    </section>
+  );
   return (
     <EnterprisePage
       kind="analytical"
@@ -391,18 +406,20 @@ export function QueryInvestigationWorkbench() {
         <PersonaWorkbench
           surface="query"
           decision={<DecisionHeader state={decisionState} defaultOpen={!!run} />}
-          context={<section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">Selected lane</span>
-            {(["metric", "graph", "grounded"] as const).map((value) => <button key={value} type="button" aria-pressed={lane === value} onClick={() => { setLane(value); setManualLane(true); }} className={`caos-action-secondary focus-ring ${lane === value ? "border-caos-accent text-caos-text" : ""}`}>{value}</button>)}
-            {manualLane ? <button type="button" className="tabular text-caos-2xs text-caos-accent focus-ring" onClick={() => { setManualLane(false); setLane(inferLane(question)); }}>Use suggested lane</button> : null}
-          </div>
-          <textarea aria-label="Query coverage" value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring" />
-          {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <button type="button" key={starter} aria-pressed={question === starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</button>)}</div> : null}
-          {capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {capabilityError}</p> : null}
-          {runError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{runError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void runQuery()}>Retry query</button></p> : null}
-        </section>}
-          primary={<section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{run && resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} /></DominantTableRegion> : <QueryResult run={run} />}</section>}
+          context={run ? composer : <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer note"><p className="text-caos-xs leading-relaxed text-caos-muted">The composer is front and center until the first run; results take over this workspace and follow-up questions move here.</p></section>}
+          primary={run
+            ? <section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} /></DominantTableRegion> : <QueryResult run={run} />}</section>
+            : <section className="min-h-0 h-full overflow-auto border border-caos-border grid place-items-center p-6" aria-label="Query answer">
+              {/* Pre-run, the question IS the work — the composer owns the
+                  dominant region instead of a blank canvas dwarfing a
+                  sidebar-width input (2026-07-16 critique H8). */}
+              <div className="w-full max-w-2xl text-center">
+                <p className="tabular text-caos-xs uppercase tracking-widest text-caos-accent">Investigation ready</p>
+                <h2 className="mt-2 text-lg font-semibold text-caos-text">Ask one cross-coverage question.</h2>
+                <p className="mt-2 text-caos-sm leading-relaxed text-caos-muted">The lane is declared before execution. No graph, model overlay or report is generated until you run it.</p>
+                <div className="mt-5 text-left">{composer}</div>
+              </div>
+            </section>}
           inspector={<aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50 p-3" aria-label="Query evidence inspector">
             <div className="flex items-center gap-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Evidence inspector</h2>{run ? <ActionReason
               reason={!["ready", "observed-empty"].includes(run.status)

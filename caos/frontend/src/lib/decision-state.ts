@@ -5,7 +5,10 @@ export type ApprovalState = "UNRATIFIED" | "RATIFIED" | "CONDITIONAL" | "DRAFT";
 
 export interface DecisionAuthority {
   provenance: Provenance;
-  approval?: ApprovalState;
+  /** undefined = default (UNRATIFIED chip). null = there is no conclusion to
+   * approve (observed-empty states) — the approval chip is suppressed rather
+   * than stamping UNRATIFIED on nothing. */
+  approval?: ApprovalState | null;
 }
 
 interface TimestampedState {
