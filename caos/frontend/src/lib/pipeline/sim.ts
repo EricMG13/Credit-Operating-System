@@ -8,6 +8,21 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { SIM_PLAN, type PlanStep } from "./data";
 import { type Sim, initSim, simClock, stepSim } from "./sim-engine";
 
+// The one module-count rule for a route plan. Terminal bookkeeping steps
+// (outcome "idle", e.g. the CP-DB commit) never reach a graded outcome, so
+// they are excluded from BOTH the total and the in-scope figure — previously
+// the worklist filtered them ("24/24 modules") while the inspector counted
+// the raw plan ("25 modules in scope"), and the two contradicted on screen.
+export function planCounts(plan: PlanStep[], mods?: Sim["mods"]) {
+  const graded = plan.filter((m) => m.outcome !== "idle");
+  return {
+    total: graded.length,
+    completed: mods
+      ? graded.filter((m) => ["pass", "warning", "held"].includes(mods[m.id]?.state)).length
+      : 0,
+  };
+}
+
 export interface SimRun {
   sim: Sim;
   playing: boolean;
@@ -58,11 +73,11 @@ export function useSimRun({
   }, [playing, speed, sim.done, plan, complete, tickMs]);
 
   const reset = useCallback(() => { setSim(initSim(plan)); setPlaying(true); }, [plan]);
-  const completed = plan.filter((m) => ["pass", "warning", "held"].includes(sim.mods[m.id]?.state)).length;
+  const counts = planCounts(plan, sim.mods);
   return {
     sim, playing, setPlaying, speed, setSpeed, reset,
-    clock: simClock(sim.tick), completed,
-    total: plan.filter((m) => m.outcome !== "idle").length,
+    clock: simClock(sim.tick), completed: counts.completed,
+    total: counts.total,
   };
 }
 
@@ -135,10 +150,10 @@ export function useSharedDayRun(): SimRun {
   }, []);
 
   const { sim, playing, speed } = state;
-  const completed = SIM_PLAN.filter((m) => ["pass", "warning", "held"].includes(sim.mods[m.id]?.state)).length;
+  const counts = planCounts(SIM_PLAN, sim.mods);
   return {
     sim, playing, setPlaying, speed, setSpeed, reset,
-    clock: simClock(sim.tick), completed,
-    total: SIM_PLAN.filter((m) => m.outcome !== "idle").length,
+    clock: simClock(sim.tick), completed: counts.completed,
+    total: counts.total,
   };
 }

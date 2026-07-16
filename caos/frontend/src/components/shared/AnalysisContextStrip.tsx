@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { analysisApi, type AnalysisContext, type Finding } from "@/lib/analysis-workbench";
+import { activeFindings, analysisApi, type AnalysisContext, type Finding } from "@/lib/analysis-workbench";
 
 /** Compact cross-route continuity bar. It appears only when a `?context=`
  * handoff is active; ownership is re-checked by both APIs on every route. */
@@ -15,7 +15,7 @@ export function AnalysisContextStrip() {
       setUnavailable(false);
       Promise.all([analysisApi.getContext(id), analysisApi.listFindings(id)])
         .then(([nextContext, nextFindings]) => {
-          if (!cancelled) { setContext(nextContext); setFindings(nextFindings); }
+          if (!cancelled) { setContext(nextContext); setFindings(activeFindings(nextFindings)); }
         })
         .catch(() => { if (!cancelled) setUnavailable(true); });
     };

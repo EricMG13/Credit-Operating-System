@@ -356,6 +356,17 @@ body {
   cursor: not-allowed;
 }
 
+/* The visible half of the disabled-with-reason convention (ActionReason.tsx):
+   a title alone never reaches sighted keyboard or touch users, so the same
+   reason renders as an adjacent muted line wherever layout allows. */
+.caos-action-reason {
+  display: block;
+  font-size: 10px;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  color: var(--caos-muted);
+}
+
 html,
 body,
 main#main-content {

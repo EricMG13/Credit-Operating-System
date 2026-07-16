@@ -9,10 +9,13 @@ import {
   NODE_LIMITS, NODE_QA, NODE_REQS, SIM_PLAN, type Driver, type PlanStep,
 } from "@/lib/pipeline/data";
 import { type Sim, type SimEvent } from "@/lib/pipeline/sim-engine";
+import { planCounts } from "@/lib/pipeline/sim";
 import { sevVar } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Bar, Dot, Tag } from "./atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { OutSections } from "@/components/deepdive/OutSections";
+import type { ModuleOutput } from "@/lib/deepdive/module-outputs";
 
 const COL_ORDER = ["L0", "ORCH", "L1", "L2", "L3", "L4", "L6", "L5", "INFRA"];
 
@@ -295,7 +298,7 @@ export function Inspector({
         <h2 className="text-caos-text font-medium mb-2 text-balance">Module Inspector</h2>
         Select a module in the route graph or swimlanes to trace its <span style={{ color: "var(--caos-accent)" }}>upstream data lineage</span>, review <span style={{ color: "var(--caos-consumer)" }}>downstream consumers</span>, inspect execution payload logs, and view QA findings or limitations.
         <div className="mt-3 tabular text-caos-sm text-caos-muted">
-          {modeLabel} route · {scope.size} modules in scope.
+          {modeLabel} route · {planCounts(plan).total} modules in scope.
         </div>
       </div>
     );

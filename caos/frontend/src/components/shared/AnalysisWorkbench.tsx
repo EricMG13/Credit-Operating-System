@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { analysisApi, type AuthorityEnvelope, type Finding } from "@/lib/analysis-workbench";
+import { activeFindings, analysisApi, type AuthorityEnvelope, type Finding } from "@/lib/analysis-workbench";
 import { fmtUtcDateTime } from "@/lib/format-date";
 
 export function AnalysisStateBadge({ state }: { state: string }) {
@@ -32,13 +32,21 @@ export function AuthorityLine({ authority }: { authority: AuthorityEnvelope }) {
 export function FindingsTray({ contextId, refreshKey = 0 }: { contextId: string; refreshKey?: number }) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [unpinError, setUnpinError] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     analysisApi.listFindings(contextId)
-      .then((rows) => { if (!cancelled) setFindings(rows); })
+      .then((rows) => { if (!cancelled) setFindings(activeFindings(rows)); })
       .catch(() => { if (!cancelled) setError("Findings unavailable"); });
     return () => { cancelled = true; };
   }, [contextId, refreshKey]);
+
+  const unpin = (id: string) => {
+    setUnpinError(null);
+    analysisApi.archiveFinding(id)
+      .then(() => setFindings((rows) => rows.filter((finding) => finding.id !== id)))
+      .catch(() => setUnpinError("Unpin failed — the finding is unchanged. Retry."));
+  };
 
   return (
     <section className="border border-caos-border rounded-md bg-caos-panel min-h-0 flex flex-col" aria-label="Findings tray">
@@ -48,6 +56,7 @@ export function FindingsTray({ contextId, refreshKey = 0 }: { contextId: string;
       </div>
       <div className="min-h-0 overflow-auto p-2">
         {error ? <p className="text-caos-xs text-caos-critical">{error}</p> : null}
+        {unpinError ? <p role="alert" className="p-2 text-caos-xs text-caos-critical">{unpinError}</p> : null}
         {!error && !findings.length ? <p className="p-2 text-caos-xs text-caos-muted">Pin a cited answer, sector risk or RV pitch once; downstream surfaces consume the same finding.</p> : null}
         <ol className="space-y-1">
           {findings.map((finding) => (
@@ -55,6 +64,14 @@ export function FindingsTray({ contextId, refreshKey = 0 }: { contextId: string;
               <div className="flex items-center gap-2">
                 <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent">{finding.source_surface}</span>
                 <span className="ml-auto tabular text-caos-2xs uppercase text-caos-muted">{finding.status}</span>
+                <button
+                  type="button"
+                  onClick={() => unpin(finding.id)}
+                  className="tabular text-caos-2xs text-caos-muted underline-offset-2 hover:text-caos-text hover:underline transition-caos focus-ring"
+                  aria-label={`Unpin finding: ${finding.title}`}
+                >
+                  Unpin
+                </button>
               </div>
               <p className="mt-1 text-caos-xs font-semibold text-caos-text">{finding.title}</p>
               {finding.body ? <p className="mt-1 text-caos-xs leading-relaxed text-caos-muted line-clamp-3">{finding.body}</p> : null}

@@ -337,6 +337,11 @@ export const analysisApi = {
     source_run_id: string;
     evidence?: Record<string, unknown>;
   }) => api.post<Finding>("/api/analysis/findings", body).then((response) => response.data),
+  // Unpin = archive, not delete: the register keeps the row (audit trail) but
+  // every tray/count reads findings through activeFindings() so an archived
+  // finding disappears from downstream surfaces.
+  archiveFinding: (id: string) =>
+    api.patch<Finding>(`/api/analysis/findings/${id}`, { status: "archived" }).then((response) => response.data),
   createQueryRun: (body: {
     context_id: string;
     question: string;
@@ -393,6 +398,12 @@ export const analysisApi = {
   ratifyRVCandidate: (runId: string, candidateId: string, analystOverride?: string) =>
     api.post<RVScreenRun>(`/api/rv/screens/${runId}/ratifications`, { candidate_id: candidateId, analyst_override: analystOverride }).then((response) => response.data),
 };
+
+/** The one read-side filter for pinned findings: archived rows stay in the
+ * register for audit but never render in trays or counts. */
+export function activeFindings(rows: Finding[]): Finding[] {
+  return rows.filter((finding) => finding.status !== "archived");
+}
 
 export function contextHref(path: string, contextId: string, params: Record<string, string> = {}) {
   const search = new URLSearchParams({ context: contextId, ...params });
