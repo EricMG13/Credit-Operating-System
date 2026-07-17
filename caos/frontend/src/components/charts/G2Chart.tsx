@@ -143,6 +143,13 @@ export function G2Chart({
         const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
         chart.options({
           theme: CAOS_G2_THEMES[mode] || CAOS_G2_THEMES.dark,
+          // Enter animation draws through rAF; an occluded/backgrounded pane
+          // starves rAF and freezes marks mid-flight — intervals at correct
+          // offsets but a fraction of their extent, labels already at final
+          // positions (the 2026-07-16 "seniority stack scattered on paper"
+          // read). Default off so every painted frame is final geometry; a
+          // spec may opt back in, and reduced-motion still hard-disables.
+          animate: false,
           ...normalized,
           ...(reduceMotion ? { animate: false } : {}),
           tooltip: {

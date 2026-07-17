@@ -106,44 +106,41 @@ function seniorityStackChart(
     sourceIds: ["CP-3B:T3B.2", "E-63"],
     accessibleSummary: `The stack comprises $${rcf}M RCF, $${tlb}M first-lien term loan, $${ssn}M second-lien term loan, $${sub}M subordinated notes, and $${equity}M implied equity.`,
     columns: [{ key: "cls", label: "Claim" }, { key: "v", label: "$M" }],
-    h: 108,
-    // One horizontal bar per tranche (seniority order top→bottom) rather than
-    // a single-band stacked interval: under transpose this G2 build renders a
-    // stacked segment at its cumulative offset but at a fraction of its
-    // extent, scattering the tranches — and their light contrast-reversed
-    // labels — loose across the cream paper. Category bars are the idiom the
-    // model tornado and recovery charts already render correctly.
+    h: 52,
+    // Single stacked band, seniority left→right. (An earlier per-tranche-bar
+    // workaround here mis-blamed this G2 build's transpose: the measured
+    // "correct offset, fraction of extent" renders were G2's enter animation
+    // frozen by rAF starvation in an occluded pane. G2Chart now defaults
+    // animate:false, so the band paints its final geometry on frame one.)
     spec: {
       type: "interval",
       data: [
-        { cls: "RCF (drawn)", v: rcf },
-        { cls: "1L Term Loan B", v: tlb },
-        { cls: "2L TL '31 (subject)", v: ssn },
-        { cls: "Sub Notes '32", v: sub },
-        { cls: "Implied equity @ 9.5x", v: equity },
+        { slot: "stack", cls: "RCF (drawn)", v: rcf },
+        { slot: "stack", cls: "1L Term Loan B", v: tlb },
+        { slot: "stack", cls: "2L TL '31 (subject)", v: ssn },
+        { slot: "stack", cls: "Sub Notes '32", v: sub },
+        { slot: "stack", cls: "Implied equity @ 9.5x", v: equity },
       ],
-      encode: { x: "cls", y: "v", color: "cls" },
+      encode: { x: "slot", y: "v", color: "cls" },
+      transform: [{ type: "stackY" }],
       coordinate: { transform: [{ type: "transpose" }] },
-      axis: { y: false, x: { title: false, tick: false } },
+      axis: false,
       legend: false,
       scale: {
-        x: { domain: ["RCF (drawn)", "1L Term Loan B", "2L TL '31 (subject)", "Sub Notes '32", "Implied equity @ 9.5x"] },
-        // Pin the value domain to the data: the runtime otherwise inflates it
-        // and every bar renders at a fraction of the plot width.
-        y: { domain: [0, Math.max(rcf, tlb, ssn, sub, equity) * 1.05], nice: false },
         color: {
           domain: ["RCF (drawn)", "1L Term Loan B", "2L TL '31 (subject)", "Sub Notes '32", "Implied equity @ 9.5x"],
           range: ["#0f766e", "#0d9488", "#2563eb", "#7c3aed", "#94a3b8"],
         },
       },
-      // Values label inside the bar where they fit; short tranches hide via
-      // overflowHide and stay covered by the ink caption + equivalence table.
+      // Name + value label inside each segment where it fits; thin tranches
+      // hide via overflow/overlap hiding and stay covered by the ink caption
+      // + equivalence table.
       labels: [{
-        text: (d: { v: number }) => d.v.toLocaleString(),
+        text: (d: { cls: string; v: number }) => d.cls.split(" ")[0] + " " + d.v.toLocaleString(),
         position: "inside",
         fontSize: 10,
         fontWeight: 600,
-        transform: [{ type: "contrastReverse" }, { type: "overflowHide" }],
+        transform: [{ type: "contrastReverse" }, { type: "overflowHide" }, { type: "overlapHide" }],
       }],
     },
   };
