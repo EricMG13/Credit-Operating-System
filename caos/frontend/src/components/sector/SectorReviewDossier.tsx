@@ -67,6 +67,7 @@ export function SectorReviewDossier() {
   const compareVersion = urlState.compare ?? "";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ratifyAllArmed, setRatifyAllArmed] = useState(false);
 
   useEffect(() => {
     analysisApi.getTaxonomy().then(setTaxonomy).catch(() => setTaxonomy([]));
@@ -119,7 +120,7 @@ export function SectorReviewDossier() {
     try {
       setReview(await analysisApi.ratifySectorReview(
         review.id,
-        review.sections.map((section) => ({ section_id: section.id, decision: "ratified" as const })),
+        review.sections.filter((section) => review.ratifications[section.id] !== "ratified").map((section) => ({ section_id: section.id, decision: "ratified" as const })),
       ));
     } catch (reason) {
       setError(toErrorMessage(reason, "Review ratification failed."));
@@ -154,6 +155,9 @@ export function SectorReviewDossier() {
 
   const selected = review?.sections.find((section) => section.id === selectedSection) ?? review?.sections[0] ?? null;
   const compare = history.find((item) => item.id === compareVersion) ?? null;
+  const ratifiableSections = review?.sections.filter((section) => review.ratifications[section.id] !== "ratified") ?? [];
+  const ratificationScope = ratifiableSections.map((section) => section.title).join(" · ");
+  useEffect(() => { setRatifyAllArmed(false); }, [review?.id, ratificationScope]);
   const decisionState: DecisionContextState = {
     whatChanged: reviewDatum(review, review?.what_changed, "No change observation — no versioned review in this context.", reviewLoading),
     whyItMatters: reviewDatum(review, review?.why_it_matters, "No impact assessment yet — run a review to establish one.", reviewLoading),
@@ -165,17 +169,19 @@ export function SectorReviewDossier() {
     ? <button type="button" data-page-primary-action onClick={() => void requestRefresh()} disabled={!context || busy} className="caos-action-primary focus-ring disabled:opacity-40">{busy ? "Refreshing…" : "Request refresh"}</button>
     : review.authority.approval_state === "ratified"
       ? <button type="button" data-page-primary-action onClick={() => void publish()} disabled={busy} className="caos-action-primary focus-ring disabled:opacity-40">Publish review</button>
-      : <button type="button" data-page-primary-action onClick={() => void ratifyAll()} disabled={busy} className="caos-action-primary focus-ring disabled:opacity-40">Ratify updates</button>;
+      : ratifyAllArmed
+        ? <button type="button" data-page-primary-action onClick={() => void ratifyAll()} disabled={busy || ratifiableSections.length === 0} className="caos-action-primary focus-ring disabled:opacity-40">Confirm ratify {ratifiableSections.length} section{ratifiableSections.length === 1 ? "" : "s"}</button>
+        : <button type="button" data-page-primary-action onClick={() => setRatifyAllArmed(true)} disabled={busy || ratifiableSections.length === 0} className="caos-action-primary focus-ring disabled:opacity-40">Ratify updates</button>;
 
   return (
     <EnterprisePage
       kind="analytical"
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text">Sector Review</span>{review ? <span className="tabular text-caos-2xs text-caos-muted">{review.sector_label} · v{review.version}</span> : null}</>}
       status={<span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>}
-      contextualControls={<>{headStat("Sector", review?.sector_label ?? context?.sector_id ?? "—")}{headStat("Versions", String(history.length))}{headStat("Approval", review?.authority.approval_state ?? "—")}</>}
+      contextualControls={<>{headStat("Sector", review?.sector_label ?? context?.sector_id ?? "—")}{headStat("Posture", review?.posture ?? "—")}{headStat("Versions", String(history.length))}{headStat("Approval", review?.authority.approval_state ?? "—")}</>}
       utilityLabel="Review utilities"
       utilityControls={<div className="space-y-4"><p className="text-caos-xs text-caos-muted">The global role control changes emphasis only. PM opens posture; QA opens sources and ratification health. Permissions are unchanged.</p><div><label className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Compare version<select value={compareVersion} onChange={(event) => updateUrlState({ compare: event.target.value || null })} className="mt-2 block w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring"><option value="">None</option>{history.filter((item) => item.id !== review?.id).map((item) => <option value={item.id} key={item.id}>v{item.version} · {fmtUtcDate(item.as_of)}</option>)}</select></label>{compare && review ? <p className="mt-2 text-caos-xs text-caos-muted">v{compare.version} {compare.posture} → v{review.version} {review.posture}. Source count {compare.source_register.length} → {review.source_register.length}.</p> : null}</div></div>}
-      finalizationBar={<>{error ? <span className="mr-auto text-caos-xs text-caos-critical" role="alert">{error}</span> : <span className="mr-auto tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{review ? `${review.status} · ${review.missing_dependencies.length} dependency gaps` : "No draft"}</span>}{context ? <><Link href={contextHref("/sector-rv", context.id)} className="caos-action-secondary focus-ring no-underline">Open sector in RV</Link><Link href={contextHref("/query", context.id)} className="caos-action-secondary focus-ring no-underline">Investigate in Query</Link></> : null}{finalAction}</>}
+      finalizationBar={<>{error ? <span className="mr-auto text-caos-xs text-caos-critical" role="alert">{error}</span> : ratifyAllArmed ? <span className="mr-auto text-caos-xs text-caos-warning">Confirm ratification scope · {ratificationScope}</span> : <span className="mr-auto tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{review ? `${review.status} · ${review.missing_dependencies.length} dependency gaps` : "No draft"}</span>}{context ? <><Link href={contextHref("/sector-rv", context.id)} className="caos-action-secondary focus-ring no-underline">Open sector in RV</Link><Link href={contextHref("/query", context.id)} className="caos-action-secondary focus-ring no-underline">Investigate in Query</Link></> : null}{finalAction}</>}
       narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">{review?.sector_label ?? "Sector"}</span> }}
     >
       <main className="caos-persona-route sector-workbench min-h-0 flex-1 overflow-hidden p-2">

@@ -6,7 +6,8 @@ import base64
 import hashlib
 import hmac
 import json
-from datetime import date, datetime, timezone
+from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -17,8 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import get_settings
 from database import (
     AnalysisContextRecord,
+    AnalystOpinionVersion,
     Claim,
     CommitteeAgendaItem,
+    CommitteeEvidenceException,
     Decision,
     Document,
     DocumentChunk,
@@ -29,6 +32,7 @@ from database import (
     PortfolioConstraint,
     PortfolioPosition,
     PortfolioStressRun,
+    QAFinding,
     ReportVersion,
     Run,
     get_db,
@@ -58,6 +62,7 @@ _SORTS = {
     "expiry": CommitteeAgendaItem.expiry,
 }
 _MAX_CURSOR = 2048
+_EXCEPTION_MAX_DAYS = 30
 
 
 class AgendaCreate(BaseModel):
@@ -73,6 +78,7 @@ class AgendaCreate(BaseModel):
     run_id: Optional[str] = Field(default=None, max_length=36)
     report_version_id: Optional[str] = Field(default=None, max_length=36)
     context_id: Optional[str] = Field(default=None, max_length=36)
+    analyst_opinion_version_id: Optional[str] = Field(default=None, max_length=36)
     status: Literal["draft", "ready"] = "draft"
 
 
@@ -89,7 +95,47 @@ class AgendaPatch(BaseModel):
     run_id: Optional[str] = Field(default=None, max_length=36)
     report_version_id: Optional[str] = Field(default=None, max_length=36)
     context_id: Optional[str] = Field(default=None, max_length=36)
+    analyst_opinion_version_id: Optional[str] = Field(default=None, max_length=36)
     status: Optional[Literal["draft", "ready", "cancelled"]] = None
+
+
+class ExceptionRequestIn(BaseModel):
+    expected_revision: int = Field(ge=1)
+    rationale: str = Field(min_length=1, max_length=20_000)
+    mitigants: list[str] = Field(default_factory=list, max_length=50)
+    expires_at: date
+
+
+class ExceptionReviewIn(BaseModel):
+    expected_revision: int = Field(ge=1)
+    decision: Literal["approve", "reject"]
+    review_note: str = Field(min_length=1, max_length=20_000)
+
+
+class ExceptionRevokeIn(BaseModel):
+    expected_revision: int = Field(ge=1)
+    review_note: str = Field(min_length=1, max_length=20_000)
+
+
+class EvidenceExceptionOut(BaseModel):
+    id: str
+    agenda_item_id: str
+    run_id: str
+    basis_sha256: str
+    failure_codes: list[str]
+    finding_ids: list[str]
+    rationale: str
+    mitigants: list[str]
+    expires_at: date
+    status: Literal["pending", "approved", "rejected", "revoked", "expired"]
+    requested_by: str
+    requested_at: datetime
+    reviewed_by: Optional[str]
+    reviewed_at: Optional[datetime]
+    review_note: Optional[str]
+    revoked_by: Optional[str]
+    revoked_at: Optional[datetime]
+    revision: int
 
 
 class AgendaOut(BaseModel):
@@ -106,9 +152,12 @@ class AgendaOut(BaseModel):
     run_id: Optional[str]
     report_version_id: Optional[str]
     context_id: Optional[str]
+    analyst_opinion_version_id: Optional[str]
     status: str
     revision: int
     readiness_failures: list[str]
+    readiness_state: Literal["blocked", "ready", "ready_under_exception"]
+    evidence_exception: Optional[EvidenceExceptionOut] = None
     finalized_decision_id: Optional[str]
     snapshot_sha256: Optional[str]
     frozen_authority: dict
@@ -155,6 +204,13 @@ def _require_committee_write(caller: CallerIdentity) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Caller cannot mutate committee records.")
 
 
+def _require_exception_reviewer(caller: CallerIdentity) -> None:
+    """Use server identity only; Settings' QA view is presentation preference."""
+    require_write_role(caller)
+    if caller.role.strip().lower() not in {"qa", "admin"}:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only QA or an admin can review evidence exceptions.")
+
+
 def _require_item_mutation(caller: CallerIdentity, row: CommitteeAgendaItem) -> None:
     if row.owner_id != caller.id and not _is_admin(caller):
         raise HTTPException(
@@ -165,6 +221,83 @@ def _require_item_mutation(caller: CallerIdentity, row: CommitteeAgendaItem) -> 
 
 def _clean_conditions(values: list[str]) -> list[str]:
     return [value.strip() for value in values if value.strip()]
+
+
+def _exception_out(row: CommitteeEvidenceException) -> EvidenceExceptionOut:
+    status_value = row.status
+    if status_value == "approved" and row.expires_at < datetime.now(timezone.utc).date():
+        status_value = "expired"
+    return EvidenceExceptionOut(
+        id=row.id,
+        agenda_item_id=row.agenda_item_id,
+        run_id=row.run_id,
+        basis_sha256=row.basis_sha256,
+        failure_codes=row.failure_codes or [],
+        finding_ids=row.finding_ids or [],
+        rationale=row.rationale,
+        mitigants=row.mitigants or [],
+        expires_at=row.expires_at,
+        status=status_value,  # type: ignore[arg-type]
+        requested_by=row.requested_by,
+        requested_at=row.requested_at,
+        reviewed_by=row.reviewed_by,
+        reviewed_at=row.reviewed_at,
+        review_note=row.review_note,
+        revoked_by=row.revoked_by,
+        revoked_at=row.revoked_at,
+        revision=row.revision,
+    )
+
+
+def _exception_basis(
+    item: CommitteeAgendaItem,
+    run: Run,
+    failures: list[str],
+    findings: list[QAFinding],
+) -> tuple[str, list[str]]:
+    finding_ids = sorted(str(finding.id) for finding in findings)
+    basis = {
+        "agenda_item_id": item.id,
+        "run_id": run.id,
+        "qa_status": run.qa_status,
+        "committee_status": run.committee_status,
+        "failures": sorted(failures),
+        "finding_ids": finding_ids,
+    }
+    raw = json.dumps(basis, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode()).hexdigest(), finding_ids
+
+
+def _exception_is_eligible(
+    failures: list[str],
+    run: Optional[Run],
+    findings: list[QAFinding],
+) -> bool:
+    """Only a reviewed non-critical information gap is waivable.
+
+    Referential failures and no-QA states stay hard blocks; a Committee Ready run
+    does not need an exception, and a Blocked run is never eligible.
+    """
+    if run is None or failures != ["run_not_committee_ready"]:
+        return False
+    if run.committee_status not in {"Restricted", "Insufficient Information"}:
+        return False
+    return not any(finding.severity == "CRITICAL" for finding in findings)
+
+
+def _approved_exception_is_current(
+    exception: Optional[CommitteeEvidenceException],
+    item: CommitteeAgendaItem,
+    run: Optional[Run],
+    failures: list[str],
+    findings: list[QAFinding],
+) -> bool:
+    if exception is None or exception.status != "approved" or exception.expires_at < datetime.now(timezone.utc).date():
+        return False
+    if run is None or exception.run_id != run.id or not _exception_is_eligible(failures, run, findings):
+        return False
+    basis_sha, finding_ids = _exception_basis(item, run, failures, findings)
+    return exception.basis_sha256 == basis_sha and sorted(exception.finding_ids or []) == finding_ids
 
 
 def _cursor_fingerprint(filters: dict[str, Any], sort: str, direction: str) -> str:
@@ -271,6 +404,24 @@ async def _validate_refs(
     return run, portfolio, report, context
 
 
+async def _validate_analyst_opinion(
+    db: AsyncSession,
+    *,
+    opinion_id: Optional[str],
+    issuer_id: str,
+    owner_id: str,
+) -> Optional[AnalystOpinionVersion]:
+    if not opinion_id:
+        return None
+    opinion = await db.get(AnalystOpinionVersion, opinion_id)
+    if opinion is None or opinion.issuer_id != issuer_id or opinion.analyst_id != owner_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Analyst opinion must belong to the agenda owner and issuer.",
+        )
+    return opinion
+
+
 def _readiness_from_refs(
     item: CommitteeAgendaItem,
     run: Optional[Run],
@@ -283,6 +434,8 @@ def _readiness_from_refs(
         failures.append("missing_thesis")
     if item.recommendation not in {"approve", "decline", "revisit"}:
         failures.append("invalid_recommendation")
+    if not item.analyst_opinion_version_id:
+        failures.append("missing_analyst_opinion")
     if not item.run_id:
         failures.append("missing_run")
         return failures
@@ -330,10 +483,17 @@ def _readiness_from_refs(
 async def _readiness_failures(db: AsyncSession, caller: CallerIdentity, item: CommitteeAgendaItem) -> list[str]:
     if not item.run_id:
         return _readiness_from_refs(item, None, None, None, None)
+    # QA/admin may independently evaluate readiness for an agenda item they are
+    # already authorized to see. Reuse the owner's run identity only for the
+    # ownership check inside _validate_refs; issuer/team visibility stays that
+    # of the reviewing caller, so this cannot become a run-discovery bypass.
+    readiness_caller = caller
+    if caller.id != item.owner_id and caller.role.strip().lower() in {"qa", "admin"}:
+        readiness_caller = replace(caller, id=item.owner_id)
     try:
         run, portfolio, report, context = await _validate_refs(
             db,
-            caller,
+            readiness_caller,
             issuer_id=item.issuer_id,
             owner_id=item.owner_id,
             run_id=item.run_id,
@@ -346,20 +506,69 @@ async def _readiness_failures(db: AsyncSession, caller: CallerIdentity, item: Co
     return _readiness_from_refs(item, run, portfolio, report, context)
 
 
+async def _latest_exception(
+    db: AsyncSession,
+    agenda_item_id: str,
+) -> Optional[CommitteeEvidenceException]:
+    return (await db.execute(
+        select(CommitteeEvidenceException)
+        .where(CommitteeEvidenceException.agenda_item_id == agenda_item_id)
+        .order_by(CommitteeEvidenceException.requested_at.desc(), CommitteeEvidenceException.id.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+
+async def _effective_readiness(
+    db: AsyncSession,
+    caller: CallerIdentity,
+    item: CommitteeAgendaItem,
+    *,
+    base_failures: Optional[list[str]] = None,
+    run: Optional[Run] = None,
+    findings: Optional[list[QAFinding]] = None,
+    exception: Optional[CommitteeEvidenceException] = None,
+) -> tuple[list[str], Optional[CommitteeEvidenceException], bool]:
+    """Return hard failures, most recent exception, and whether it currently waives readiness."""
+    failures = base_failures if base_failures is not None else await _readiness_failures(db, caller, item)
+    current_run = run
+    if current_run is None and item.run_id:
+        current_run = await db.get(Run, item.run_id)
+    current_findings = findings
+    if current_findings is None and current_run is not None:
+        current_findings = list((await db.execute(
+            select(QAFinding).where(QAFinding.run_id == current_run.id)
+        )).scalars().all())
+    current_exception = exception if exception is not None else await _latest_exception(db, item.id)
+    if _approved_exception_is_current(
+        current_exception,
+        item,
+        current_run,
+        failures,
+        current_findings or [],
+    ):
+        return [failure for failure in failures if failure != "run_not_committee_ready"], current_exception, True
+    return failures, current_exception, False
+
+
 async def _agenda_out(
     db: AsyncSession,
     caller: CallerIdentity,
     row: CommitteeAgendaItem,
     *,
     readiness_failures: Optional[list[str]] = None,
+    evidence_exception: Optional[CommitteeEvidenceException] = None,
+    readiness_under_exception: bool = False,
 ) -> AgendaOut:
-    failures = (
-        []
-        if row.status == "decided"
-        else readiness_failures
-        if readiness_failures is not None
-        else await _readiness_failures(db, caller, row)
-    )
+    if row.status == "decided":
+        failures: list[str] = []
+        current_exception = evidence_exception
+        under_exception = bool((row.snapshot or {}).get("evidence_exception"))
+    elif readiness_failures is None:
+        failures, current_exception, under_exception = await _effective_readiness(db, caller, row)
+    else:
+        failures = readiness_failures
+        current_exception = evidence_exception
+        under_exception = readiness_under_exception
     authority = (row.snapshot or {}).get("authority", {}) if row.snapshot else {}
     return AgendaOut(
         id=row.id,
@@ -375,9 +584,12 @@ async def _agenda_out(
         run_id=row.run_id,
         report_version_id=row.report_version_id,
         context_id=row.context_id,
+        analyst_opinion_version_id=row.analyst_opinion_version_id,
         status=row.status,
         revision=row.revision,
         readiness_failures=failures,
+        readiness_state=("blocked" if failures else "ready_under_exception" if under_exception else "ready"),
+        evidence_exception=_exception_out(current_exception) if current_exception is not None else None,
         finalized_decision_id=row.finalized_decision_id,
         snapshot_sha256=row.snapshot_sha256,
         frozen_authority=authority,
@@ -407,25 +619,55 @@ async def _agenda_page_items(
     contexts = list((await db.execute(
         select(AnalysisContextRecord).where(AnalysisContextRecord.id.in_(context_ids))
     )).scalars().all()) if context_ids else []
+    exceptions = list((await db.execute(
+        select(CommitteeEvidenceException)
+        .where(CommitteeEvidenceException.agenda_item_id.in_({row.id for row in rows}))
+        .order_by(CommitteeEvidenceException.requested_at.desc(), CommitteeEvidenceException.id.desc())
+    )).scalars().all()) if rows else []
+    findings = list((await db.execute(
+        select(QAFinding).where(QAFinding.run_id.in_(run_ids))
+    )).scalars().all()) if run_ids else []
     run_by_id = {row.id: row for row in runs}
     portfolio_by_id = {row.id: row for row in portfolios}
     report_by_id = {row.id: row for row in reports}
     context_by_id = {row.id: row for row in contexts}
-    return [
-        await _agenda_out(
+    exception_by_agenda: dict[str, CommitteeEvidenceException] = {}
+    for exception in exceptions:
+        exception_by_agenda.setdefault(exception.agenda_item_id, exception)
+    findings_by_run: dict[str, list[QAFinding]] = {}
+    for finding in findings:
+        findings_by_run.setdefault(finding.run_id, []).append(finding)
+    out: list[AgendaOut] = []
+    for row in rows:
+        run = run_by_id.get(row.run_id or "")
+        base_failures = _readiness_from_refs(
+            row,
+            run,
+            portfolio_by_id.get(row.portfolio_id or ""),
+            report_by_id.get(row.report_version_id or ""),
+            context_by_id.get(row.context_id or ""),
+        )
+        exception = exception_by_agenda.get(row.id)
+        under_exception = _approved_exception_is_current(
+            exception,
+            row,
+            run,
+            base_failures,
+            findings_by_run.get(run.id, []) if run else [],
+        )
+        effective_failures = (
+            [failure for failure in base_failures if failure != "run_not_committee_ready"]
+            if under_exception else base_failures
+        )
+        out.append(await _agenda_out(
             db,
             caller,
             row,
-            readiness_failures=_readiness_from_refs(
-                row,
-                run_by_id.get(row.run_id or ""),
-                portfolio_by_id.get(row.portfolio_id or ""),
-                report_by_id.get(row.report_version_id or ""),
-                context_by_id.get(row.context_id or ""),
-            ),
-        )
-        for row in rows
-    ]
+            readiness_failures=effective_failures,
+            evidence_exception=exception,
+            readiness_under_exception=under_exception,
+        ))
+    return out
 
 
 async def _accessible_item(
@@ -449,6 +691,21 @@ async def create_agenda_item(
 ):
     _require_committee_write(caller)
     owner_id = body.owner_id if _is_admin(caller) and body.owner_id else caller.id
+    # The form normally submits the selected version explicitly. This fallback
+    # keeps older clients from silently producing an un-linkable agenda item:
+    # if the owner already has a current issuer view, freeze that reference at
+    # creation. It never fabricates an analyst view.
+    opinion_id = body.analyst_opinion_version_id
+    if not opinion_id:
+        opinion_id = (await db.execute(
+            select(AnalystOpinionVersion.id)
+            .where(
+                AnalystOpinionVersion.issuer_id == body.issuer_id,
+                AnalystOpinionVersion.analyst_id == owner_id,
+            )
+            .order_by(AnalystOpinionVersion.version.desc())
+            .limit(1)
+        )).scalar_one_or_none()
     await _validate_refs(
         db,
         caller,
@@ -458,6 +715,12 @@ async def create_agenda_item(
         portfolio_id=body.portfolio_id,
         report_version_id=body.report_version_id,
         context_id=body.context_id,
+    )
+    await _validate_analyst_opinion(
+        db,
+        opinion_id=opinion_id,
+        issuer_id=body.issuer_id,
+        owner_id=owner_id,
     )
     now = datetime.now(timezone.utc)
     row = CommitteeAgendaItem(
@@ -473,6 +736,7 @@ async def create_agenda_item(
         run_id=body.run_id,
         report_version_id=body.report_version_id,
         context_id=body.context_id,
+        analyst_opinion_version_id=opinion_id,
         status=body.status,
         revision=1,
         snapshot={},
@@ -482,7 +746,7 @@ async def create_agenda_item(
     db.add(row)
     await db.flush()
     if row.status == "ready":
-        failures = await _readiness_failures(db, caller, row)
+        failures, _, _ = await _effective_readiness(db, caller, row)
         if failures:
             raise HTTPException(status.HTTP_409_CONFLICT, {"message": "Agenda item is not ready.", "failures": failures})
     return await _agenda_out(db, caller, row)
@@ -594,16 +858,149 @@ async def patch_agenda_item(
         report_version_id=values.get("report_version_id", row.report_version_id),
         context_id=values.get("context_id", row.context_id),
     )
+    await _validate_analyst_opinion(
+        db,
+        opinion_id=values.get("analyst_opinion_version_id", row.analyst_opinion_version_id),
+        issuer_id=row.issuer_id,
+        owner_id=candidate_owner,
+    )
     for key, value in values.items():
         setattr(row, key, value)
     row.revision += 1
     row.updated_at = datetime.now(timezone.utc)
     await db.flush()
     if row.status == "ready":
-        failures = await _readiness_failures(db, caller, row)
+        failures, _, _ = await _effective_readiness(db, caller, row)
         if failures:
             raise HTTPException(status.HTTP_409_CONFLICT, {"message": "Agenda item is not ready.", "failures": failures})
     return await _agenda_out(db, caller, row)
+
+
+@router.post("/agenda/{item_id}/exceptions", response_model=AgendaOut, status_code=status.HTTP_201_CREATED)
+async def request_evidence_exception(
+    item_id: str,
+    body: ExceptionRequestIn,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _require_committee_write(caller)
+    item = await _accessible_item(db, caller, item_id, lock=True)
+    _require_item_mutation(caller, item)
+    if item.status in {"decided", "cancelled"}:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Finalized or cancelled agenda items cannot request an exception.")
+    if item.revision != body.expected_revision:
+        raise HTTPException(status.HTTP_409_CONFLICT, {"message": "Agenda item changed elsewhere.", "current_revision": item.revision})
+    today = datetime.now(timezone.utc).date()
+    if body.expires_at < today or body.expires_at > today + timedelta(days=_EXCEPTION_MAX_DAYS):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Exception expiry must be within the next 30 days.")
+    failures = await _readiness_failures(db, caller, item)
+    run = await db.get(Run, item.run_id) if item.run_id else None
+    findings = list((await db.execute(
+        select(QAFinding).where(QAFinding.run_id == run.id)
+    )).scalars().all()) if run else []
+    if not _exception_is_eligible(failures, run, findings):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"message": "Only a non-critical readiness gap may be requested as an exception.", "failures": failures},
+        )
+    latest = await _latest_exception(db, item.id)
+    if latest is not None and latest.status == "pending":
+        raise HTTPException(status.HTTP_409_CONFLICT, "An evidence exception is already awaiting review.")
+    assert run is not None
+    basis_sha256, finding_ids = _exception_basis(item, run, failures, findings)
+    exception = CommitteeEvidenceException(
+        agenda_item_id=item.id,
+        run_id=run.id,
+        basis_sha256=basis_sha256,
+        failure_codes=failures,
+        finding_ids=finding_ids,
+        rationale=body.rationale.strip(),
+        mitigants=_clean_conditions(body.mitigants),
+        expires_at=body.expires_at,
+        status="pending",
+        requested_by=caller.id,
+        requested_at=datetime.now(timezone.utc),
+        revision=1,
+    )
+    db.add(exception)
+    item.revision += 1
+    item.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return await _agenda_out(db, caller, item, evidence_exception=exception)
+
+
+@router.post("/exceptions/{exception_id}/review", response_model=AgendaOut)
+async def review_evidence_exception(
+    exception_id: str,
+    body: ExceptionReviewIn,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _require_exception_reviewer(caller)
+    exception = (await db.execute(
+        select(CommitteeEvidenceException).where(CommitteeEvidenceException.id == exception_id).with_for_update()
+    )).scalar_one_or_none()
+    if exception is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Evidence exception not found.")
+    item = await _accessible_item(db, caller, exception.agenda_item_id, lock=True)
+    if exception.status != "pending":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only a pending exception can be reviewed.")
+    if exception.revision != body.expected_revision:
+        raise HTTPException(status.HTTP_409_CONFLICT, {"message": "Exception changed elsewhere.", "current_revision": exception.revision})
+    if caller.id in {exception.requested_by, item.owner_id}:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "An exception cannot be reviewed by its requester or agenda owner.")
+    failures = await _readiness_failures(db, caller, item)
+    run = await db.get(Run, item.run_id) if item.run_id else None
+    findings = list((await db.execute(
+        select(QAFinding).where(QAFinding.run_id == run.id)
+    )).scalars().all()) if run else []
+    if body.decision == "approve":
+        if not _exception_is_eligible(failures, run, findings):
+            raise HTTPException(status.HTTP_409_CONFLICT, {"message": "Exception basis is no longer eligible.", "failures": failures})
+        assert run is not None
+        basis_sha256, finding_ids = _exception_basis(item, run, failures, findings)
+        if exception.run_id != run.id or exception.basis_sha256 != basis_sha256 or sorted(exception.finding_ids or []) != finding_ids:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Evidence changed since the exception request; submit a new request.")
+        exception.status = "approved"
+    else:
+        exception.status = "rejected"
+    exception.reviewed_by = caller.id
+    exception.reviewed_at = datetime.now(timezone.utc)
+    exception.review_note = body.review_note.strip()
+    exception.revision += 1
+    item.revision += 1
+    item.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return await _agenda_out(db, caller, item, evidence_exception=exception)
+
+
+@router.post("/exceptions/{exception_id}/revoke", response_model=AgendaOut)
+async def revoke_evidence_exception(
+    exception_id: str,
+    body: ExceptionRevokeIn,
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    _require_exception_reviewer(caller)
+    exception = (await db.execute(
+        select(CommitteeEvidenceException).where(CommitteeEvidenceException.id == exception_id).with_for_update()
+    )).scalar_one_or_none()
+    if exception is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Evidence exception not found.")
+    item = await _accessible_item(db, caller, exception.agenda_item_id, lock=True)
+    if exception.status != "approved":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only an approved exception can be revoked.")
+    if exception.revision != body.expected_revision:
+        raise HTTPException(status.HTTP_409_CONFLICT, {"message": "Exception changed elsewhere.", "current_revision": exception.revision})
+    exception.status = "revoked"
+    exception.revoked_by = caller.id
+    exception.revoked_at = datetime.now(timezone.utc)
+    exception.review_note = body.review_note.strip()
+    exception.revision += 1
+    item.revision += 1
+    item.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    return await _agenda_out(db, caller, item, evidence_exception=exception)
 
 
 def _canonical_json(value: Any) -> tuple[Any, str]:
@@ -852,7 +1249,7 @@ async def finalize_agenda_item(
         )
     if row.status != "ready":
         raise HTTPException(status.HTTP_409_CONFLICT, "Only a ready agenda item can be finalized.")
-    failures = await _readiness_failures(db, caller, row)
+    failures, evidence_exception, under_exception = await _effective_readiness(db, caller, row)
     if failures:
         raise HTTPException(status.HTTP_409_CONFLICT, {"message": "Agenda item is not ready.", "failures": failures})
     run, portfolio, report, context = await _validate_refs(
@@ -867,6 +1264,14 @@ async def finalize_agenda_item(
         lock=True,
     )
     assert run is not None  # readiness guarantees a persisted run
+    opinion = await _validate_analyst_opinion(
+        db,
+        opinion_id=row.analyst_opinion_version_id,
+        issuer_id=row.issuer_id,
+        owner_id=row.owner_id,
+    )
+    if opinion is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "A linked analyst opinion is required before finalization.")
     modules = (await db.execute(
         select(ModuleOutput).where(ModuleOutput.run_id == run.id)
         .order_by(ModuleOutput.module_id).with_for_update()
@@ -875,7 +1280,7 @@ async def finalize_agenda_item(
     portfolio_snapshot, portfolio_source_ids = await _freeze_portfolio_snapshot(db, portfolio)
     document = assemble_report(run, modules)
     now = datetime.now(timezone.utc)
-    source_ids = [run.id] + evidence_source_ids + portfolio_source_ids
+    source_ids = [run.id, opinion.id] + evidence_source_ids + portfolio_source_ids
     source_ids.append(f"evidence-manifest:{evidence_manifest['sha256']}")
     if portfolio_snapshot:
         source_ids.extend([
@@ -888,6 +1293,8 @@ async def finalize_agenda_item(
         source_ids.extend(str(value) for value in (report.authority or {}).get("source_ids", []) if value)
     if context:
         source_ids.append(context.id)
+    if evidence_exception is not None and under_exception:
+        source_ids.extend([evidence_exception.id, f"exception-basis:{evidence_exception.basis_sha256}"])
     snapshot = {
         "agenda": {
             "id": row.id,
@@ -902,6 +1309,21 @@ async def finalize_agenda_item(
             "conditions": row.conditions or [],
             "expiry": row.expiry,
             "revision": row.revision,
+        },
+        "analyst_view": {
+            "id": opinion.id,
+            "version": opinion.version,
+            "analyst_id": opinion.analyst_id,
+            "stance": opinion.stance,
+            "conviction": opinion.conviction,
+            "rationale_md": opinion.rationale_md,
+            "evidence_state": opinion.evidence_state,
+            "unresolved_items": opinion.unresolved_items or [],
+            "thesis_version_id": opinion.thesis_version_id,
+            "source_run_id": opinion.source_run_id,
+            "context_id": opinion.context_id,
+            "analyst_link_ids": opinion.analyst_link_ids or [],
+            "created_at": opinion.created_at,
         },
         "run": {
             "id": run.id,
@@ -928,9 +1350,24 @@ async def finalize_agenda_item(
         } if report else None),
         "context": ({"id": context.id, "artifacts": context.artifacts or {}} if context else None),
         "portfolio": portfolio_snapshot,
+        "evidence_exception": ({
+            "id": evidence_exception.id,
+            "run_id": evidence_exception.run_id,
+            "basis_sha256": evidence_exception.basis_sha256,
+            "failure_codes": evidence_exception.failure_codes or [],
+            "finding_ids": evidence_exception.finding_ids or [],
+            "rationale": evidence_exception.rationale,
+            "mitigants": evidence_exception.mitigants or [],
+            "expires_at": evidence_exception.expires_at,
+            "requested_by": evidence_exception.requested_by,
+            "requested_at": evidence_exception.requested_at,
+            "reviewed_by": evidence_exception.reviewed_by,
+            "reviewed_at": evidence_exception.reviewed_at,
+            "review_note": evidence_exception.review_note,
+        } if evidence_exception is not None and under_exception else None),
         "authority": {
             "origin": "live",
-            "method": "derived",
+            "method": "derived-with-approved-exception" if under_exception else "derived",
             "freshness": "current",
             "as_of": now.isoformat(),
             "source_ids": sorted(set(source_ids)),
@@ -938,7 +1375,10 @@ async def finalize_agenda_item(
             "version_id": report.id if report else None,
             "confidence": None,
             "approval_state": "ratified",
-            "analyst_override": None,
+            "analyst_override": (
+                f"Finalized under approved evidence exception; analyst view {opinion.stance}."
+                if under_exception else None
+            ),
         },
     }
     # Persist the same JSON-safe representation that is hashed. SQLAlchemy's

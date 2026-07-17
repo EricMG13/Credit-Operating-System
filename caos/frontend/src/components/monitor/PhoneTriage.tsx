@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, requiredActionFor, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
 import { getAlertStates, setAlertState, toErrorMessage, type AlertStateDTO } from "@/lib/api";
@@ -139,24 +140,24 @@ export function PhoneTriage() {
           {idx + 1} of {ordered.length}
         </span>
         <div className="flex items-center gap-2">
-          <button
+          <ActionReason
             type="button"
-            disabled={idx === 0}
+            reason={idx === 0 ? "Already at the first alert" : null}
             onClick={() => goto(idx - 1)}
             aria-label="Previous alert"
-            className={`${TOUCH} flex items-center justify-center rounded border border-caos-border text-caos-muted hover:text-caos-text disabled:opacity-40 focus-ring caos-target`}
+            className={`${TOUCH} flex items-center justify-center rounded border border-caos-border text-caos-muted hover:text-caos-text aria-disabled:opacity-40 focus-ring caos-target`}
           >
             ‹
-          </button>
-          <button
+          </ActionReason>
+          <ActionReason
             type="button"
-            disabled={idx >= ordered.length - 1}
+            reason={idx >= ordered.length - 1 ? "Already at the last alert" : null}
             onClick={() => goto(idx + 1)}
             aria-label="Next alert"
-            className={`${TOUCH} flex items-center justify-center rounded border border-caos-border text-caos-muted hover:text-caos-text disabled:opacity-40 focus-ring caos-target`}
+            className={`${TOUCH} flex items-center justify-center rounded border border-caos-border text-caos-muted hover:text-caos-text aria-disabled:opacity-40 focus-ring caos-target`}
           >
             ›
-          </button>
+          </ActionReason>
         </div>
       </div>
 
@@ -204,9 +205,9 @@ export function PhoneTriage() {
               placeholder="assign to…"
               className={`${TOUCH} flex-1 tabular text-caos-md px-2 rounded border border-caos-border bg-transparent text-caos-text focus-ring caos-target`}
             />
-            <button
+            <ActionReason
               type="button"
-              disabled={!assigneeInput.trim() || mutationPending}
+              reason={mutationPending ? "Update in progress" : !assigneeInput.trim() ? "Enter an assignee name first" : null}
               onClick={() => {
                 const assignee = assigneeInput.trim();
                 void performMutation(async () => {
@@ -214,20 +215,20 @@ export function PhoneTriage() {
                   setAssigneeInput("");
                 });
               }}
-              className={`${TOUCH} px-3 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target`}
+              className={`${TOUCH} px-3 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target`}
             >
               Assign
-            </button>
+            </ActionReason>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <ActionReason
               type="button"
-              disabled={acked || mutationPending}
+              reason={acked ? "Already acknowledged" : mutationPending ? "Update in progress" : null}
               onClick={() => void performMutation(async () => applyState(await setAlertState(current.key, "ack")))}
-              className={`${TOUCH} flex-1 tabular text-caos-md rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target`}
+              className={`${TOUCH} flex-1 tabular text-caos-md rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target`}
             >
               Ack
-            </button>
+            </ActionReason>
             <button
               type="button"
               onClick={() => setResolving(true)}
@@ -245,9 +246,9 @@ export function PhoneTriage() {
                 autoFocus
                 className={`${TOUCH} flex-1 tabular text-caos-md px-2 rounded border border-caos-border bg-transparent text-caos-text focus-ring caos-target`}
               />
-              <button
+              <ActionReason
                 type="button"
-                disabled={mutationPending}
+                reason={mutationPending ? "Update in progress" : null}
                 onClick={() => {
                   const note = resolveNote;
                   void performMutation(async () => {
@@ -259,13 +260,13 @@ export function PhoneTriage() {
                 className={`${TOUCH} px-3 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target`}
               >
                 Confirm
-              </button>
+              </ActionReason>
             </div>
           ) : null}
           {mutationError ? (
             <div role="alert" className="flex items-center gap-2 rounded border border-caos-critical/50 px-2 py-2 text-caos-xs text-caos-critical">
               <span className="flex-1">{mutationError}. Input was preserved.</span>
-              <button type="button" disabled={mutationPending} className={`${TOUCH} px-2 rounded border border-caos-border focus-ring`} onClick={() => { const retry = retryMutationRef.current; if (retry) void performMutation(retry); }}>Retry</button>
+              <ActionReason type="button" reason={mutationPending ? "Update in progress" : null} className={`${TOUCH} px-2 rounded border border-caos-border focus-ring`} onClick={() => { const retry = retryMutationRef.current; if (retry) void performMutation(retry); }}>Retry</ActionReason>
             </div>
           ) : null}
         </div>

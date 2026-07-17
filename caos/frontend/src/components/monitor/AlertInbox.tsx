@@ -18,6 +18,9 @@ import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { BatchBar } from "@/components/shared/BatchBar";
+import { ActionReason } from "@/components/shared/ActionReason";
+import { SourceRef } from "@/components/ui/SourceRef";
+import { Dot, Tag } from "@/components/pipeline/atoms";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
 import {
@@ -29,10 +32,12 @@ import {
   reopenDecision,
   setAlertState,
   toErrorMessage,
+  getChunk,
   type AlertEventDTO,
   type AlertStateDTO,
   type IcDecision,
 } from "@/lib/api";
+import type { ChunkDTO } from "@/lib/query/types";
 
 function eventState(event: AlertEventDTO): AlertStateDTO {
   return {
@@ -64,9 +69,8 @@ function ReopenDecision({ row }: { row: AlertRow }) {
   if (!decision || decision.status === "reopened") return null;
   return (
     <>
-    <button
-      type="button"
-      disabled={busy}
+    <ActionReason
+      reason={busy ? "Reopening…" : null}
       onClick={async () => {
         if (busy) return;
         setBusy(true);
@@ -75,13 +79,59 @@ function ReopenDecision({ row }: { row: AlertRow }) {
         catch (reason) { setError(toErrorMessage(reason, "IC decision was not reopened")); }
         finally { setBusy(false); }
       }}
-      className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-warning text-caos-warning transition-caos focus-ring disabled:opacity-50 caos-target"
+      className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-warning text-caos-warning transition-caos focus-ring aria-disabled:opacity-50 caos-target"
     >
       {busy ? "Reopening…" : error ? "Retry reopen" : "Reopen IC"}
-    </button>
+    </ActionReason>
     {error ? <span role="alert" className="text-caos-2xs text-caos-critical">{error}</span> : null}
     </>
   );
+}
+
+/** A live alert may only promise click-to-source when it carries a persisted
+ * chunk id that this client can actually resolve. Fact ids alone are retained
+ * provenance, but this surface has no fact-detail endpoint, so they are an
+ * explicit unavailable state rather than a source-looking dead control. */
+function AlertSource({ row }: { row: AlertRow }) {
+  const chunkId = row.evidence.chunkIds[0] ?? null;
+  const [chunk, setChunk] = useState<ChunkDTO | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!chunkId) {
+    const reason = row.evidence.factIds.length
+      ? "Draft carries a fact identifier, but no persisted source chunk is available on this surface."
+      : "The autonomy draft did not carry a persisted source identifier.";
+    return <SourceRef source={{ state: "unavailable", reason }} />;
+  }
+  const open = async () => {
+    if (loading || chunk) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setChunk(await getChunk(chunkId));
+    } catch (reason) {
+      setError(toErrorMessage(reason, "The persisted source chunk could not be loaded"));
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <div className="mt-1 grid gap-1">
+      <SourceRef source={{ state: "ready", id: chunkId, onOpen: () => void open() }}>
+        Open persisted source
+      </SourceRef>
+      {loading ? <span role="status" className="text-caos-2xs text-caos-muted">Loading source…</span> : null}
+      {error ? <span role="alert" className="text-caos-2xs text-caos-warning">Source unavailable · {error}</span> : null}
+      {chunk ? <details className="text-caos-2xs text-caos-muted"><summary className="cursor-pointer focus-ring rounded">{chunk.doc} · source extract</summary><p className="mt-1 whitespace-pre-wrap leading-snug text-caos-text">{chunk.text}</p></details> : null}
+    </div>
+  );
+}
+
+function severityBand(value: number): "critical" | "high" | "medium" | "low" {
+  if (value >= 3) return "critical";
+  if (value >= 2) return "high";
+  if (value >= 1) return "medium";
+  return "low";
 }
 
 function Row({
@@ -125,6 +175,7 @@ function Row({
   const acked = state?.state === "ack";
   const resolved = state?.state === "resolved";
   const impact = formatImpact(row);
+  const band = severityBand(row.severity);
   const stateLabel = resolved ? "Resolved" : acked ? "Ack/assigned" : "Open";
   const stateColor = resolved || acked ? "var(--caos-success)" : "var(--caos-muted)";
   return (
@@ -139,6 +190,10 @@ function Row({
           className="min-h-8 min-w-8 caos-target disabled:opacity-40"
         />
         <ConclusionAuthority prov={rowProvenance(row)} />
+        <span className="inline-flex items-center gap-1" title={`Alert severity band: ${band}`}>
+          <Dot sev={band} glyph />
+          <Tag sev={band}>{band}</Tag>
+        </span>
         {impact ? (
           <span
             className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
@@ -164,6 +219,7 @@ function Row({
       </div>
       <div className="text-caos-md text-caos-text leading-snug mt-1">{row.event}</div>
       <div className="text-caos-xs text-caos-muted leading-snug mt-0.5">{row.reason}</div>
+      <AlertSource row={row} />
       {resolved && state?.resolution_note ? (
         <div className="text-caos-xs text-caos-muted leading-snug mt-0.5 italic">
           resolved: {state.resolution_note}
@@ -178,25 +234,23 @@ function Row({
             placeholder="assign to…"
             className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target"
           />
-          <button
-            type="button"
-            disabled={!assigneeInput.trim() || pending}
+          <ActionReason
+            reason={!assigneeInput.trim() ? "Enter a name to assign" : pending ? "Update in progress…" : null}
             onClick={() => void perform(
               () => onAssign(assigneeInput.trim()),
               () => setAssigneeInput(""),
             )}
-            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
+            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
           >
             Assign
-          </button>
-          <button
-            type="button"
-            disabled={acked || pending}
+          </ActionReason>
+          <ActionReason
+            reason={acked ? "Already acknowledged" : pending ? "Update in progress…" : null}
             onClick={() => void perform(onAck)}
-            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
+            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
           >
             Ack
-          </button>
+          </ActionReason>
           {resolving ? (
             <>
               <input
@@ -206,9 +260,8 @@ function Row({
                 autoFocus
                 className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target"
               />
-              <button
-                type="button"
-                disabled={pending}
+              <ActionReason
+                reason={pending ? "Update in progress…" : null}
                 onClick={() => void perform(
                   () => onResolve(resolveNote),
                   () => { setResolving(false); setResolveNote(""); },
@@ -216,7 +269,7 @@ function Row({
                 className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target"
               >
                 Confirm resolve
-              </button>
+              </ActionReason>
               <button
                 type="button"
                 onClick={() => { setResolving(false); setResolveNote(""); }}

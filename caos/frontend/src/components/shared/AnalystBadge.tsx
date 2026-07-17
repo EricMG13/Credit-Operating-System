@@ -35,10 +35,10 @@ export function AnalystBadge() {
   return (
     <button
       onClick={signOut}
-      disabled={busy}
+      aria-disabled={busy || undefined}
       title={`Signed in as ${user.full_name} — click to sign out`}
       aria-label={`Signed in as ${user.full_name}. Sign out.`}
-      className="ml-auto shrink-0 inline-flex items-center justify-center min-h-8 min-w-8 px-1.5 rounded bg-caos-elevated border border-caos-border tabular text-caos-sm font-semibold text-caos-text hover:border-caos-accent hover:text-caos-accent transition-caos focus-ring disabled:opacity-50"
+      className="ml-auto shrink-0 inline-flex items-center justify-center min-h-8 min-w-8 px-1.5 rounded bg-caos-elevated border border-caos-border tabular text-caos-sm font-semibold text-caos-text hover:border-caos-accent hover:text-caos-accent transition-caos focus-ring aria-disabled:opacity-50"
     >
       {initials(user.full_name)}
     </button>

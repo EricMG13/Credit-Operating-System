@@ -7,7 +7,7 @@
 // and classification is CP-0's job.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useDropzone, type FileRejection } from "react-dropzone";
 import { appendIngestionContext, createIssuer, createRun, getIssuers, getPortfolios, toErrorMessage, uploadDocument, uploadPricingSheet, type PortfolioSummary } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
@@ -16,6 +16,7 @@ import { Dot } from "@/components/pipeline/atoms";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { EdgarImport } from "@/components/upload/EdgarImport";
+import type { EdgarVaultResult } from "@/lib/api";
 import {
   FileStep, IssuerStep, ResultStep, RUN_MODES, StepStrip, isSpreadsheet,
   type FileOutcome, type RunQueueOutcome, type Step,
@@ -28,7 +29,6 @@ interface UploadWizardProps {
 }
 
 export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
-  const router = useRouter();
   const analysis = useAnalysisContext({ name: "Document intake" });
   const [step, setStep] = useState<Step>("issuer");
   const [issuers, setIssuers] = useState<Issuer[]>(initialIssuers);
@@ -225,22 +225,18 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
           runIdempotencyKeyRef.current = null;
           runQueuedRef.current = true;
           setRunOutcome({ state: "queued", runId: run.id });
-          let contextLinked = true;
           if (activeContext) {
             const legacyArtifacts = { ...activeContext.artifacts };
             delete legacyArtifacts.artifact_refs;
             try {
               await analysis.patch({ artifacts: { ...legacyArtifacts, issuer_run_id: run.id } });
             } catch {
-              contextLinked = false;
               setError("Run queued, but the analysis context could not be linked. Use the exact Execution Graph link below.");
             }
           }
-          if (contextLinked) {
-            const params = new URLSearchParams({ issuer: selectedIssuer.id, run: run.id, view: "graph" });
-            if (activeContext?.id) params.set("context", activeContext.id);
-            router.push(`/pipeline?${params.toString()}`);
-          }
+          // Keep the settled intake report in place. The exact Execution Graph
+          // link below is deliberate analyst navigation, not an automatic route
+          // change that hides per-file outcome and zero-text warnings.
         } catch (err: unknown) {
           const status = (err as { response?: { status?: number } })?.response?.status;
           if (status === 409) {
@@ -289,22 +285,17 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       );
       runIdempotencyKeyRef.current = null;
       setRunCreated(run);
-      let contextLinked = true;
       if (activeContext) {
         const legacyArtifacts = { ...activeContext.artifacts };
         delete legacyArtifacts.artifact_refs;
         try {
           await analysis.patch({ artifacts: { ...legacyArtifacts, issuer_run_id: run.id } });
         } catch {
-          contextLinked = false;
           setRunError("Run queued, but the analysis context could not be linked. Use the exact Execution Graph link.");
         }
       }
-      if (contextLinked) {
-        const params = new URLSearchParams({ issuer: selectedIssuer.id, run: run.id, view: "graph" });
-        if (activeContext?.id) params.set("context", activeContext.id);
-        router.push(`/pipeline?${params.toString()}`);
-      }
+      // ResultStep exposes the exact Execution Graph link after the queue
+      // settles; do not navigate away from the completed source report.
     } catch (err) {
       setRunError(toErrorMessage(err, "Could not create the run"));
     } finally {
@@ -329,6 +320,26 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
     cancelRef.current = false;
     setRunOutcome(null);
     runQueuedRef.current = false;
+  };
+
+  const handleEdgarVaulted = (vaulted: EdgarVaultResult) => {
+    // EDGAR persists a document but does not return the upload endpoint's
+    // source-manifest or malware-verdict fields. Preserve those absences in the
+    // shared outcome record instead of manufacturing a "clean" scan or id.
+    setOutcomes((prev) => prev.some((outcome) => outcome.result?.document_id === vaulted.document_id)
+      ? prev
+      : [...prev, {
+        name: vaulted.message,
+        result: {
+          document_id: vaulted.document_id,
+          issuer_id: selectedIssuer?.id ?? "",
+          minio_key: vaulted.storage_key,
+          chunks_created: vaulted.chunks_created,
+          message: vaulted.message,
+          warning: vaulted.warning,
+        },
+      }]);
+    setStep("result");
   };
 
   const loadIssuerDirectory = useCallback(async () => {
@@ -489,7 +500,7 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
 
       {/* Step 2 companion: pull governing docs straight from SEC EDGAR (free) */}
       {step === "file" && selectedIssuer ? (
-        <EdgarImport issuer={selectedIssuer} runMode={runMode} />
+        <EdgarImport issuer={selectedIssuer} runMode={runMode} onVaulted={handleEdgarVaulted} />
       ) : null}
 
       {/* Step 3: result — also rendered mid-batch so successful rows stream in

@@ -55,7 +55,7 @@ function DislocationRow({ d }: { d: Dislocation }) {
       </IssuerLink>
       {d.held && (
         <span
-          className="tabular text-[9px] uppercase font-bold text-caos-success border border-caos-success/30 bg-caos-success/5 px-1 rounded-sm whitespace-nowrap"
+          className="tabular text-caos-3xs uppercase font-bold text-caos-success border border-caos-success/30 bg-caos-success/5 px-1 rounded-sm whitespace-nowrap"
           title="Matched to a current portfolio holding"
         >
           held {d.headroomPct !== undefined ? `+${d.headroomPct}%` : ""}

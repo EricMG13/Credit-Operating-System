@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { IssuerLink } from "@/components/shared/IssuerLink";
+import { useRovingFocus } from "@/lib/useRovingFocus";
+import { focusFirstRowAction, syncRowActionTabStops } from "@/lib/rowActionMode";
 import type {
   CommandPortfolioPosition,
   CommandPosture,
@@ -103,30 +106,90 @@ export function CommandPortfolioTable({
   onSelect: (positionId: string) => void;
 }) {
   const headers = ["Ticker", "Company", "Instrument", "Size", "Price", "Margin", "Maturity", "Ratings", "Posture", "QA"];
+  const [actionRowId, setActionRowId] = useState<string | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const rowIds = useMemo(() => positions.map((position) => position.id), [positions]);
+  const { getItemProps: getRowFocusProps, setActiveId: setActiveRowId } = useRovingFocus(rowIds);
+
+  useEffect(() => {
+    if (selected && rowIds.includes(selected)) setActiveRowId(selected);
+  }, [rowIds, selected, setActiveRowId]);
+
+  useEffect(() => {
+    if (actionRowId && !rowIds.includes(actionRowId)) setActionRowId(null);
+    for (const [id, row] of rowRefs.current) syncRowActionTabStops(row, actionRowId === id);
+  }, [actionRowId, rowIds]);
+
   return (
-    <div role="grid" aria-label="Persisted portfolio positions" className="h-full min-h-0 overflow-auto text-caos-md">
+    <>
+    <p id="command-portfolio-grid-help" className="sr-only">
+      Use Up and Down Arrow to move between position rows. Press Enter or Space to open row details. Press F2 to enter row actions; press Escape to return to the row.
+    </p>
+    <div role="grid" aria-label="Persisted portfolio positions" aria-rowcount={positions.length + 1} className="h-full min-h-0 overflow-auto text-caos-md">
       <div className="min-w-[1120px]">
-        <div role="row" className={`${COLS} sticky top-0 z-20 h-8 border-b border-caos-border bg-caos-panel px-3`}>
-          {headers.map((header) => (
-            <span key={header} role="columnheader" className="tabular text-caos-xs font-semibold uppercase tracking-wider text-caos-text">
+        <div role="row" aria-rowindex={1} className={`${COLS} sticky top-0 z-20 h-8 border-b border-caos-border bg-caos-panel px-3`}>
+          {headers.map((header, index) => (
+            <span
+              key={header}
+              role="columnheader"
+              className={`tabular text-caos-xs font-semibold uppercase tracking-wider text-caos-text ${[3, 4, 5].includes(index) ? "text-right" : ""}`}
+            >
               {header}
             </span>
           ))}
         </div>
-        {positions.map((position) => {
+        {positions.map((position, index) => {
           const isSelected = selected === position.id;
           const activate = () => onSelect(position.id);
+          const focusProps = getRowFocusProps(position.id);
           const issuer = position.issuer_id ? { id: position.issuer_id } : null;
           const rating = [position.rating_moody, position.rating_sp].filter(Boolean).join(" / ") || "—";
           return (
             <div
               key={position.id}
               role="row"
-              tabIndex={0}
+              ref={(element) => {
+                focusProps.ref(element);
+                if (element) {
+                  rowRefs.current.set(position.id, element);
+                  syncRowActionTabStops(element, actionRowId === position.id);
+                } else rowRefs.current.delete(position.id);
+              }}
+              tabIndex={actionRowId === position.id ? -1 : focusProps.tabIndex}
+              onFocus={focusProps.onFocus}
+              onBlur={(event) => {
+                if (actionRowId === position.id && !event.currentTarget.contains(event.relatedTarget as Node | null)) setActionRowId(null);
+              }}
               aria-selected={isSelected}
+              aria-rowindex={index + 2}
+              aria-keyshortcuts="F2"
+              aria-describedby="command-portfolio-grid-help"
               aria-label={`${position.borrower_name} position details`}
-              onClick={activate}
+              onClick={(event) => {
+                const target = event.target as HTMLElement;
+                if (target.closest("a, button, input, select, textarea, [role='button'], [role='link']")) return;
+                activate();
+              }}
               onKeyDown={(event) => {
+                if (event.key === "Escape" && actionRowId === position.id) {
+                  event.preventDefault();
+                  setActionRowId(null);
+                  event.currentTarget.focus();
+                  return;
+                }
+                if (event.currentTarget !== event.target) return;
+                if (event.key === "F2") {
+                  if (focusFirstRowAction(event.currentTarget)) {
+                    event.preventDefault();
+                    setActionRowId(position.id);
+                  }
+                  return;
+                }
+                if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+                  setActionRowId(null);
+                  focusProps.onKeyDown(event);
+                  return;
+                }
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   activate();
@@ -137,15 +200,15 @@ export function CommandPortfolioTable({
               <span role="gridcell" className="tabular text-caos-accent">
                 {issuer ? <IssuerLink issuer={issuer}>{position.ticker || "—"}</IssuerLink> : position.ticker || "—"}
               </span>
-              <span role="gridcell" className="min-w-0 break-words leading-snug text-caos-text">
+              <span role="rowheader" className="min-w-0 break-words leading-snug text-caos-text">
                 {issuer ? <IssuerLink issuer={issuer}>{position.borrower_name}</IssuerLink> : position.borrower_name}
               </span>
               <span role="gridcell" className="min-w-0 break-words leading-snug text-caos-text" title={position.loan_name || undefined}>
                 {position.loan_name || position.ranking || "—"}
               </span>
-              <span role="gridcell" className="tabular text-caos-text">{fmtMoney(position.par_usd)}</span>
-              <span role="gridcell" className="tabular text-caos-text">{fmtNumber(position.price)}</span>
-              <span role="gridcell" className="tabular text-caos-text">{fmtNumber(position.margin_bps, "bp")}</span>
+              <span role="gridcell" className="tabular text-right text-caos-text">{fmtMoney(position.par_usd)}</span>
+              <span role="gridcell" className="tabular text-right text-caos-text">{fmtNumber(position.price)}</span>
+              <span role="gridcell" className="tabular text-right text-caos-text">{fmtNumber(position.margin_bps, "bp")}</span>
               <span role="gridcell" className="tabular text-caos-muted">{position.maturity || "—"}</span>
               <span role="gridcell" className="tabular text-caos-muted">{rating}</span>
               <span role="gridcell" className="tabular text-caos-xs font-medium" style={{ color: POSTURE_COLOR[position.posture] }}>
@@ -157,6 +220,7 @@ export function CommandPortfolioTable({
         })}
       </div>
     </div>
+    </>
   );
 }
 

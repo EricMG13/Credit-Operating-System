@@ -3,6 +3,28 @@ import type { AuthorityEnvelope } from "@/lib/analysis-workbench";
 
 export type AgendaStatus = "draft" | "ready" | "decided" | "cancelled";
 export type CommitteeRecommendation = "approve" | "decline" | "revisit";
+export type CommitteeExceptionStatus = "pending" | "approved" | "rejected" | "revoked" | "expired";
+
+export interface CommitteeEvidenceException {
+  id: string;
+  agenda_item_id: string;
+  run_id: string;
+  basis_sha256: string;
+  failure_codes: string[];
+  finding_ids: string[];
+  rationale: string;
+  mitigants: string[];
+  expires_at: string;
+  status: CommitteeExceptionStatus;
+  requested_by: string;
+  requested_at: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+  revoked_by: string | null;
+  revoked_at: string | null;
+  revision: number;
+}
 
 export interface CommitteeAgendaItem {
   id: string;
@@ -18,9 +40,12 @@ export interface CommitteeAgendaItem {
   run_id: string | null;
   report_version_id: string | null;
   context_id: string | null;
+  analyst_opinion_version_id: string | null;
   status: AgendaStatus;
   revision: number;
   readiness_failures: string[];
+  readiness_state: "blocked" | "ready" | "ready_under_exception";
+  evidence_exception: CommitteeEvidenceException | null;
   finalized_decision_id: string | null;
   snapshot_sha256: string | null;
   frozen_authority: Partial<AuthorityEnvelope> | null;
@@ -47,6 +72,7 @@ export interface AgendaCreateInput {
   run_id?: string | null;
   report_version_id?: string | null;
   context_id?: string | null;
+  analyst_opinion_version_id?: string | null;
   status?: "draft" | "ready";
 }
 
@@ -135,6 +161,12 @@ export const icBookApi = {
     api.post<CommitteeAgendaItem>("/api/committee/agenda", input).then((response) => response.data),
   patchAgenda: (id: string, input: AgendaPatch) =>
     api.patch<CommitteeAgendaItem>(`/api/committee/agenda/${id}`, input).then((response) => response.data),
+  requestException: (id: string, input: { expected_revision: number; rationale: string; mitigants?: string[]; expires_at: string }) =>
+    api.post<CommitteeAgendaItem>(`/api/committee/agenda/${id}/exceptions`, input).then((response) => response.data),
+  reviewException: (id: string, input: { expected_revision: number; decision: "approve" | "reject"; review_note: string }) =>
+    api.post<CommitteeAgendaItem>(`/api/committee/exceptions/${id}/review`, input).then((response) => response.data),
+  revokeException: (id: string, input: { expected_revision: number; review_note: string }) =>
+    api.post<CommitteeAgendaItem>(`/api/committee/exceptions/${id}/revoke`, input).then((response) => response.data),
   finalizeAgenda: (id: string, expectedRevision: number) =>
     api.post<FinalizeResult>(`/api/committee/agenda/${id}/finalize`, {
       expected_revision: expectedRevision,

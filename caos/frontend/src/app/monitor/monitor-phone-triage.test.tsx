@@ -89,13 +89,13 @@ describe("Monitor · phone triage breakpoint gate (G6)", () => {
     const { rerender } = render(<MonitorPage />);
 
     const email = screen.getByRole("tab", { name: "Email intake" });
-    expect((email as HTMLButtonElement).disabled).toBe(true);
+    expect(email.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(email);
     expect(screen.getByRole("tab", { name: "Alerts" }).getAttribute("aria-selected")).toBe("true");
 
     analysisState.loading = false;
     rerender(<MonitorPage />);
-    expect((screen.getByRole("tab", { name: "Email intake" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("tab", { name: "Email intake" }).getAttribute("aria-disabled")).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Email intake" }));
     expect(screen.getByText("Email Intelligence · CP-MON intake")).toBeTruthy();
   });

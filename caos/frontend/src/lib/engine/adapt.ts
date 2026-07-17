@@ -141,6 +141,21 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
 
 // Columns not worth a table header (opaque ids the analyst never reads).
 const SKIP_COL = /(^|_)(id|chunk_id|issuer_id|figi)$/i;
+const NON_MEASURE_COL = /(^|_)(?:id|identifier|code|name|label|date|as_of|period|quarter|year|rating|grade|ticker|cusip|isin|figi|version)(?:_|$)/i;
+const INITIAL_DISCLOSURE_ROWS = 12;
+
+// A live adapter may only infer number alignment from the payload schema, never
+// from its formatted text. That keeps a digit-bearing CUSIP, as-of date, rating,
+// or module code in the text lane even when every rendered value looks numeric.
+function isFiniteMeasureColumn(key: string, rows: Record<string, unknown>[]): boolean {
+  if (NON_MEASURE_COL.test(key)) return false;
+  const values = rows.map((row) => row[key]).filter((value) => value != null);
+  return values.length > 0 && values.every((value) => typeof value === "number" && Number.isFinite(value));
+}
+
+function inferredAlign(cols: string[], rows: Record<string, unknown>[]): number[] {
+  return cols.map((key) => isFiniteMeasureColumn(key, rows) ? 1 : 0);
+}
 
 // Finance acronyms humanize() would otherwise title-case into "Ebitda"/"Fcf".
 // Whole-word, case-insensitive → upper.
@@ -173,7 +188,7 @@ function isFlagArray(arr: Record<string, unknown>[]): boolean {
 }
 
 function flagsFrom(title: string, arr: Record<string, unknown>[]): OutSection {
-  const items: OutFlag[] = arr.slice(0, 12).map((o) => {
+  const items: OutFlag[] = arr.slice(0, INITIAL_DISCLOSURE_ROWS).map((o) => {
     const ev = o.ev as unknown;
     return {
       sev: String(o.severity ?? o.sev ?? "low"),
@@ -181,23 +196,42 @@ function flagsFrom(title: string, arr: Record<string, unknown>[]): OutSection {
       ev: Array.isArray(ev) ? ev.map(String) : undefined,
     };
   });
-  return { type: "flags", title, items };
+  // Keep bounded first paint, but retain every persisted adverse item. OutSections
+  // owns the exact +N more disclosure using this additive metadata.
+  return Object.assign(
+    { type: "flags" as const, title, items },
+    arr.length > INITIAL_DISCLOSURE_ROWS ? { overflowItems: arr.slice(INITIAL_DISCLOSURE_ROWS).map((o) => {
+      const ev = o.ev as unknown;
+      return {
+        sev: String(o.severity ?? o.sev ?? "low"),
+        text: o.id ? `${o.id}: ${o.text}` : String(o.text),
+        ev: Array.isArray(ev) ? ev.map(String) : undefined,
+      } satisfies OutFlag;
+    }) } : {},
+  ) as OutSection;
 }
 
 function tableFrom(title: string, arr: Record<string, unknown>[]): OutSection | null {
   const cols = Object.keys(arr[0]).filter((k) => !SKIP_COL.test(k));
   if (!cols.length) return null;
-  return {
-    type: "table", title, cols: cols.map(humanize),
-    rows: arr.slice(0, 12).map((o) => cols.map((c) => num(o[c]))),
-  };
+  const toRow = (row: Record<string, unknown>) => cols.map((col) => num(row[col]));
+  return Object.assign(
+    {
+      type: "table" as const,
+      title,
+      cols: cols.map(humanize),
+      align: inferredAlign(cols, arr),
+      rows: arr.slice(0, INITIAL_DISCLOSURE_ROWS).map(toRow),
+    },
+    arr.length > INITIAL_DISCLOSURE_ROWS ? { overflowRows: arr.slice(INITIAL_DISCLOSURE_ROWS).map(toRow) } : {},
+  ) as OutSection;
 }
 
 function tableFromAll(title: string, arr: Record<string, unknown>[]): OutSection | null {
   const cols = Object.keys(arr[0]).filter((k) => !SKIP_COL.test(k));
   if (!cols.length) return null;
   return {
-    type: "table", title, cols: cols.map(humanize),
+    type: "table", title, cols: cols.map(humanize), align: inferredAlign(cols, arr),
     rows: arr.map((o) => cols.map((c) => num(o[c]))),
   };
 }
@@ -219,7 +253,6 @@ function kvTable(title: string, obj: Record<string, unknown>): OutSection | null
 function adaptGeneric(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
   const kpis = Object.entries(rt)
     .filter(([, v]) => isKpiScalar(v) && v !== "")
-    .slice(0, 6)
     .map(([k, v]) => ({ l: humanize(k), v: num(v) }));
 
   const sections: OutSection[] = [];
@@ -250,7 +283,7 @@ function adaptGeneric(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> &
       sections.push({ type: "text", title, body: v });
     }
   }
-  return { kpis, sections: sections.slice(0, 10) };
+  return { kpis, sections };
 }
 
 // CP-4C covenant register: the extracted terms in desk order, breach flagged in

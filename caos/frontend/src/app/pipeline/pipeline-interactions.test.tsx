@@ -288,6 +288,27 @@ describe("Pipeline route interaction coverage", () => {
     expect(screen.getByText("No runs for this issuer")).toBeTruthy();
   });
 
+  it("renders persisted partial rows and only offers a re-run handoff for a blocked module with its persisted reason", async () => {
+    state.search = "issuer=issuer-partial&run=run-partial";
+    state.pipeline = {
+      value: live({
+        status: "running",
+        produced: 2,
+        pending: 21,
+        blocked: [{ moduleId: "CP-4C", reason: "Missing compliance certificate." }],
+      }),
+      phase: "in_flight",
+      latest: { status: "running" },
+    };
+    render(<PipelinePage />);
+    expect(await screen.findByText("Persisted execution snapshot")).toBeTruthy();
+    expect(screen.getByText(/produced 2/)).toBeTruthy();
+    expect(screen.getByText(/pending 21/)).toBeTruthy();
+    expect(screen.getByText("Missing compliance certificate.")).toBeTruthy();
+    const rerun = screen.getByRole("link", { name: "Prepare re-run" });
+    expect(rerun.getAttribute("href")).toBe("/upload?issuer=issuer-partial");
+  });
+
   it("pipeline-14 pipeline-45 shows an unavailable worklist and uses non-context module URLs", async () => {
     state.search = "";
     state.listError = true;

@@ -41,6 +41,21 @@ describe("EdgarImport", () => {
     expect(await screen.findByText(/7 ch/)).toBeTruthy();   // vaulted confirmation
   });
 
+  it("hands each successful EDGAR vault to the wizard outcome transition", async () => {
+    const vaulted: EdgarVaultResult = {
+      document_id: "d-result", storage_key: "vault/d-result", doc_type: "EDGAR Exhibit", run_mode: "legal",
+      chunks_created: 2, provenance: "primary · vaulted", message: "10-K vaulted",
+    };
+    const onVaulted = vi.fn();
+    vi.mocked(edgarVaultUrls).mockResolvedValue({ ok: [vaulted], failed: [] });
+
+    render(<EdgarImport issuer={issuer} runMode="legal" onVaulted={onVaulted} />);
+    fireEvent.change(screen.getByLabelText("Public EDGAR document URLs"), { target: { value: "u/10k" } });
+    fireEvent.click(screen.getByText("VAULT URL"));
+
+    await waitFor(() => expect(onVaulted).toHaveBeenCalledWith(vaulted));
+  });
+
   it("surfaces which URLs failed on a partial batch, not just the successes (M-12)", async () => {
     vi.mocked(edgarVaultUrls).mockResolvedValue({
       ok: [{

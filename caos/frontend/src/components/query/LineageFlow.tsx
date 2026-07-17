@@ -291,7 +291,7 @@ export function LineageFlow({
 
                       {/* Small support details */}
                       {node.group && (
-                        <span className="tabular text-[9px] text-caos-muted font-mono truncate">
+                        <span className="tabular text-caos-3xs text-caos-muted font-mono truncate">
                           {node.group}
                         </span>
                       )}

@@ -5,8 +5,9 @@
 // Sector RV has been promoted to a standalone route under /sector-rv.
 // Click a row for the issuer detail strip; ATLF links into the Analytical Deep-Dive.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { useRovingTabs } from "@/lib/useRovingTabs";
 import { headStat } from "@/components/shared/headStat";
@@ -61,6 +62,7 @@ export default function CommandPage() {
 }
 
 function CommandCenter() {
+  const router = useRouter();
   const analysis = useAnalysisContext({ name: "Portfolio command" });
   const { roleView } = useRoleView();
   const { values: urlState, update: updateUrlState } = useTypedUrlState(COMMAND_URL_KEYS);
@@ -157,7 +159,12 @@ function CommandCenter() {
   // Fetched once here (not inside RankedChangesView) so the OPEN TOP CHANGE
   // primary can gate on the same state the panel renders from.
   const autonomy = useAutonomyDraft();
-  const rankedRowCount = autonomy.draft ? draftToAlertRows(autonomy.draft).length : 0;
+  const rankedRows = useMemo(() => autonomy.draft ? draftToAlertRows(autonomy.draft) : [], [autonomy.draft]);
+  const rankedRowCount = rankedRows.length;
+  const topChangeIssuer = rankedRows[0]?.issuerId ?? rankedRows[0]?.issuerName;
+  const topChangeHref = topChangeIssuer
+    ? `/deepdive?issuer=${encodeURIComponent(topChangeIssuer)}`
+    : null;
   const qaStatus = portfolio.loading ? "loading" : portfolio.error ? "error" : "ready";
   const findingStatus = portfolio.loading || qaFindingsLoading ? "loading" : portfolio.error || qaFindingsError ? "error" : "ready";
   const digestStatus = digestLoading ? "loading" : digestError ? "error" : "ready";
@@ -340,16 +347,13 @@ function CommandCenter() {
             ? "Autonomy engine unreachable — no changes to open"
             : rankedRowCount === 0
             ? (autonomy.draft?.refreshing ? "Cycle running — no changes yet" : "No ranked changes yet — the first cycle populates this")
+            : !topChangeHref
+            ? "Top ranked change has no issuer identifier"
             : null}
           reasonDisplay="hidden"
           className="caos-action-primary focus-ring"
           onClick={() => {
-            updateUrlState({ dataset: "changes", selected: null });
-            requestAnimationFrame(() => {
-              const el = document.getElementById("ranked-changes");
-              el?.scrollIntoView({ behavior: "smooth" });
-              (el as HTMLElement | null)?.focus();
-            });
+            if (topChangeHref) router.push(topChangeHref);
           }}
         >Open top change</ActionReason>
       }

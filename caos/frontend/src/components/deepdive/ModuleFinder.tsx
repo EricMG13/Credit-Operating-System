@@ -151,6 +151,10 @@ function ModuleFinderModal({
     inputRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    document.getElementById(`module-finder-row-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [active]);
+
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return MODULES;

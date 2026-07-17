@@ -69,7 +69,7 @@ export interface Report {
 }
 
 /* ---------- formatting ---------- */
-const fm = (v: number | null | undefined): string => {
+export const fm = (v: number | null | undefined): string => {
   // Number.isFinite (not just isNaN): a divide-by-zero Infinity must render
   // blank in the committee paper, exactly as model-format's fmt() renders it
   // blank in the grid — not "∞"/"Infinity%". (#R1)
@@ -80,7 +80,7 @@ const fm = (v: number | null | undefined): string => {
   return r < 0 ? "(" + s + ")" : s;
 };
 const fp = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : (v * 100).toFixed(1) + "%");
-const fx = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : v.toFixed(2) + "x");
+export const fx = (v: number | null | undefined): string => (v == null || !Number.isFinite(v) ? "" : v.toFixed(2) + "x");
 
 function seniorityStackChart(
   rcf: number,

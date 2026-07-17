@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -42,7 +42,7 @@ def _seed_ready(
     committee_status: str = "Committee Ready",
     analyst_id: str | None = None,
 ) -> tuple[str, str, str]:
-    from database import AsyncSessionLocal, Issuer, Portfolio, Run
+    from database import AnalystOpinionVersion, AsyncSessionLocal, Issuer, Portfolio, Run
 
     async def seed():
         async with AsyncSessionLocal() as db:
@@ -50,6 +50,7 @@ def _seed_ready(
             portfolio = Portfolio(
                 id=f"{prefix}-portfolio", name=f"{prefix} Book", team_id=team_id
             )
+            owner_id = analyst_id or f"{prefix}-owner"
             run = Run(
                 id=f"{prefix}-run",
                 issuer_id=issuer.id,
@@ -57,10 +58,21 @@ def _seed_ready(
                 status="complete",
                 qa_status="Passed",
                 committee_status=committee_status,
-                analyst_id=analyst_id or f"{prefix}-owner",
+                analyst_id=owner_id,
                 completed_at=datetime.now(timezone.utc),
             )
-            db.add_all([issuer, portfolio, run])
+            opinion = AnalystOpinionVersion(
+                id=f"{prefix}-opinion",
+                issuer_id=issuer.id,
+                analyst_id=owner_id,
+                version=1,
+                stance="NEUTRAL",
+                rationale_md="Fixture analyst view.",
+                evidence_state="supported",
+                unresolved_items=[],
+                analyst_link_ids=[],
+            )
+            db.add_all([issuer, portfolio, run, opinion])
             await db.commit()
             return issuer.id, portfolio.id, run.id
 
@@ -173,6 +185,96 @@ def test_ready_requires_committee_run_and_cancel_is_terminal(ic_client):
         f"/api/committee/agenda/{draft['id']}",
         json={"expected_revision": cancelled.json()["revision"], "status": "draft"},
     ).status_code == 409
+
+
+def test_analyst_views_are_append_only_and_provisional_views_name_gaps(ic_client):
+    from identity import get_identity
+    from main import app
+
+    issuer_id, _, _ = _seed_ready("ic-opinion")
+    app.dependency_overrides[get_identity] = _identity("ic-opinion-owner")
+
+    initial = ic_client.get(f"/api/issuers/{issuer_id}/analyst-opinions")
+    assert initial.status_code == 200
+    assert initial.json()["current"]["version"] == 1
+
+    provisional_without_gap = ic_client.post(
+        f"/api/issuers/{issuer_id}/analyst-opinions",
+        json={
+            "stance": "UNDERWEIGHT", "rationale_md": "Needs a refreshed liquidity bridge.",
+            "evidence_state": "provisional", "unresolved_items": [],
+        },
+    )
+    assert provisional_without_gap.status_code == 422
+
+    created = ic_client.post(
+        f"/api/issuers/{issuer_id}/analyst-opinions",
+        json={
+            "stance": "UNDERWEIGHT", "conviction": 63,
+            "rationale_md": "Liquidity risk outweighs the apparent carry.",
+            "evidence_state": "provisional", "unresolved_items": ["Refresh liquidity bridge"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["version"] == 2
+    history = ic_client.get(f"/api/issuers/{issuer_id}/analyst-opinions").json()
+    assert history["current"]["id"] == created.json()["id"]
+    assert [item["version"] for item in history["items"]] == [2, 1]
+
+
+def test_evidence_exception_requires_independent_qa_and_never_rewrites_cp5(ic_client):
+    from identity import get_identity
+    from main import app
+
+    issuer_id, portfolio_id, run_id = _seed_ready(
+        "ic-exception", committee_status="Restricted"
+    )
+    app.dependency_overrides[get_identity] = _identity("ic-exception-owner")
+    agenda = ic_client.post(
+        "/api/committee/agenda", json=_agenda_payload(issuer_id, run_id, portfolio_id)
+    )
+    assert agenda.status_code == 201, agenda.text
+    item = agenda.json()
+    assert item["readiness_failures"] == ["run_not_committee_ready"]
+
+    requested = ic_client.post(
+        f"/api/committee/agenda/{item['id']}/exceptions",
+        json={
+            "expected_revision": item["revision"],
+            "rationale": "The missing item is time-bound and does not affect current liquidity.",
+            "mitigants": ["Obtain management bridge before IC"],
+            "expires_at": str(date.today() + timedelta(days=7)),
+        },
+    )
+    assert requested.status_code == 201, requested.text
+    exception = requested.json()["evidence_exception"]
+    assert exception["status"] == "pending"
+
+    # The requester cannot self-approve, even if they hold a QA server role.
+    app.dependency_overrides[get_identity] = _identity("ic-exception-owner", role="qa")
+    assert ic_client.post(
+        f"/api/committee/exceptions/{exception['id']}/review",
+        json={"expected_revision": exception["revision"], "decision": "approve", "review_note": "Self review"},
+    ).status_code == 403
+
+    app.dependency_overrides[get_identity] = _identity("ic-exception-reviewer", role="qa")
+    approved = ic_client.post(
+        f"/api/committee/exceptions/{exception['id']}/review",
+        json={"expected_revision": exception["revision"], "decision": "approve", "review_note": "Verified non-critical gap."},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["readiness_state"] == "ready_under_exception"
+    assert approved.json()["readiness_failures"] == []
+
+    # The exception affects only this agenda readiness calculation. It does not
+    # mutate the authoritative run's CP-5 committee status.
+    from database import AsyncSessionLocal, Run
+
+    async def read_run_status():
+        async with AsyncSessionLocal() as db:
+            return (await db.get(Run, run_id)).committee_status
+
+    assert asyncio.run(read_run_status()) == "Restricted"
 
 
 def test_agenda_cursor_is_bounded_and_filter_bound(ic_client):

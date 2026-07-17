@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { SlideOver } from "@/components/shared/SlideOver";
 import { TextInput } from "@/components/shared/TextInput";
 import { createDecision, getDecisions, voteDecision, type IcDecision } from "@/lib/api";
@@ -64,7 +65,7 @@ export function DecisionRoomDrawer({
         <label className="tabular text-caos-xs text-caos-muted">EXPIRY
           <TextInput type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="mt-1 w-full" />
         </label>
-        <button type="button" disabled={busy || !thesis.trim()} onClick={submit} className="tabular text-caos-xs min-h-9 rounded bg-caos-accent text-caos-bg disabled:opacity-40 focus-ring">{busy ? "CAPTURING…" : "CAPTURE DECISION"}</button>
+        <ActionReason reason={busy ? "Capturing decision…" : !thesis.trim() ? "Enter a thesis first" : null} onClick={submit} className="tabular text-caos-xs min-h-9 rounded bg-caos-accent text-caos-bg aria-disabled:opacity-40 focus-ring">{busy ? "CAPTURING…" : "CAPTURE DECISION"}</ActionReason>
         {error ? <div role="alert" className="tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>{error}</div> : null}
 
         <div className="border-t border-caos-border pt-2 flex flex-col gap-2">
@@ -83,7 +84,7 @@ export function DecisionRoomDrawer({
               </div>
               <div className="flex gap-1 mt-1.5">
                 <TextInput value={dissent} onChange={(e) => setDissent(e.target.value)} placeholder="Dissent rationale" aria-label="Dissent rationale" className="flex-1" />
-                <button type="button" disabled={!dissent.trim()} onClick={() => vote(decision, "dissent")} className="tabular text-caos-2xs min-h-7 px-2 rounded border border-caos-warning text-caos-warning disabled:opacity-40 focus-ring">DISSENT</button>
+                <ActionReason reason={!dissent.trim() ? "Enter a dissent rationale first" : null} onClick={() => vote(decision, "dissent")} className="tabular text-caos-2xs min-h-7 px-2 rounded border border-caos-warning text-caos-warning aria-disabled:opacity-40 focus-ring">DISSENT</ActionReason>
               </div>
             </div>
           ))}

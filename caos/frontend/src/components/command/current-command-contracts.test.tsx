@@ -259,7 +259,7 @@ describe("Current Command Center component contracts", () => {
 
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Ack" })));
     await waitFor(() => {
-      expect((screen.getByRole("button", { name: "Acked" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByRole("button", { name: "Acked" }).getAttribute("aria-disabled")).toBe("true");
     });
   });
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ALERTS, EMAILS, PORTFOLIO, type GapItem, type QaQueueItem } from "@/lib/command/data";
 import {
@@ -46,6 +46,65 @@ describe("command-center view interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Collapse details for/ }));
     expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
+  it("gives the virtualized coverage grid one roving row stop and isolates nested links", () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(<PortfolioTable selected={null} onSelect={onSelect} />);
+
+    const grid = screen.getByRole("grid", { name: "Coverage positions" });
+    expect(grid.getAttribute("aria-rowcount")).toBe(String(PORTFOLIO.length + 1));
+    const rows = screen.getAllByRole("row", { name: /position details/ });
+    expect(within(rows[0]).getByRole("rowheader")).toBeTruthy();
+    expect(rows.filter((row) => row.tabIndex === 0)).toHaveLength(1);
+
+    rows[0].focus();
+    fireEvent.keyDown(rows[0], { key: "ArrowDown" });
+    expect(document.activeElement).toBe(rows[1]);
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.keyDown(rows[1], { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith(PORTFOLIO[1].id || PORTFOLIO[1].figi || PORTFOLIO[1].code);
+
+    onSelect.mockClear();
+    fireEvent.click(within(rows[0]).getAllByRole("link")[0]);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    const rowActions = (row: HTMLElement) =>
+      Array.from(row.querySelectorAll<HTMLElement>("button, a[href]"));
+    const firstActions = rowActions(rows[0]);
+    const secondActions = rowActions(rows[1]);
+    expect([...firstActions, ...secondActions].every((action) => action.tabIndex === -1)).toBe(true);
+    expect(rows[0].getAttribute("aria-keyshortcuts")).toBe("F2");
+    expect(document.getElementById(rows[0].getAttribute("aria-describedby")!)?.textContent).toContain("Press F2");
+    rows[0].focus();
+    fireEvent.keyDown(rows[0], { key: "F2" });
+    expect(document.activeElement).toBe(firstActions[0]);
+    expect(firstActions.every((action) => action.tabIndex === 0)).toBe(true);
+    expect(secondActions.every((action) => action.tabIndex === -1)).toBe(true);
+    rerender(<PortfolioTable selected={null} onSelect={onSelect} />);
+    expect(rowActions(screen.getAllByRole("row", { name: /position details/ })[0]).every((action) => action.tabIndex === 0)).toBe(true);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    const restored = screen.getAllByRole("row", { name: /position details/ })[0];
+    expect(document.activeElement).toBe(restored);
+    expect(rowActions(restored).every((action) => action.tabIndex === -1)).toBe(true);
+  });
+
+  it("moves focus beyond the virtualized coverage window boundary", async () => {
+    render(<PortfolioTable selected={null} onSelect={() => undefined} />);
+    const grid = screen.getByRole("grid", { name: "Coverage positions" });
+    const rendered = screen.getAllByRole("row", { name: /position details/ });
+    const lastRendered = rendered.at(-1)!;
+    const currentIndex = Number(lastRendered.getAttribute("aria-rowindex")) - 2;
+    expect(currentIndex).toBeLessThan(PORTFOLIO.length - 1);
+    lastRendered.focus();
+    fireEvent.keyDown(lastRendered, { key: "ArrowDown" });
+
+    const nextRow = await waitFor(() => {
+      const target = grid.querySelector<HTMLElement>(`[role='row'][aria-rowindex='${currentIndex + 3}']`);
+      expect(target).toBeTruthy();
+      return target!;
+    });
+    expect(document.activeElement).toBe(nextRow);
   });
 
   it("renders a sparkline with stable geometry", () => {

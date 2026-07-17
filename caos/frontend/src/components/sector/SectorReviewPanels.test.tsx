@@ -36,7 +36,7 @@ function reviewFixture(): SectorReviewV2 {
       { id: "sig-3", indicator: "Liquidity", threshold: "1.5x", current_state: "2.0x", status: "clear", source_ids: [] },
     ],
     comparables: [
-      { issuer_id: "issuer-1", issuer_name: "Linked Media", posture: "watch", metrics: {}, missing_dependencies: ["FY26", "Covenants"] },
+      { issuer_id: "issuer-1", issuer_name: "Linked Media", posture: "watch", metrics: { net_leverage: 5.2, interest_coverage: 2.1, code: "ignored" }, missing_dependencies: ["FY26", "Covenants"] },
       { issuer_id: null, issuer_name: "Private Peer", posture: "stable", metrics: {}, missing_dependencies: [] },
     ],
     risks: [{ id: "risk-1", title: "Cord cutting", likelihood: "high", severity: "critical", mitigants: [], residual_risk: "elevated", source_ids: ["E-1"] }],
@@ -77,6 +77,7 @@ describe("SectorReviewContent", () => {
     );
 
     expect(screen.getByText("Business quality")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sector thesis.*watch.*ratified/i })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Sector thesis/ }));
     expect(onSelectSection).toHaveBeenCalledWith("thesis");
   });
@@ -85,7 +86,7 @@ describe("SectorReviewContent", () => {
     const review = reviewFixture();
     const props = { review, selectedSection: "thesis", onSelectSection: vi.fn(), contextId: "ctx-1" };
     const { rerender } = render(<SectorReviewContent {...props} tab="overview" />);
-    expect(screen.getByText("ratified")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sector thesis.*watch.*ratified/i })).toBeTruthy();
     expect(screen.getByText("FY26 model")).toBeTruthy();
 
     rerender(<SectorReviewContent {...props} tab="signals" />);
@@ -94,9 +95,13 @@ describe("SectorReviewContent", () => {
     expect(screen.getByText("Liquidity")).toBeTruthy();
 
     rerender(<SectorReviewContent {...props} tab="comparables" />);
+    expect(screen.getByRole("table", { name: "Sector comparables" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Linked Media" })).toBeTruthy();
     expect(screen.getByText("Private Peer")).toBeTruthy();
     expect(screen.getByText("FY26 · Covenants")).toBeTruthy();
+    expect(screen.getByText("FY26 · Covenants").closest("td")?.className).toContain("text-left");
+    expect(screen.getByRole("columnheader", { name: "Net Leverage" })).toBeTruthy();
+    expect(screen.getByText("5.2").closest("td")?.className).toContain("text-right");
 
     rerender(<SectorReviewContent {...props} tab="early-warning" />);
     expect(screen.getByText("breached · 4%")).toBeTruthy();
@@ -107,11 +112,21 @@ describe("SectorReviewContent", () => {
 
     rerender(<SectorReviewContent {...props} tab="sources" />);
     expect(screen.getByText("Sector tape")).toBeTruthy();
+    expect(screen.getAllByText("Source unavailable · Source E-1 has no persisted URL.").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: "Open source E-1" })).toBeNull();
     expect(screen.getByText(/Subscriber floor uncertain/)).toBeTruthy();
     const route = screen.getByRole("link", { name: "Route gaps to QA" });
     expect(route.getAttribute("href")).toContain("context=ctx-1");
 
     rerender(<SectorReviewContent {...props} contextId={undefined} tab="sources" />);
     expect(screen.queryByRole("link", { name: "Route gaps to QA" })).toBeNull();
+  });
+
+  it("renders a sector source as a link only when its persisted URL is present", () => {
+    const review = reviewFixture();
+    review.source_register[0].url = "https://sources.example.test/e-1";
+    render(<SectorReviewContent review={review} tab="sources" selectedSection={null} onSelectSection={() => {}} />);
+
+    expect(screen.getAllByRole("link", { name: "Open source E-1" }).every((link) => link.getAttribute("href") === "https://sources.example.test/e-1")).toBe(true);
   });
 });

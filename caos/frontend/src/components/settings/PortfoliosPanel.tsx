@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useDropzone } from "react-dropzone";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { Panel } from "@/components/shared/Panel";
 import { TextInput } from "@/components/shared/TextInput";
 import { Dot } from "@/components/pipeline/atoms";
@@ -125,14 +126,16 @@ export function PortfoliosPanel() {
               <input ref={mandateRef} type="file" accept=".csv" className="block mt-1 text-caos-xs text-caos-muted" />
             </label>
           </div>
-          <button onClick={create} disabled={!name.trim() || !holdingsName || busy}
-            className="h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          <ActionReason
+            onClick={create}
+            reason={busy ? "Creating…" : !name.trim() ? "Enter a portfolio name first" : !holdingsName ? "Attach a holdings file first" : null}
+            className="h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md aria-disabled:opacity-40 aria-disabled:cursor-not-allowed flex items-center justify-center gap-2">
             {busy ? <><Dot sev="running" pulse /> CREATING…</> : "CREATE PORTFOLIO"}
-          </button>
+          </ActionReason>
         </div>
       </Panel>
 
-      {selected ? <PortfolioPosture detail={selected} onUpdated={async (d) => { setSelected(d); await refresh(); }} onError={setError} /> : null}
+      {selected ? <PortfolioPosture key={selected.id} detail={selected} onUpdated={async (d) => { setSelected(d); await refresh(); }} onError={setError} /> : null}
     </div>
   );
 }
@@ -144,23 +147,32 @@ function PortfolioPosture({ detail, onUpdated, onError }: {
   onError: (m: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // Dropping a file stages a replacement only. The explicit second action names
+  // the exact book and file before its current positions are overwritten.
+  const [pendingHoldings, setPendingHoldings] = useState<File | null>(null);
   const ex = detail.exposure as Record<string, unknown>;
   const breaches = detail.compliance.filter((row) => row.status === "Breach").length;
   const watches = detail.compliance.filter((row) => row.status === "Watch").length;
   const mandateRows = Object.entries(detail.mandate ?? {}).slice(0, 6);
 
-  const onDrop = useCallback(async (accepted: File[]) => {
+  const onDrop = useCallback((accepted: File[]) => {
     if (!accepted[0] || busy) return;
+    setPendingHoldings(accepted[0]);
+  }, [busy]);
+
+  const confirmHoldingsReplacement = async () => {
+    if (!pendingHoldings || busy) return;
     setBusy(true);
     try {
       const fd = new FormData();
-      fd.append("holdings", accepted[0]);
+      fd.append("holdings", pendingHoldings);
       await uploadPortfolioHoldings(detail.id, fd);
       onUpdated(await getPortfolioDetail(detail.id));
+      setPendingHoldings(null);
     } catch (e) {
       onError(toErrorMessage(e, "Couldn't update holdings."));
     } finally { setBusy(false); }
-  }, [detail.id, busy, onUpdated, onError]);
+  };
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, accept: { [XLSX]: [".xlsx"] }, multiple: false,
   });
@@ -185,12 +197,31 @@ function PortfolioPosture({ detail, onUpdated, onError }: {
           OPEN OPERATIONAL POSTURE IN PORTFOLIO LAB
         </Link>
 
-        {/* update holdings */}
+        {/* update holdings — stage, review the exact replacement, then commit */}
         <div {...getRootProps()} className="rounded border border-dashed px-4 py-4 text-center cursor-pointer transition-caos"
           style={{ borderColor: isDragActive ? "var(--caos-accent)" : "var(--caos-border)", background: "var(--caos-bg)" }}>
           <input {...getInputProps()} aria-label="Update holdings file (xlsx)" />
-          <div className="tabular text-caos-md text-caos-muted">{busy ? "Updating positions…" : "Drop a new holdings file to update positions"}</div>
+          <div className="tabular text-caos-md text-caos-muted">{busy ? "Updating positions…" : pendingHoldings ? `${pendingHoldings.name} staged for review` : "Drop a new holdings file to stage a replacement"}</div>
         </div>
+        {pendingHoldings ? (
+          <div className="rounded border border-caos-warning/50 bg-caos-warning/5 px-3 py-2.5 flex flex-col gap-2">
+            <p className="m-0 text-caos-md text-caos-text">
+              Replace positions in <span className="font-semibold">{detail.name}</span> with <span className="tabular">{pendingHoldings.name}</span>. This replaces the current {String(ex.n_positions ?? "unknown")} positions.
+            </p>
+            <div className="flex gap-2">
+              <ActionReason
+                onClick={confirmHoldingsReplacement}
+                reason={busy ? "Replacing positions…" : null}
+                className="caos-action-primary focus-ring"
+              >
+                {busy ? "REPLACING…" : "CONFIRM REPLACE POSITIONS"}
+              </ActionReason>
+              <button type="button" onClick={() => setPendingHoldings(null)} disabled={busy} className="caos-action-secondary focus-ring disabled:opacity-40">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </Panel>
   );

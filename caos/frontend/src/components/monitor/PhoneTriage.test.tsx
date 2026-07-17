@@ -88,11 +88,11 @@ describe("PhoneTriage", () => {
 
     const prev = screen.getByRole("button", { name: "Previous alert" });
     const next = screen.getByRole("button", { name: "Next alert" });
-    expect((prev as HTMLButtonElement).disabled).toBe(true);
+    expect(prev.getAttribute("aria-disabled")).toBe("true");
 
     fireEvent.click(next);
     await waitFor(() => expect(screen.getByText("Quill Media")).toBeTruthy());
-    expect((next as HTMLButtonElement).disabled).toBe(true);
+    expect(next.getAttribute("aria-disabled")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Previous alert" }));
     await waitFor(() => expect(screen.getByText("EG Group")).toBeTruthy());

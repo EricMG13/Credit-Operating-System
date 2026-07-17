@@ -16,6 +16,7 @@
 import { useState } from "react";
 import { DEBATE, SIZING } from "@/lib/reports/deal";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { updateAnalystWorkspace } from "@/lib/api";
 
 interface Affirmation {
@@ -75,14 +76,13 @@ export function StandingViewStrip({
         {tail ? <span className="tabular text-caos-sm text-caos-muted truncate">— {tail}</span> : null}
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">· conviction: {SIZING.decision}</span>
       </div>
-      <button
-        type="button"
+      <ActionReason
         onClick={affirm}
-        disabled={saveState === "saving"}
-        className="tabular text-caos-xs px-2 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
+        reason={saveState === "saving" ? "Saving…" : null}
+        className="tabular text-caos-xs px-2 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
       >
         {saveState === "saved" ? "Noted" : "Note agreement"}
-      </button>
+      </ActionReason>
       <button
         type="button"
         onClick={() => onRevise("CP-6A")}

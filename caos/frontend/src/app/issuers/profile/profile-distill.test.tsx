@@ -279,7 +279,7 @@ describe("Profile (distilled)", () => {
     expect(screen.getAllByText("OVERWEIGHT · GATED").length).toBeGreaterThan(0);
     expect(screen.getByText("fabricated")).toBeTruthy();
     expect(screen.getAllByRole("img", { name: /Critical|Warning/ }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: "See Net leverage source in Deep-Dive" })).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Open source chunk-1" }).length).toBeGreaterThan(0);
 
     const snapshot = screen.getByRole("tab", { name: "Snapshot" });
     snapshot.focus();

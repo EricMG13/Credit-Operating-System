@@ -403,7 +403,7 @@ body :is(button, a, input, select, textarea):focus-visible {
   z-index: 60;
   padding: 6px 10px;
   border: 1px solid var(--caos-border);
-  border-radius: 4px;
+  border-radius: 2px;
   background: var(--caos-elevated);
   color: var(--caos-text);
   box-shadow: var(--shadow-modal, 0 8px 24px rgba(0, 0, 0, 0.5));
@@ -519,15 +519,15 @@ main#main-content {
 }
 
 /* Dense app tables: even cells, centered values. Paper deliverables keep rd-* rules. */
-main table:not(.rd-table):not(.rv-table) {
+main table:not(.rd-table):not(.rv-table):not(.caos-data-table) {
   border-spacing: 0;
 }
-main table:not(.rd-table):not(.rv-table) :is(th, td) {
+main table:not(.rd-table):not(.rv-table):not(.caos-data-table) :is(th, td) {
   text-align: center;
   padding-left: 0.625rem;
   padding-right: 0.625rem;
 }
-main table:not(.rd-table):not(.rv-table) thead th {
+main table:not(.rd-table):not(.rv-table):not(.caos-data-table) thead th {
   color: var(--caos-text);
   font-weight: 650;
 }
@@ -747,6 +747,7 @@ button.rd-cite:focus-visible { outline: 2px solid var(--paper-link); outline-off
 .rdoc-table-scroll { overflow-x: auto; margin: 4px 0 16px; }
 .research-doc table { width: 100%; border-collapse: collapse; margin: 0; font-size: 11px; font-variant-numeric: tabular-nums; }
 .research-doc th, .research-doc td { text-align: left; padding: 5px 14px 5px 0; vertical-align: top; }
+.research-doc th.rdoc-num, .research-doc td.rdoc-num { text-align: right; }
 .research-doc th:last-child, .research-doc td:last-child { padding-right: 0; }
 .research-doc thead th { font-family: var(--font-mono), monospace; font-weight: 650; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--paper-meta); border-bottom: 1px solid #16161e; white-space: nowrap; }
 .research-doc tbody td { border-bottom: 1px solid rgba(22,22,30,0.1); line-height: 1.4; overflow-wrap: break-word; }
@@ -754,6 +755,10 @@ button.rd-cite:focus-visible { outline: 2px solid var(--paper-link); outline-off
 
 /* cited sources, set on the sheet as a numbered footnote register */
 .rdoc-sources { margin-top: 22px; padding-top: 12px; border-top: 1px solid #16161e; }
+.rdoc-figures { margin-top: 22px; padding-top: 12px; border-top: 1px solid #16161e; }
+.rdoc-figures-h { font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--paper-meta); margin-bottom: 10px; }
+.rdoc-figures .semantic-visualization { margin: 0 0 18px; }
+.rdoc-figures .semantic-visualization:last-child { margin-bottom: 0; }
 .rdoc-sources-h { font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--paper-meta); margin-bottom: 9px; }
 .rdoc-sources ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; counter-reset: src; }
 .rdoc-sources li { counter-increment: src; display: flex; gap: 9px; font-size: 11px; line-height: 1.45; }

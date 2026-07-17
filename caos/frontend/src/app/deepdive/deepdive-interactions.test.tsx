@@ -349,13 +349,22 @@ describe("Deep-Dive live issuer and affirmation coverage", () => {
 
     state.live = live();
     view.rerender(<DeepDivePage />);
-    expect(await screen.findByText("● LIVE")).toBeTruthy();
+    expect(await screen.findByTitle(/Rendering this issuer's live engine output.*QA status: Passed/)).toBeTruthy();
     expect(screen.getByText("module dynamic")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "export run-live-123456" }));
     expect(state.exportRun).toHaveBeenCalledWith("run-live-123456");
     fireEvent.click(screen.getByRole("button", { name: "finder CP-4" }));
     expect(await screen.findByText("capacity dynamic")).toBeTruthy();
     expect(screen.getByText(/dominoes issuer-live true/)).toBeTruthy();
+
+    // CP-4's pane includes the CP-4C gate: the worst persisted status wins, so
+    // a passed CP-4 can never greenwash a restricted or blocked covenant gate.
+    state.live = live({ liveStatus: { "CP-4": "Passed", "CP-4C": "Restricted" } });
+    view.rerender(<DeepDivePage />);
+    expect(await screen.findByText("△ RESTRICTED")).toBeTruthy();
+    state.live = live({ liveStatus: { "CP-4": "Passed", "CP-4C": "Blocked" } });
+    view.rerender(<DeepDivePage />);
+    expect(await screen.findByText("✕ BLOCKED")).toBeTruthy();
 
     state.live = live({ liveStatus: { "CP-4": "Blocked" } });
     view.rerender(<DeepDivePage />);

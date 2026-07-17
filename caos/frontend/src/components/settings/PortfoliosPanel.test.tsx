@@ -114,6 +114,8 @@ describe("PortfoliosPanel", () => {
     await screen.findByText("Configuration · Alpha CLO");
     api.uploadPortfolioHoldings.mockRejectedValueOnce(new Error("update"));
     fireEvent.click(screen.getByLabelText("Update holdings file (xlsx)"));
+    expect(api.uploadPortfolioHoldings).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "CONFIRM REPLACE POSITIONS" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Couldn't update holdings"));
   });
 });

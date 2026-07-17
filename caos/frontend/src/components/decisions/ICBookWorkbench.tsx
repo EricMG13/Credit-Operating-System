@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
@@ -9,7 +10,10 @@ import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
+import { useAuth } from "@/components/shared/AuthProvider";
+import { DataTable, type DataTableColumn, type DataTableSort } from "@/components/ui/DataTable";
 import { useAnalysisContext } from "@/lib/analysis-workbench";
+import { analystOpinionsApi, type AnalystOpinionVersion } from "@/lib/analyst-opinions";
 import { getIssuers, getPortfolios, listRuns, toErrorMessage, type PortfolioSummary } from "@/lib/api";
 import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
 import {
@@ -22,13 +26,15 @@ import {
 import { useTypedUrlState } from "@/lib/typed-url-state";
 import type { Issuer } from "@/types/issuers";
 import type { RunListItemDTO } from "@/lib/engine/types";
-import { fmtUtcDate, fmtUtcDateTime } from "@/lib/format-date";
+import { fmtLocalDateTime, fmtUtcDate, fmtUtcDateTime } from "@/lib/format-date";
 
 const URL_KEYS = ["dataset", "status", "issuer", "portfolio", "sort", "direction", "cursor", "selected", "context"] as const;
 type Dataset = "agenda" | "history";
 
 function formatDate(value: string | null) {
-  return fmtUtcDateTime(value);
+  const local = fmtLocalDateTime(value);
+  const utc = fmtUtcDateTime(value);
+  return local === "—" ? utc : `${local} · ${utc}`;
 }
 
 function toLocalDateTimeInput(value: string) {
@@ -91,12 +97,28 @@ function sourceHref(sourceId: string, row: DecisionBookItem) {
   return `/deepdive?${params.toString()}`;
 }
 
-function AgendaTable({ rows, selected, onSelect }: { rows: CommitteeAgendaItem[]; selected: string | null; onSelect: (id: string) => void }) {
-  return <table aria-label="Committee agenda"><thead><tr><th scope="col">Meeting</th><th scope="col">Issuer</th><th scope="col">Recommendation</th><th scope="col">Conviction</th><th scope="col">Owner</th><th scope="col">Readiness</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} data-selected={selected === row.id}><th scope="row"><button type="button" onClick={() => onSelect(row.id)} aria-pressed={selected === row.id}>{formatDate(row.scheduled_for)}</button></th><td>{row.issuer_id}</td><td>{row.recommendation.toUpperCase()}</td><td>{row.conviction == null ? "—" : `${row.conviction}%`}</td><td>{row.owner_id}</td><td><span className="ic-book__status" data-status={row.status}><span aria-hidden="true">●</span> {row.status}{row.readiness_failures.length ? ` · ${row.readiness_failures.length} blockers` : ""}</span></td></tr>)}</tbody></table>;
+function AgendaTable({ rows, selected, sort, onSort, onSelect, issuerLabel, ownerLabel }: { rows: CommitteeAgendaItem[]; selected: string | null; sort: DataTableSort; onSort: (key: string) => void; onSelect: (id: string) => void; issuerLabel: (id: string) => string; ownerLabel: (id: string) => string }) {
+  const columns: DataTableColumn<CommitteeAgendaItem>[] = [
+    { key: "scheduled_for", header: "Meeting", align: "numeric", rowHeader: true, sortable: true, render: (row) => formatDate(row.scheduled_for) },
+    { key: "issuer", header: "Issuer", render: (row) => issuerLabel(row.issuer_id) },
+    { key: "recommendation", header: "Recommendation", render: (row) => row.recommendation.toUpperCase() },
+    { key: "conviction", header: "Conviction", align: "numeric", unit: "%", render: (row) => row.conviction ?? "—" },
+    { key: "owner", header: "Owner", render: (row) => ownerLabel(row.owner_id) },
+    { key: "readiness", header: "Readiness", render: (row) => <span className="ic-book__status" data-status={row.status}><span aria-hidden="true">●</span> {row.status}{row.readiness_failures.length ? ` · ${row.readiness_failures.length} blockers` : ""}</span> },
+  ];
+  return <DataTable columns={columns} rows={rows} getRowId={(row) => row.id} caption="Committee agenda" sort={sort} onSort={onSort} selectedRowId={selected} onRowActivate={(row) => onSelect(row.id)} rowClassName={(row) => selected === row.id ? "bg-caos-accent/10" : ""} />;
 }
 
-function HistoryTable({ rows, selected, onSelect }: { rows: DecisionBookItem[]; selected: string | null; onSelect: (id: string) => void }) {
-  return <table aria-label="Decision history"><thead><tr><th scope="col">Decision date</th><th scope="col">Issuer</th><th scope="col">Action</th><th scope="col">Status</th><th scope="col">Votes</th><th scope="col">Expiry</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id} data-selected={selected === row.id}><th scope="row"><button type="button" onClick={() => onSelect(row.id)} aria-pressed={selected === row.id}>{formatDate(row.created_at)}</button></th><td>{row.issuer_id}</td><td>{row.action.toUpperCase()}</td><td><span className="ic-book__status" data-status={row.status}><span aria-hidden="true">●</span> {row.status}</span></td><td>{row.votes.length}</td><td>{formatCalendarDate(row.expiry)}</td></tr>)}</tbody></table>;
+function HistoryTable({ rows, selected, sort, onSort, onSelect, issuerLabel }: { rows: DecisionBookItem[]; selected: string | null; sort: DataTableSort; onSort: (key: string) => void; onSelect: (id: string) => void; issuerLabel: (id: string) => string }) {
+  const columns: DataTableColumn<DecisionBookItem>[] = [
+    { key: "created_at", header: "Decision date", align: "numeric", rowHeader: true, sortable: true, render: (row) => formatDate(row.created_at) },
+    { key: "issuer", header: "Issuer", render: (row) => issuerLabel(row.issuer_id) },
+    { key: "action", header: "Action", render: (row) => row.action.toUpperCase() },
+    { key: "status", header: "Status", render: (row) => <span className="ic-book__status" data-status={row.status}><span aria-hidden="true">●</span> {row.status}</span> },
+    { key: "votes", header: "Votes", align: "numeric", render: (row) => row.votes.length },
+    { key: "expiry", header: "Expiry", align: "numeric", sortable: true, render: (row) => formatCalendarDate(row.expiry) },
+  ];
+  return <DataTable columns={columns} rows={rows} getRowId={(row) => row.id} caption="Decision history" sort={sort} onSort={onSort} selectedRowId={selected} onRowActivate={(row) => onSelect(row.id)} rowClassName={(row) => selected === row.id ? "bg-caos-accent/10" : ""} />;
 }
 
 function AgendaInspector({
@@ -106,6 +128,13 @@ function AgendaInspector({
   onMarkReady,
   onReturnDraft,
   onFinalize,
+  opinions,
+  onLinkOpinion,
+  canReviewException,
+  onRequestException,
+  onReviewException,
+  onRevokeException,
+  issuerLabel,
 }: {
   row: CommitteeAgendaItem;
   busy: boolean;
@@ -120,9 +149,20 @@ function AgendaInspector({
   onMarkReady: () => void;
   onReturnDraft: () => void;
   onFinalize: () => void;
+  opinions: AnalystOpinionVersion[];
+  onLinkOpinion: (opinionId: string) => void;
+  canReviewException: boolean;
+  onRequestException: (input: { rationale: string; mitigants: string[]; expires_at: string }) => void;
+  onReviewException: (exceptionId: string, revision: number, decision: "approve" | "reject", reviewNote: string) => void;
+  onRevokeException: (exceptionId: string, revision: number, reviewNote: string) => void;
+  issuerLabel: (id: string) => string;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [exceptionRationale, setExceptionRationale] = useState("");
+  const [exceptionMitigants, setExceptionMitigants] = useState("");
+  const [exceptionExpiry, setExceptionExpiry] = useState("");
+  const [exceptionReviewNote, setExceptionReviewNote] = useState("");
   const originalScheduledInput = toLocalDateTimeInput(row.scheduled_for);
   const [draft, setDraft] = useState({
     thesis: row.thesis,
@@ -133,6 +173,8 @@ function AgendaInspector({
     conviction: row.conviction == null ? "" : String(row.conviction),
   });
   const immutable = row.status === "decided" || row.status === "cancelled";
+  const exceptionEligible = row.readiness_failures.length === 1 && row.readiness_failures[0] === "run_not_committee_ready";
+  const exception = row.evidence_exception;
   return (
     <article className="ic-book__inspector" aria-label="Agenda inspector">
       <header>
@@ -160,24 +202,26 @@ function AgendaInspector({
               });
               setEditing(false);
             }}>Save preparation</button>
-            <button type="button" disabled={busy} onClick={() => setEditing(false)}>Cancel edit</button>
+            <ActionReason reason={busy ? "An action is already in progress" : null} onClick={() => setEditing(false)}>Cancel edit</ActionReason>
           </div>
         </div>
       ) : (
         <>
-          <h2>{row.recommendation.toUpperCase()} · {row.issuer_id}</h2>
+          <h2>{row.recommendation.toUpperCase()} · {issuerLabel(row.issuer_id)}</h2>
           <p>{row.thesis}</p>
           <dl><div><dt>Scheduled</dt><dd>{formatDate(row.scheduled_for)}</dd></div><div><dt>Expiry</dt><dd>{row.expiry ?? "—"}</dd></div><div><dt>Run</dt><dd>{row.run_id ?? "Missing"}</dd></div><div><dt>Report version</dt><dd>{row.report_version_id ?? "Optional"}</dd></div><div><dt>Revision</dt><dd>{row.revision}</dd></div></dl>
           <section><h3>Conditions</h3>{row.conditions.length ? <ul>{row.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul> : <p>No conditions recorded.</p>}</section>
         </>
       )}
       <section><h3>Readiness</h3>{row.readiness_failures.length ? <ul>{row.readiness_failures.map((failure) => <li key={failure}>{failure.replaceAll("_", " ")}</li>)}</ul> : <p>No deterministic readiness blockers.</p>}</section>
+      {!immutable ? <section><h3>Analyst view</h3>{row.analyst_opinion_version_id ? <p>Linked analyst-view version {row.analyst_opinion_version_id.slice(0, 8)}…</p> : opinions.length ? <div><p>Required before this agenda item can be marked ready.</p><button type="button" disabled={busy} onClick={() => onLinkOpinion(opinions[0].id)}>Link current view · {opinions[0].stance} · v{opinions[0].version}</button></div> : <p>No current analyst view for this issuer. Publish one in Issuer Profile first.</p>}</section> : null}
+      {!immutable ? <section><h3>Evidence exception</h3>{exception ? <div><p><strong>{exception.status.toUpperCase()}</strong> · expires {exception.expires_at}</p><p>{exception.rationale}</p>{exception.mitigants.length ? <ul>{exception.mitigants.map((mitigant) => <li key={mitigant}>{mitigant}</li>)}</ul> : null}{exception.review_note ? <p>QA note · {exception.review_note}</p> : null}{canReviewException && exception.status === "pending" ? <div><label>QA review note<textarea rows={2} value={exceptionReviewNote} onChange={(event) => setExceptionReviewNote(event.target.value)} /></label><div><button type="button" disabled={busy || !exceptionReviewNote.trim()} onClick={() => onReviewException(exception.id, exception.revision, "approve", exceptionReviewNote.trim())}>Approve exception</button><button type="button" disabled={busy || !exceptionReviewNote.trim()} onClick={() => onReviewException(exception.id, exception.revision, "reject", exceptionReviewNote.trim())}>Reject exception</button></div></div> : null}{canReviewException && exception.status === "approved" ? <div><label>Revocation note<textarea rows={2} value={exceptionReviewNote} onChange={(event) => setExceptionReviewNote(event.target.value)} /></label><button type="button" disabled={busy || !exceptionReviewNote.trim()} onClick={() => onRevokeException(exception.id, exception.revision, exceptionReviewNote.trim())}>Revoke exception</button></div> : null}</div> : exceptionEligible ? <div><p>Available only for a Restricted or Insufficient Information run with no critical QA finding. Approval is independent and never changes CP-5 status.</p><label>Rationale<textarea rows={3} value={exceptionRationale} onChange={(event) => setExceptionRationale(event.target.value)} /></label><label>Mitigants · one per line<textarea rows={2} value={exceptionMitigants} onChange={(event) => setExceptionMitigants(event.target.value)} /></label><label>Expiry<input type="date" value={exceptionExpiry} onChange={(event) => setExceptionExpiry(event.target.value)} /></label><button type="button" disabled={busy || !exceptionRationale.trim() || !exceptionExpiry} onClick={() => onRequestException({ rationale: exceptionRationale.trim(), mitigants: exceptionMitigants.split("\n").map((value) => value.trim()).filter(Boolean), expires_at: exceptionExpiry })}>Request QA exception</button></div> : <p>Exceptions are unavailable unless the sole blocker is a non-critical run readiness gap.</p>}</section> : null}
       {row.snapshot_sha256 ? <p className="ic-book__hash">Frozen SHA {row.snapshot_sha256}</p> : null}
-      {!immutable && !editing ? <button type="button" disabled={busy} onClick={() => setEditing(true)}>Edit preparation</button> : null}
+      {!immutable && !editing ? <ActionReason reason={busy ? "An action is already in progress" : null} onClick={() => setEditing(true)}>Edit preparation</ActionReason> : null}
       {!immutable && row.status === "draft" ? <button type="button" aria-disabled={(busy || row.readiness_failures.length > 0) || undefined} title={row.readiness_failures.length > 0 ? "Resolve the readiness blockers listed above first" : undefined} onClick={() => { if (!busy && row.readiness_failures.length === 0) onMarkReady(); }}>Mark ready</button> : null}
-      {row.status === "ready" ? <button type="button" disabled={busy} onClick={onReturnDraft}>Return to draft</button> : null}
-      {row.status === "ready" && !confirming ? <button type="button" disabled={busy} onClick={() => setConfirming(true)}>Review finalization</button> : null}
-      {row.status === "ready" && confirming ? <div className="ic-book__confirm" role="alert"><strong>Freeze this committee record?</strong><p>Finalization creates one immutable decision and locks the linked run, report, context, portfolio, and evidence snapshot.</p><div><button type="button" disabled={busy} onClick={onFinalize}>{busy ? "Finalizing…" : "Confirm finalization"}</button><button type="button" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button></div></div> : null}
+      {row.status === "ready" ? <ActionReason reason={busy ? "An action is already in progress" : null} onClick={onReturnDraft}>Return to draft</ActionReason> : null}
+      {row.status === "ready" && !confirming ? <ActionReason reason={busy ? "An action is already in progress" : null} onClick={() => setConfirming(true)}>Review finalization</ActionReason> : null}
+      {row.status === "ready" && confirming ? <div className="ic-book__confirm" role="alert"><strong>Freeze this committee record?</strong><p>Finalization creates one immutable decision and locks the linked run, report, context, portfolio, and evidence snapshot.</p><div><ActionReason reason={busy ? "Finalizing…" : null} onClick={onFinalize}>{busy ? "Finalizing…" : "Confirm finalization"}</ActionReason><ActionReason reason={busy ? "An action is already in progress" : null} onClick={() => setConfirming(false)}>Cancel</ActionReason></div></div> : null}
     </article>
   );
 }
@@ -186,28 +230,30 @@ function DecisionInspector({
   row,
   busy,
   onVote,
-  onReopen,
+  onReopen, issuerLabel,
 }: {
   row: DecisionBookItem;
   busy: boolean;
   onVote: (vote: "approve" | "dissent" | "abstain", note?: string) => void;
   onReopen: (triggerAlertKey: string) => void;
+  issuerLabel: (id: string) => string;
 }) {
   const [dissent, setDissent] = useState("");
   const [reopenKey, setReopenKey] = useState("");
+  const [armedVote, setArmedVote] = useState<{ choice: "approve" | "dissent" | "abstain"; note?: string } | null>(null);
   const thesis = String((row.snapshot.agenda as { thesis?: unknown } | undefined)?.thesis ?? row.snapshot.thesis_md ?? "No frozen thesis text.");
   const authority = row.snapshot.authority as { source_ids?: unknown; as_of?: unknown; approval_state?: unknown } | undefined;
   const sourceIds = Array.isArray(authority?.source_ids) ? authority.source_ids.filter((value): value is string => typeof value === "string") : [];
   return (
     <article className="ic-book__inspector" aria-label="Decision inspector">
       <header><span className="ic-book__eyebrow">Immutable decision</span><span className="ic-book__status" data-status={row.status}>● {row.status}</span></header>
-      <h2>{row.action.toUpperCase()} · {row.issuer_id}</h2>
+      <h2>{row.action.toUpperCase()} · {issuerLabel(row.issuer_id)}</h2>
       <p>{thesis}</p>
       <dl><div><dt>Snapshot</dt><dd>{row.snapshot_sha256}</dd></div><div><dt>Run</dt><dd>{row.run_id}</dd></div><div><dt>Report version</dt><dd>{row.report_version_id ?? "—"}</dd></div><div><dt>Expiry</dt><dd>{row.expiry ?? "—"}</dd></div></dl>
       <section><h3>Frozen authority & evidence</h3><p>{String(authority?.approval_state ?? "unknown")} · as of {String(authority?.as_of ?? "unavailable")}</p>{sourceIds.length ? <ul>{sourceIds.map((sourceId) => <li key={sourceId}><Link href={sourceHref(sourceId, row)}>{sourceId}</Link></li>)}</ul> : <p>No frozen source identifiers.</p>}</section>
       <section><h3>Conditions</h3>{row.conditions.length ? <ul>{row.conditions.map((condition) => <li key={condition}>{condition}</li>)}</ul> : <p>No conditions recorded.</p>}</section>
-      <section><h3>Votes & dissent</h3>{row.votes.length ? <ul>{row.votes.map((vote) => <li key={vote.id}><strong>{vote.vote}</strong> · {vote.member}{vote.dissent_note ? ` — ${vote.dissent_note}` : ""}</li>)}</ul> : <p>No votes recorded.</p>}<div className="ic-book__vote-actions"><button type="button" disabled={busy} onClick={() => onVote("approve")}>Approve</button><button type="button" disabled={busy} onClick={() => onVote("abstain")}>Abstain</button><label htmlFor={`ic-dissent-${row.id}`}>Dissent rationale</label><textarea id={`ic-dissent-${row.id}`} name="dissent" rows={3} value={dissent} onChange={(event) => setDissent(event.target.value)} /><button type="button" aria-disabled={(busy || !dissent.trim()) || undefined} title={!dissent.trim() ? "Enter a dissent rationale first" : undefined} onClick={() => { if (busy || !dissent.trim()) return; onVote("dissent", dissent.trim()); setDissent(""); }}>Record dissent</button></div></section>
-      {row.status === "active" ? <section><h3>Reopen decision</h3><label htmlFor={`ic-reopen-${row.id}`}>Trigger alert key</label><input id={`ic-reopen-${row.id}`} name="reopen-alert-key" value={reopenKey} onChange={(event) => setReopenKey(event.target.value)} placeholder={`alert:${row.issuer_id}:material-change…`} /><button type="button" disabled={busy || !reopenKey.trim()} onClick={() => onReopen(reopenKey.trim())}>Reopen for material change</button></section> : null}
+      <section><h3>Votes & dissent</h3>{row.votes.length ? <ul>{row.votes.map((vote) => <li key={vote.id}><strong>{vote.vote}</strong> · {vote.member}{vote.dissent_note ? ` — ${vote.dissent_note}` : ""}</li>)}</ul> : <p>No votes recorded.</p>}{armedVote ? <div className="ic-book__confirm" role="alert"><strong>Confirm {armedVote.choice} vote?</strong><p>Record this vote on immutable {row.action} decision for {issuerLabel(row.issuer_id)}.</p><ActionReason reason={busy ? "Vote is being recorded…" : null} onClick={() => { onVote(armedVote.choice, armedVote.note); setArmedVote(null); }}>Confirm {armedVote.choice}</ActionReason><ActionReason reason={busy ? "An action is already in progress" : null} onClick={() => setArmedVote(null)}>Cancel</ActionReason></div> : <div className="ic-book__vote-actions"><ActionReason reason={busy ? "An action is already in progress" : null} onClick={() => setArmedVote({ choice: "approve" })}>Approve</ActionReason><ActionReason reason={busy ? "An action is already in progress" : null} onClick={() => setArmedVote({ choice: "abstain" })}>Abstain</ActionReason><label htmlFor={`ic-dissent-${row.id}`}>Dissent rationale</label><textarea id={`ic-dissent-${row.id}`} name="dissent" rows={3} value={dissent} onChange={(event) => setDissent(event.target.value)} /><ActionReason reason={!dissent.trim() ? "Enter a dissent rationale first" : busy ? "An action is already in progress" : null} onClick={() => { if (dissent.trim()) setArmedVote({ choice: "dissent", note: dissent.trim() }); }}>Record dissent</ActionReason></div>}</section>
+      {row.status === "active" ? <section><h3>Reopen decision</h3><label htmlFor={`ic-reopen-${row.id}`}>Trigger alert key</label><input id={`ic-reopen-${row.id}`} name="reopen-alert-key" value={reopenKey} onChange={(event) => setReopenKey(event.target.value)} placeholder={`alert:${row.issuer_id}:material-change…`} /><ActionReason reason={busy ? "An action is already in progress" : !reopenKey.trim() ? "Enter a trigger alert key first" : null} onClick={() => onReopen(reopenKey.trim())}>Reopen for material change</ActionReason></section> : null}
       {row.reopened_at ? <section><h3>Reopen timeline</h3><p>Reopened {formatDate(row.reopened_at)} · {row.reopen_alert_key}</p></section> : null}
     </article>
   );
@@ -215,6 +261,7 @@ function DecisionInspector({
 
 export function ICBookWorkbench() {
   const { roleView } = useRoleView();
+  const { user } = useAuth();
   const analysis = useAnalysisContext({ name: "IC Book" });
   const { values, update } = useTypedUrlState(URL_KEYS);
   const dataset: Dataset = values.dataset === "history" ? "history" : "agenda";
@@ -223,6 +270,7 @@ export function ICBookWorkbench() {
   const [issuers, setIssuers] = useState<Issuer[]>([]);
   const [portfolios, setPortfolios] = useState<PortfolioSummary[]>([]);
   const [runs, setRuns] = useState<RunListItemDTO[]>([]);
+  const [opinions, setOpinions] = useState<AnalystOpinionVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -232,10 +280,17 @@ export function ICBookWorkbench() {
   const [total, setTotal] = useState(0);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
-  const [form, setForm] = useState({ issuer: values.issuer ?? "", portfolio: values.portfolio ?? "", scheduled: "", expiry: "", recommendation: "approve" as CommitteeRecommendation, conviction: "", run: "", report: "", contextId: "", thesis: "", conditions: "" });
+  const [form, setForm] = useState({ issuer: values.issuer ?? "", portfolio: values.portfolio ?? "", scheduled: "", expiry: "", recommendation: "approve" as CommitteeRecommendation, conviction: "", run: "", report: "", contextId: "", opinion: "", thesis: "", conditions: "" });
   const appliedContextId = useRef<string | null>(null);
   const selectedAgenda = agenda.find((row) => row.id === values.selected) ?? null;
   const selectedDecision = decisions.find((row) => row.id === values.selected) ?? null;
+  const issuerLabel = (id: string) => {
+    const issuer = issuers.find((row) => row.id === id);
+    return issuer ? (issuer.ticker ?? issuer.name) : `Unavailable issuer ID · ${id}`;
+  };
+  // The current IC Book contract carries an owner id but no analyst directory.
+  // Preserve that fact instead of substituting an unrelated catalog name.
+  const ownerLabel = (id: string | null) => id ? `Unavailable owner ID · ${id}` : "Unassigned";
 
   useEffect(() => { Promise.all([getIssuers(), getPortfolios()]).then(([issuerRows, portfolioRows]) => { setIssuers(issuerRows); setPortfolios(portfolioRows); setCatalogError(null); }).catch((reason) => setCatalogError(toErrorMessage(reason, "IC Book reference data unavailable."))); }, []);
   useEffect(() => {
@@ -266,6 +321,20 @@ export function ICBookWorkbench() {
       if (!alive) return;
       setRuns([]);
       setRunsError(toErrorMessage(reason, "Issuer runs unavailable."));
+    });
+    return () => { alive = false; };
+  }, [form.issuer]);
+  useEffect(() => {
+    let alive = true;
+    if (!form.issuer) { setOpinions([]); return () => { alive = false; }; }
+    analystOpinionsApi.list(form.issuer).then((history) => {
+      if (!alive) return;
+      setOpinions(history.items);
+      setForm((current) => ({ ...current, opinion: history.items.some((view) => view.id === current.opinion) ? current.opinion : history.current?.id ?? "" }));
+    }).catch((reason) => {
+      if (!alive) return;
+      setOpinions([]);
+      setError(toErrorMessage(reason, "Analyst view unavailable."));
     });
     return () => { alive = false; };
   }, [form.issuer]);
@@ -360,17 +429,21 @@ export function ICBookWorkbench() {
     if (el) { el.open = true; el.scrollIntoView({ behavior: "smooth" }); requestAnimationFrame(() => el.querySelector<HTMLElement>("select, input")?.focus()); }
   };
   const refresh = () => { update({ cursor: null }, "replace"); setReloadToken((current) => current + 1); };
-  const create = async (event: FormEvent) => { event.preventDefault(); if (!form.issuer || !form.scheduled || !form.thesis.trim()) return; setBusy(true); setError(null); try { const row = await icBookApi.createAgenda({ issuer_id: form.issuer, portfolio_id: form.portfolio || null, scheduled_for: new Date(form.scheduled).toISOString(), expiry: form.expiry || null, recommendation: form.recommendation, conviction: form.conviction ? Number(form.conviction) : null, thesis: form.thesis.trim(), conditions: form.conditions.split("\n").map((value) => value.trim()).filter(Boolean), run_id: form.run || null, report_version_id: form.report || null, context_id: form.contextId || null, status: "draft" }); update({ dataset: "agenda", selected: row.id, status: null, cursor: null }, "replace"); setReloadToken((current) => current + 1); setForm((current) => ({ ...current, thesis: "", conditions: "" })); } catch (reason) { setError(toErrorMessage(reason, "Agenda item could not be created.")); } finally { setBusy(false); } };
+  const create = async (event: FormEvent) => { event.preventDefault(); if (busy || !form.issuer || !form.scheduled || !form.thesis.trim()) return; setBusy(true); setError(null); try { const row = await icBookApi.createAgenda({ issuer_id: form.issuer, portfolio_id: form.portfolio || null, scheduled_for: new Date(form.scheduled).toISOString(), expiry: form.expiry || null, recommendation: form.recommendation, conviction: form.conviction ? Number(form.conviction) : null, thesis: form.thesis.trim(), conditions: form.conditions.split("\n").map((value) => value.trim()).filter(Boolean), run_id: form.run || null, report_version_id: form.report || null, context_id: form.contextId || null, analyst_opinion_version_id: form.opinion || null, status: "draft" }); update({ dataset: "agenda", selected: row.id, status: null, cursor: null }, "replace"); setReloadToken((current) => current + 1); setForm((current) => ({ ...current, thesis: "", conditions: "" })); } catch (reason) { setError(toErrorMessage(reason, "Agenda item could not be created.")); } finally { setBusy(false); } };
   const savePreparation = async (patch: { thesis: string; conditions: string[]; scheduled_for: string; expiry: string | null; recommendation: CommitteeRecommendation; conviction: number | null }) => { if (!selectedAgenda) return; setBusy(true); setError(null); try { await icBookApi.patchAgenda(selectedAgenda.id, { expected_revision: selectedAgenda.revision, ...patch }); setReloadToken((current) => current + 1); } catch (reason) { setError(toErrorMessage(reason, "Agenda preparation could not be saved.")); } finally { setBusy(false); } };
   const markReady = async () => { if (!selectedAgenda) return; setBusy(true); try { await icBookApi.patchAgenda(selectedAgenda.id, { expected_revision: selectedAgenda.revision, status: "ready" }); setReloadToken((current) => current + 1); } catch (reason) { setError(toErrorMessage(reason, "Agenda readiness failed.")); } finally { setBusy(false); } };
   const returnDraft = async () => { if (!selectedAgenda) return; setBusy(true); try { await icBookApi.patchAgenda(selectedAgenda.id, { expected_revision: selectedAgenda.revision, status: "draft" }); setReloadToken((current) => current + 1); } catch (reason) { setError(toErrorMessage(reason, "Agenda could not return to draft.")); } finally { setBusy(false); } };
   const finalize = async () => { if (!selectedAgenda) return; setBusy(true); try { await icBookApi.finalizeAgenda(selectedAgenda.id, selectedAgenda.revision); setReloadToken((current) => current + 1); } catch (reason) { setError(toErrorMessage(reason, "Agenda finalization failed.")); } finally { setBusy(false); } };
+  const linkOpinion = async (opinionId: string) => { if (!selectedAgenda) return; setBusy(true); setError(null); try { await icBookApi.patchAgenda(selectedAgenda.id, { expected_revision: selectedAgenda.revision, analyst_opinion_version_id: opinionId }); setReloadToken((current) => current + 1); } catch (reason) { setError(toErrorMessage(reason, "Analyst view could not be linked.")); } finally { setBusy(false); } };
+  const requestEvidenceException = async (input: { rationale: string; mitigants: string[]; expires_at: string }) => { if (!selectedAgenda) return; setBusy(true); setError(null); try { await icBookApi.requestException(selectedAgenda.id, { expected_revision: selectedAgenda.revision, ...input }); setReloadToken((current) => current + 1); } catch (reason) { setError(toErrorMessage(reason, "Evidence exception could not be requested.")); } finally { setBusy(false); } };
+  const reviewEvidenceException = async (exceptionId: string, revision: number, decision: "approve" | "reject", reviewNote: string) => { setBusy(true); setError(null); try { await icBookApi.reviewException(exceptionId, { expected_revision: revision, decision, review_note: reviewNote }); setReloadToken((current) => current + 1); } catch (reason) { setError(toErrorMessage(reason, "Evidence exception could not be reviewed.")); } finally { setBusy(false); } };
+  const revokeEvidenceException = async (exceptionId: string, revision: number, reviewNote: string) => { setBusy(true); setError(null); try { await icBookApi.revokeException(exceptionId, { expected_revision: revision, review_note: reviewNote }); setReloadToken((current) => current + 1); } catch (reason) { setError(toErrorMessage(reason, "Evidence exception could not be revoked.")); } finally { setBusy(false); } };
   const vote = async (choice: "approve" | "dissent" | "abstain", note?: string) => { if (!selectedDecision) return; setBusy(true); setError(null); try { const updated = await icBookApi.vote(selectedDecision.id, choice, note); setDecisions((rows) => rows.map((row) => row.id === updated.id ? updated : row)); setError(null); } catch (reason) { setError(toErrorMessage(reason, "Vote could not be recorded.")); } finally { setBusy(false); } };
   const reopen = async (triggerAlertKey: string) => { if (!selectedDecision) return; setBusy(true); try { await icBookApi.reopen(selectedDecision.id, triggerAlertKey); setReloadToken((current) => current + 1); } catch (reason) { setError(toErrorMessage(reason, "Decision could not be reopened.")); } finally { setBusy(false); } };
 
-  const primary = <DominantTableRegion ownerId="ic-book-register" label={dataset === "agenda" ? "Committee agenda register" : "Decision history register"}><div className="ic-book__table-scroll">{loading ? <p role="status">Loading IC Book…</p> : error && !agenda.length && !decisions.length ? <p role="alert">{error}</p> : dataset === "agenda" ? agenda.length ? <AgendaTable rows={agenda} selected={values.selected ?? null} onSelect={(selected) => update({ selected })} /> : icBookEmpty ? <SurfaceState kind="empty" title="No items match the current filters" detail="Clear the filters to see every agenda item." primaryAction={<button type="button" className="caos-action-secondary focus-ring" onClick={() => update({ status: null, issuer: null, portfolio: null, cursor: null })}>Clear filters</button>} /> : <SurfaceState kind="empty" title="No agenda items yet" detail="Add the first committee agenda item to begin the book." primaryAction={<button type="button" className="caos-action-primary focus-ring" onClick={openCreateForm}>Add agenda item</button>} /> : decisions.length ? <HistoryTable rows={decisions} selected={values.selected ?? null} onSelect={(selected) => update({ selected })} /> : <SurfaceState kind="empty" title={icBookEmpty ? "No decisions match the current filters" : "No immutable decisions yet"} detail={icBookEmpty ? "Clear the filters to see every recorded decision." : "Finalized committee decisions will appear here."} {...(icBookEmpty ? { primaryAction: <button type="button" className="caos-action-secondary focus-ring" onClick={() => update({ status: null, issuer: null, portfolio: null, cursor: null })}>Clear filters</button> } : {})} />}</div>{nextCursor ? <button type="button" onClick={() => update({ cursor: nextCursor })}>Next page</button> : null}</DominantTableRegion>;
-  const inspector = selectedAgenda ? <AgendaInspector key={`${selectedAgenda.id}:${selectedAgenda.revision}`} row={selectedAgenda} busy={busy} onSave={savePreparation} onMarkReady={markReady} onReturnDraft={returnDraft} onFinalize={finalize} /> : selectedDecision ? <DecisionInspector key={selectedDecision.id} row={selectedDecision} busy={busy} onVote={vote} onReopen={reopen} /> : <div className="ic-book__empty">Select an agenda item or decision to inspect its thesis, conditions, lineage and governance record.</div>;
-  const utility = <details className="ic-book__create" id="ic-book-create"><summary className="ic-book__create-summary">Agenda item form</summary><form className="ic-book__form" aria-label="Add agenda item" onSubmit={create}>{[catalogError, runsError].filter(Boolean).map((message) => <p key={message} role="alert">{message}</p>)}{form.contextId ? (() => { const li = issuers.find((i) => i.id === form.issuer); const label = li ? (li.ticker ?? li.name) : null; return <p className="ic-book__hash">Linked context{label ? ` · ${label}` : ""}{form.run ? ` · run ${form.run.slice(0, 8)}` : ""} <span title={form.contextId}>{form.contextId.slice(0, 8)}…</span></p>; })() : null}<label>Issuer<select name="issuer" value={form.issuer} onChange={(event) => setForm((current) => ({ ...current, issuer: event.target.value, run: "", report: "", contextId: "" }))} required><option value="">Select issuer…</option>{issuers.map((issuer) => <option key={issuer.id} value={issuer.id}>{issuer.ticker ?? issuer.name}</option>)}</select></label><label>Portfolio<select name="portfolio" value={form.portfolio} onChange={(event) => setForm((current) => ({ ...current, portfolio: event.target.value, run: "", report: "", contextId: "" }))}><option value="">No portfolio</option>{portfolios.map((portfolio) => <option key={portfolio.id} value={portfolio.id}>{portfolio.name}</option>)}</select></label><label>Meeting time<input name="scheduled" type="datetime-local" value={form.scheduled} onChange={(event) => setForm((current) => ({ ...current, scheduled: event.target.value }))} required /></label><label>Decision expiry<input name="expiry" type="date" value={form.expiry} onChange={(event) => setForm((current) => ({ ...current, expiry: event.target.value }))} /></label><label>Recommendation<select name="recommendation" value={form.recommendation} onChange={(event) => setForm((current) => ({ ...current, recommendation: event.target.value as CommitteeRecommendation }))}><option value="approve">Approve</option><option value="decline">Decline</option><option value="revisit">Revisit</option></select></label><label>Conviction · 0–100%<input name="conviction" type="number" min="0" max="100" inputMode="decimal" placeholder="0–100" value={form.conviction} onChange={(event) => setForm((current) => ({ ...current, conviction: event.target.value }))} /></label><label>Run<select name="run" value={form.run} onChange={(event) => setForm((current) => ({ ...current, run: event.target.value, report: event.target.value === current.run ? current.report : "", contextId: event.target.value === current.run ? current.contextId : "" }))}><option value="">Select run…</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.id.slice(0, 8)} · {run.committee_status}</option>)}</select></label><label>Report version<input name="report-version" value={form.report} readOnly placeholder="Optional — select in Report Studio…" /></label><label>Thesis<textarea name="thesis" rows={5} maxLength={50_000} value={form.thesis} onChange={(event) => setForm((current) => ({ ...current, thesis: event.target.value }))} required /></label><label>Conditions · one per line<textarea name="conditions" rows={3} value={form.conditions} onChange={(event) => setForm((current) => ({ ...current, conditions: event.target.value }))} /></label><button type="submit" disabled={busy}>{busy ? "Saving…" : "Add agenda item"}</button></form></details>;
+  const primary = <DominantTableRegion ownerId="ic-book-register" label={dataset === "agenda" ? "Committee agenda register" : "Decision history register"}><div className="ic-book__table-scroll">{loading ? <SurfaceState kind="loading" title="Loading IC Book" compact /> : error && !agenda.length && !decisions.length ? <SurfaceState kind="error" title="IC Book unavailable" detail={error} compact /> : dataset === "agenda" ? agenda.length ? <AgendaTable rows={agenda} selected={values.selected ?? null} sort={{ key: values.sort === "updated_at" ? "updated_at" : "scheduled_for", direction: values.direction === "desc" ? "desc" : "asc" }} onSort={(key) => update({ sort: key, direction: (values.sort ?? "scheduled_for") === key && values.direction !== "desc" ? "desc" : "asc", cursor: null })} onSelect={(selected) => update({ selected })} issuerLabel={issuerLabel} ownerLabel={ownerLabel} /> : icBookEmpty ? <SurfaceState kind="empty" title="No items match the current filters" detail="Clear the filters to see every agenda item." primaryAction={<button type="button" className="caos-action-secondary focus-ring" onClick={() => update({ status: null, issuer: null, portfolio: null, cursor: null })}>Clear filters</button>} /> : <SurfaceState kind="empty" title="No agenda items yet" detail="Add the first committee agenda item to begin the book." primaryAction={<button type="button" className="caos-action-primary focus-ring" onClick={openCreateForm}>Add agenda item</button>} /> : decisions.length ? <HistoryTable rows={decisions} selected={values.selected ?? null} sort={{ key: values.sort === "expiry" ? "expiry" : "created_at", direction: values.direction === "desc" ? "desc" : "asc" }} onSort={(key) => update({ sort: key, direction: (values.sort ?? "created_at") === key && values.direction !== "desc" ? "desc" : "asc", cursor: null })} onSelect={(selected) => update({ selected })} issuerLabel={issuerLabel} /> : <SurfaceState kind="empty" title={icBookEmpty ? "No decisions match the current filters" : "No immutable decisions yet"} detail={icBookEmpty ? "Clear the filters to see every recorded decision." : "Finalized committee decisions will appear here."} {...(icBookEmpty ? { primaryAction: <button type="button" className="caos-action-secondary focus-ring" onClick={() => update({ status: null, issuer: null, portfolio: null, cursor: null })}>Clear filters</button> } : {})} />}</div>{nextCursor ? <button type="button" onClick={() => update({ cursor: nextCursor })}>Next page</button> : null}</DominantTableRegion>;
+  const inspector = selectedAgenda ? <AgendaInspector key={`${selectedAgenda.id}:${selectedAgenda.revision}`} row={selectedAgenda} busy={busy} onSave={savePreparation} onMarkReady={markReady} onReturnDraft={returnDraft} onFinalize={finalize} opinions={opinions.filter((view) => view.issuer_id === selectedAgenda.issuer_id)} onLinkOpinion={linkOpinion} canReviewException={["qa", "admin"].includes(user?.role.toLowerCase() ?? "")} onRequestException={requestEvidenceException} onReviewException={reviewEvidenceException} onRevokeException={revokeEvidenceException} issuerLabel={issuerLabel} /> : selectedDecision ? <DecisionInspector key={selectedDecision.id} row={selectedDecision} busy={busy} onVote={vote} onReopen={reopen} issuerLabel={issuerLabel} /> : <div className="ic-book__empty">Select an agenda item or decision to inspect its thesis, conditions, lineage and governance record.</div>;
+  const utility = <details className="ic-book__create" id="ic-book-create"><summary className="ic-book__create-summary">Agenda item form</summary><form className="ic-book__form" aria-label="Add agenda item" onSubmit={create}>{[catalogError, runsError].filter(Boolean).map((message) => <p key={message} role="alert">{message}</p>)}{form.contextId ? (() => { const li = issuers.find((i) => i.id === form.issuer); const label = li ? (li.ticker ?? li.name) : null; return <p className="ic-book__hash">Linked context{label ? ` · ${label}` : ""}{form.run ? ` · run ${form.run.slice(0, 8)}` : ""} <span title={form.contextId}>{form.contextId.slice(0, 8)}…</span></p>; })() : null}<label>Issuer<select name="issuer" value={form.issuer} onChange={(event) => setForm((current) => ({ ...current, issuer: event.target.value, run: "", report: "", contextId: "", opinion: "" }))} required><option value="">Select issuer…</option>{issuers.map((issuer) => <option key={issuer.id} value={issuer.id}>{issuer.ticker ?? issuer.name}</option>)}</select></label><label>Portfolio<select name="portfolio" value={form.portfolio} onChange={(event) => setForm((current) => ({ ...current, portfolio: event.target.value, run: "", report: "", contextId: "" }))}><option value="">No portfolio</option>{portfolios.map((portfolio) => <option key={portfolio.id} value={portfolio.id}>{portfolio.name}</option>)}</select></label><label>Meeting time<input name="scheduled" type="datetime-local" value={form.scheduled} onChange={(event) => setForm((current) => ({ ...current, scheduled: event.target.value }))} required /></label><label>Decision expiry<input name="expiry" type="date" value={form.expiry} onChange={(event) => setForm((current) => ({ ...current, expiry: event.target.value }))} /></label><label>Recommendation<select name="recommendation" value={form.recommendation} onChange={(event) => setForm((current) => ({ ...current, recommendation: event.target.value as CommitteeRecommendation }))}><option value="approve">Approve</option><option value="decline">Decline</option><option value="revisit">Revisit</option></select></label><label>Conviction · 0–100%<input name="conviction" type="number" min="0" max="100" inputMode="decimal" placeholder="0–100" value={form.conviction} onChange={(event) => setForm((current) => ({ ...current, conviction: event.target.value }))} /></label><label>Analyst view<select name="analyst-opinion" value={form.opinion} onChange={(event) => setForm((current) => ({ ...current, opinion: event.target.value }))}><option value="">No analyst view linked</option>{opinions.map((view) => <option key={view.id} value={view.id}>{view.stance} · v{view.version} · {view.evidence_state}</option>)}</select></label><label>Run<select name="run" value={form.run} onChange={(event) => setForm((current) => ({ ...current, run: event.target.value, report: event.target.value === current.run ? current.report : "", contextId: event.target.value === current.run ? current.contextId : "" }))}><option value="">Select run…</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.id.slice(0, 8)} · {run.committee_status}</option>)}</select></label><label>Report version<input name="report-version" value={form.report} readOnly placeholder="Optional — select in Report Studio…" /></label><label>Thesis<textarea name="thesis" rows={5} maxLength={50_000} value={form.thesis} onChange={(event) => setForm((current) => ({ ...current, thesis: event.target.value }))} required /></label><label>Conditions · one per line<textarea name="conditions" rows={3} value={form.conditions} onChange={(event) => setForm((current) => ({ ...current, conditions: event.target.value }))} /></label><ActionReason type="submit" reason={busy ? "Saving…" : null}>{busy ? "Saving…" : "Add agenda item"}</ActionReason></form></details>;
 
   return <EnterprisePage kind="worklist" identity={<ShellIdentity tag="IC" title="IC Book" />} status={<span className="tabular text-caos-2xs text-caos-muted">{total} {dataset === "agenda" ? "agenda items" : "decisions"}</span>} primaryAction={<button type="button" className="caos-primary-action focus-ring" onClick={openCreateForm}>Add agenda item</button>} narrowContract={{ essentialControls: <span className="tabular text-caos-2xs text-caos-muted">{total} records</span> }}><div className="ic-book"><header className="ic-book__toolbar"><div><p>{personaBrief}</p></div><div role="tablist" aria-label="IC Book dataset" onKeyDown={(event) => { if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return; event.preventDefault(); const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')); const activeIndex = tabs.indexOf(document.activeElement as HTMLButtonElement); const nextIndex = event.key === "ArrowRight" ? (activeIndex + 1) % tabs.length : (activeIndex - 1 + tabs.length) % tabs.length; tabs[nextIndex]?.focus(); tabs[nextIndex]?.click(); }}>{(["agenda", "history"] as const).map((value) => <button key={value} type="button" role="tab" aria-selected={dataset === value} tabIndex={dataset === value ? 0 : -1} onClick={() => update({ dataset: value, cursor: null, selected: null, status: null })}>{value === "agenda" ? "Agenda" : "Decision history"}</button>)}</div><label>Status<select name="ic-book-status" value={values.status ?? ""} onChange={(event) => update({ status: event.target.value || null, cursor: null })}><option value="">All statuses</option>{dataset === "agenda" ? <><option value="draft">Draft</option><option value="ready">Ready</option><option value="decided">Decided</option><option value="cancelled">Cancelled</option></> : <><option value="active">Active</option><option value="reopened">Reopened</option></>}</select></label><button type="button" onClick={refresh}>Refresh</button></header>{error ? <p className="ic-book__error" role="alert">{error}</p> : null}<PersonaWorkbench surface="ic-book" persona={roleView} decision={<DecisionHeader state={icDecision} defaultOpen={false} />} primary={primary} inspector={inspector} utility={utility} finalization={selectedAgenda?.status === "ready" ? <p className="ic-book__finalization">Ready for immutable finalization · <Link href={selectedAgenda.run_id ? `/deepdive?run=${encodeURIComponent(selectedAgenda.run_id)}` : "/deepdive"}>review run evidence</Link></p> : null} /></div></EnterprisePage>;
 }

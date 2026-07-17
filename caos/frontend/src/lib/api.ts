@@ -802,6 +802,7 @@ export interface EdgarVaultResult {
   chunks_created: number;
   provenance: string;
   message: string;
+  warning?: string | null;
 }
 
 export const edgarVaultUrl = (
@@ -853,11 +854,25 @@ export interface ResearchSource {
   title: string;
   url: string;
 }
+export interface ResearchFigure {
+  id: string;
+  kind: "line" | "bar" | "maturity-wall";
+  title: string;
+  unit: string;
+  as_of?: string | null;
+  source_ids: string[];
+  accessible_summary: string;
+  columns: Array<{ key: string; label: string }>;
+  rows: Array<Record<string, string | number | boolean | null>>;
+  encodings: Record<string, string>;
+}
 export interface ResearchResult {
   report: string;
   sources: ResearchSource[];
   demo: boolean;
   truncated?: boolean;
+  /** Deterministic CAOS exhibits, present only when the research context is run-bound. */
+  figures?: ResearchFigure[];
 }
 // Live running counts the server rewrites per continuation turn — real work, not
 // a fabricated ticker. Absent until the first turn reports.
@@ -933,7 +948,7 @@ const _pollResearch = async (
       continue;
     }
     if (job.status === "complete")
-      return { report: job.report, sources: job.sources, demo: job.demo, truncated: job.truncated };
+      return { report: job.report, sources: job.sources, demo: job.demo, truncated: job.truncated, figures: job.figures ?? [] };
     if (job.status === "failed") throw _detail(job.error || "Research failed — try again.");
     onProgress?.(job.progress ?? null); // still running — surface live counts
   }
@@ -991,7 +1006,7 @@ export const getResearchStatus = async (id: string): Promise<ResearchStatus> => 
   if (job.status === "complete")
     return {
       state: "complete",
-      result: { report: job.report, sources: job.sources, demo: job.demo, truncated: job.truncated },
+      result: { report: job.report, sources: job.sources, demo: job.demo, truncated: job.truncated, figures: job.figures ?? [] },
     };
   if (job.status === "failed") return { state: "failed", error: job.error || "Research failed — try again." };
   return { state: "running" };

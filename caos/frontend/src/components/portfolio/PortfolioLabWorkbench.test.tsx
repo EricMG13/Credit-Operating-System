@@ -154,15 +154,23 @@ beforeEach(() => {
 describe("Portfolio Lab workbench", () => {
   it("owns one table, switches datasets in place, and marks 5,000-row virtualization", async () => {
     render(<PortfolioLabWorkbench />);
-    expect(await screen.findByRole("table", { name: "Portfolio positions" })).toBeTruthy();
+    const positionsTable = await screen.findByRole("table", { name: "Portfolio positions" });
+    expect(positionsTable).toBeTruthy();
     await screen.findByRole("button", { name: /select alpha software/i });
+    expect(screen.getByText("98.5").closest("td")?.className).toContain("text-right");
+    const positionRow = screen.getByText("Alpha Software").closest("tr")!;
+    expect(positionRow.getAttribute("tabindex")).toBe("0");
+    fireEvent.keyDown(positionRow, { key: "Enter" });
+    expect(window.location.search).toContain("selected=pos-1");
     expect(document.querySelectorAll("[data-caos-dominant-table-owner]")).toHaveLength(1);
     await waitFor(() => {
       expect(screen.getByRole("region", { name: "Portfolio positions table" }).getAttribute("data-total-rows")).toBe("5000");
     });
     expect(document.querySelector(".portfolio-lab__virtual-row")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: /constraints/i }));
-    expect(await screen.findByRole("table", { name: "Portfolio constraints" })).toBeTruthy();
+    const constraintsTable = await screen.findByRole("table", { name: "Portfolio constraints" });
+    expect(constraintsTable).toBeTruthy();
+    expect(screen.getByText("-97").closest("td")?.className).toContain("text-right");
     expect(screen.queryByRole("table", { name: "Portfolio positions" })).toBeNull();
     expect(document.querySelectorAll("[data-caos-dominant-table-owner]")).toHaveLength(1);
     expect(window.location.search).toContain("dataset=constraints");
@@ -318,7 +326,7 @@ describe("Portfolio Lab workbench", () => {
 
     const table = await screen.findByRole("table", { name: "Portfolio positions" });
     expect(table.querySelector(".portfolio-lab__virtual-row")).toBeNull();
-    expect(screen.getByText("Source identifier unavailable")).toBeTruthy();
+    expect(screen.getByText("Source unavailable · No persisted source identifier for this position.")).toBeTruthy();
     expect(screen.queryByText("Open issuer profile")).toBeNull();
     expect(screen.getByRole("article", { name: "Selected stress result" }).textContent).toContain("market prices");
     fireEvent.click(screen.getByRole("button", { name: "Base downside" }));
@@ -405,14 +413,14 @@ describe("Portfolio Lab workbench", () => {
     render(<PortfolioLabWorkbench />);
     expect(await screen.findByText("Evidence & compliance")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Constraints" }));
-    expect(await screen.findByText("Constraint analytics unavailable. Positions remain accessible.")).toBeTruthy();
+    expect(await screen.findByText("Constraint analytics unavailable")).toBeTruthy();
   });
 
-  it("falls back from an unknown requested portfolio to the first available portfolio", async () => {
+  it("keeps an unknown requested portfolio explicit instead of substituting the first available portfolio", async () => {
     window.history.replaceState({}, "", "/portfolios?portfolio=unknown&dataset=positions");
     render(<PortfolioLabWorkbench />);
-    await waitFor(() => expect(mocks.getPositions).toHaveBeenCalledWith("p1", expect.any(Object)));
-    expect(await screen.findByRole("table", { name: "Portfolio positions" })).toBeTruthy();
+    expect(await screen.findByText("Portfolio not found")).toBeTruthy();
+    expect(mocks.getPositions).not.toHaveBeenCalled();
   });
 
   it("shows the constraint loading fallback before optional analytics settle", async () => {
@@ -532,6 +540,7 @@ describe("Portfolio Lab semantic artifacts", () => {
     render(<PortfolioInsightCard insight={insight} />);
     expect(screen.getByText(status)).toBeTruthy();
     expect(screen.getByText(/advisory synthesis/i)).toBeTruthy();
-    expect(screen.getByText("portfolio:p1")).toBeTruthy();
+    expect(screen.getByText(/Source unavailable · Source portfolio:p1 has no persisted action/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /portfolio:p1/ })).toBeNull();
   });
 });

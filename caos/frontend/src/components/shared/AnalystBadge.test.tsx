@@ -32,7 +32,7 @@ describe("AnalystBadge sign-out", () => {
 
     // The failed logout must NOT leave the button permanently disabled.
     await waitFor(() => expect(alert).toHaveBeenCalled());
-    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    expect(btn.getAttribute("aria-disabled")).not.toBe("true");
     expect(PROFILE.refresh).not.toHaveBeenCalled(); // no pointless re-resolve on failure
   });
 

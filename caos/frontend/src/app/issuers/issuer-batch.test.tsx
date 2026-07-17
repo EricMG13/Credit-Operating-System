@@ -16,6 +16,7 @@ const analysisState = vi.hoisted(() => ({
   patch: vi.fn(),
   retryLastPatch: vi.fn(),
 }));
+const overlayState = vi.hoisted(() => ({ openProfile: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/issuers",
@@ -23,6 +24,10 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+vi.mock("@/components/shared/IssuerProfileOverlay", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/shared/IssuerProfileOverlay")>()),
+  useIssuerProfileOverlay: () => ({ openProfile: overlayState.openProfile }),
 }));
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
@@ -140,8 +145,13 @@ describe("Issuers directory — batch selection", () => {
     });
     const toolbar = await renderSelectedTwo();
     fireEvent.click(toolbar.getByRole("button", { name: "Run pipeline (2)" }));
+    expect(createRun).not.toHaveBeenCalled();
+    expect(screen.getByText(/Queue 2 new pipeline runs/)).toBeTruthy();
+    fireEvent.click(toolbar.getByRole("button", { name: "Confirm Run pipeline (2)" }));
     await waitFor(() => expect(screen.getByText("1/2 succeeded")).toBeTruthy());
     expect(createRun).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByText("1 failed — details"));
+    expect(toolbar.getByRole("listitem").textContent).toContain("Kestrel Chemicals — Run rate limit reached");
     // Never a blanket "done" — the failing issuer's own attempt is visible in the ratio.
     expect(screen.queryByText("2 succeeded")).toBeNull();
   });
@@ -177,6 +187,10 @@ describe("Issuers directory — batch selection", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Select all issuers" }));
     await waitFor(() => expect(screen.getByText("2 issuers selected")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /clear/i }));
+    await waitFor(() => expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull());
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select all issuers" }));
+    await waitFor(() => expect(screen.getByText("2 issuers selected")).toBeTruthy());
+    fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull());
   });
 
@@ -307,6 +321,56 @@ describe("Issuers directory — loading, search, sort, and filters", () => {
     expect(routerPush).toHaveBeenCalledWith("/upload?issuer=iss-1");
   });
 
+  it("uses an eight-column semantic grid with one roving row stop and isolated nested actions", async () => {
+    getIssuers.mockResolvedValue(ISSUERS);
+    render(<IssuersPage />);
+    await screen.findByText("Atlas Forge Industrials");
+
+    const grid = screen.getByRole("grid", { name: "Issuer coverage register" });
+    expect(grid.getAttribute("aria-rowcount")).toBe("3");
+    expect(within(grid).getAllByRole("columnheader")).toHaveLength(8);
+    const rows = within(grid).getAllByRole("row", { name: /issuer details/ });
+    expect(within(rows[0]).getAllByRole("gridcell")).toHaveLength(7);
+    expect(within(rows[0]).getByRole("rowheader")).toBeTruthy();
+    expect(rows.filter((row) => row.tabIndex === 0)).toHaveLength(1);
+    const firstCheckbox = within(rows[0]).getByRole("checkbox");
+    const firstUpload = within(rows[0]).getByRole("button", { name: /Upload documents/ });
+    const firstProfile = within(rows[0]).getByRole("link", { name: /Open profile/ });
+    const rowActions = (row: HTMLElement) =>
+      Array.from(row.querySelectorAll<HTMLElement>("input, button, a[href]"));
+    const secondActions = rowActions(rows[1]);
+    expect([firstCheckbox, firstUpload, firstProfile, ...secondActions].every((action) => action.tabIndex === -1)).toBe(true);
+    expect(rows[0].getAttribute("aria-keyshortcuts")).toBe("F2");
+    expect(document.getElementById(rows[0].getAttribute("aria-describedby")!)?.textContent).toContain("Press F2");
+
+    rows[0].focus();
+    fireEvent.keyDown(rows[0], { key: "ArrowDown" });
+    expect(document.activeElement).toBe(rows[1]);
+    expect(overlayState.openProfile).not.toHaveBeenCalled();
+    fireEvent.keyDown(rows[1], { key: "Enter" });
+    expect(overlayState.openProfile).toHaveBeenCalledWith("iss-2");
+
+    rows[0].focus();
+    fireEvent.keyDown(rows[0], { key: "F2" });
+    expect(document.activeElement).toBe(firstCheckbox);
+    expect(firstCheckbox.tabIndex).toBe(0);
+    expect(firstUpload.tabIndex).toBe(0);
+    expect(firstProfile.tabIndex).toBe(-1); // author-specified negative tabindex is preserved
+    expect(secondActions.every((action) => action.tabIndex === -1)).toBe(true);
+    fireEvent.click(firstCheckbox); // rerender while action mode remains active
+    expect(within(screen.getByRole("row", { name: /Atlas Forge/ })).getByRole("button", { name: /Upload documents/ }).tabIndex).toBe(0);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    const restored = screen.getByRole("row", { name: /Atlas Forge/ });
+    expect(document.activeElement).toBe(restored);
+    expect(rowActions(restored).every((action) => action.tabIndex === -1)).toBe(true);
+
+    overlayState.openProfile.mockClear();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Atlas Forge Industrials" }));
+    fireEvent.click(screen.getByRole("button", { name: "Upload documents for Atlas Forge Industrials" }));
+    expect(overlayState.openProfile).not.toHaveBeenCalled();
+    expect(routerPush).toHaveBeenCalledWith("/upload?issuer=iss-1");
+  });
+
   it("hydrates validated saved state without issuing an identical context write", async () => {
     analysisState.context = makeContext({
       query: "Atlas",
@@ -400,7 +464,7 @@ describe("Issuers directory — create issuer", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Company name" }), { target: { value: "Pending Credit" } });
     const dialog = screen.getByRole("dialog", { name: "New issuer" });
     fireEvent.submit(dialog);
-    await waitFor(() => expect((screen.getByRole("button", { name: "CREATING…" }) as HTMLButtonElement).disabled).toBe(true));
+    await waitFor(() => expect(screen.getByRole("button", { name: "CREATING…" }).getAttribute("aria-disabled")).toBe("true"));
     fireEvent.submit(dialog);
     expect(createIssuer).toHaveBeenCalledTimes(1);
     resolveCreate({ id: "iss-pending", name: "Pending Credit" });

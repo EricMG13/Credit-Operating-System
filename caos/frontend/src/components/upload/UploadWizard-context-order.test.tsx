@@ -154,7 +154,7 @@ describe("UploadWizard manual run context ordering", () => {
     fireEvent.click(screen.getByRole("button", { name: /UPLOAD 1 FILE & PROCESS/i }));
 
     const manualRun = await screen.findByRole("button", {
-      name: /RUN FULL IC COMMITTEE/i,
+      name: /START FULL CP-X RUN/i,
     });
     expect(harness.createRun).toHaveBeenCalledTimes(1);
     harness.createRun.mockClear();
@@ -172,8 +172,6 @@ describe("UploadWizard manual run context ordering", () => {
     expect(harness.createRun).toHaveBeenCalledWith(
       "issuer-1", undefined, undefined, expect.any(String), "context-1",
     );
-    await waitFor(() => expect(harness.push).toHaveBeenCalledWith(
-      "/pipeline?issuer=issuer-1&run=run-1&view=graph&context=context-1",
-    ));
+    expect(harness.push).not.toHaveBeenCalled();
   });
 });

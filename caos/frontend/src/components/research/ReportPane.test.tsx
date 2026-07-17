@@ -16,6 +16,11 @@ vi.mock("next/dynamic", () => ({
     return Stub;
   },
 }));
+vi.mock("@/components/charts/SemanticVisualization", () => ({
+  SemanticVisualization: ({ spec }: { spec: { title: string; accessibleSummary: string; sourceIds: string[] } }) => (
+    <section data-testid="verified-figure"><h2>{spec.title}</h2><p>{spec.accessibleSummary}</p><span>{spec.sourceIds.join(", ")}</span></section>
+  ),
+}));
 
 import { ReportPane } from "./ReportPane";
 import type { ResearchResult } from "@/lib/api";
@@ -88,6 +93,23 @@ describe("ReportPane result footer + print path", () => {
     render(<ReportPane {...base} result={live} />);
     expect(screen.queryByText(/Incomplete/i)).toBeNull();
     expect(document.querySelector(".rdoc-truncated")).toBeNull();
+  });
+
+  it("renders only source-backed CAOS figures separately from the research narrative", () => {
+    render(<ReportPane {...base} result={{
+      ...live,
+      figures: [{
+        id: "leverage-coverage-trend", kind: "line", title: "Leverage and coverage trend", unit: "x",
+        as_of: "2026-06-30", source_ids: ["metric-1", "metric-2"],
+        accessible_summary: "Verified CAOS facts show net leverage at 4.20x.",
+        columns: [{ key: "period", label: "Period" }, { key: "value", label: "Value" }],
+        rows: [{ period: "FY2026", value: 4.2 }], encodings: { x: "period", y: "value" },
+      }],
+    }} />);
+    expect(screen.getAllByText("Verified CAOS figures").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("verified-figure")).toHaveLength(2); // sheet + print portal
+    expect(screen.getAllByText(/Verified CAOS facts show net leverage/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("metric-1, metric-2").length).toBeGreaterThan(0);
   });
 
   it("exports a sector report, falls back to source URLs, handles no-source results, and removes the print portal", () => {
@@ -223,7 +245,8 @@ describe("ReportPane running, error, and empty states", () => {
 
   it("previews the complete deliverable manifest before a run", () => {
     render(<ReportPane {...base} result={null} />);
-    expect(screen.getByText("No report yet")).toBeTruthy();
+    expect(screen.getByText("Research not run")).toBeTruthy();
+    expect(document.querySelector('[data-surface-state="not-run"]')).toBeTruthy();
     expect(screen.getByText("Executive summary")).toBeTruthy();
     expect(screen.getByText("Detailed findings")).toBeTruthy();
     expect(screen.getByText("Summary tables")).toBeTruthy();

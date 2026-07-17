@@ -7,6 +7,7 @@ import { useState } from "react";
 import { edgarVaultUrls, type EdgarVaultResult } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 import { Dot } from "@/components/pipeline/atoms";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { Panel } from "@/components/shared/Panel";
 import { TextInput } from "@/components/shared/TextInput";
 
@@ -51,6 +52,9 @@ export function EdgarImport({
       const res = await edgarVaultUrls(issuer.id, u, runMode);
       setResults(res.ok);
       setFailed(res.failed);
+      // The parent moves an EDGAR success onto the same durable result surface
+      // as a dropped file. Keep this component's own list too until that state
+      // transition occurs, so it remains useful when embedded elsewhere.
       res.ok.forEach((r) => onVaulted?.(r));
     } catch (err) {
       const { status, detail } = errInfo(err);
@@ -77,14 +81,14 @@ export function EdgarImport({
             aria-label="Public EDGAR document URLs"
             className="flex-1 px-2.5 py-1.5 text-caos-lg"
           />
-          <button
+          <ActionReason
             onClick={vault}
-            disabled={vaulting || !url.trim()}
-            className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40 flex items-center gap-1.5"
+            reason={vaulting ? "Vaulting…" : !url.trim() ? "Enter a URL first" : null}
+            className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos aria-disabled:opacity-40 flex items-center gap-1.5"
           >
             {vaulting ? <Dot sev="running" pulse /> : null}
             {vaulting ? "VAULTING…" : "VAULT URL"}
-          </button>
+          </ActionReason>
         </div>
 
         {notConfigured ? (

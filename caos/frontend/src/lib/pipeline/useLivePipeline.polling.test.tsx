@@ -66,16 +66,18 @@ describe("useLivePipelineStatus exact-run polling", () => {
     await act(async () => { await Promise.resolve(); });
     expect(result.current.phase).toBe("in_flight");
     expect(result.current.latest?.id).toBe("run-exact");
+    expect(result.current.value?.status).toBe("queued");
 
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(result.current.phase).toBe("in_flight");
+    expect(result.current.value?.status).toBe("running");
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(result.current.phase).toBe("complete");
     expect(result.current.value?.runId).toBe("run-exact");
-    expect(mocks.getRun).toHaveBeenCalledTimes(4);
+    expect(mocks.getRun).toHaveBeenCalledTimes(3);
 
     await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
-    expect(mocks.getRun).toHaveBeenCalledTimes(4);
+    expect(mocks.getRun).toHaveBeenCalledTimes(3);
   });
 
   it("falls back only for a missing CP-X module and rejects other failures", async () => {

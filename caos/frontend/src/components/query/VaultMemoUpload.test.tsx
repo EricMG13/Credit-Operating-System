@@ -59,6 +59,6 @@ describe("VaultMemoUpload", () => {
   it("disables upload until a file is chosen", () => {
     render(<VaultMemoUpload />);
     fireEvent.click(screen.getByRole("button", { name: "ADD MEMO" }));
-    expect((screen.getByRole("button", { name: "UPLOAD" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "UPLOAD" }).getAttribute("aria-disabled")).toBe("true");
   });
 });

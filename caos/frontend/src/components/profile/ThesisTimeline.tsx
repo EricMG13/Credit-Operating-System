@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Panel } from "@/components/shared/Panel";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { createThesisVersion, getThesisVersions, realizeThesisPrediction, type ThesisPrediction, type ThesisVersion } from "@/lib/api";
 
 function PredictionRow({ prediction }: { prediction: ThesisPrediction }) {
@@ -15,7 +16,7 @@ function PredictionRow({ prediction }: { prediction: ThesisPrediction }) {
       {realized != null ? <span className="text-caos-text">{realized}</span> : (
         <span className="flex gap-1">
           <input type="number" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={`Realized ${prediction.metric}`} className="w-16 rounded border border-caos-border bg-caos-bg px-1 text-caos-text focus-ring" />
-          <button type="button" disabled={!draft || !Number.isFinite(Number(draft))} onClick={async () => setRealized((await realizeThesisPrediction(prediction.id, Number(draft))).realized)} className="rounded border border-caos-border px-1 text-caos-muted disabled:opacity-40 focus-ring">SET</button>
+          <ActionReason reason={!draft || !Number.isFinite(Number(draft)) ? "Enter a valid number" : null} onClick={async () => setRealized((await realizeThesisPrediction(prediction.id, Number(draft))).realized)} className="rounded border border-caos-border px-1 text-caos-muted aria-disabled:opacity-40 focus-ring">SET</ActionReason>
         </span>
       )}
     </div>
@@ -65,7 +66,7 @@ export function ThesisTimeline({ issuerId, children }: { issuerId: string; child
               <input type="date" value={horizon} onChange={(e) => setHorizon(e.target.value)} aria-label="Prediction horizon" className="rounded border border-caos-border bg-caos-bg px-2 text-caos-xs text-caos-text focus-ring" />
               <input type="number" value={predicted} onChange={(e) => setPredicted(e.target.value)} placeholder="Predicted" aria-label="Predicted value" className="w-24 rounded border border-caos-border bg-caos-bg px-2 text-caos-xs text-caos-text focus-ring" />
             </div>
-            <button type="button" onClick={save} disabled={busy || !draft.trim()} className="self-end tabular text-caos-2xs min-h-8 px-2 rounded bg-caos-accent text-caos-bg disabled:opacity-40 focus-ring">{busy ? "SAVING…" : "SAVE VERSION"}</button>
+            <ActionReason onClick={save} reason={busy ? "Saving…" : !draft.trim() ? "Enter thesis text first" : null} className="self-end tabular text-caos-2xs min-h-8 px-2 rounded bg-caos-accent text-caos-bg aria-disabled:opacity-40 focus-ring">{busy ? "SAVING…" : "SAVE VERSION"}</ActionReason>
           </div>
         ) : null}
         <div className="pt-2 border-t border-caos-border flex flex-col divide-y divide-caos-border/50">

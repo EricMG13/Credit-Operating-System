@@ -7,6 +7,10 @@ const state = vi.hoisted(() => ({
   counts: { current: 2, due: 0, stale: 0, unknown: 0 },
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+}));
+
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));

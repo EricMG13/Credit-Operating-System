@@ -26,6 +26,7 @@ from config import get_settings
 from database import AsyncSessionLocal, ResearchJob, engine
 from deepresearch import ResearchBrief, run_deep_research
 from executor_base import InProcessTaskExecutor
+from research_figures import build_research_figures
 
 logger = logging.getLogger("caos.research")
 
@@ -72,6 +73,14 @@ async def _run_research(job_id: str) -> None:
             job.sources = [s.model_dump() for s in result.sources]
             job.demo = result.demo
             job.truncated = result.truncated
+            # Keep research narrative and visual data separate: only construct
+            # exhibits from explicit CAOS context + finite metric facts. A
+            # missing lineage simply yields no chart; it never fails research.
+            try:
+                job.figures = await build_research_figures(session, job)
+            except Exception:  # noqa: BLE001 — chart enrichment must not lose a report
+                logger.exception("research job %s figure enrichment failed", job.id)
+                job.figures = []
             job.status = "complete"
             job.lease_expires_at = None
             job.completed_at = _now()

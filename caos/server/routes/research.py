@@ -9,7 +9,7 @@ Execution degrades to a canned demo report when no model key is configured.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -34,6 +34,26 @@ class ResearchJobCreated(BaseModel):
     status: str
 
 
+class ResearchFigure(BaseModel):
+    """A deterministic CAOS exhibit attached to a research report.
+
+    The narrative itself may be LLM-synthesized. Figure rows cannot be: every
+    row is assembled from finite, run-bound metric facts and carries its fact
+    identifiers for one-click provenance in the client.
+    """
+
+    id: str
+    kind: Literal["line", "bar", "maturity-wall"]
+    title: str
+    unit: str
+    as_of: Optional[str] = None
+    source_ids: List[str] = Field(default_factory=list)
+    accessible_summary: str
+    columns: List[dict[str, str]] = Field(default_factory=list)
+    rows: List[dict[str, Any]] = Field(default_factory=list)
+    encodings: dict[str, str] = Field(default_factory=dict)
+
+
 class ResearchJobStatus(BaseModel):
     id: str
     status: str  # running | complete | failed
@@ -45,6 +65,7 @@ class ResearchJobStatus(BaseModel):
     error: Optional[str] = None
     context_id: Optional[str] = None
     authority: dict = Field(default_factory=dict)
+    figures: List[ResearchFigure] = Field(default_factory=list)
 
 
 @router.post("", response_model=ResearchJobCreated, status_code=status.HTTP_201_CREATED)
@@ -133,6 +154,7 @@ async def list_research(
         error=job.error,
         context_id=job.context_id,
         authority=job.authority or {},
+        figures=[ResearchFigure(**figure) for figure in (job.figures or [])],
     ) for job in rows]
 
 
@@ -158,4 +180,5 @@ async def get_research(
         error=job.error,
         context_id=job.context_id,
         authority=job.authority or {},
+        figures=[ResearchFigure(**figure) for figure in (job.figures or [])],
     )

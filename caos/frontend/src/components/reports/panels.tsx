@@ -168,7 +168,7 @@ export function ComposePanel({
         <div className="flex flex-col gap-3 p-2">
           {groups.map((g) => (
             <div key={g.name} className="flex flex-col border border-caos-border bg-caos-panel rounded overflow-hidden">
-              <div className="bg-caos-bg px-2 py-1 border-b border-caos-border text-[9px] font-semibold text-caos-accent uppercase tracking-wider">
+              <div className="bg-caos-bg px-2 py-1 border-b border-caos-border text-caos-3xs font-semibold text-caos-accent uppercase tracking-wider">
                 {g.name}
               </div>
               <div className="flex flex-col py-1">

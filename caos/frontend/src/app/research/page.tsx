@@ -91,6 +91,7 @@ function Research() {
   const [configState, setConfigState] = useState<"loading" | "live" | "demo" | "error">("loading");
   const [reattachError, setReattachError] = useState<string | null>(null);
   const [reattachRetry, setReattachRetry] = useState(0);
+  const [contextLinkError, setContextLinkError] = useState<string | null>(null);
   const notify = useNotify();
   const { user } = useAuth();
   const analystId = user?.id ?? "";
@@ -239,6 +240,41 @@ function Research() {
         : null;
   const criteriaList = criteria.split("\n").map((c) => c.trim()).filter(Boolean);
 
+  // This is deliberately link-only. The completed report is already on screen
+  // and its durable job id is retained, so a retry must never submit another
+  // research run or duplicate model/web spend.
+  const linkCompletedResearch = useCallback(async (done: ResearchResult, jobId: string) => {
+    const context = analysis.context;
+    if (!context) return;
+    try {
+      const nextSurfaceState = {
+        ...context.surface_state,
+        research: {
+          ...(context.surface_state.research ?? {}),
+          active_id: jobId,
+          query: subj || null,
+          view: "result",
+        },
+      };
+      await analysis.patch({
+        artifacts: { ...context.artifacts, research_job_id: jobId },
+        surface_state: nextSurfaceState,
+      });
+      setContextLinkError(null);
+      void analysisApi.createFinding({
+        context_id: context.id,
+        kind: "research",
+        title: subj ? `${subj} research` : "Research finding",
+        body: done.report.slice(0, 1200),
+        source_surface: "research",
+        source_run_id: jobId,
+        evidence: { source_count: done.sources.length, truncated: done.truncated },
+      }).catch(() => undefined);
+    } catch (reason) {
+      setContextLinkError(toErrorMessage(reason, "The completed report could not be linked to this analysis context."));
+    }
+  }, [analysis, subj]);
+
   const toggleAdv = () => {
     advInteracted.current = true;
     setAdv((v) => {
@@ -265,36 +301,8 @@ function Research() {
       const done = await poll;
       setResult(done);
       setPrevResult(null); // the new report is the report now
-      const context = analysis.context;
       const jobId = activeJobId.current;
-      if (context && jobId) {
-        try {
-          const nextSurfaceState = {
-            ...context.surface_state,
-            research: {
-              ...(context.surface_state.research ?? {}),
-              active_id: jobId,
-              query: subj || null,
-              view: "result",
-            },
-          };
-          await analysis.patch({
-            artifacts: { ...context.artifacts, research_job_id: jobId },
-            surface_state: nextSurfaceState,
-          });
-          await analysisApi.createFinding({
-            context_id: context.id,
-            kind: "research",
-            title: subj ? `${subj} research` : "Research finding",
-            body: done.report.slice(0, 1200),
-            source_surface: "research",
-            source_run_id: jobId,
-            evidence: { source_count: done.sources.length, truncated: done.truncated },
-          }).catch(() => undefined);
-        } catch {
-          notify("Research saved", "The report completed, but its context link needs retry.");
-        }
-      }
+      if (jobId) await linkCompletedResearch(done, jobId);
       // Keep the durable job id in sessionStorage after a successful run (H3): the
       // completed job stays server-side and retrievable, so if the analyst hops to
       // Deep-Dive to cross-check a figure and returns (or reloads), the mount effect
@@ -464,6 +472,12 @@ function Research() {
                 <button type="button" className="caos-action-secondary focus-ring" onClick={() => setReattachRetry((value) => value + 1)}>Retry reattachment</button>
               </div>
             ) : null}
+            {contextLinkError && result && activeJobId.current ? (
+              <div role="alert" className="flex items-center gap-2 rounded border border-caos-warning/50 px-2.5 py-2">
+                <span className="flex-1 text-caos-xs text-caos-warning">{contextLinkError} Retry only saves the completed report to this context; it will not run research again.</span>
+                <button type="button" className="caos-action-secondary focus-ring" onClick={() => void linkCompletedResearch(result, activeJobId.current!)}>Retry context link</button>
+              </div>
+            ) : null}
 
             {/* Essentials — the whole job: pick a grain, name the subject. */}
             <div className="flex flex-col gap-3">
@@ -542,6 +556,7 @@ function Research() {
           elapsed={elapsed}
           subj={subj}
           mode={mode}
+          executionMode={configState === "demo" ? "demo" : "live"}
           onDetach={detach}
           onRestorePrev={() => {
             setResult(prevResult);

@@ -1,5 +1,5 @@
 import type { ModuleOutput, OutSection } from "@/lib/deepdive/module-outputs";
-import type { Report, ReportSource, Section, TableRow } from "./builders";
+import { fm, fx, type Report, type ReportSource, type Section, type TableRow } from "./builders";
 
 interface LiveReportInput {
   issuerId: string;
@@ -20,8 +20,12 @@ interface PersistedVersionLike {
 
 const MAX_FROZEN_OVERRIDE_ROWS = 500;
 
-function modelCell(value: unknown): string | number {
-  return typeof value === "number" && Number.isFinite(value) ? value : "";
+function modelAmount(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) ? fm(value) : "";
+}
+
+function modelMultiple(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) ? fx(value) : "";
 }
 
 function auditCell(value: unknown, missing = "Unavailable"): string | number {
@@ -122,11 +126,11 @@ function frozenModelSections(payload: Record<string, unknown>, reportEventAt?: s
     const period = value as Record<string, unknown>;
     modelRows.push({ cells: [
       String(period.period_key ?? ""), String(period.label ?? ""),
-      modelCell(period.revenue), modelCell(period.adjusted_ebitda),
-      modelCell(period.cash_interest), modelCell(period.total_debt),
-      modelCell(period.net_debt), modelCell(period.gross_leverage),
-      modelCell(period.net_leverage), modelCell(period.interest_coverage),
-      modelCell(period.free_cash_flow),
+      modelAmount(period.revenue), modelAmount(period.adjusted_ebitda),
+      modelAmount(period.cash_interest), modelAmount(period.total_debt),
+      modelAmount(period.net_debt), modelMultiple(period.gross_leverage),
+      modelMultiple(period.net_leverage), modelMultiple(period.interest_coverage),
+      modelAmount(period.free_cash_flow),
     ] });
     const periodNodes = Array.isArray(period.nodes) ? period.nodes : [];
     for (const nodeValue of periodNodes) {
@@ -141,19 +145,19 @@ function frozenModelSections(payload: Record<string, unknown>, reportEventAt?: s
       debtRows.push({ cells: [
         String(period.period_key ?? ""), String(instrument.instrument_id ?? ""),
         reporting.instrumentCurrencies.get(String(instrument.instrument_id ?? "")) ?? "Unavailable",
-        modelCell(instrument.opening_balance),
-        modelCell(instrument.closing_balance),
-        modelCell(instrument.average_balance),
-        modelCell(instrument.benchmark_interest),
-        modelCell(instrument.margin_interest),
-        modelCell(instrument.coupon_interest),
-        modelCell(instrument.fees),
-        modelCell(instrument.pik_interest),
-        modelCell(instrument.hedge_effect),
-        modelCell(instrument.fx_effect),
-        modelCell(instrument.cash_interest),
-        modelCell(instrument.debt_reporting_currency),
-        modelCell(instrument.rollforward_residual),
+        modelAmount(instrument.opening_balance),
+        modelAmount(instrument.closing_balance),
+        modelAmount(instrument.average_balance),
+        modelAmount(instrument.benchmark_interest),
+        modelAmount(instrument.margin_interest),
+        modelAmount(instrument.coupon_interest),
+        modelAmount(instrument.fees),
+        modelAmount(instrument.pik_interest),
+        modelAmount(instrument.hedge_effect),
+        modelAmount(instrument.fx_effect),
+        modelAmount(instrument.cash_interest),
+        modelAmount(instrument.debt_reporting_currency),
+        modelAmount(instrument.rollforward_residual),
       ] });
     }
   }

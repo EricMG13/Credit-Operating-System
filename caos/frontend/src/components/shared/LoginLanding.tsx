@@ -11,6 +11,7 @@ import { useState } from "react";
 import axios from "axios";
 import { login, recoverLogin, register } from "@/lib/api";
 import { useRovingTabs } from "@/lib/useRovingTabs";
+import { ActionReason } from "@/components/shared/ActionReason";
 
 type Mode = "signin" | "signup" | "recover";
 const MODES: Mode[] = ["signin", "signup", "recover"];
@@ -37,7 +38,11 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
   const [coverage, setCoverage] = useState("TMT");
   const [location, setLocation] = useState("NA");
   const [recoveryWords, setRecoveryWords] = useState(["", "", ""]);
+  // Recovery secrets stay in this component only: never localStorage, URL, or
+  // console. Signup requires a second entry for each word before hashing it.
+  const [recoveryWordConfirm, setRecoveryWordConfirm] = useState(["", "", ""]);
   const [recoveryHints, setRecoveryHints] = useState(["", "", ""]);
+  const [showRecoveryWords, setShowRecoveryWords] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -45,10 +50,18 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    // aria-disabled (unlike native `disabled`) does not block the browser's
+    // default submit action on Enter-key or synthetic activation, so the
+    // readiness gate has to be re-asserted here now that the button below
+    // no longer carries native `disabled`.
+    if (!ready || submitting) return;
     setError(null);
     if (signup && password !== confirm) {
       setError("Passcodes don't match.");
+      return;
+    }
+    if (signup && recoveryWords.some((word, index) => word.trim() !== recoveryWordConfirm[index].trim())) {
+      setError("Recovery words don't match their confirmations.");
       return;
     }
     setSubmitting(true);
@@ -69,6 +82,13 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
       } else {
         await login(email.trim(), password);
       }
+      // Clear sensitive recovery material before yielding control to the auth
+      // refresh/navigation path. Failed submissions intentionally keep values
+      // visible so the analyst can correct a typo.
+      setRecoveryWords(["", "", ""]);
+      setRecoveryWordConfirm(["", "", ""]);
+      setRecoveryHints(["", "", ""]);
+      setShowRecoveryWords(false);
       await onSuccess();
     } catch (err) {
       const detail = axios.isAxiosError(err) ? err.response?.data?.detail : null;
@@ -78,14 +98,41 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
   };
 
   const ready = signup
-    ? Boolean(name.trim() && email.trim() && password.length >= 8 && confirm.length > 0 && code.trim() && recoveryWords.every((w) => w.trim()))
+    ? Boolean(name.trim() && email.trim() && password.length >= 8 && confirm.length > 0 && code.trim() && recoveryWords.every((w, i) => w.trim() && w.trim() === recoveryWordConfirm[i].trim()))
     : mode === "recover"
     ? Boolean(email.trim() && recoveryWords.every((w) => w.trim()))
     : Boolean(email.trim() && password.length > 0);
 
+  const submitLabel = submitting
+    ? signup
+      ? "Creating…"
+      : mode === "recover"
+      ? "Recovering…"
+      : "Signing in…"
+    : signup
+    ? "Create account"
+    : mode === "recover"
+    ? "Recover access"
+    : "Sign in";
+
+  const submitReason = submitting
+    ? submitLabel
+    : !ready
+    ? signup
+      ? "Fill in your name, email, an 8+ character passcode, confirmation, invite code, and all three recovery words."
+      : mode === "recover"
+      ? "Enter your email and all three recovery words."
+      : "Enter your email and passcode."
+    : null;
+
   const swap = (m: Mode) => {
     setMode(m);
     setError(null);
+    // A mode change is an abandon/reset boundary for recovery material.
+    setRecoveryWords(["", "", ""]);
+    setRecoveryWordConfirm(["", "", ""]);
+    setRecoveryHints(["", "", ""]);
+    setShowRecoveryWords(false);
   };
 
   const { getItemProps } = useRovingTabs(MODES.length, MODES.indexOf(mode), (i) => swap(MODES[i]));
@@ -106,9 +153,9 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
           </h1>
           <p className="text-caos-muted text-xs">
             {signup
-              ? "Access code, profile, passcode and recovery words are required."
+              ? "Access code, profile, passcode, and confirmed recovery words are required."
               : mode === "recover"
-              ? "Enter your email and all three recovery words."
+              ? "Enter your email and all three recovery words. Stored hints are not disclosed on this endpoint."
               : "Sign in with your email and passcode."}
           </p>
         </div>
@@ -218,11 +265,18 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
 
         {(signup || mode === "recover") ? (
           <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => setShowRecoveryWords((visible) => !visible)}
+              className="self-start tabular text-caos-xs text-caos-muted hover:text-caos-text focus-ring rounded px-1"
+            >
+              {showRecoveryWords ? "Hide recovery words" : "Reveal recovery words"}
+            </button>
             {[0, 1, 2].map((i) => (
-              <div key={i} className={signup ? "grid grid-cols-2 gap-2" : ""}>
+              <div key={i} className={signup ? "grid gap-2 md:grid-cols-3" : ""}>
                 <Field label={`Recovery word ${i + 1}`}>
                   <input
-                    type="password"
+                    type={showRecoveryWords ? "text" : "password"}
                     value={recoveryWords[i]}
                     onChange={(e) => setRecoveryWords((w) => w.map((x, j) => j === i ? e.target.value : x))}
                     autoComplete="off"
@@ -230,6 +284,18 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
                     className={inputCls}
                   />
                 </Field>
+                {signup ? (
+                  <Field label={`Confirm word ${i + 1}`}>
+                    <input
+                      type={showRecoveryWords ? "text" : "password"}
+                      value={recoveryWordConfirm[i]}
+                      onChange={(e) => setRecoveryWordConfirm((words) => words.map((word, index) => index === i ? e.target.value : word))}
+                      autoComplete="off"
+                      maxLength={80}
+                      className={inputCls}
+                    />
+                  </Field>
+                ) : null}
                 {signup ? (
                   <Field label={`Hint ${i + 1}`}>
                     <input
@@ -252,13 +318,13 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
           </p>
         )}
 
-        <button
+        <ActionReason
           type="submit"
-          disabled={!ready || submitting}
-          className="rounded border border-caos-accent bg-caos-accent px-3 py-2 text-caos-bg font-semibold text-sm transition-caos hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
+          reason={submitReason}
+          className="rounded border border-caos-accent bg-caos-accent px-3 py-2 text-caos-bg font-semibold text-sm transition-caos hover:opacity-90 aria-disabled:opacity-40 aria-disabled:cursor-not-allowed focus-ring"
         >
-          {submitting ? (signup ? "Creating…" : mode === "recover" ? "Recovering…" : "Signing in…") : signup ? "Create account" : mode === "recover" ? "Recover access" : "Sign in"}
-        </button>
+          {submitLabel}
+        </ActionReason>
       </form>
     </div>
   );

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { propagateScenario, type ScenarioPropagationResult } from "@/lib/api";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { SurfaceState } from "@/components/shared/SurfaceState";
+import { ActionReason } from "@/components/shared/ActionReason";
 
 const STATUS = {
   computed: { glyph: "success" as const, label: "COMPUTED", color: "var(--caos-success)" },
@@ -53,9 +54,9 @@ export function ScenarioNetworkPanel({ issuerId, runId }: { issuerId: string; ru
             RATE BP
             <input type="number" min={-500} max={1000} value={rateBps} onChange={(e) => setRateBps(Number(e.target.value))} className="ml-1 w-16 rounded border border-caos-border bg-caos-bg px-1 py-0.5 text-caos-text focus-ring" />
           </label>
-          <button type="button" onClick={run} disabled={busy} className="tabular text-caos-2xs min-h-[24px] px-2 rounded border border-caos-accent text-caos-accent disabled:opacity-40 transition-caos focus-ring">
+          <ActionReason type="button" onClick={run} reason={busy ? "Propagating…" : null} className="tabular text-caos-2xs min-h-[24px] px-2 rounded border border-caos-accent text-caos-accent aria-disabled:opacity-40 transition-caos focus-ring">
             {busy ? "PROPAGATING…" : "PROPAGATE"}
-          </button>
+          </ActionReason>
         </div>
       )}
       {error ? <div role="alert" className="tabular text-caos-xs mt-2" style={{ color: "var(--caos-critical)" }}>Couldn’t propagate this scenario. Retry without changing the current model.</div> : null}

@@ -17,6 +17,7 @@ import { CloseButton } from "@/components/shared/CloseButton";
 import { useNotify } from "@/components/shared/Notifications";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
+import { ActionReason } from "@/components/shared/ActionReason";
 
 const MEMO_TYPES = [
   { id: "market-commentary", label: "Market commentary" },
@@ -191,14 +192,13 @@ ${note.trim()}
             >
               CANCEL
             </button>
-            <button
-              type="button"
+            <ActionReason
               onClick={submit}
-              disabled={!payload || busy}
-              className="tabular text-caos-xs px-3 py-1 rounded bg-caos-accent text-caos-bg font-semibold hover:opacity-90 transition-caos focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
+              reason={busy ? "Uploading…" : !payload ? (issuer ? "Type a note first" : "Choose a file first") : null}
+              className="tabular text-caos-xs px-3 py-1 rounded bg-caos-accent text-caos-bg font-semibold hover:opacity-90 transition-caos focus-ring aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
             >
               {busy ? "UPLOADING…" : issuer ? "SAVE NOTE" : "UPLOAD"}
-            </button>
+            </ActionReason>
           </div>
         </div>
       </div>

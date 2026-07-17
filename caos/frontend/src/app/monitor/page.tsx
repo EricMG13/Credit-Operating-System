@@ -16,6 +16,7 @@ import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ActionReason } from "@/components/shared/ActionReason";
+import { Button } from "@/components/ui/Button";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
@@ -64,6 +65,7 @@ function Monitor() {
   // controls inert until that bootstrap settles so an early click cannot be
   // accepted by the browser and then silently lost.
   const datasetControlsReady = !analysis.loading;
+  const datasetSwitchReason = datasetControlsReady ? null : "Dataset switch is not available until the page finishes loading.";
   const dataset = urlState.dataset === "email" || urlState.dataset === "governance"
     ? urlState.dataset
     : roleView === "qa" ? "governance" : "alerts";
@@ -265,7 +267,7 @@ function Monitor() {
             <PanelShell
               title={dataset === "email" ? "Email Intelligence · CP-MON intake" : dataset === "governance" ? "Governance queue · CP-5 / CP-0 / Staleness" : isPhone ? "Alert triage · autonomy routing" : "Alert inbox · autonomy routing"}
               className="min-h-0 h-full"
-              right={<div role="tablist" aria-label="Monitor dataset" aria-busy={!datasetControlsReady} className="flex items-center gap-1"><button type="button" role="tab" aria-selected={dataset === "alerts"} disabled={!datasetControlsReady} onClick={() => updateUrlState({ dataset: "alerts" })} className="caos-action-secondary focus-ring disabled:cursor-wait disabled:opacity-50">Alerts</button><button type="button" role="tab" aria-selected={dataset === "email"} disabled={!datasetControlsReady} onClick={() => updateUrlState({ dataset: "email" })} className="caos-action-secondary focus-ring disabled:cursor-wait disabled:opacity-50">Email intake</button><button type="button" role="tab" aria-selected={dataset === "governance"} disabled={!datasetControlsReady} onClick={() => updateUrlState({ dataset: "governance" })} className="caos-action-secondary focus-ring disabled:cursor-wait disabled:opacity-50">Governance</button></div>}
+              right={<div role="tablist" aria-label="Monitor dataset" aria-busy={!datasetControlsReady} className="flex items-center gap-1"><Button variant="secondary" type="button" role="tab" aria-selected={dataset === "alerts"} reason={datasetSwitchReason} reasonDisplay="hidden" onClick={() => updateUrlState({ dataset: "alerts" })}>Alerts</Button><Button variant="secondary" type="button" role="tab" aria-selected={dataset === "email"} reason={datasetSwitchReason} reasonDisplay="hidden" onClick={() => updateUrlState({ dataset: "email" })}>Email intake</Button><Button variant="secondary" type="button" role="tab" aria-selected={dataset === "governance"} reason={datasetSwitchReason} reasonDisplay="hidden" onClick={() => updateUrlState({ dataset: "governance" })}>Governance</Button></div>}
             >
               <DominantTableRegion ownerId="monitor-alert-inbox" label={dataset === "email" ? "Email intelligence worklist" : dataset === "governance" ? "Governance worklist" : "Alert inbox worklist"} className="h-full">
                 {dataset === "email" ? <EmailIntel /> : dataset === "governance" ? <GovernancePanel findingStatus={findingStatus} qaStatus={qaStatus} digestStatus={digestStatus} liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : isPhone ? <PhoneTriage /> : <>

@@ -93,6 +93,26 @@ describe("RankedChanges", () => {
     await waitFor(() => expect(screen.getByText("Acked")).toBeTruthy());
   });
 
+  it("keeps an unchanged alert actionable and gives row-level retry feedback when acknowledgement cannot be saved", async () => {
+    getAutonomyDraft.mockResolvedValue({
+      ...EMPTY_DRAFT,
+      generated_at: "2026-07-12T09:00:00Z",
+      sections: [{
+        issuer_id: "ATLF", issuer_name: "Atlas Forge", max_severity: 0.9,
+        claims: [{ text: "Ack write failure", claim_type: "anomaly", anomaly_kind: "peer-outlier", anomaly_severity: 0.9, chunk_ids: [], fact_ids: [], model: "claude-opus-4-8" }],
+        deterministic_bullets: [], exhibit: [],
+      }],
+    });
+    getAlertStates.mockResolvedValue([]);
+    setAlertState.mockRejectedValue(new Error("alert service unavailable"));
+
+    render(<RankedChanges />);
+    const ack = await screen.findByRole("button", { name: "Ack" });
+    fireEvent.click(ack);
+    expect((await screen.findByRole("alert")).textContent).toContain("alert service unavailable");
+    expect(screen.getByRole("button", { name: "Ack" })).toBeTruthy();
+  });
+
   it("a row resolved on Monitor reads 'Resolved' here too and its Ack action is disabled — the two surfaces never disagree", async () => {
     getAutonomyDraft.mockResolvedValue({
       ...EMPTY_DRAFT,
@@ -117,7 +137,7 @@ describe("RankedChanges", () => {
 
     render(<RankedChanges />);
     const resolveBtn = await screen.findByRole("button", { name: "Resolved" });
-    expect((resolveBtn as HTMLButtonElement).disabled).toBe(true);
+    expect(resolveBtn.getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByText("resolved")).toBeTruthy(); // owner slot, not "unassigned"
   });
 

@@ -434,6 +434,10 @@ class ResearchJob(Base):
     brief: Mapped[dict] = mapped_column(JSON, default=dict)
     report: Mapped[Optional[str]] = mapped_column(Text)
     sources: Mapped[list] = mapped_column(JSON, default=list)
+    # Structured, CAOS-verified research exhibits. The web-research model never
+    # supplies these rows: research_figures.py derives them from the context's
+    # explicitly-bound issuer data and stamps source ids on every figure.
+    figures: Mapped[list] = mapped_column(JSON, default=list)
     demo: Mapped[bool] = mapped_column(Boolean, default=False)
     truncated: Mapped[bool] = mapped_column(Boolean, default=False)
     # Live running counts ({"sources": n, "searches": m}), rewritten per
@@ -1540,6 +1544,11 @@ class CommitteeAgendaItem(Base):
     context_id: Mapped[Optional[str]] = mapped_column(
         String(36), ForeignKey("analysis_contexts.id"), index=True
     )
+    # The mutable agenda points at one immutable analyst view. IC action and
+    # analyst stance deliberately remain separate records and vocabularies.
+    analyst_opinion_version_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("analyst_opinion_versions.id"), index=True
+    )
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     finalized_decision_id: Mapped[Optional[str]] = mapped_column(
@@ -1550,6 +1559,42 @@ class CommitteeAgendaItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     finalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class CommitteeEvidenceException(Base):
+    """A time-bounded, independently reviewed exception to IC readiness.
+
+    This never alters the CP-5 run state. Its basis captures the exact run and
+    non-critical gap a reviewer inspected, so a changed run or expired approval
+    cannot be reused during finalization.
+    """
+
+    __tablename__ = "committee_evidence_exceptions"
+    __table_args__ = (
+        Index("ix_committee_exception_agenda_requested", "agenda_item_id", "requested_at"),
+        Index("ix_committee_exception_status_expiry", "status", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    agenda_item_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("committee_agenda_items.id"), nullable=False, index=True
+    )
+    run_id: Mapped[str] = mapped_column(String(36), ForeignKey("runs.id"), nullable=False, index=True)
+    basis_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    failure_codes: Mapped[list] = mapped_column(JSON, default=list)
+    finding_ids: Mapped[list] = mapped_column(JSON, default=list)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    mitigants: Mapped[list] = mapped_column(JSON, default=list)
+    expires_at: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[Optional[str]] = mapped_column(Text)
+    revoked_by: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
 class ThesisVersion(Base):
@@ -1564,6 +1609,43 @@ class ThesisVersion(Base):
     linked_decision_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("decisions.id"), index=True)
     linked_alert_key: Mapped[Optional[str]] = mapped_column(String(160))
     created_by: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AnalystOpinionVersion(Base):
+    """An analyst-owned, append-only investment view for one issuer.
+
+    The deterministic CP recommendation remains independent. A version captures
+    the analyst's own stance, evidence posture, and references without turning
+    long-form vault notes into a second authoring system.
+    """
+
+    __tablename__ = "analyst_opinion_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "analyst_id", "issuer_id", "version", name="uq_analyst_opinion_issuer_version"
+        ),
+        Index("ix_analyst_opinion_issuer_created", "issuer_id", "created_at"),
+        Index("ix_analyst_opinion_analyst_issuer", "analyst_id", "issuer_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    analyst_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    issuer_id: Mapped[str] = mapped_column(String(36), ForeignKey("issuers.id"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    stance: Mapped[str] = mapped_column(String(16), nullable=False)
+    conviction: Mapped[Optional[float]] = mapped_column(Float)
+    rationale_md: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    unresolved_items: Mapped[list] = mapped_column(JSON, default=list)
+    thesis_version_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("thesis_versions.id"), index=True
+    )
+    source_run_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("runs.id"), index=True)
+    context_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("analysis_contexts.id"), index=True
+    )
+    analyst_link_ids: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

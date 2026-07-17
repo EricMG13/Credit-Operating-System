@@ -270,7 +270,7 @@ describe("UploadWizard interactions", () => {
     expect(await screen.findByText("memo.pdf: vaulted")).toBeTruthy();
     expect(screen.getByText("pricing.xlsx: pricing upload failed")).toBeTruthy();
     expect(screen.getByText("RESULT 1 OK 1 FAIL 2 CHUNKS")).toBeTruthy();
-    expect(harness.push).toHaveBeenCalledWith("/pipeline?issuer=issuer-a&run=run-auto&view=graph&context=context-upload");
+    expect(harness.push).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Retry failed" }));
     expect(await screen.findByText("RESULT 2 OK 0 FAIL 5 CHUNKS")).toBeTruthy();

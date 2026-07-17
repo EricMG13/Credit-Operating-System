@@ -4,6 +4,7 @@
 // the five concept sections: h-10 sub-header, dense tabular rows, panel chrome.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { CloseButton } from "@/components/shared/CloseButton";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -29,6 +30,8 @@ import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { addToWatchlistAction, exportCsvAction, runPipelineAction } from "@/components/issuers/batchActions";
 import { contextHref, useAnalysisContext, type AnalysisSurfaceStateEntry } from "@/lib/analysis-workbench";
+import { useRovingFocus } from "@/lib/useRovingFocus";
+import { focusFirstRowAction, syncRowActionTabStops } from "@/lib/rowActionMode";
 
 export default function IssuersPage() {
   return (
@@ -46,7 +49,6 @@ const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: 
 const COLS = "grid grid-cols-[28px_76px_minmax(200px,1.6fr)_78px_minmax(96px,1fr)_minmax(120px,1fr)_104px_84px] items-center gap-x-3";
 const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country"] as const;
 const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
-
 // fallow-ignore-next-line complexity
 function IssuersDirectory() {
   const analysis = useAnalysisContext({ name: "Coverage universe" });
@@ -81,6 +83,8 @@ function IssuersDirectory() {
   // BatchBar selection (WP-10). Pruned against `issuers` below so a stale id
   // never survives a reload/search that drops that row from the register.
   const [selected, setSelected] = useState<string[]>([]);
+  const [actionRowId, setActionRowId] = useState<string | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const hydratedContext = useRef<string | null>(null);
 
   // Server-side search across name / ticker / industry / country / FIGI,
@@ -271,6 +275,12 @@ function IssuersDirectory() {
   // Select-all applies to the currently visible (filtered+sorted) rows only —
   // toggling it never touches a selection made outside the current view.
   const shownIds = shownIssuers.map((i) => i.id);
+  const { getItemProps: getIssuerRowFocusProps } = useRovingFocus(shownIds);
+
+  useEffect(() => {
+    if (actionRowId && !shownIds.includes(actionRowId)) setActionRowId(null);
+    for (const [id, row] of rowRefs.current) syncRowActionTabStops(row, actionRowId === id);
+  }, [actionRowId, shownIds]);
   const allShownSelected = shownIds.length > 0 && shownIds.every((id) => selected.includes(id));
   const toggleSelectAllShown = () =>
     setSelected((prev) =>
@@ -449,7 +459,13 @@ function IssuersDirectory() {
         >
           {selected.length > 0 ? (
             <div className="px-2 pt-2 pb-1">
-              <BatchBar selected={selected} onClear={() => setSelected([])} itemLabel="issuer" actions={batchActions} />
+              <BatchBar
+                selected={selected}
+                onClear={() => setSelected([])}
+                itemLabel="issuer"
+                itemName={(id) => issuers.find((issuer) => issuer.id === id)?.name ?? id}
+                actions={batchActions}
+              />
             </div>
           ) : null}
           {loading ? (
@@ -498,8 +514,12 @@ function IssuersDirectory() {
               />
             </div>
           ) : (
-            <div role="grid" className="text-caos-xl">
-              <div role="row" className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
+            <>
+            <p id="issuer-register-grid-help" className="sr-only">
+              Use Up and Down Arrow to move between issuer rows. Press Enter or Space to open the issuer profile. Press F2 to enter selection and upload actions; press Escape to return to the row.
+            </p>
+            <div role="grid" aria-label="Issuer coverage register" aria-rowcount={shownIssuers.length + 1} className="text-caos-xl">
+              <div role="row" aria-rowindex={1} className={COLS + " px-3 h-7 border-b border-caos-border sticky top-0 bg-caos-panel z-10"}>
                 <span role="columnheader" className="flex items-center">
                   <input
                     type="checkbox"
@@ -534,27 +554,62 @@ function IssuersDirectory() {
                   — covers tens-to-hundreds of issuers. Swap to `virtua` only if a single book
                   ever holds thousands. intrinsic-size ≈ one row height, avoids scrollbar CLS. */}
               {/* fallow-ignore-next-line complexity */}
-              {shownIssuers.map((issuer) => (
-                <div
-                  key={issuer.id}
-                  role="row"
-                  className={COLS + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer transition-caos hover:bg-caos-elevated/60 group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
-                >
-                  {/* Stretched primary link: whole row is the click target for mouse,
-                      and a single keyboard/SR-focusable control per row. Replaces the
-                      former role="button" row, which nested the Upload button inside an
-                      interactive element (WCAG 4.1.2 Name/Role/Value; axe nested-interactive). */}
-                  <span role="gridcell" className="absolute inset-0 z-0 pointer-events-none">
-                    <a
-                      href={issuerProfileHref(issuer)}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        openIssuer(issuer.id);
-                      }}
-                      aria-label={`Open profile for ${issuer.name}`}
-                      className="absolute inset-0 z-0 focus-ring cursor-pointer pointer-events-auto"
-                    />
-                  </span>
+              {shownIssuers.map((issuer, index) => {
+                const focusProps = getIssuerRowFocusProps(issuer.id);
+                const activate = () => openIssuer(issuer.id);
+                return (
+                  <div
+                    key={issuer.id}
+                    role="row"
+                    ref={(element) => {
+                      focusProps.ref(element);
+                      if (element) {
+                        rowRefs.current.set(issuer.id, element);
+                        syncRowActionTabStops(element, actionRowId === issuer.id);
+                      } else rowRefs.current.delete(issuer.id);
+                    }}
+                    tabIndex={actionRowId === issuer.id ? -1 : focusProps.tabIndex}
+                    onFocus={focusProps.onFocus}
+                    onBlur={(event) => {
+                      if (actionRowId === issuer.id && !event.currentTarget.contains(event.relatedTarget as Node | null)) setActionRowId(null);
+                    }}
+                    aria-rowindex={index + 2}
+                    aria-selected={selected.includes(issuer.id)}
+                    aria-keyshortcuts="F2"
+                    aria-describedby="issuer-register-grid-help"
+                    aria-label={`${issuer.name} issuer details`}
+                    onClick={(event) => {
+                      const target = event.target as HTMLElement;
+                      if (target.closest("a, button, input, select, textarea, [role='button'], [role='link']")) return;
+                      activate();
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape" && actionRowId === issuer.id) {
+                        event.preventDefault();
+                        setActionRowId(null);
+                        event.currentTarget.focus();
+                        return;
+                      }
+                      if (event.currentTarget !== event.target) return;
+                      if (event.key === "F2") {
+                        if (focusFirstRowAction(event.currentTarget)) {
+                          event.preventDefault();
+                          setActionRowId(issuer.id);
+                        }
+                        return;
+                      }
+                      if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+                        setActionRowId(null);
+                        focusProps.onKeyDown(event);
+                        return;
+                      }
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        activate();
+                      }
+                    }}
+                    className={COLS + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer outline-none transition-caos hover:bg-caos-elevated/60 focus-ring group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
+                  >
                   <span role="gridcell" className="relative z-[1] flex items-center min-h-[24px]">
                     <input
                       type="checkbox"
@@ -567,7 +622,23 @@ function IssuersDirectory() {
                   <span role="gridcell" className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
                   </span>
-                  <span role="gridcell" className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">{issuer.name}</span>
+                  <span role="rowheader" className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">
+                    {/* The stretched mouse target lives inside the semantic row
+                        header, so the ARIA row still owns exactly eight cells.
+                        The row itself is the roving keyboard stop; the link stays
+                        out of Tab order while preserving native link discovery. */}
+                    <a
+                      href={issuerProfileHref(issuer)}
+                      tabIndex={-1}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openIssuer(issuer.id);
+                      }}
+                      aria-label={`Open profile for ${issuer.name}`}
+                      className="absolute inset-0 z-0 cursor-pointer"
+                    />
+                    {issuer.name}
+                  </span>
                   {(() => {
                     const r = issuerRating(issuer);
                     return (
@@ -595,9 +666,11 @@ function IssuersDirectory() {
                       UPLOAD
                     </button>
                   </span>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
+            </>
           )}
         </Panel>
       </div>
@@ -703,9 +776,13 @@ function NewIssuerModal({
           <div role="alert" className="px-3 pb-1 tabular text-caos-md" style={{ color: "var(--caos-critical)" }}>{createError}</div>
         ) : null}
         <div className="px-3 pb-3 flex gap-2">
-          <button type="submit" disabled={creating} className="flex-1 tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-caos-accent">
+          <ActionReason
+            type="submit"
+            reason={creating ? "Creating issuer…" : null}
+            className="flex-1 tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos aria-disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent aria-disabled:hover:text-caos-accent"
+          >
             {creating ? "CREATING…" : "CREATE ISSUER"}
-          </button>
+          </ActionReason>
           <button type="button" onClick={onClose} className="px-3 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos">
             CANCEL
           </button>

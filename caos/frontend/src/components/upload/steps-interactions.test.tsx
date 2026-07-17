@@ -88,7 +88,7 @@ describe("upload step presentational controls", () => {
     expect(setShowNewIssuer).toHaveBeenCalledWith(false);
 
     rerender(<IssuerStep {...base} showNewIssuer newIssuerName="   " />);
-    expect((screen.getByRole("button", { name: "CREATE" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "CREATE" }).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("drives file removal, authority, mode, portfolio, upload, cancel, and back controls", () => {
@@ -163,7 +163,7 @@ describe("upload step presentational controls", () => {
     expect(screen.queryByRole("note")).toBeNull();
 
     rerender(<FileStep {...base} selectedIssuer={null} files={[]} isDragActive={false} runMode="full" portfolios={[]} setPortfolioId={undefined} />);
-    expect((screen.getByRole("button", { name: "UPLOAD FILES & PROCESS" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "UPLOAD FILES & PROCESS" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.queryByLabelText("Portfolio to evaluate this issuer against")).toBeNull();
   });
 
@@ -197,7 +197,7 @@ describe("upload step presentational controls", () => {
     const { rerender } = render(<ResultStep {...base} />);
     expect(screen.getByText("2/3 processing")).toBeTruthy();
     expect(screen.getByText(/— scan\.pdf/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "UPLOAD ANOTHER" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "UPLOAD ANOTHER" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.queryByRole("button", { name: /RETRY/ })).toBeNull();
 
     rerender(<ResultStep {...base} uploading={false} progress={null} runOutcome={{ state: "failed", message: "queue offline" }} runError="manual offline" />);
@@ -207,7 +207,7 @@ describe("upload step presentational controls", () => {
     expect(screen.getByText(/1 with no extractable text/)).toBeTruthy();
     expect(screen.getByTitle(/No extractable text/).textContent).toContain("0 chunks");
     expect(screen.getByRole("alert").textContent).toBe("manual offline");
-    fireEvent.click(screen.getByRole("button", { name: /RUN FULL IC COMMITTEE/ }));
+    fireEvent.click(screen.getByRole("button", { name: /START FULL CP-X RUN/ }));
     fireEvent.click(screen.getByRole("button", { name: /RETRY 1 FAILED/ }));
     fireEvent.click(screen.getByRole("button", { name: "UPLOAD ANOTHER" }));
     fireEvent.click(screen.getByRole("button", { name: "OPEN ISSUER PROFILE →" }));
@@ -233,7 +233,7 @@ describe("upload step presentational controls", () => {
     expect(screen.getByRole("button", { name: "QUEUING RUN…" })).toBeTruthy();
 
     rerender(<ResultStep {...base} uploading={false} progress={null} failCount={0} modeMeta={undefined} runCreating={false} runCreated={null} />);
-    expect(screen.getByRole("button", { name: "RUN" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "START FULL CP-X RUN" })).toBeTruthy();
 
     rerender(<ResultStep {...base} uploading={false} progress={null} outcomes={[]} okCount={0} failCount={0} totalChunks={0} selectedIssuer={null} />);
     expect(screen.getByRole("link", { name: "OPEN ISSUER PROFILE →" }).getAttribute("href")).toBe("/issuers");

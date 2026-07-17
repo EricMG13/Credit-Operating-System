@@ -77,6 +77,50 @@ async def test_execute_research_marks_failed_on_error(seeded_db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_research_figures_are_context_bound_and_source_backed(seeded_db):
+    from database import (
+        AnalysisContextRecord,
+        AsyncSessionLocal,
+        Issuer,
+        MetricFact,
+        ResearchJob,
+        Run,
+    )
+    from research_figures import build_research_figures
+
+    async with AsyncSessionLocal() as db:
+        issuer = Issuer(id="research-figure-issuer", name="Research Figure Co")
+        run = Run(
+            id="research-figure-run", issuer_id=issuer.id, analyst_id="analyst-a",
+            status="complete", as_of_date="2026-06-30",
+        )
+        context = AnalysisContextRecord(
+            id="research-figure-context", analyst_id="analyst-a", name="Figure context",
+            issuer_ids=[issuer.id], artifacts={"issuer_run_id": run.id},
+        )
+        job = ResearchJob(
+            id="research-figure-job", analyst_id="analyst-a", context_id=context.id,
+            status="running", brief={"subject": "Research Figure Co", "mode": "issuer"}, demo=False,
+        )
+        facts = [
+            MetricFact(id="figure-fact-lev", issuer_id=issuer.id, run_id=run.id, metric_key="net_leverage", period="FY2025", value=4.2, unit="x"),
+            MetricFact(id="figure-fact-lev-next", issuer_id=issuer.id, run_id=run.id, metric_key="net_leverage", period="FY2026", value=3.9, unit="x"),
+            MetricFact(id="figure-fact-cov", issuer_id=issuer.id, run_id=run.id, metric_key="interest_coverage", period="FY2026", value=2.8, unit="x"),
+            MetricFact(id="figure-fact-rv", issuer_id=issuer.id, run_id=run.id, metric_key="composite_percentile", period="FY2026", value=78, unit="percentile"),
+        ]
+        db.add_all([issuer, run, context, job, *facts])
+        await db.commit()
+        figures = await build_research_figures(db, job)
+
+    assert {figure["id"] for figure in figures} == {"leverage-coverage-trend", "relative-value-position"}
+    assert all(figure["source_ids"] for figure in figures)
+    assert all(figure["as_of"] == "2026-06-30" for figure in figures)
+    assert next(figure for figure in figures if figure["id"] == "relative-value-position")["rows"] == [
+        {"label": "Composite percentile", "value": 78.0}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_research_executor_sweeps_stranded_jobs(seeded_db):
     """Hard-crash recovery: a job left 'running' by a restart (a stream can't be
     resumed) must be swept to 'failed' on the next start(); terminal jobs untouched."""

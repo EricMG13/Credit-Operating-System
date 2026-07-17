@@ -90,9 +90,9 @@ beforeEach(() => {
   mocks.updateSectorFeeds.mockImplementation(async (feeds: unknown) => feeds);
   mocks.listSectorReviews.mockResolvedValue([review, prior]);
   mocks.createSectorReview.mockResolvedValue(review);
-  mocks.ratifySectorReview.mockImplementation(async (_id: string, decisions: unknown[]) => decisions.length === 1
-    ? { ...review, ratifications: { "section-1": "ratified" } }
-    : { ...review, authority: { ...authority, approval_state: "ratified" }, ratifications: { "section-1": "ratified", "section-2": "ratified" } });
+  mocks.ratifySectorReview.mockImplementation(async (_id: string, decisions: Array<{ section_id: string }>) => decisions.some((decision) => decision.section_id === "section-2")
+    ? { ...review, authority: { ...authority, approval_state: "ratified" }, ratifications: { "section-1": "ratified", "section-2": "ratified" } }
+    : { ...review, ratifications: { "section-1": "ratified" } });
   mocks.publishSectorReview.mockResolvedValue({ ...review, authority: { ...authority, approval_state: "published" } });
   mocks.contextState.patch.mockResolvedValue(undefined);
 });
@@ -113,11 +113,13 @@ describe("SectorReviewDossier", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ratify section" }));
     await waitFor(() => expect(mocks.ratifySectorReview).toHaveBeenCalledWith("review-1", [{ section_id: "section-1", decision: "ratified" }]));
     fireEvent.click(screen.getByRole("button", { name: "Ratify updates" }));
+    expect(screen.getByText("Confirm ratification scope · Pricing")).toBeTruthy();
+    expect(mocks.ratifySectorReview).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm ratify 1 section" }));
     await waitFor(() => expect(mocks.ratifySectorReview).toHaveBeenLastCalledWith("review-1", [
-      { section_id: "section-1", decision: "ratified" },
       { section_id: "section-2", decision: "ratified" },
     ]));
-    fireEvent.click(screen.getByRole("button", { name: "Publish review" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Publish review" }));
     await waitFor(() => expect(mocks.publishSectorReview).toHaveBeenCalledWith("review-1"));
 
     fireEvent.click(screen.getByRole("button", { name: "Sources" }));

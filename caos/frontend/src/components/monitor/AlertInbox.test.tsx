@@ -11,6 +11,7 @@ const getAlertEvents = vi.fn();
 const patchAlertEvent = vi.fn();
 const getDecisions = vi.fn();
 const reopenDecision = vi.fn();
+const getChunk = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -24,6 +25,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     patchAlertEvent: (...a: unknown[]) => patchAlertEvent(...a),
     getDecisions: (...a: unknown[]) => getDecisions(...a),
     reopenDecision: (...a: unknown[]) => reopenDecision(...a),
+    getChunk: (...a: unknown[]) => getChunk(...a),
   };
 });
 
@@ -31,6 +33,7 @@ beforeEach(() => {
   refreshAlertEvents.mockResolvedValue([]);
   getAlertEvents.mockResolvedValue([]);
   getDecisions.mockResolvedValue([]);
+  getChunk.mockResolvedValue({ chunk_id: "chunk-live-1", doc: "Q1 earnings release", text: "Persisted source extract." });
 });
 
 afterEach(() => {
@@ -158,12 +161,34 @@ describe("AlertInbox", () => {
     });
     render(<AlertInbox />);
     await waitFor(() => expect(screen.getByText("Open")).toBeTruthy());
+    expect(screen.getByText("low")).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Ack" }));
     });
     await waitFor(() => expect(screen.getByText("Ack/assigned")).toBeTruthy());
     expect(screen.queryByText("Resolved")).toBeNull();
+  });
+
+  it("opens only a persisted source chunk and explains missing provenance without a dead source control", async () => {
+    getAutonomyDraft.mockResolvedValue({
+      ...DRAFT_WITH_ROW,
+      sections: [{
+        ...DRAFT_WITH_ROW.sections[0],
+        deterministic_bullets: [{ ...DRAFT_WITH_ROW.sections[0].deterministic_bullets[0], chunk_id: "chunk-live-1" }],
+      }],
+    });
+    render(<AlertInbox />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open source chunk-live-1" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Open source chunk-live-1" }));
+    expect(await screen.findByText("Persisted source extract.")).toBeTruthy();
+    expect(getChunk).toHaveBeenCalledWith("chunk-live-1");
+
+    cleanup();
+    getAutonomyDraft.mockResolvedValue(DRAFT_WITH_ROW);
+    render(<AlertInbox />);
+    expect(await screen.findByText(/Source unavailable · The autonomy draft did not carry a persisted source identifier/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open source/ })).toBeNull();
   });
 
   it("assign posts the typed name and shows it as the owner", async () => {
@@ -277,7 +302,7 @@ describe("AlertInbox", () => {
     const ack = await screen.findByRole("button", { name: "Ack" });
     fireEvent.click(ack);
     fireEvent.click(ack);
-    await waitFor(() => expect((ack as HTMLButtonElement).disabled).toBe(true));
+    await waitFor(() => expect(ack.getAttribute("aria-disabled")).toBe("true"));
     act(() => { hostProps(ack).onClick(); });
     expect(setAlertState).toHaveBeenCalledTimes(1);
     resolveAck({

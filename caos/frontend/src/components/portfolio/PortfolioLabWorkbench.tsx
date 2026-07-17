@@ -7,9 +7,12 @@ import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { ActionReason } from "@/components/shared/ActionReason";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
+import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
+import { SourceRef } from "@/components/ui/SourceRef";
 import {
   analysisApi,
   type InsightArtifact,
@@ -161,7 +164,7 @@ export function PortfolioInsightCard({ insight, onRatify }: { insight: InsightAr
       {insight.claims.map((claim) => (
         <div key={claim.id} className="portfolio-lab__claim">
           <strong>{claim.statement}</strong>
-          <ul aria-label="Claim evidence">{claim.evidence_ids.map((id) => <li key={id}>{id}</li>)}</ul>
+          <ul aria-label="Claim evidence">{claim.evidence_ids.length ? claim.evidence_ids.map((id) => <li key={id}><SourceRef source={{ state: "unavailable", reason: `Source ${id} has no persisted action.` }} /></li>) : <li><SourceRef source={{ state: "unavailable", reason: "No persisted source identifier for this claim." }} /></li>}</ul>
         </div>
       ))}
       {insight.status === "ready" && onRatify ? <button type="button" onClick={onRatify}>Ratify cited brief</button> : null}
@@ -179,37 +182,70 @@ function PositionsTable({
   selectedId: string | null;
   onSelect: (position: PortfolioPosition) => void;
 }) {
+  const columns: DataTableColumn<PortfolioPosition>[] = [
+    {
+      key: "borrower",
+      header: "Borrower",
+      rowHeader: true,
+      render: (position) => (
+        <div className="flex items-center gap-2 font-semibold text-caos-text">
+          <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+            {position.issuer_id ? <IssuerLink issuer={{ id: position.issuer_id }}>{position.borrower_name}</IssuerLink> : position.borrower_name}
+          </span>
+          <button
+            type="button"
+            onClick={(event) => { event.stopPropagation(); onSelect(position); }}
+            onKeyDown={(event) => event.stopPropagation()}
+            aria-label={`Select ${position.borrower_name}`}
+            aria-pressed={selectedId === position.id}
+            className="focus-ring"
+          >
+            Inspect
+          </button>
+        </div>
+      ),
+    },
+    { key: "instrument", header: "Instrument", render: (position) => position.loan_name ?? position.ticker ?? "—" },
+    { key: "sector", header: "Sector", render: (position) => position.sector ?? "—" },
+    { key: "rating", header: "Rating", render: (position) => position.rating_moody ?? position.rating_sp ?? "—" },
+    { key: "par", header: "Par", align: "numeric", render: (position) => position.par_usd == null ? "—" : money.format(position.par_usd) },
+    { key: "price", header: "Price", align: "numeric", render: (position) => numberText(position.price) },
+    { key: "maturity", header: "Maturity", render: (position) => position.maturity ?? "—" },
+  ];
   return (
-    <div className="portfolio-lab__table-scroll">
-      <table aria-label="Portfolio positions">
-        <thead><tr><th scope="col">Borrower</th><th scope="col">Instrument</th><th scope="col">Sector</th><th scope="col">Rating</th><th scope="col">Par</th><th scope="col">Price</th><th scope="col">Maturity</th></tr></thead>
-        <tbody>
-          {page.items.map((position) => (
-            <tr key={position.id} className={page.total > 50 ? "portfolio-lab__virtual-row" : undefined} data-selected={selectedId === position.id}>
-              <th scope="row">
-                <div className="flex items-center gap-2">
-                  {position.issuer_id ? <IssuerLink issuer={{ id: position.issuer_id }}>{position.borrower_name}</IssuerLink> : position.borrower_name}
-                  <button type="button" onClick={() => onSelect(position)} aria-label={`Select ${position.borrower_name}`} aria-pressed={selectedId === position.id}>Inspect</button>
-                </div>
-              </th>
-              <td>{position.loan_name ?? position.ticker ?? "—"}</td><td>{position.sector ?? "—"}</td>
-              <td>{position.rating_moody ?? position.rating_sp ?? "—"}</td><td>{position.par_usd == null ? "—" : money.format(position.par_usd)}</td>
-              <td>{numberText(position.price)}</td><td>{position.maturity ?? "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="min-h-0 overflow-auto">
+      <DataTable
+        columns={columns}
+        rows={page.items}
+        getRowId={(position) => position.id}
+        caption="Portfolio positions"
+        selectedRowId={selectedId}
+        onRowActivate={onSelect}
+        rowClassName={(position) => [
+          page.total > 50 ? "portfolio-lab__virtual-row" : "",
+          selectedId === position.id ? "bg-caos-accent/10" : "",
+        ].filter(Boolean).join(" ")}
+      />
     </div>
   );
 }
 
 function ConstraintsTable({ rows }: { rows: PortfolioConstraint[] }) {
+  const columns: DataTableColumn<PortfolioConstraint>[] = [
+    { key: "constraint", header: "Constraint", rowHeader: true, render: (row) => <span className="font-semibold text-caos-text">{row.parameter ?? row.code ?? "Unnamed"}</span> },
+    { key: "limit", header: "Limit", align: "numeric", render: (row) => row.limit_text ?? "—" },
+    { key: "current", header: "Current", align: "numeric", render: (row) => numberText(row.current) },
+    { key: "headroom", header: "Headroom", align: "numeric", render: (row) => numberText(row.headroom) },
+    { key: "status", header: "Status", render: (row) => <span className="portfolio-lab__status" data-status={row.status.toLowerCase()}>● {row.status}</span> },
+  ];
   return (
-    <div className="portfolio-lab__table-scroll">
-      <table aria-label="Portfolio constraints">
-        <thead><tr><th scope="col">Constraint</th><th scope="col">Limit</th><th scope="col">Current</th><th scope="col">Headroom</th><th scope="col">Status</th></tr></thead>
-        <tbody>{rows.map((row, index) => <tr key={`${row.code ?? "constraint"}-${index}`}><th scope="row">{row.parameter ?? row.code ?? "Unnamed"}</th><td>{row.limit_text ?? "—"}</td><td>{numberText(row.current)}</td><td>{numberText(row.headroom)}</td><td><span className="portfolio-lab__status" data-status={row.status.toLowerCase()}>● {row.status}</span></td></tr>)}</tbody>
-      </table>
+    <div className="min-h-0 overflow-auto">
+      <DataTable
+        columns={columns}
+        rows={rows}
+        getRowId={(row, index) => `${row.code ?? "constraint"}-${index}`}
+        caption="Portfolio constraints"
+      />
     </div>
   );
 }
@@ -245,9 +281,10 @@ export function PortfolioLabWorkbench() {
   }));
 
   const requestedPortfolioId = values.portfolio;
-  const portfolioId = requestedPortfolioId && (!portfolioListLoaded || portfolios.some((row) => row.id === requestedPortfolioId))
-    ? requestedPortfolioId
-    : portfolios[0]?.id ?? null;
+  const requestedPortfolioIsMissing = Boolean(requestedPortfolioId && portfolioListLoaded && portfolios.length > 0 && !portfolios.some((row) => row.id === requestedPortfolioId));
+  const portfolioId = requestedPortfolioIsMissing || (portfolioListLoaded && portfolios.length === 0)
+    ? null
+    : requestedPortfolioId ?? portfolios[0]?.id ?? null;
   const dataset: DatasetMode = values.dataset === "constraints" ? "constraints" : "positions";
   const chart: ChartMode = ["ratings", "maturity", "risk", "stress"].includes(values.chart ?? "")
     ? values.chart as ChartMode
@@ -282,7 +319,7 @@ export function PortfolioLabWorkbench() {
   }, [update]);
 
   useEffect(() => {
-    if (!portfolioId) {
+    if (!portfolioListLoaded || !portfolioId) {
       if (portfolioListLoaded) setLoading(false);
       return;
     }
@@ -310,7 +347,7 @@ export function PortfolioLabWorkbench() {
   }, [portfolioId, portfolioListLoaded, sort, values.cursor, values.direction, values.ranking, values.rating, values.sector, values.text]);
 
   useEffect(() => {
-    if (!portfolioId) return;
+    if (!portfolioListLoaded || !portfolioId) return;
     let alive = true;
     setSupportError(null);
     setAnalyticsError(null);
@@ -338,7 +375,7 @@ export function PortfolioLabWorkbench() {
       setSupportError(failures.length ? failures.join(" ") : null);
     });
     return () => { alive = false; };
-  }, [analysis.context?.id, portfolioId]);
+  }, [analysis.context?.id, portfolioId, portfolioListLoaded]);
 
   const portfolio = portfolios.find((row) => row.id === portfolioId) ?? null;
   const visualizationAnalytics = useMemo(() => analytics ? {
@@ -400,7 +437,7 @@ export function PortfolioLabWorkbench() {
   const decision = (
     <header className="portfolio-lab__decision-header">
       <div><span className="portfolio-lab__eyebrow">{roleView === "pm" ? "Portfolio posture" : roleView === "qa" ? "Evidence & compliance" : "Sizing workbench"}</span><h1>{portfolio?.name ?? "Portfolio Lab"}</h1></div>
-      <dl><div><dt>As of</dt><dd>{analytics?.as_of ?? portfolio?.as_of_date ?? "Unavailable"}</dd></div><div><dt>Positions</dt><dd>{positions?.total ?? portfolio?.n_positions ?? "—"}</dd></div><div><dt>Authority</dt><dd>{!portfolioId ? "No portfolio" : analytics?.authority.approval_state ?? (analyticsError ? "Unavailable" : "Loading")}</dd></div></dl>
+      <dl><div><dt>As of</dt><dd>{analytics?.as_of ?? portfolio?.as_of_date ?? "Unavailable"}</dd></div><div><dt>Positions</dt><dd>{loading ? "—" : positions?.total ?? portfolio?.n_positions ?? "—"}</dd></div><div><dt>Authority</dt><dd>{!portfolioId ? "No portfolio" : analytics?.authority.approval_state ?? (analyticsError ? "Unavailable" : "Loading")}</dd></div></dl>
     </header>
   );
 
@@ -429,10 +466,11 @@ export function PortfolioLabWorkbench() {
           <button type="button" aria-label={`Sort ${values.direction === "desc" ? "ascending" : "descending"}`} onClick={() => update({ direction: values.direction === "desc" ? "asc" : "desc", cursor: null })}>{values.direction === "desc" ? "DESC ↓" : "ASC ↑"}</button>
           <button type="submit">APPLY</button>
         </form> : null}
+        {values.ranking ? <div className="portfolio-lab__active-filter" role="status">Ranking: {values.ranking}<button type="button" className="focus-ring" onClick={() => update({ ranking: null, cursor: null })}>Clear ranking</button></div> : null}
       </div>
       <div id="portfolio-dataset-panel" role="tabpanel" aria-labelledby={`portfolio-tab-${dataset}`}>
         <DominantTableRegion ownerId="portfolio-lab-main" label={`${dataset === "positions" ? "Portfolio positions" : "Portfolio constraints"} table`} data-total-rows={dataset === "positions" ? positions?.total : analytics?.compliance.length}>
-          {!portfolioId && portfolioListError ? <div className="portfolio-lab__empty" role="alert">{portfolioListError}</div> : !portfolioId && portfolioListLoaded ? <div className="portfolio-lab__empty">No portfolios are configured. <Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Create or import one in Settings</Link>.</div> : loading && !positions ? <LoadingTable /> : error && !positions ? <div className="portfolio-lab__empty" role="alert">{error}</div> : dataset === "positions" && positions?.items.length ? <PositionsTable page={positions} selectedId={values.selected} onSelect={(row) => update({ selected: row.id })} /> : dataset === "positions" && positions ? <div className="portfolio-lab__empty" role="status">No positions match the active filters.</div> : analytics?.compliance.length ? <ConstraintsTable rows={analytics.compliance} /> : analytics ? <div className="portfolio-lab__empty" role="status">No portfolio constraints are configured.</div> : supportError ? <div className="portfolio-lab__empty" role="status">Constraint analytics unavailable. Positions remain accessible.</div> : <LoadingTable />}
+          {requestedPortfolioIsMissing ? <SurfaceState kind="unavailable" title="Portfolio not found" detail={`The requested portfolio (${requestedPortfolioId}) is not available. Choose a portfolio from the picker.`} compact /> : !portfolioId && portfolioListError ? <SurfaceState kind="offline" title="Portfolio register unavailable" detail={portfolioListError} compact /> : !portfolioId && portfolioListLoaded ? <SurfaceState kind="empty" title="No portfolios are configured" detail="Create or import a portfolio in Settings before opening the lab." primaryAction={<Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Open Settings</Link>} compact /> : loading && !positions ? <LoadingTable /> : error && !positions ? <SurfaceState kind="unavailable" title="Portfolio positions unavailable" detail={error} compact /> : dataset === "positions" && positions?.items.length ? <PositionsTable page={positions} selectedId={values.selected} onSelect={(row) => update({ selected: row.id })} /> : dataset === "positions" && positions ? <SurfaceState kind="empty" title="No positions match the active filters" detail="Clear or adjust the visible filters to broaden the result." compact /> : analytics?.compliance.length ? <ConstraintsTable rows={analytics.compliance} /> : analytics ? <SurfaceState kind="empty" title="No portfolio constraints are configured" compact /> : supportError ? <SurfaceState kind="unavailable" title="Constraint analytics unavailable" detail="Positions remain accessible." compact /> : <LoadingTable />}
         </DominantTableRegion>
       </div>
       {dataset === "positions" && positions?.next_cursor ? <button type="button" className="portfolio-lab__next" onClick={() => update({ cursor: positions.next_cursor, selected: null })}>Next positions</button> : null}
@@ -449,7 +487,7 @@ export function PortfolioLabWorkbench() {
   const inspector = (
     <aside className="portfolio-lab__inspector" aria-label="Portfolio evidence inspector">
       <h2>{selectedPosition?.borrower_name ?? "Evidence Atlas"}</h2>
-      {selectedPosition ? <dl><div><dt>Instrument</dt><dd>{selectedPosition.loan_name ?? selectedPosition.ticker ?? "—"}</dd></div><div><dt>Market value</dt><dd>{selectedPosition.market_value == null ? "—" : money.format(selectedPosition.market_value)}</dd></div><div><dt>Source</dt><dd>{positions?.authority.source_ids.length ? positions.authority.source_ids.join(", ") : "Source identifier unavailable"}</dd></div></dl> : <p>Select a position to inspect its sizing and source lineage.</p>}
+      {selectedPosition ? <dl><div><dt>Instrument</dt><dd>{selectedPosition.loan_name ?? selectedPosition.ticker ?? "—"}</dd></div><div><dt>Market value</dt><dd>{selectedPosition.market_value == null ? "—" : money.format(selectedPosition.market_value)}</dd></div><div><dt>Source</dt><dd className="grid gap-1">{positions?.authority.source_ids.length ? positions.authority.source_ids.map((id) => <SourceRef key={id} source={{ state: "unavailable", reason: `Source ${id} has no persisted action.` }} />) : <SourceRef source={{ state: "unavailable", reason: "No persisted source identifier for this position." }} />}</dd></div></dl> : <p>Select a position to inspect its sizing and source lineage.</p>}
       {selectedPosition?.issuer_id ? <Link href={`/issuers/profile?id=${encodeURIComponent(selectedPosition.issuer_id)}&context=${encodeURIComponent(analysis.context?.id ?? "")}`}>Open issuer profile</Link> : null}
       {analytics?.missing_dependencies.length ? <><h3>Missing dependencies</h3><ul>{analytics.missing_dependencies.map((item) => <li key={item}>{item}</li>)}</ul></> : null}
       <div className="portfolio-lab__insight-actions"><ActionReason reason={portfolioId ? null : "Create or open a portfolio first"} onClick={() => void generateInsight()}>{insight ? "Refresh cited brief" : "Generate cited brief"}</ActionReason></div>
@@ -464,7 +502,7 @@ export function PortfolioLabWorkbench() {
   const utility = (
     <section className="portfolio-lab__stress" aria-label="Deterministic stress controls">
       <header><div><span className="portfolio-lab__eyebrow">Deterministic scenario</span><h2>Base downside</h2></div><ActionReason reason={portfolioId ? null : "Create or open a portfolio first"} reasonDisplay="hidden" onClick={() => setStressPreview(true)}>Preview stress</ActionReason></header>
-      {stressPreview ? <div className="portfolio-lab__stress-preview"><strong>Preview only</strong><p>Apply an 8% book price decline. Holdings and limits will not be changed.</p><button type="button" disabled={stressPending} onClick={() => void persistStress()}>{stressPending ? "Persisting…" : "Confirm and persist"}</button></div> : null}
+      {stressPreview ? <div className="portfolio-lab__stress-preview"><strong>Preview only</strong><p>Apply an 8% book price decline. Holdings and limits will not be changed.</p><ActionReason reason={stressPending ? "Stress run in progress" : null} onClick={() => void persistStress()}>{stressPending ? "Persisting…" : "Confirm and persist"}</ActionReason></div> : null}
       {stressRuns.length ? <ol className="portfolio-lab__timeline" aria-label="Persisted stress history">{stressRuns.map((run) => <li key={run.id} data-selected={selectedStress?.id === run.id}><button type="button" aria-pressed={selectedStress?.id === run.id} onClick={() => update({ stress: run.id, chart: "stress" })}>{run.label}</button><span>{numberText(run.output.loss_percent, "% loss")}</span><code>{run.source_fingerprint}</code></li>)}</ol> : stressError ? <p role="status">{stressError}</p> : <p>No persisted stress snapshots.</p>}
       {selectedStress ? <article className="portfolio-lab__stress-result" aria-label="Selected stress result"><h3>{selectedStress.label} result</h3><dl><div><dt>Base NAV</dt><dd>{selectedStress.output.base_nav == null ? "—" : money.format(selectedStress.output.base_nav)}</dd></div><div><dt>Stressed NAV</dt><dd>{selectedStress.output.stressed_nav == null ? "—" : money.format(selectedStress.output.stressed_nav)}</dd></div><div><dt>Loss</dt><dd>{numberText(selectedStress.output.loss_percent, "%")}</dd></div><div><dt>Authority</dt><dd>{selectedStress.authority.approval_state} · {selectedStress.authority.method}</dd></div></dl>{selectedStress.output.missing_dependencies.length ? <><h4>Missing dependencies</h4><ul>{selectedStress.output.missing_dependencies.map((item) => <li key={item}>{item}</li>)}</ul></> : null}</article> : null}
     </section>
@@ -476,7 +514,7 @@ export function PortfolioLabWorkbench() {
       identity={<ShellIdentity tag="CP-PORT" title="Portfolio Lab" />}
       status={error ? <span role="alert">{error}</span> : <span>{portfolio ? portfolio.kind : <span className="text-caos-muted">No portfolio selected</span>}</span>}
       primaryAction={<ActionReason className="caos-action-primary focus-ring" reason={portfolioId ? null : "Create or open a portfolio first"} reasonDisplay="hidden" onClick={() => setStressPreview(true)}>Run portfolio stress</ActionReason>}
-      narrowContract={{ essentialControls: <span>{positions?.total ?? 0} positions</span> }}
+      narrowContract={{ essentialControls: <span>{loading ? "—" : positions?.total ?? 0} positions</span> }}
     >
       <PersonaWorkbench surface="portfolio-lab" decision={decision} primary={primary} context={context} inspector={inspector} utility={utility} />
     </EnterprisePage>

@@ -20,6 +20,7 @@ export function runPipelineAction(n: number): BatchAction {
   return {
     id: "run-pipeline",
     label: `Run pipeline (${n})`,
+    confirmation: `Queue ${n} new pipeline run${n === 1 ? "" : "s"} for the selected issuer${n === 1 ? "" : "s"}. This can consume external model capacity.`,
     run: async (issuerId: string) => {
       try {
         await createRun(issuerId, undefined, undefined, crypto.randomUUID());

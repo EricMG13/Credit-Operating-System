@@ -132,6 +132,17 @@ function ConfigVal({ v }: { v: boolean | number | string }) {
   return <span className="tabular text-caos-md text-caos-text">{String(v)}</span>;
 }
 
+// The device store uses the engine's uppercase enum while older profile blobs
+// used lowercase strings. Normalize only at the Settings boundary so the shared
+// request/header path retains its established ModelMode contract.
+function normalizeProfileMode(value: unknown): ModelMode | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase();
+  return (["TEST", "LITE", "BALANCED", "MAX"] as const).includes(normalized as ModelMode)
+    ? normalized as ModelMode
+    : null;
+}
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -197,12 +208,12 @@ function Settings() {
   const [saved, setSaved] = useState(false);
   useEffect(() => setPrefs(loadPrefs()), []);
 
-  // ── Model mode (browser-local, immediate-save) ──
+  // ── Model mode (saved with the Settings snapshot) ──
   const [mode, setMode] = useState<ModelMode>(DEFAULT_MODE);
   useEffect(() => { setMode(loadMode()); }, []);
-  const changeMode = (m: ModelMode) => { setMode(m); saveMode(m); };
+  const changeMode = (m: ModelMode) => { setMode(m); };
 
-  // ── Query model (browser-local, immediate-save) ──
+  // ── Query model (saved with the Settings snapshot) ──
   const [queryModel, setQueryModel] = useState<string>("claude-sonnet-4-6");
   const [analystSettings, setAnalystSettings] = useState<AnalystSettings>({ model_lanes: {}, email_intelligence: { approved_senders: [] } });
   const [analystSaved, setAnalystSaved] = useState(false);
@@ -233,9 +244,8 @@ function Settings() {
         if (serverPrefs && typeof serverPrefs === "object" && !hasStoredPrefs()) {
           setPrefs({ ...DEFAULT_PREFS, ...(serverPrefs as Partial<ResearchPrefs>) });
         }
-        if (typeof workspace.model_mode === "string" && ["test", "lite", "balanced", "max"].includes(workspace.model_mode)) {
-          setMode(workspace.model_mode as ModelMode);
-        }
+        const profileMode = normalizeProfileMode(workspace.model_mode);
+        if (profileMode) setMode(profileMode);
         if (typeof workspace.query_model === "string") setQueryModel(workspace.query_model);
         setAnalystLoaded(true);
       })
@@ -248,7 +258,6 @@ function Settings() {
   }, []);
   const changeQueryModel = (m: string) => {
     setQueryModel(m);
-    localStorage.setItem("caos_query_model", m);
   };
 
   // Dirty tracking: baseline snapshot captured once the profile loads; "Save
@@ -270,8 +279,9 @@ function Settings() {
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2000);
   }
-
-  const persistAnalystPatch = (patch: AnalystPatch, optimistic: AnalystSettings) => {
+  const persistAnalystPatch = (patch: AnalystPatch, optimistic: AnalystSettings): Promise<boolean> => {
+    let settle!: (stored: boolean) => void;
+    const stored = new Promise<boolean>((resolve) => { settle = resolve; });
     const persist = async () => {
       let base = confirmedSettingsRef.current;
       const materialize = (current: AnalystSettings): AnalystPatch => ({
@@ -303,6 +313,7 @@ function Settings() {
         setAnalystErr(null);
         setAnalystSaved(true);
         window.setTimeout(() => setAnalystSaved(false), 2000);
+        settle(true);
       } catch (error) {
         setAnalystRetry({ patch, optimistic });
         const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
@@ -312,15 +323,17 @@ function Settings() {
             ? (detail as { message: string }).message
             : "Save failed — not stored";
         setAnalystErr(message);
+        settle(false);
       }
     };
     analystSaveQueue.current = analystSaveQueue.current.then(persist, persist);
+    return stored;
   };
 
-  const saveAnalyst = (next = analystSettingsRef.current) => {
+  const saveAnalyst = (next = analystSettingsRef.current): Promise<boolean> => {
     // Never PUT before the profile has loaded — that would push the empty default
     // over the analyst's stored settings.
-    if (!analystLoaded) return;
+    if (!analystLoaded) return Promise.resolve(false);
     // Compute a sparse top-level intent before the optimistic update. The typed
     // values stay visible on failure with an explicit unsaved/retry state; a 409
     // can therefore rebase this intent without deleting a sibling tab's fields.
@@ -333,12 +346,12 @@ function Settings() {
     }
     const workspace = nestedDelta(prevSettings.workspace || {}, next.workspace || {});
     if (Object.keys(workspace).length) patch.workspace = workspace;
-    if (Object.keys(patch).length === 0) return;
+    if (Object.keys(patch).length === 0) return Promise.resolve(true);
     analystSettingsRef.current = next;
     setAnalystSettings(next);
     setAnalystErr(null);
     setAnalystRetry(null);
-    persistAnalystPatch(patch, next);
+    return persistAnalystPatch(patch, next);
   };
   const analystStatusTag = analystLoadErr ? (
     <span role="alert" className="flex items-center gap-2 tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>
@@ -389,20 +402,26 @@ function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const saveAll = () => {
+  const saveAll = async () => {
     if (!analystLoaded) return;
     savePrefs(prefs);
     saveMode(mode);
     localStorage.setItem("caos_query_model", queryModel);
-    saveAnalyst({
+    const stored = await saveAnalyst({
       ...analystSettings,
       workspace: {
         ...(analystSettings.workspace || {}),
         research_prefs: prefs,
-        model_mode: mode,
+        // Profile storage is lowercase for compatibility with existing server
+        // settings. `normalizeProfileMode` accepts both representations on read.
+        model_mode: mode.toLowerCase(),
         query_model: queryModel,
       },
     });
+    // Don't clear the dirty snapshot until the profile write actually settles.
+    // The browser-local values remain visible on failure, accompanied by the
+    // existing retry state, so the analyst can retry without re-entering them.
+    if (!stored) return;
     baseline.current = snapshot();
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2000);
@@ -525,9 +544,9 @@ function Settings() {
               </p>
               <div className="flex flex-col sm:flex-row gap-2">
                 {[
-                  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", configured: cfg?.llm_configured ?? true, reqKey: "ANTHROPIC_API_KEY" },
-                  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", configured: cfg?.gemini_configured ?? false, reqKey: "GEMINI_API_KEY" },
-                  { id: "deepseek/deepseek-chat", name: "DeepSeek V3/V4", configured: cfg?.openrouter_configured ?? false, reqKey: "OPENROUTER_API_KEY" },
+                  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", configured: cfg ? cfg.llm_configured : null, reqKey: "ANTHROPIC_API_KEY" },
+                  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", configured: cfg ? cfg.gemini_configured : null, reqKey: "GEMINI_API_KEY" },
+                  { id: "deepseek/deepseek-chat", name: "DeepSeek V3/V4", configured: cfg ? cfg.openrouter_configured : null, reqKey: "OPENROUTER_API_KEY" },
                 ].map((m) => (
                   <button
                     key={m.id}
@@ -560,22 +579,22 @@ function Settings() {
                             with a text label + title (colorblind-safe). */}
                         <span
                           className="flex items-center gap-1 tabular text-caos-3xs uppercase tracking-wider"
-                          title={m.configured ? "API key configured" : `Requires ${m.reqKey} in the environment`}
-                          style={{ color: m.configured ? "var(--caos-success)" : "var(--caos-muted)" }}
+                          title={m.configured === true ? "API key configured" : m.configured === false ? `Requires ${m.reqKey} in the environment` : cfgErr ? "Key posture unavailable while the environment snapshot is offline" : "Checking environment key posture"}
+                          style={{ color: m.configured === true ? "var(--caos-success)" : "var(--caos-muted)" }}
                         >
                           <span
                             aria-hidden="true"
                             className="h-1.5 w-1.5 rounded-full shrink-0"
-                            style={{ background: m.configured ? "var(--caos-success)" : "var(--caos-idle)" }}
+                            style={{ background: m.configured === true ? "var(--caos-success)" : "var(--caos-idle)" }}
                           />
-                          {m.configured ? "ready" : "no key"}
+                          {m.configured === true ? "ready" : m.configured === false ? "no key" : cfgErr ? "unavailable" : "checking"}
                         </span>
                       </span>
                     </div>
                     <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1 select-none">
                       {m.id}
                     </div>
-                    {!m.configured && (
+                    {m.configured === false && (
                       <div className="tabular text-caos-3xs text-caos-warning mt-1.5">
                         Requires {m.reqKey} in env
                       </div>

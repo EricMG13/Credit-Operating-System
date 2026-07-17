@@ -1296,3 +1296,135 @@ was translated as margin pressure and higher rates.
 Reopen if inflation easing or normalized input costs map to margin pressure; an oil,
 fuel, commodity, or unqualified inflation shock maps to relief; or cost-only language
 moves growth, capex, or rates without an explicit rate phrase.
+
+## 2026-07-17 — Surface redesign table and row-interaction contract
+
+Decision under review: adopt one typed `DataTable` for ordinary application
+tables while retaining purpose-built paper, chart-fallback, spreadsheet, and
+virtualized-grid renderers; use one roving row tab stop with explicit activation.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-17-355 | Interaction reviewer | Reusing the tab-selection callback for rows made Arrow Up/Down call `onRowActivate`; on a worklist where activation opens a route or mutates selection, merely inspecting the next row would execute the action. | High | Resolved in primitive | Keep roving focus as local `activeIndex` state. Arrow/Home/End move focus only; Enter, Space, or a deliberate row click activate. Tests pin the separation. |
+| RT-2026-07-17-356 | Accessibility reviewer | A button or link nested in an activatable row could bubble click/Enter to the row and execute two actions, while the selected row had no programmatic selection state. | High | Resolved in primitive | Ignore row activation from interactive descendants (native controls, links, summary, contenteditable, positive tab stops, and button/link roles) and expose controlled selection through `aria-selected`. A regression test exercises a nested action. |
+| RT-2026-07-17-357 | Output reviewer | Forcing Report Studio, research Markdown, chart fallbacks, the model spreadsheet, or virtualized grids through the ordinary table primitive would erase print rules, responsive fallbacks, or domain-specific keyboard behavior. | High | Resolved in scope | `DataTable` owns only non-virtualized application tables. Specialized renderers remain in place and are audited against the same text/numeric/header alignment contract without sharing markup. |
+| RT-2026-07-17-358 | API reviewer | `sortable: true` without an `onSort` callback rendered a focusable header button that announced sortability but did nothing. | Medium | Resolved in primitive | A sortable header becomes interactive and receives `aria-sort` only when both the column flag and table callback are present; otherwise it renders as plain header text. |
+| RT-2026-07-17-359 | CSS reviewer | The global legacy app-table rule centers every header and cell with higher effective precedence, so a typed `text`/`numeric` column can still render centered even though the primitive emits the right utility classes. | High | Resolved in stylesheet boundary | Mark primitive output with `caos-data-table` and exempt only that class from the legacy centering selector. The screenshot-backed Pipeline proof and a primitive class test pin the boundary without changing raw specialized tables. |
+| RT-2026-07-17-360 | Screen-reader reviewer | Mechanical migration changed identifying `<th scope="row">` cells in IC Book and Portfolio Lab into ordinary `<td>` cells, weakening row navigation even though the visual output stayed identical. | High | Resolved in primitive and call sites | Add a typed `rowHeader` column flag that renders native row headers; apply it to run, borrower, constraint, meeting/date, issuer, observation, and adapter identifier columns. The primitive test pins `scope="row"`. |
+| RT-2026-07-17-361 | Power-user reviewer | A roving row plus naturally tabbable links and buttons still leaves O(rows) stops, while blindly suppressing them makes profile/evidence actions keyboard-inaccessible. | High | Resolved in interaction contract | Activatable tables expose only the roving row by default. The caption and `aria-keyshortcuts` announce F2; F2 exposes and focuses actions for that row only, Escape restores the row, blur closes action mode, and disabled or explicitly negative-tabindex controls are never promoted. Tests pin entry, exit, discoverability, and exclusion. |
+| RT-2026-07-17-362 | Virtualization reviewer | Building roving focus from only rendered IDs makes Arrow Down clamp at the virtual-window edge; analysts cannot keyboard-reach the rest of a large book. | High | Resolved in grid adapters | Roving state uses the full filtered ID order. When the next ID is offscreen, store a pending focus target, scroll to its estimated offset, and focus after virtualization mounts the row. Boundary tests cover the handoff. |
+| RT-2026-07-17-363 | Maintainability reviewer | Four local copies of the F2/tab-stop algorithm would drift on disabled controls, explicit negative tabindex, or newly interactive descendants. | High | Resolved in utility | Consolidate selector, original-tabindex preservation, availability sync, and first-action focus in `lib/rowActionMode.ts`; DataTable and all four grids consume it, with focused suites covering both table and grid paths. |
+| RT-2026-07-17-364 | Failure-state reviewer | Entering action mode on a row with no available actions can remove the row from the Tab order while focus stays nowhere. | High | Resolved in utility contract | `focusFirstRowAction` returns whether an available action was focused; callers set action mode only on success. Disabled, aria-disabled, and author-negative controls never qualify. |
+
+### Critic reopen conditions (surface table contract)
+
+Reopen if arrow-key row movement navigates, mutates, or opens detail; a nested
+control also activates its parent row; controlled selection lacks an announced
+state; a header advertises sorting without an effect; or specialized paper,
+chart, spreadsheet, or virtualized-grid output is mechanically migrated to the
+ordinary `DataTable`; or the legacy global table selector overrides typed column
+alignment inside `DataTable`; or an identifier column loses native row-header
+semantics during migration; or nested row actions either multiply the default Tab
+sequence or become unreachable without an announced keyboard path; virtualization
+traps focus at a rendered-window boundary; or an actionless row can enter action
+mode and lose its focus stop.
+
+## 2026-07-17 — Surface redesign live-path parity contract
+
+Decision under review: bring Deep-Dive, Monitor, Pipeline, Query, Reports,
+Profile, Portfolio, Sector, and Model live paths to parity through conservative
+adapters and a shared source-reference presentation without inventing evidence
+or laundering partial/Restricted states into committee-ready output.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-17-365 | Provenance reviewer | A reusable source chip can make a human label or missing identifier look like clickable persisted evidence, creating a false audit trail. | Critical | Resolved in component contract | `SourceRef` accepts an explicit ready source with an identifier and handler/href, or an explicit unavailable state with a reason. It never synthesizes an identifier, never renders an inert element as a link, and always exposes absence in text. |
+| RT-2026-07-17-366 | Data-semantics reviewer | Inferring alignment from numeric-looking strings will right-align CUSIPs, dates, module IDs, versions, and rating labels as if they were measures. | High | Resolved in adapter rule | Prefer adapter schema metadata; infer numeric alignment only for finite numeric values in measure columns. Identifier/date/rating keys remain text even when every rendered value contains digits. Tests pin representative false-positive keys. |
+| RT-2026-07-17-367 | Disclosure reviewer | Truncating live adapter arrays to a fixed slice silently discards adverse rows and can make a stressed credit look cleaner. | Critical | Resolved in disclosure contract | Initial density may be bounded, but every truncation renders an exact `+N more` control that expands the full persisted list in place and is keyboard-operable. Counts derive from the same array rendered, never a parallel summary. |
+| RT-2026-07-17-368 | QA-governance reviewer | Layer or pane aggregation can average away a single Blocked/Restricted module and display a green parent state. | Critical | Resolved in severity contract | Aggregate with the Phase-1 worst-severity ordering. Blocked dominates Restricted, Restricted dominates Passed, and absent/not-reviewed never upgrades to green. Pane and layer labels retain the source status vocabulary. |
+| RT-2026-07-17-369 | Monitoring reviewer | Attaching a plausible source label to an alert without a persisted source identifier gives the appearance that the alert is one click from evidence when it is not. | Critical | Resolved in live-row contract | Monitor evidence actions are built only from persisted evidence/source identifiers. Missing provenance renders `Source unavailable` with the reason; demo evidence remains visibly demo and cannot be mixed into a live row. |
+| RT-2026-07-17-370 | Pipeline reviewer | Reconstructing mid-flight output from persisted rows can look terminal, while a re-run affordance on an active run can duplicate work or spend. | High | Resolved in state contract | Partial simulation is explicitly labelled running/partial and shows produced, pending, and Blocked rows separately. Re-run is offered only for a terminal Blocked/failed module with its persisted reason; active modules never expose re-run. |
+| RT-2026-07-17-371 | Query reviewer | Routing a graph lane through the canvas while retaining stale result counts or uncited generated prose makes the visualization more polished but less truthful. | High | Resolved in renderer contract | Graph counts come from the rendered node/edge payload. Grounded prose renders its attached citations at the claim/result boundary; if none exist, it states that the result is uncited and remains draft. |
+| RT-2026-07-17-372 | Model-governance reviewer | A per-node origin badge can call a node live merely because Model V2 is selected, even when the node is reference/fallback or V2 is unavailable for the real stack. | High | Resolved in origin contract | Origin is derived from the node's actual payload and availability gate, with explicit live/reference/derived/unavailable states. Selecting V2 does not upgrade provenance, and unavailable live stacks retain a usable, explained fallback path. |
+
+### Critic reopen conditions (live-path parity)
+
+Reopen if any source control lacks a persisted identifier or an explicit absence
+reason; a digit-bearing identifier/date is inferred as a numeric measure; a
+truncated adverse row cannot be revealed; a parent QA status is greener than its
+worst child; live Monitor falls back to demo evidence; a running module exposes
+re-run or appears complete; Query counts differ from the rendered payload or
+grounded prose hides missing citations; or Model V2 selection alone changes an
+origin to live.
+
+## 2026-07-17 — Surface redesign per-surface close contract
+
+Decision under review: close the remaining workflow, recovery, confirmation, and
+copy defects surface by surface without turning an invalid context into a plausible
+different record, hiding partial failure, or adding confirmation theater.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-17-373 | Context-integrity reviewer | Falling back from an unknown portfolio, issuer, or decision identifier to the first available record makes a stale deep link silently show the wrong credit. | Critical | Resolved in state contract | Unknown identifiers render an explicit not-found state and retain a visible route to a deliberate picker. Name resolution never substitutes another entity; unresolved persisted IDs remain labelled as unavailable IDs. |
+| RT-2026-07-17-374 | Transaction reviewer | A generic confirm dialog can look safer while still concealing the exact vote, holdings replacement, batch scope, or ratification set being committed. | High | Resolved in confirmation contract | Use the shared arm/confirm interaction and state the exact action and affected scope inline. Reset the armed state when scope changes; active work is never launched by an arrow/focus gesture. |
+| RT-2026-07-17-375 | Failure-recovery reviewer | Reporting only `N/M succeeded` discards the information needed to retry safely and encourages rerunning successful, cost-bearing work. | High | Resolved in outcome contract | Persist and disclose per-item failures with stable identifiers and reasons. Retry actions target only failed items where the endpoint supports it; otherwise the UI explicitly says a scoped retry is unavailable. |
+| RT-2026-07-17-376 | Upload-governance reviewer | Retaining the result step can accidentally re-submit on refresh or claim that an ignored run-mode and absent scanner verdict were applied. | Critical | Resolved in upload contract | The settled outcome is display-only until an explicit new action. Run mode is labelled metadata unless carried by the request, EDGAR follows the same outcome transition, and scan posture is rendered only from persisted response data or explicitly unavailable. |
+| RT-2026-07-17-377 | Settings reviewer | Unifying save affordances without one canonical persisted value and a normalized round trip leaves the visible setting different from the value actually used. | High | Resolved in persistence contract | Normalize at read/write boundaries, derive dirty state only from controls saved by the shared transaction, and keep immediate controls outside that snapshot. Unknown key posture remains checking/unavailable, never green-ready. |
+| RT-2026-07-17-378 | Recovery-security reviewer | Confirming recovery words by storing or echoing plaintext beyond the signup interaction increases credential exposure and can leak secrets through logs or browser persistence. | Critical | Resolved in recovery contract | Compare the confirmation in component memory only, mask by default with an explicit reveal, never log or persist plaintext locally, and clear both entries after completion or mode change. |
+| RT-2026-07-17-379 | Async-selection reviewer | Fetching the whole sponsor or worklist register on each selection can blank the page and let a slower prior request overwrite the current selection. | High | Resolved in selection contract | Fetch stable registers independently of selection, patch only the selected context, and reject stale detail responses by request identity where a detail fetch remains necessary. Selection stays visible while dependent detail loads. |
+| RT-2026-07-17-380 | Time-semantics reviewer | Replacing raw UTC with local-only time makes committee records ambiguous across offices and daylight-saving boundaries. | High | Resolved in display contract | Decision times show a localized primary timestamp plus an explicit UTC value. Formatting is deterministic in tests; persisted values remain ISO/UTC. |
+| RT-2026-07-17-381 | Retry reviewer | A post-completion retry that repeats the research run can duplicate spend when only context linking failed. | High | Resolved in recovery contract | Retry only the failed linking step with the existing completed result/run identifiers. If the API lacks that operation, retain the banner and state the limitation rather than rerunning research. |
+| RT-2026-07-17-382 | Navigation reviewer | Role-aware landing can override an explicit deep link or stale role preference and strand a user away from the requested surface. | High | Resolved in routing contract | Apply role defaults only at the unaffiliated root entry. Explicit routes and query context always win, and every landing destination remains reachable in the global navigation. |
+
+### Critic reopen conditions (per-surface closes)
+
+Reopen if an invalid identifier renders a different real record; a confirmation
+omits the exact mutation scope or survives a scope change; partial failure loses
+item-level reasons; refresh or result retention re-submits work; ignored run mode
+or absent scanner posture is presented as applied; settings display a value other
+than the canonical persisted value; recovery words reach logs or persistent local
+storage; stale selection requests can win; decision time loses UTC; retry repeats
+completed spend; or root role routing overrides an explicit destination.
+
+## 2026-07-17 — Analyst authority, governed exceptions, and verified research figures
+
+Decision under review: add an append-only analyst view beside the deterministic
+system view; permit a separately approved, time-bounded IC evidence exception
+without changing CP-5; add cited advisory insights and deterministic CAOS-only
+figures to Deep Research.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-17-383 | QA-governance reviewer | A so-called exception could silently upgrade a Restricted or Blocked run, bypassing the CP-5 committee gate for every downstream consumer. | Critical | Resolved in contract | Keep `committee_export_allowed()` and all engine statuses unchanged. Exception finalization is only available for a current Restricted or Insufficient Information run with no CRITICAL finding; it freezes a labelled exception artifact and never marks the source run Committee Ready. |
+| RT-2026-07-17-384 | Authorization reviewer | The existing QA view is presentational, so checking it client-side would give an analyst approval power merely by switching a preference. | Critical | Resolved in route design | Review authority is server-side only, restricted to `qa` or `admin`; the reviewer cannot be the requester or agenda owner. `role_view` is never consulted. |
+| RT-2026-07-17-385 | Decision-semantics reviewer | Reusing the IC action (`approve` / `decline` / `revisit`) as an analyst investment view conflates two distinct decisions and produces irreconcilable history. | High | Resolved in data model | Store an immutable analyst stance independently (`OVERWEIGHT` / `NEUTRAL` / `UNDERWEIGHT`) and explicitly freeze both the analyst view and IC action in the decision snapshot. |
+| RT-2026-07-17-386 | AI-safety reviewer | Advisory prose could be mistaken for evidence or mutate an analyst view, an exception, or final IC state. | Critical | Resolved in authority contract | Advisory insights are explicit, cited, draft-only artifacts. Closed-set evidence validation, finite-number checks, and a deterministic fallback apply; AI has no route that mutates opinion, readiness, exception, or decision state. |
+| RT-2026-07-17-387 | Research-evidence reviewer | Letting a web-research model emit chart rows makes visually persuasive but unverified numbers appear committee-grade. | Critical | Resolved in figure contract | Deep Research figures are built only from finite CAOS facts bound to an explicit issuer context. Web-only and demo research remain prose/tables; figures carry source IDs and accessible table equivalents. |
+| RT-2026-07-17-388 | Migration reviewer | Requiring a new analyst opinion field could silently rewrite historical decisions or strand an existing immutable record. | High | Resolved in rollout | The migration is additive. Finalized decisions are never changed; unfinalized agenda items surface a clear missing-view readiness item until an analyst deliberately links a version. |
+
+### Critic reopen conditions (analyst authority)
+
+Reopen if an exception changes a run's CP-5 or export status; a client role
+preference grants reviewer power; an IC action is displayed as an analyst stance;
+AI output can write authority-bearing records; a research chart uses uncited web
+numbers or non-finite data; or migration modifies an already finalized decision.
+
+## 2026-07-17 — Surface polish and token-enforcement critic pass
+
+Decision under review: complete a narrow token, typography, and motion consistency
+pass without mechanically normalizing specialized spreadsheet, chart, or paper
+output.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-17-389 | Design-systems reviewer | Replacing every literal color would erase intentionally semantic chart ramps and the Report Studio paper palette, producing less legible analytical output. | High | Resolved in scope | Change only application-chrome literals that have an exact CAOS token equivalent. Preserve chart, tranche, and paper-document palettes as documented semantic exceptions. |
+| RT-2026-07-17-390 | Motion reviewer | A global duration replacement can remove meaningful live-state feedback or leave motion enabled for reduced-motion users. | High | Resolved in scope | Replace only the posture-bar's decorative 300ms width transition with the established 160ms ease-out timing plus an explicit reduced-motion opt-out; do not alter running-state animation contracts. |
+| RT-2026-07-17-391 | Accessibility reviewer | Raising every 9px datum to the metadata floor can corrupt dense spreadsheet geometry or SVG label placement, while leaving chrome labels below the floor harms readability. | High | Resolved in scope | Adopt `text-caos-3xs` only for HTML metadata/chrome labels. Preserve spreadsheet coordinates and SVG/chart labels where their layout is data-visualization-specific. |
+| RT-2026-07-17-392 | Maintainability reviewer | Treating raw buttons and specialized tables as automatic violations would trigger risky wholesale migrations and obscure genuine exceptions. | High | Accepted | Keep the inventory advisory. The typed `DataTable` applies only to ordinary operational data grids; paper, chart, spreadsheet, and virtualized outputs remain explicit exceptions. Add no blanket lint gate until each remaining surface has a safe component contract. |
+
+### Critic reopen conditions (surface polish)
+
+Reopen if a paper, chart, or tranche semantic color is converted to a generic UI
+token; a transition loses reduced-motion behavior or changes live-state meaning;
+spreadsheet or SVG geometry changes from a typography sweep; or an automated
+enforcement rule forces specialized output into the ordinary table/button contract.

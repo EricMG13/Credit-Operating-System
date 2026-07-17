@@ -1,11 +1,25 @@
 "use client";
 
+import { ActionReason } from "@/components/shared/ActionReason";
+import { Button } from "@/components/ui/Button";
+
 export interface WorkbenchAction {
   id: string;
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  /** Explains why the action is inert when `disabled` is true. Falls back to
+   * a literal description built from `label` when the caller omits it. */
+  disabledReason?: string;
   primary?: boolean;
+}
+
+/** Turns the boolean `disabled` flag callers pass into the aria-disabled
+ * contract's required reason string, preferring the caller-supplied
+ * explanation and otherwise stating the guard condition literally. */
+function inertReason(action: WorkbenchAction): string | null {
+  if (!action.disabled) return null;
+  return action.disabledReason ?? `${action.label} is unavailable`;
 }
 
 /** One toolbar contract for list/worklist surfaces. Five actions maximum are
@@ -44,30 +58,28 @@ export function WorkbenchToolbar({
         {filters}
         <div role="toolbar" aria-label={`${title} actions`} className="caos-workbench-actions flex items-center gap-1.5 shrink-0">
           {visible.map((action) => (
-            <button
+            <Button
               key={action.id}
-              type="button"
+              variant={action.primary ? "primary" : "secondary"}
               onClick={action.onClick}
-              disabled={action.disabled}
-              className={`${action.primary ? "caos-action-primary" : "caos-action-secondary"} focus-ring disabled:opacity-40`}
+              reason={inertReason(action)}
             >
               {action.label}
-            </button>
+            </Button>
           ))}
           {overflow.length ? (
             <details className="relative">
               <summary className="caos-action-secondary focus-ring cursor-pointer list-none" aria-label={`${title}: more actions`}>More actions</summary>
               <div className="absolute right-0 top-[calc(100%+4px)] z-overlay min-w-44 rounded-md border border-caos-border bg-caos-panel p-1 shadow-pop">
                 {overflow.map((action) => (
-                  <button
+                  <ActionReason
                     key={action.id}
-                    type="button"
                     onClick={action.onClick}
-                    disabled={action.disabled}
-                    className="w-full min-h-8 px-2 text-left tabular text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text rounded-sm focus-ring disabled:opacity-40"
+                    reason={inertReason(action)}
+                    className="w-full min-h-8 px-2 text-left tabular text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text rounded-sm focus-ring aria-disabled:opacity-40"
                   >
                     {action.label}
-                  </button>
+                  </ActionReason>
                 ))}
               </div>
             </details>

@@ -71,6 +71,7 @@ describe("LoginLanding", () => {
     fireEvent.change(screen.getByLabelText("Location"), { target: { value: "EMEA" } });
     for (let i = 1; i <= 3; i += 1) {
       fireEvent.change(screen.getByLabelText(`Recovery word ${i}`), { target: { value: ` word-${i} ` } });
+      fireEvent.change(screen.getByLabelText(`Confirm word ${i}`), { target: { value: ` word-${i} ` } });
       fireEvent.change(screen.getByLabelText(`Hint ${i}`), { target: { value: ` hint-${i} ` } });
     }
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
@@ -102,5 +103,18 @@ describe("LoginLanding", () => {
     await waitFor(() => expect(recoverLogin).toHaveBeenCalledWith("recovery@desk.test", ["r1", "r2", "r3"]));
     fireEvent.click(screen.getByRole("tab", { name: "Sign in" }));
     expect(screen.getByText("Analyst sign-in")).toBeTruthy();
+  });
+
+  it("keeps recovery words masked by default, reveals only on request, and clears them on a mode change", () => {
+    render(<LoginLanding onSuccess={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Create" }));
+    const word = screen.getByLabelText("Recovery word 1") as HTMLInputElement;
+    fireEvent.change(word, { target: { value: "private-word" } });
+    expect(word.type).toBe("password");
+    fireEvent.click(screen.getByRole("button", { name: "Reveal recovery words" }));
+    expect((screen.getByLabelText("Recovery word 1") as HTMLInputElement).type).toBe("text");
+    fireEvent.click(screen.getByRole("tab", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Create" }));
+    expect((screen.getByLabelText("Recovery word 1") as HTMLInputElement).value).toBe("");
   });
 });

@@ -17,7 +17,7 @@ type State =
   | { kind: "error"; msg: string };
 
 const BASE =
-  "tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border transition-caos disabled:opacity-50";
+  "tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border transition-caos aria-disabled:opacity-50";
 
 export function ExportToVaultButton({ runId, className = "" }: { runId: string; className?: string }) {
   const [state, setState] = useState<State>({ kind: "idle" });
@@ -51,7 +51,7 @@ export function ExportToVaultButton({ runId, className = "" }: { runId: string; 
   return (
     <button
       onClick={onClick}
-      disabled={state.kind === "busy"}
+      aria-disabled={state.kind === "busy" || undefined}
       title={
         state.kind === "done" ? `Wrote: ${state.files.join(" · ")}`
         : state.kind === "error" ? state.msg

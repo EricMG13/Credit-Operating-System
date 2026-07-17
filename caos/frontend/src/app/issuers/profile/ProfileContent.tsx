@@ -34,11 +34,13 @@ import { fmtPct, fmtUsdM } from "@/lib/format";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { AnalystViewPanel } from "@/components/profile/AnalystViewPanel";
 import { ThesisTimeline } from "@/components/profile/ThesisTimeline";
 import type { DecisionContextState } from "@/lib/decision-state";
 import { contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
 import { useTypedUrlState } from "@/lib/typed-url-state";
 import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
+import { SourceRef } from "@/components/ui/SourceRef";
 import { derivedFreshness, useIssuerFreshness } from "@/lib/engine/useFreshness";
 import { freshnessDetail, toProvFreshness } from "@/lib/freshness";
 
@@ -350,9 +352,14 @@ function KpiTile({ m, delta, deepHref, provMixed, anyPriorDelta }: {
           </span>
         ) : null}
         <div className="flex-1" />
-        {m.document_chunk_id ? (
-          <Link href={deepHref + "&mod=CP-1"} className="no-underline tabular text-caos-2xs text-caos-muted hover:text-caos-accent transition-caos rounded focus-ring" title="See source in Deep-Dive" aria-label={`See ${METRIC_LABEL[m.metric_key] || m.metric_key} source in Deep-Dive`}>▸ src</Link>
-        ) : null}
+        <SourceRef
+          source={m.document_chunk_id
+            ? { state: "ready", id: m.document_chunk_id, href: deepHref + "&mod=CP-1" }
+            : { state: "unavailable", reason: "No persisted document chunk for this metric." }}
+          className="no-underline"
+        >
+          {m.document_chunk_id ? `▸ src ${m.document_chunk_id}` : undefined}
+        </SourceRef>
       </div>
     </div>
   );
@@ -748,6 +755,12 @@ export function Profile({
           </Panel>
 
           <div className="flex flex-col gap-3">
+            <AnalystViewPanel
+              issuerId={id}
+              systemStance={typeof signals.recommendation === "string" ? signals.recommendation : null}
+              sourceRunId={latest_run?.id}
+              contextId={analysis.context?.id}
+            />
             <ThesisTimeline issuerId={id}>
               <div className="flex flex-col gap-2">
                 <SigBand label="Relative value" v={signals.recommendation} gated={recGated} extra={signals.composite_percentile != null ? `${signals.composite_percentile}th pct` : undefined} />

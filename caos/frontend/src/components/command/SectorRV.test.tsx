@@ -303,7 +303,7 @@ describe("Broader Sector RV Calculations & Presentation", () => {
     expect(screen.getByRole("group", { name: /Average three-year discount margin per sub-sector/i })).toBeDefined();
 
     fireEvent.click(within(xControls).getByRole("button", { name: "Size" }));
-    expect(within(chartControls).getByRole("button", { name: "Bar" }).hasAttribute("disabled")).toBe(true);
+    expect(within(chartControls).getByRole("button", { name: "Bar" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("group", { name: /against size/i })).toBeDefined();
     let point = screen.getAllByRole("button", { name: /Position/i })[0];
     fireEvent.mouseEnter(point);

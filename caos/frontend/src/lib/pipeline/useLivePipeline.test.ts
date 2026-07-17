@@ -63,6 +63,40 @@ describe("buildLiveSnapshot", () => {
     expect(s.summary).toBe("");
     expect(s.plan).toHaveLength(1);
   });
+
+  it("keeps a running run visibly partial and carries only its persisted block reason", () => {
+    const partial = {
+      ...run("Blocked", [mod("CP-1", "Committee Ready"), mod("CP-4C", "Blocked")]),
+      status: "running",
+    };
+    const detail = {
+      module_id: "CP-4C",
+      runtime_output: { blocked_reason: "Missing signed compliance certificate." },
+      limitation_flags: [],
+    } as unknown as ModuleDetailDTO;
+    const partialCpx = {
+      runtime_output: {
+        gate_status: "Full Run",
+        summary: "Route plan includes 3 modules.",
+        execution_sequence: [
+          { module_id: "CP-1", depends_on: ["CP-0"] },
+          { module_id: "CP-4C", depends_on: ["CP-1"] },
+          { module_id: "CP-5", depends_on: ["CP-4C"] },
+        ],
+      },
+    } as unknown as ModuleDetailDTO;
+    const snapshot = buildLiveSnapshot(partial, partialCpx, [detail]);
+    expect(snapshot.status).toBe("running");
+    expect(snapshot.sim.done).toBe(false);
+    expect(snapshot.produced).toBe(2);
+    // CP-X's persisted route plan is the pending denominator; globally-known
+    // modules outside that route must not be called pending work.
+    expect(snapshot.pending).toBe(1);
+    expect(snapshot.total).toBe(3);
+    expect(snapshot.scope.has("CP-5")).toBe(true);
+    expect(snapshot.blocked).toEqual([{ moduleId: "CP-4C", reason: "Missing signed compliance certificate." }]);
+    expect(snapshot.plan.find((step) => step.id === "CP-4C")?.event).toContain("Blocked: Missing signed compliance certificate.");
+  });
 });
 
 describe("liveOutcome", () => {

@@ -10,11 +10,12 @@
 import { useEffect, useRef, useState } from "react";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
+import { ActionReason } from "@/components/shared/ActionReason";
 import type { ModelCheckpoint } from "@/lib/model/useModelHistory";
 import { fmtLocalDateTime } from "@/lib/format-date";
 
 const BTN =
-  "tabular text-caos-xs px-1.5 h-6 min-w-6 rounded border transition-caos focus-ring whitespace-nowrap border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 disabled:opacity-40 disabled:hover:text-caos-muted disabled:hover:border-caos-border disabled:cursor-not-allowed";
+  "tabular text-caos-xs px-1.5 h-6 min-w-6 rounded border transition-caos focus-ring whitespace-nowrap border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 aria-disabled:opacity-40 aria-disabled:hover:text-caos-muted aria-disabled:hover:border-caos-border aria-disabled:cursor-not-allowed";
 
 export function ModelHistoryControls({
   canUndo,
@@ -44,16 +45,16 @@ export function ModelHistoryControls({
   const [open, setOpen] = useState(false);
   return (
     <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Override history">
-      <button type="button" onClick={onUndo} disabled={!canUndo} title="Undo (⌘Z)" aria-label="Undo" className={BTN}>
+      <button type="button" onClick={onUndo} aria-disabled={!canUndo || undefined} title="Undo (⌘Z)" aria-label="Undo" className={BTN}>
         ↶
       </button>
-      <button type="button" onClick={onRedo} disabled={!canRedo} title="Redo (⌘⇧Z)" aria-label="Redo" className={BTN}>
+      <button type="button" onClick={onRedo} aria-disabled={!canRedo || undefined} title="Redo (⌘⇧Z)" aria-label="Redo" className={BTN}>
         ↷
       </button>
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        disabled={disabled || status === "loading" || status === "saving"}
+        onClick={() => { if (disabled || status === "loading" || status === "saving") return; setOpen(true); }}
+        aria-disabled={(disabled || status === "loading" || status === "saving") || undefined}
         title="Save or restore a named snapshot of your overrides"
         className={BTN + " px-2"}
       >
@@ -126,14 +127,21 @@ function CheckpointsModal({
             aria-label="Checkpoint name"
             className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted min-h-9"
           />
-          <button
-            type="button"
+          <ActionReason
             onClick={() => void save()}
-            disabled={!name.trim() || status === "loading" || status === "saving"}
-            className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-caos-accent whitespace-nowrap"
+            reason={
+              !name.trim()
+                ? "Enter a checkpoint name first"
+                : status === "loading"
+                ? "Checkpoints are loading"
+                : status === "saving"
+                ? "Saving…"
+                : null
+            }
+            className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:hover:text-caos-accent whitespace-nowrap"
           >
             Save
-          </button>
+          </ActionReason>
         </div>
         {error ? <div role="alert" className="border-b border-caos-border px-3 py-2 text-caos-xs text-caos-critical">{error}</div> : null}
         <ul aria-label="Saved checkpoints" className="flex-1 overflow-y-auto py-1">

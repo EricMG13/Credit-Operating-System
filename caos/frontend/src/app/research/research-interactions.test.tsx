@@ -297,7 +297,10 @@ describe("Deep Research durable job interactions", () => {
     expect(screen.getByText("progress synthesizing")).toBeTruthy();
     await act(async () => { resumed.resolve(result("Resumed report")); await resumed.promise; });
     expect(screen.getByText("result Resumed report")).toBeTruthy();
-    expect(state.notify).toHaveBeenCalledWith("Research saved", expect.stringContaining("context link needs retry"));
+    expect(screen.getByRole("alert").textContent).toContain("will not run research again");
+    fireEvent.click(screen.getByRole("button", { name: "Retry context link" }));
+    await waitFor(() => expect(state.patch).toHaveBeenCalledTimes(2));
+    expect(state.deepCalls).toHaveLength(0);
     expect(state.notify).toHaveBeenCalledWith("Research complete", "Sector research");
   });
 });

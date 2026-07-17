@@ -401,6 +401,35 @@ afterEach(() => {
 });
 
 describe("Model Engine v2 workbench", () => {
+  it("labels persisted inputs, formula outputs, and analyst overrides from their actual authority", async () => {
+    renderWorkbench(response(makeRecord(true)));
+
+    const revenueRow = await screen.findByRole("row", { name: /input:FY2026:revenue/ });
+    const derivedRow = screen.getByRole("row", { name: /calc:FY2026:net_leverage/ });
+    const canonicalInputRow = screen.getByRole("row", { name: /input:FY2026:adjusted_ebitda/ });
+
+    expect(revenueRow.textContent).toContain("△ ANALYST");
+    expect(canonicalInputRow.textContent).toContain("● LIVE");
+    expect(derivedRow.textContent).toContain("ƒ DERIVED");
+    expect(derivedRow.textContent).not.toContain("● LIVE");
+  });
+
+  it("does not call an unsourced live input live", async () => {
+    const record = makeRecord();
+    record.payload = {
+      ...record.payload,
+      periods: record.payload.periods.map((period) => ({
+        ...period,
+        authority: { ...period.authority, source_ids: [] },
+      })),
+    };
+    renderWorkbench(response(record));
+
+    const revenueRow = await screen.findByRole("row", { name: /input:FY2026:revenue/ });
+    expect(revenueRow.textContent).toContain("○ UNAVAILABLE");
+    expect(revenueRow.textContent).not.toContain("● LIVE");
+  });
+
   it("renders a stale saved revision against the current calculation and requires an explicit save before checkpoint or export", async () => {
     const staleRecord = makeRecord(false, 2);
     const current = currentRecalculation();
@@ -422,9 +451,9 @@ describe("Model Engine v2 workbench", () => {
     const revenueRow = screen.getByRole("row", { name: /input:FY2026:revenue/ });
     expect(revenueRow.textContent).toContain("95");
     expect(screen.getByText(/ready · rev 2/i).textContent).toContain("REV 2");
-    expect((screen.getByRole("button", { name: "Create checkpoint" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Create checkpoint" }).getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Open Model v2 tools" }));
-    expect((screen.getByRole("button", { name: "Export workbook" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Export workbook" }).getAttribute("aria-disabled")).toBe("true");
     expect(saveModelV2).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Recalculate & save" }));
@@ -680,20 +709,20 @@ describe("Model Engine v2 workbench", () => {
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Updated downside case" } });
     fireEvent.click(screen.getByRole("button", { name: "Queue override" }));
     const commitTwo = screen.getByRole("button", { name: "Commit 2 pending" }) as HTMLButtonElement;
-    expect(commitTwo.disabled).toBe(true);
+    expect(commitTwo.getAttribute("aria-disabled")).toBe("true");
 
     await act(async () => {
       previewA.resolve(calculation());
       await previewA.promise;
     });
     expect(await screen.findByText(/Pending edits changed while the server preview was running/)).toBeTruthy();
-    expect(commitTwo.disabled).toBe(true);
+    expect(commitTwo.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(commitTwo);
     expect(mutateModelV2OverridesBatch).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Preview pending" }));
     await waitFor(() => expect(calculateModelV2).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(commitTwo.disabled).toBe(false));
+    await waitFor(() => expect(commitTwo.getAttribute("aria-disabled")).toBeNull());
     const firstPreview = vi.mocked(calculateModelV2).mock.calls[0][1];
     const secondPreview = vi.mocked(calculateModelV2).mock.calls[1][1];
     expect(firstPreview.payload.overrides.map((override) => override.node_id)).toEqual([
@@ -717,8 +746,8 @@ describe("Model Engine v2 workbench", () => {
     const editRevenue = screen.getByRole("button", { name: "Edit input:FY2026:revenue" }) as HTMLButtonElement;
     const restoreRevenue = screen.getByRole("button", { name: "Restore input:FY2026:revenue" }) as HTMLButtonElement;
 
-    expect(editRevenue.disabled).toBe(true);
-    expect(restoreRevenue.disabled).toBe(true);
+    expect(editRevenue.getAttribute("aria-disabled")).toBe("true");
+    expect(restoreRevenue.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(editRevenue);
     fireEvent.click(restoreRevenue);
     expect((screen.getByLabelText("Numeric value") as HTMLInputElement).value).toBe("4.25");
@@ -754,8 +783,8 @@ describe("Model Engine v2 workbench", () => {
 
     const undo = screen.getByRole("button", { name: "Undo" });
     const redo = screen.getByRole("button", { name: "Redo" });
-    await waitFor(() => expect((undo as HTMLButtonElement).disabled).toBe(false));
-    expect((redo as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect((undo as HTMLButtonElement).getAttribute("aria-disabled")).toBeNull());
+    expect((redo as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
     const audit = screen.getByRole("article", {
       name: "Override event calc:FY2026:net_leverage revision 3",
     });
@@ -772,8 +801,8 @@ describe("Model Engine v2 workbench", () => {
       mode: "undo",
     }));
     await waitFor(() => {
-      expect((undo as HTMLButtonElement).disabled).toBe(false);
-      expect((redo as HTMLButtonElement).disabled).toBe(false);
+      expect((undo as HTMLButtonElement).getAttribute("aria-disabled")).toBeNull();
+      expect((redo as HTMLButtonElement).getAttribute("aria-disabled")).toBeNull();
     });
 
     fireEvent.click(undo);
@@ -782,8 +811,8 @@ describe("Model Engine v2 workbench", () => {
       mode: "undo",
     }));
     await waitFor(() => {
-      expect((undo as HTMLButtonElement).disabled).toBe(true);
-      expect((redo as HTMLButtonElement).disabled).toBe(false);
+      expect((undo as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
+      expect((redo as HTMLButtonElement).getAttribute("aria-disabled")).toBeNull();
     });
 
     fireEvent.click(redo);
@@ -792,8 +821,8 @@ describe("Model Engine v2 workbench", () => {
       mode: "redo",
     }));
     await waitFor(() => {
-      expect((undo as HTMLButtonElement).disabled).toBe(false);
-      expect((redo as HTMLButtonElement).disabled).toBe(false);
+      expect((undo as HTMLButtonElement).getAttribute("aria-disabled")).toBeNull();
+      expect((redo as HTMLButtonElement).getAttribute("aria-disabled")).toBeNull();
     });
 
     fireEvent.click(redo);
@@ -802,8 +831,8 @@ describe("Model Engine v2 workbench", () => {
       mode: "redo",
     }));
     await waitFor(() => {
-      expect((undo as HTMLButtonElement).disabled).toBe(false);
-      expect((redo as HTMLButtonElement).disabled).toBe(true);
+      expect((undo as HTMLButtonElement).getAttribute("aria-disabled")).toBeNull();
+      expect((redo as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
     });
   });
 
@@ -1293,7 +1322,7 @@ describe("Model Engine v2 workbench", () => {
 
       const row = await screen.findByRole("row", { name: /input:FY2026:revenue/ });
       expect(row.textContent).toContain("CANONICAL");
-      expect((screen.getByRole("button", { name: "Restore input:FY2026:revenue" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByRole("button", { name: "Restore input:FY2026:revenue" }).getAttribute("aria-disabled")).toBe("true");
       fireEvent.click(screen.getByRole("button", { name: "Edit input:FY2026:revenue" }));
       expect((screen.getByLabelText("Numeric value") as HTMLInputElement).value).toBe("100");
       expect((screen.getByLabelText(/Reason/) as HTMLInputElement).value).toBe("");
@@ -1318,7 +1347,7 @@ describe("Model Engine v2 workbench", () => {
     editNode("input:FY2026:adjusted_ebitda", "15");
     fireEvent.click(screen.getByRole("button", { name: "Preview pending" }));
     await act(async () => { await Promise.resolve(); });
-    expect((screen.getByRole("button", { name: "Commit 1 pending" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Commit 1 pending" }).getAttribute("aria-disabled")).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Scenario node"), {
       target: { value: "calc:FY2026:net_leverage" },
@@ -1340,13 +1369,13 @@ describe("Model Engine v2 workbench", () => {
     expect(row.textContent).toContain("CANONICAL");
     expect(screen.queryByText(/SCENARIO calc:FY2026:net_leverage/)).toBeNull();
     expect(screen.getByText(/1 local · not saved/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Preview pending" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Commit 1 pending" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Preview pending" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Commit 1 pending" }).getAttribute("aria-disabled")).toBe("true");
     expect((screen.getByLabelText("Filter scenario nodes") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText("Scenario node") as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByLabelText("Scenario value") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Preview sensitivity" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Create checkpoint" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Preview sensitivity" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Create checkpoint" }).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("invalidates a reviewed preview at local expiry even when refresh fails", async () => {
@@ -1360,7 +1389,7 @@ describe("Model Engine v2 workbench", () => {
     editNode("input:FY2026:adjusted_ebitda", "15");
     fireEvent.click(screen.getByRole("button", { name: "Preview pending" }));
     await act(async () => { await Promise.resolve(); });
-    expect((screen.getByRole("button", { name: "Commit 1 pending" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Commit 1 pending" }).getAttribute("aria-disabled")).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_050);
@@ -1369,16 +1398,16 @@ describe("Model Engine v2 workbench", () => {
     expect(getModelV2).toHaveBeenCalledWith("issuer-1");
     expect(screen.getByText(/current server calculation could not be refreshed/i)).toBeTruthy();
     expect(screen.getByText(/1 local · not saved/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Preview pending" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Commit 1 pending" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Preview sensitivity" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Create checkpoint" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Preview pending" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Commit 1 pending" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Preview sensitivity" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Create checkpoint" }).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("keeps a suggested server calculation read-only until it is explicitly saved with the exact run ID", async () => {
     renderWorkbench(response(null));
     const edit = await screen.findByRole("button", { name: "Edit input:FY2026:revenue" });
-    expect((edit as HTMLButtonElement).disabled).toBe(true);
+    expect((edit as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Save suggested draft" }));
     await waitFor(() => expect(saveModelV2).toHaveBeenCalledWith("issuer-1", expect.objectContaining({
@@ -1386,7 +1415,7 @@ describe("Model Engine v2 workbench", () => {
       source_run_id: "run-exact",
       context_id: "context-1",
     })));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Edit input:FY2026:revenue" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit input:FY2026:revenue" }).getAttribute("aria-disabled")).toBeNull());
   });
 
   it.each([

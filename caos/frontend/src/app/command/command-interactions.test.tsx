@@ -56,6 +56,7 @@ const controls = vi.hoisted(() => ({
   role: "analyst",
   initialUrl: {} as Record<string, string | null>,
   update: vi.fn(),
+  routerPush: vi.fn(),
   patch: vi.fn().mockResolvedValue(undefined),
   rankedCount: 2,
   portfolio: {
@@ -86,6 +87,10 @@ const controls = vi.hoisted(() => ({
 
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children?: ReactNode }) => <>{children}</>,
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: controls.routerPush }),
 }));
 
 vi.mock("@/components/shared/EnterprisePage", () => ({
@@ -172,7 +177,7 @@ vi.mock("@/lib/analysis-workbench", () => ({
 vi.mock("@/lib/engine/usePortfolio", () => ({ usePortfolio: () => controls.portfolio }));
 vi.mock("@/lib/command/useGovernanceSources", () => ({ useGovernanceSources: () => controls.governance }));
 vi.mock("@/lib/engine/useAutonomyDraft", () => ({ useAutonomyDraft: () => controls.autonomy }));
-vi.mock("@/lib/alerts/inbox", () => ({ draftToAlertRows: () => Array.from({ length: controls.rankedCount }, (_, id) => ({ id })) }));
+vi.mock("@/lib/alerts/inbox", () => ({ draftToAlertRows: () => Array.from({ length: controls.rankedCount }, (_, id) => ({ id, issuerId: `issuer-${id}`, issuerName: `Issuer ${id}` })) }));
 
 vi.mock("@/components/command/RankedChanges", () => ({ RankedChangesView: () => <div>Ranked changes body</div> }));
 vi.mock("@/components/command/GovernancePanel", () => ({ GovernancePanel: () => <div>Governance body</div> }));
@@ -351,7 +356,7 @@ describe("Command Center interactions", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Changes" }));
     expect(screen.getByText("Ranked changes body")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open top change" }));
-    expect(controls.update).toHaveBeenCalledWith({ dataset: "changes", selected: null }, undefined);
+    expect(controls.routerPush).toHaveBeenCalledWith("/deepdive?issuer=issuer-0");
 
     fireEvent.click(screen.getByRole("button", { name: "Open governance queue" }));
     expect(screen.getByText("Governance body")).toBeTruthy();

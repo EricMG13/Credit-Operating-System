@@ -86,3 +86,14 @@ for a stale MCP/server-side index handle (including restart/cache/branch-index
 checks) after repair succeeds; the current guidance stops at reindexing and can
 leave semantic exploration silently unavailable even while symbol
 context/impact continues to work.
+
+## 2026-07-17 — a11y-audit — OPEN
+
+The ARIA reference omits the grid pattern entirely: required `row` →
+`gridcell`/`rowheader` ownership, one roving row tab stop, vertical-arrow focus,
+Enter activation, nested-control event isolation, and virtualized
+`aria-rowcount`/`aria-rowindex`. During the CAOS grid pass, a presentational
+wrapper around a stretched link still exposed the link as an illegal direct
+child of `role="row"`; only the real axe runner caught it. Add an ARIA-grid
+section with these ownership/keyboard/virtualization rules and require a
+rendered axe verification rather than treating static markup review as enough.

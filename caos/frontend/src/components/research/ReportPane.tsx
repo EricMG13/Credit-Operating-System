@@ -13,8 +13,10 @@ import { labelCls } from "@/components/shared/styles";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { AuthorityBlock } from "@/components/shared/AuthorityBlock";
 import { SurfaceState } from "@/components/shared/SurfaceState";
+import { Button } from "@/components/ui/Button";
+import { SemanticVisualization, type VisualizationDatum, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
 import { fromResearchResult } from "@/lib/provenance";
-import type { ResearchResult, ResearchProgress } from "@/lib/api";
+import type { ResearchFigure, ResearchResult, ResearchProgress } from "@/lib/api";
 
 // react-markdown + remark-gfm (~40 kB) only render once a run resolves, so they
 // load on demand rather than weighing down the brief form's initial chunk.
@@ -98,12 +100,14 @@ function RunningView({
   subj,
   progress,
   criteria,
+  executionMode,
   onDetach,
 }: {
   elapsed: number;
   subj: string;
   progress: ResearchProgress | null;
   criteria: string[];
+  executionMode: "live" | "demo";
   onDetach?: () => void;
 }) {
   const phase = RESEARCH_PHASES[Math.min(Math.floor(elapsed / RESEARCH_PHASE_SECS), RESEARCH_PHASES.length - 1)];
@@ -119,7 +123,7 @@ function RunningView({
         <div className="tabular text-caos-xl text-caos-text mb-1 truncate" title={subj || undefined}>
           {subj ? `“${subj}”` : "Reattached run"}
         </div>
-        <p className="text-caos-2xs text-caos-muted leading-snug mb-5">{phase} · live web research</p>
+        <p className="text-caos-2xs text-caos-muted leading-snug mb-5">{phase} · {executionMode === "live" ? "live web research" : "example research — demo mode"}</p>
 
         {/* Real running counts — the server's actual web-search progress, eased up
             so it reads as accumulating. Never a fabricated number. */}
@@ -178,6 +182,45 @@ function ErrorView({ error, hasPrev, onRestorePrev }: { error: string; hasPrev: 
   );
 }
 
+function researchFigureSpec(figure: ResearchFigure): VisualizationSpec<VisualizationDatum> {
+  const data = figure.rows as VisualizationDatum[];
+  const x = figure.encodings.x ?? figure.columns[0]?.key ?? "label";
+  const y = figure.encodings.y ?? figure.columns[1]?.key ?? "value";
+  const series = figure.encodings.series;
+  return {
+    kind: figure.kind,
+    title: figure.title,
+    unit: figure.unit,
+    asOf: figure.as_of ?? undefined,
+    sourceIds: figure.source_ids,
+    accessibleSummary: figure.accessible_summary,
+    note: "Verified CAOS metric facts; separate from the AI-synthesized research narrative.",
+    data,
+    tabularFallback: { label: `${figure.title} verified data`, columns: figure.columns, data },
+    chart: figure.kind === "line"
+      ? { type: "line", encode: { x, y, ...(series ? { color: series } : {}) } }
+      : { type: "interval", encode: { x, y } },
+  };
+}
+
+function ResearchFigures({ figures }: { figures: ResearchFigure[] }) {
+  if (!figures.length) return null;
+  return (
+    <section className="rdoc-figures" aria-label="Verified CAOS figures">
+      <div className="rdoc-figures-h">Verified CAOS figures</div>
+      {figures.map((figure) => (
+        <SemanticVisualization
+          key={figure.id}
+          spec={researchFigureSpec(figure)}
+          height={190}
+          mode="paper"
+          headingLevel={2}
+        />
+      ))}
+    </section>
+  );
+}
+
 // The tear-sheet document itself — shared by the on-screen panel and the
 // body-level print portal so screen and exported paper carry identical
 // provenance (matrix 8.2: the AI-synthesis marker must survive export).
@@ -202,6 +245,7 @@ function ResearchDoc({ result, mode }: { result: ResearchResult; mode: "sector" 
         </p>
       )}
       <ReportBody report={result.report} />
+      <ResearchFigures figures={result.figures ?? []} />
       {result.sources.length > 0 && (
         <section className="rdoc-sources">
           <div className="rdoc-sources-h">Sources ({result.sources.length})</div>
@@ -259,8 +303,8 @@ function EmptyView() {
     <div className="h-full overflow-auto px-6 py-8">
       <div className="w-full max-w-sm mx-auto">
         <SurfaceState
-          kind="empty"
-          title="No report yet"
+          kind="not-run"
+          title="Research not run"
           detail="Complete the brief and run research. The finished deliverable files here as a paper tear-sheet."
           supporting={
             <div>
@@ -295,6 +339,7 @@ export function ReportPane({
   elapsed,
   subj,
   mode,
+  executionMode = "live",
   onDetach,
   onRestorePrev,
 }: {
@@ -307,6 +352,7 @@ export function ReportPane({
   elapsed: number;
   subj: string;
   mode: "sector" | "issuer";
+  executionMode?: "live" | "demo";
   onDetach?: () => void;
   onRestorePrev?: () => void;
 }) {
@@ -329,12 +375,12 @@ export function ReportPane({
         </span>
       ) : null}
       {result ? (
-        <button
+        <Button
           onClick={() => window.print()}
-          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+          className="tabular text-caos-xs px-2 py-0.5"
         >
           EXPORT PDF
-        </button>
+        </Button>
       ) : null}
     </span>
   );
@@ -343,7 +389,7 @@ export function ReportPane({
     <Panel title="Report" right={badge}>
       <div className="h-full overflow-auto">
         {running ? (
-          <RunningView elapsed={elapsed} subj={subj} progress={progress} criteria={criteria} onDetach={onDetach} />
+          <RunningView elapsed={elapsed} subj={subj} progress={progress} criteria={criteria} executionMode={executionMode} onDetach={onDetach} />
         ) : error ? (
           <ErrorView error={error} hasPrev={!!prevResult} onRestorePrev={onRestorePrev} />
         ) : result ? (

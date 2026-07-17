@@ -306,6 +306,41 @@ describe("adaptModule — generic shapes", () => {
     const pts = out.sections.find((s) => s.type === "table" && /Bull case · Points/i.test(s.title));
     expect(pts && pts.type === "table" && pts.rows[0][0]).toContain("EBITDA grew");
   });
+
+  it("infers alignment only from finite numeric schema values, never digit-bearing identifiers, dates, or ratings", () => {
+    const detail = {
+      ...CP1, module_id: "CP-2E", module_name: "RelativeValue", qa_status: "Passed", claims: [],
+      runtime_output: {
+        live_register: [
+          { cusip: "123456789", as_of_date: "2026-07-17", rating: "B2", module_code: "CP-2E", amount_musd: 125, spread_bps: 450 },
+          { cusip: "987654321", as_of_date: "2026-07-18", rating: "B3", module_code: "CP-2E", amount_musd: 150, spread_bps: 475 },
+        ],
+      },
+    } as unknown as ModuleDetailDTO;
+    const table = adaptModule(detail).sections.find((section) => section.type === "table" && section.title === "Live register");
+    expect(table).toMatchObject({
+      type: "table",
+      cols: ["Cusip", "As of date", "Rating", "Module code", "Amount $M", "Spread bps"],
+      align: [0, 0, 0, 0, 1, 1],
+    });
+  });
+
+  it("retains exact overflow rows and flags rather than silently slicing persisted adverse data", () => {
+    const detail = {
+      ...CP1, module_id: "CP-2E", module_name: "RelativeValue", qa_status: "Restricted", claims: [],
+      runtime_output: {
+        live_register: Array.from({ length: 14 }, (_, index) => ({ measure: index + 1, rating: "B2" })),
+        live_flags: Array.from({ length: 14 }, (_, index) => ({ id: `F-${index + 1}`, text: `Flag ${index + 1}`, severity: "warning" })),
+      },
+    } as unknown as ModuleDetailDTO;
+    const out = adaptModule(detail);
+    const table = out.sections.find((section) => section.type === "table" && section.title === "Live register") as (typeof out.sections[number] & { overflowRows?: string[][] }) | undefined;
+    const flags = out.sections.find((section) => section.type === "flags" && section.title === "Live flags") as (typeof out.sections[number] & { overflowItems?: unknown[] }) | undefined;
+    expect(table?.type === "table" ? table.rows : []).toHaveLength(12);
+    expect(table?.overflowRows).toHaveLength(2);
+    expect(flags?.type === "flags" ? flags.items : []).toHaveLength(12);
+    expect(flags?.overflowItems).toHaveLength(2);
+  });
 });
 
 describe("adaptModule — CP-4C covenant register", () => {

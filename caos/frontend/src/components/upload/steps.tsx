@@ -7,6 +7,7 @@
 
 import Link from "next/link";
 import { useDropzone } from "react-dropzone";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { TextInput } from "@/components/shared/TextInput";
 import { Dot } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
@@ -42,7 +43,14 @@ export interface UploadResult {
   minio_key: string;
   chunks_created: number;
   message: string;
-  source_manifest_id: string;
+  // EDGAR vault responses do not expose a source-manifest id. Keep that fact
+  // explicit instead of inventing an identifier just to fit the drag/drop row.
+  source_manifest_id?: string;
+  warning?: string | null;
+  // The intake response currently does not return a persisted ClamAV verdict.
+  // This optional field is reserved for that response contract; absence renders
+  // as unavailable rather than a fabricated "clean" status.
+  malware_scan?: string | null;
 }
 
 export interface FileOutcome {
@@ -198,13 +206,13 @@ export function IssuerStep({
               className="w-full px-2.5 py-1.5 text-caos-lg"
             />
             <div className="flex gap-2">
-              <button
+              <ActionReason
                 onClick={onCreateIssuer}
-                disabled={!newIssuerName.trim()}
-                className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40"
+                reason={!newIssuerName.trim() ? "Enter an issuer name first" : null}
+                className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos aria-disabled:opacity-40"
               >
                 CREATE
-              </button>
+              </ActionReason>
               <button
                 onClick={() => setShowNewIssuer(false)}
                 className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos"
@@ -391,10 +399,10 @@ export function FileStep({
         ) : null}
 
         <div className="flex gap-2">
-          <button
+          <ActionReason
             onClick={onUpload}
-            disabled={files.length === 0 || uploading}
-            className="focus-ring flex-1 min-w-0 h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 px-3"
+            reason={files.length === 0 ? "Add at least one file first" : uploading ? "Upload in progress…" : null}
+            className="focus-ring flex-1 min-w-0 h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md aria-disabled:opacity-40 aria-disabled:cursor-not-allowed flex items-center justify-center gap-2 px-3"
           >
             {uploading ? (
               <>
@@ -407,7 +415,7 @@ export function FileStep({
             ) : (
               `UPLOAD ${files.length || ""} FILE${files.length === 1 ? "" : "S"} & PROCESS`
             )}
-          </button>
+          </ActionReason>
           {uploading ? (
             <button
               onClick={onCancel}
@@ -478,6 +486,7 @@ export function ResultStep({
       ) : (
         <div className="px-3 py-2.5 border-b border-caos-border text-caos-lg text-caos-text leading-snug">
           {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name}
+          {modeMeta ? <span className="text-caos-muted"> · {modeMeta.label} is intake metadata; runs use the full CP-X route</span> : null}
           {/* Truthful run status (FE-1): report what POST /api/runs actually
               returned — never assert "run queued" when nothing was queued. */}
           {runOutcome?.state === "queued" ? (
@@ -535,14 +544,14 @@ export function ResultStep({
             </>
           ) : (
             <>
-              <button
+              <ActionReason
                 onClick={onCreateRun}
-                disabled={runCreating}
-                className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos disabled:opacity-40 flex items-center gap-1.5"
+                reason={runCreating ? "Queuing run…" : null}
+                className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos aria-disabled:opacity-40 flex items-center gap-1.5"
               >
                 {runCreating ? <Dot sev="running" pulse /> : null}
-                {runCreating ? "QUEUING RUN…" : `RUN ${modeMeta?.label.toUpperCase() ?? ""}`}
-              </button>
+                {runCreating ? "QUEUING RUN…" : "START FULL CP-X RUN"}
+              </ActionReason>
               {runError ? (
                 <span role="alert" className="text-caos-md" style={{ color: "var(--caos-critical-bright)" }}>{runError}</span>
               ) : runOutcome?.state === "failed" ? (
@@ -562,14 +571,24 @@ export function ResultStep({
               <Dot sev={o.result ? (noText ? "warning" : "ok") : "critical"} />
               <span className="text-caos-text truncate">{o.name}</span>
               <span className="tabular text-caos-2xs text-caos-muted truncate" title={o.result?.source_manifest_id}>
-                {o.result ? `MANIFEST ${o.result.source_manifest_id.slice(0, 8)}` : "—"}
+                {o.result ? (o.result.source_manifest_id ? `MANIFEST ${o.result.source_manifest_id.slice(0, 8)}` : "EDGAR VAULT") : "—"}
               </span>
-              <span
-                className="tabular text-caos-xs text-right"
-                title={noText ? noTextTitle : undefined}
-                style={{ color: o.result ? (noText ? "var(--caos-warning)" : "var(--caos-muted)") : "var(--caos-critical)" }}
-              >
-                {o.result ? (noText ? "0 chunks — no text" : `${o.result.chunks_created} chunks`) : o.error}
+              <span className="flex min-w-0 flex-col items-end text-right">
+                <span
+                  className="tabular text-caos-xs"
+                  title={noText ? noTextTitle : undefined}
+                  style={{ color: o.result ? (noText ? "var(--caos-warning)" : "var(--caos-muted)") : "var(--caos-critical)" }}
+                >
+                  {o.result ? (noText ? "0 chunks — no text" : `${o.result.chunks_created} chunks`) : o.error}
+                </span>
+                {o.result ? (
+                  <span
+                    className="tabular text-caos-3xs text-caos-muted"
+                    title={o.result.malware_scan ? "Persisted scanner verdict from intake" : "This intake response did not return a persisted scanner verdict."}
+                  >
+                    {o.result.malware_scan ? `scan ${o.result.malware_scan}` : "scan verdict unavailable"}
+                  </span>
+                ) : null}
               </span>
             </div>
           );
@@ -588,13 +607,13 @@ export function ResultStep({
             RETRY <span className="tabular">{failCount}</span> FAILED
           </button>
         ) : null}
-        <button
+        <ActionReason
           onClick={onReset}
-          disabled={uploading}
-          className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos disabled:opacity-40 disabled:cursor-not-allowed"
+          reason={uploading ? "Upload in progress…" : null}
+          className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
         >
           UPLOAD ANOTHER
-        </button>
+        </ActionReason>
         {selectedIssuer ? (
           <button
             onClick={() => openProfile(selectedIssuer.id)}

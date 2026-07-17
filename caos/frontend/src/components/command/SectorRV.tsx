@@ -14,6 +14,7 @@ import { IssuerLink } from "@/components/shared/IssuerLink";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { ActionableDislocations } from "@/components/command/ActionableDislocations";
+import { ActionReason } from "@/components/shared/ActionReason";
 import {
   BUCKETS,
   DELTA_COLS,
@@ -276,7 +277,7 @@ function CrossSectorHeatmap({ rowsList, filtersActive, filterCount }: { rowsList
                         title={val === null ? "No comp peers" : `${label}bp median across ${n} loans`}
                       >
                         {label}
-                        {n > 0 && <span className="text-[9px] text-caos-muted ml-0.5">({n})</span>}
+                        {n > 0 && <span className="text-caos-3xs text-caos-muted ml-0.5">({n})</span>}
                       </td>
                     );
                   })}
@@ -1108,7 +1109,7 @@ function PickRow({
       </span>
       <span className="text-caos-xs text-caos-text truncate min-w-0 flex-1">{pick.company}</span>
       {pick.held && (
-        <span className="tabular text-[9px] uppercase font-bold text-caos-success border border-caos-success/30 bg-caos-success/5 px-1 rounded-sm">
+        <span className="tabular text-caos-3xs uppercase font-bold text-caos-success border border-caos-success/30 bg-caos-success/5 px-1 rounded-sm">
           held {pick.headroomPct !== undefined ? `+${pick.headroomPct}%` : ""}
         </span>
       )}
@@ -1395,12 +1396,13 @@ export function SectorRV({ holdings }: { holdings?: Map<string, RVHolding> } = {
           ] as const).map(([label, ct]) => {
             const disabled = ct !== "scatter" && (xMeasure === "size" || xMeasure === "price");
             return (
-              <button
+              <ActionReason
                 key={ct}
                 type="button"
                 aria-pressed={chartType === ct}
-                disabled={disabled}
-                onClick={() => { if (!disabled) setChartType(ct); }}
+                reason={disabled ? "Bar and Box charts need a categorical X measure (Rating or Sub-sector)" : null}
+                reasonDisplay="hidden"
+                onClick={() => setChartType(ct)}
                 className={
                   "shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border transition-caos focus-ring flex items-center justify-center " +
                   (chartType === ct
@@ -1411,7 +1413,7 @@ export function SectorRV({ holdings }: { holdings?: Map<string, RVHolding> } = {
                 }
               >
                 {label}
-              </button>
+              </ActionReason>
             );
           })}
         </div>

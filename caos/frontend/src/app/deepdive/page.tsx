@@ -19,7 +19,7 @@ import { DEAL } from "@/lib/reports/deal";
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
 import { fmtUtcDateTime } from "@/lib/format-date";
 import { useSimRun } from "@/lib/pipeline/sim";
-import { isCleared, moduleLiveState } from "@/lib/pipeline/sev";
+import { isCleared } from "@/lib/pipeline/sev";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
@@ -73,6 +73,29 @@ const BESPOKE: Record<string, { label: string; code: string }> = {
   "CP-4": { label: "Legal & Covenants", code: "CP-4 / 4C" },
 };
 const GATE: Record<string, string> = { "CP-4": "CP-4C" };
+// CP-4's analytical pane incorporates its CP-4C covenant gate. The live QA
+// status therefore has to aggregate both persisted module rows; a Passed CP-4
+// cannot override a Restricted/Blocked CP-4C in the same analyst pane.
+const LIVE_QA_SCOPE: Record<string, readonly string[]> = { "CP-4": ["CP-4", "CP-4C"] };
+type LiveQaState = "idle" | "not-reviewed" | "pass" | "warning" | "failed";
+const LIVE_QA_WEIGHT: Record<LiveQaState, number> = {
+  idle: 4, "not-reviewed": 3, pass: 1, warning: 5, failed: 6,
+};
+
+function liveQaState(status: string | undefined): LiveQaState {
+  if (status === "Blocked" || status === "failed") return "failed";
+  if (status === "Restricted" || status === "warning") return "warning";
+  if (status === "Passed" || status === "pass") return "pass";
+  // Unknown future statuses must not silently promote a module to Passed.
+  return status === undefined ? "idle" : "not-reviewed";
+}
+
+function worstLiveQaState(statuses: Array<string | undefined>): LiveQaState {
+  return statuses.map(liveQaState).reduce(
+    (worst, next) => LIVE_QA_WEIGHT[next] > LIVE_QA_WEIGHT[worst] ? next : worst,
+    "pass" as LiveQaState,
+  );
+}
 // Modules with a bespoke ATLF showcase renderer (debate / recovery / covenants).
 // For a real issuer with live output they fall through to the generic ModuleView.
 const BESPOKE_TABS = new Set(["CP-6A", "CP-6E", "CP-3B", "CP-4"]);
@@ -282,14 +305,14 @@ function DeepDive() {
   }, [railOpen, decisionOpen]);
 
   const gateState = (id: string) => run.sim.mods[id]?.state || "idle";
-  // Launcher/gate display state. The ATLF sim narrates the reference deal only;
-  // a real issuer's module reflects THIS run's per-module qa_status via
-  // moduleLiveState — pass / warning (Restricted) / failed (Blocked) / hollow-idle
-  // (not produced). A Blocked module is persisted with output, so keying off
-  // liveOuts presence alone would light it a false green; qa_status is the honest
-  // signal. Never the reference sim's green theater. (critique: implied completion
-  // that is not this issuer's; identify failed modules)
-  const modState = (id: string) => (isReference ? gateState(GATE[id] || id) : moduleLiveState(live.liveStatus[id]));
+  // Launcher/gate display state. A parent pane/layer takes the worst persisted
+  // QA state in its scope: Blocked > Restricted > Not Reviewed/absent > Passed.
+  // This prevents a green CP-4 pane when its CP-4C gate is still restricted or
+  // blocked, and never turns a missing status into a clean pass.
+  const qaScope = (id: string) => LIVE_QA_SCOPE[id] ?? [id];
+  const modState = (id: string) => isReference
+    ? gateState(GATE[id] || id)
+    : worstLiveQaState(qaScope(id).map((moduleId) => live.liveStatus[moduleId]));
   const meta = MODULES.find((m) => m.id === tab);
   const bespoke = BESPOKE[tab];
   const gateId = GATE[tab] || tab;
@@ -301,15 +324,13 @@ function DeepDive() {
   // (not a bespoke ATLF showcase, and the module was actually produced this run).
   // Drives a per-module ● LIVE / ◦ REFERENCE badge instead of a run-scoped one. (#5)
   const moduleIsLive = !useBespoke && !!live.liveOuts[tab];
+  const moduleQaState = !isReference ? modState(tab) : null;
+  const moduleOwnQaState = !isReference ? liveQaState(live.liveStatus[tab]) : null;
   // A real issuer's open module that hit the engine's failure gate (qa_status
   // Blocked). Distinct from "no output" (never produced) — the row exists, the
   // analysis didn't complete. Drives a ✕ FAILED badge + an explicit failed pane
   // instead of an empty ModuleView under a ● LIVE badge.
-  const moduleFailed = !isReference && moduleLiveState(live.liveStatus[tab]) === "failed";
-  // A Restricted module reads as unqualified ● LIVE below (same treatment as a
-  // clean pass) — the one word an analyst must repeat to committee (Restricted
-  // vs clean) was invisible on the pane they're reading it from.
-  const moduleRestricted = !isReference && moduleLiveState(live.liveStatus[tab]) === "warning";
+  const moduleFailed = !isReference && moduleOwnQaState === "failed";
   const referenceUnavailable = isReference && (tab === "CP-2G" || tab === "CP-4D");
   // The replay sim gates the reference showcase only. A real issuer is never
   // sim-locked (its honest empty state is the module view's own no-output
@@ -649,18 +670,20 @@ function DeepDive() {
                   // work) into the same green "N cleared" glyph as a clean pass used
                   // to render an all-Restricted live run as unqualified green, the
                   // exact state a QA reader most needs distinguished from clean.
-                  let cleared = 0, concerns = 0, failed = 0, pending = 0;
+                  let cleared = 0, concerns = 0, failed = 0, notReviewed = 0, pending = 0;
                   for (const id of g.mods) {
                     const st = modState(id);
                     if (st === "pass") cleared++;
                     else if (st === "warning") concerns++;
                     else if (st === "failed") failed++;
+                    else if (st === "not-reviewed") notReviewed++;
                     else pending++;
                   }
                   const parts = [
                     cleared ? { key: "ok", n: cleared, dot: <Dot sev="pass" glyph />, word: `${cleared} cleared` } : null,
                     concerns ? { key: "concerns", n: concerns, dot: <Dot sev="warning" glyph />, word: `${concerns} w/ concerns` } : null,
                     failed ? { key: "fail", n: failed, dot: <Dot sev="blocked" glyph />, word: `${failed} failed` } : null,
+                    notReviewed ? { key: "review", n: notReviewed, dot: <StatusGlyph kind="idle" />, word: `${notReviewed} not reviewed` } : null,
                     pending ? { key: "pend", n: pending, dot: <StatusGlyph kind={isReference ? "locked" : "idle"} />, word: `${pending} ${isReference ? "gated" : "no output"}` } : null,
                   ].filter(Boolean) as { key: string; n: number; dot: React.ReactNode; word: string }[];
                   return (
@@ -781,17 +804,25 @@ function DeepDive() {
               {/* Per-MODULE provenance, not run-scoped: light ● LIVE only when THIS
                   tab's data came from the live run. Missing issuer-scoped modules
                   show no-output, never a seeded ATLF table. (#5) */}
-              {moduleFailed ? (
+              {moduleQaState === "failed" ? (
                 <span className="tabular text-caos-xs" style={{ color: "var(--caos-critical)" }} title="This module hit its failure gate (qa_status Blocked) and did not complete — no usable output.">
-                  ✕ FAILED
+                  ✕ BLOCKED
                 </span>
-              ) : moduleRestricted ? (
+              ) : moduleQaState === "warning" ? (
                 <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }} title="QA gate: this module's output is Restricted — committee-usable with caveats, not a clean pass.">
                   △ RESTRICTED
                 </span>
+              ) : moduleQaState === "not-reviewed" && moduleIsLive ? (
+                <span className="tabular text-caos-xs text-caos-muted" title="QA status: Not Reviewed. This persisted output is not a clean pass.">
+                  ◦ NOT REVIEWED
+                </span>
+              ) : moduleQaState === "idle" && moduleIsLive ? (
+                <span className="tabular text-caos-xs text-caos-muted" title="No persisted QA status is available for this live output; it is not a clean pass.">
+                  ◦ NO QA STATUS
+                </span>
               ) : moduleIsLive ? (
-                <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering this issuer's live engine output for this module">
-                  ● LIVE
+                <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering this issuer's live engine output for this module; QA status: Passed.">
+                  ● LIVE · PASSED
                 </span>
               ) : !isReference ? (
                 <span className="tabular text-caos-xs text-caos-muted" title="This module has no issuer-specific output available.">

@@ -6,7 +6,7 @@
 // (GET /api/sponsors); live-only with an honest empty state — no seeded demo
 // fallback, since a fabricated sponsor history would be worse than none.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
@@ -18,6 +18,7 @@ import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import {
   getSponsors, getSponsorTrackRecord,
@@ -45,6 +46,11 @@ function SponsorsView() {
   const [recordLoading, setRecordLoading] = useState(false);
   const [recordError, setRecordError] = useState(false);
   const [recordRetry, setRecordRetry] = useState(0);
+  const initialSelection = useRef(
+    analysis.context?.artifacts.sponsor_id
+      ?? analysis.context?.surface_state.sponsors?.active_id
+      ?? null,
+  );
 
   const loadSponsors = useCallback(() => {
     let stale = false;
@@ -54,16 +60,14 @@ function SponsorsView() {
       .then((rows) => {
         if (stale) return;
         setSponsors(rows);
-        const saved = analysis.context?.artifacts.sponsor_id
-          ?? analysis.context?.surface_state.sponsors?.active_id;
-        setSelected(saved && rows.some((row) => row.sponsor === saved) ? saved : rows[0]?.sponsor ?? null);
+        const saved = initialSelection.current;
+        setSelected((current) => current && rows.some((row) => row.sponsor === current)
+          ? current
+          : saved && rows.some((row) => row.sponsor === saved) ? saved : rows[0]?.sponsor ?? null);
       })
       .catch(() => { if (!stale) { setSponsors([]); setSponsorsError(true); } });
     return () => { stale = true; };
-  }, [
-    analysis.context?.artifacts.sponsor_id,
-    analysis.context?.surface_state.sponsors?.active_id,
-  ]);
+  }, []);
 
   useEffect(() => {
     return loadSponsors();
@@ -119,17 +123,7 @@ function SponsorsView() {
   return (
     <EnterprisePage kind="worklist"
       identity={<ShellIdentity tag="CP-2D" title="Sponsor Track Records" />}
-      primaryAction={
-        <button
-          type="button"
-          aria-disabled={(!selected) || undefined}
-          title={!selected ? "Select a sponsor row first" : undefined}
-          onClick={() => { if (selected) document.getElementById("sponsor-record")?.focus(); }}
-          className="caos-action-primary focus-ring"
-        >
-          Review selected sponsor
-        </button>
-      }
+      primaryAction={<ActionReason className="caos-action-primary focus-ring" reason={selected ? null : sponsors === null ? "The sponsor register is still loading." : sponsorsError ? "The sponsor register is unavailable." : "Select a sponsor row first."} onClick={() => { if (selected) document.getElementById("sponsor-record")?.focus(); }}>Review selected sponsor</ActionReason>}
       status={<AnalysisContextSaveState analysis={analysis} />}
       contextualControls={
         <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">
@@ -184,6 +178,7 @@ function SponsorsView() {
                   }
                 >
                   <span className="text-caos-lg text-caos-text truncate flex-1">{s.sponsor}</span>
+                  {selected === s.sponsor ? <span className="tabular text-caos-2xs text-caos-accent whitespace-nowrap">Selected</span> : null}
                   <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
                     {s.issuer_count} name{s.issuer_count === 1 ? "" : "s"}
                   </span>
@@ -199,7 +194,7 @@ function SponsorsView() {
           title={selected ? `Track record · ${selected}` : "Track record"}
           className="h-full"
           right={record?.avg_governance_risk_score != null
-            ? <span className="tabular text-caos-xs text-caos-muted">avg governance risk {record.avg_governance_risk_score}</span>
+            ? <span className="tabular text-caos-xs text-caos-muted">avg governance risk {record.avg_governance_risk_score}/10</span>
             : undefined}
         >
           {sponsors !== null && sponsors.length === 0 && !sponsorsError ? (
@@ -257,8 +252,8 @@ function TrackRecord({ record, onOpenIssuer, contextId }: { record: SponsorTrack
       </div>
       {/* per-name rows */}
       <div className="grid grid-cols-[minmax(180px,2fr)_90px_110px_1fr_90px] gap-x-3 px-3 h-7 items-center border-b border-caos-border">
-        {["Name", "Net lev", "Gov. risk", "Flags", "QA"].map((h) => (
-          <span key={h} className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">{h}</span>
+        {["Name", "Net lev", "Gov. risk (0–10)", "Flags", "QA"].map((h) => (
+          <span key={h} className={`tabular text-caos-xs uppercase tracking-wider text-caos-muted ${h === "Net lev" || h.startsWith("Gov.") ? "text-right" : ""}`}>{h}</span>
         ))}
       </div>
       <div className="divide-y divide-caos-border/30">
@@ -292,10 +287,10 @@ function IssuerRow({ row, onOpen }: { row: SponsorIssuerRow; onOpen: (issuerId: 
         {row.name}
         {row.ticker ? <span className="tabular text-caos-xs text-caos-muted ml-1.5">{row.ticker.toUpperCase()}</span> : null}
       </button>
-      <span className="tabular text-caos-md text-caos-text">
+      <span className="tabular text-caos-md text-caos-text text-right">
         {row.net_leverage != null ? row.net_leverage.toFixed(1) + "×" : "—"}
       </span>
-      <span className="tabular text-caos-md text-caos-text">
+      <span className="tabular text-caos-md text-caos-text text-right">
         {row.governance_risk_score != null ? row.governance_risk_score : row.run_id ? "unscored" : "no run"}
       </span>
       <span className="tabular text-caos-xs truncate" style={{ color: row.flags.length ? "var(--caos-warning)" : "var(--caos-muted)" }}>

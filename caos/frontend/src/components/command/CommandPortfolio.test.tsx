@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CommandPortfolioPosition } from "@/lib/portfolio-lab";
 import { CommandPortfolioTable } from "./CommandPortfolio";
@@ -58,5 +58,46 @@ describe("CommandPortfolioTable", () => {
     expect(onSelect).not.toHaveBeenCalled();
     expect(screen.getByText(position.borrower_name)).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Size" })).toBeTruthy();
+  });
+
+  it("uses semantic headers, aligned numerics, and one vertically roving row tab stop", () => {
+    const onSelect = vi.fn();
+    const second = { ...position, id: "position-2", issuer_id: "issuer-2", ticker: "BETA", borrower_name: "Beta Fiber" };
+    const positions = [position, second];
+    const { rerender } = render(<CommandPortfolioTable positions={positions} selected={null} onSelect={onSelect} />);
+
+    expect(screen.getByRole("grid", { name: "Persisted portfolio positions" }).getAttribute("aria-rowcount")).toBe("3");
+    for (const name of ["Size", "Price", "Margin"]) {
+      expect(screen.getByRole("columnheader", { name }).className).toContain("text-right");
+    }
+    expect(screen.getAllByRole("rowheader")).toHaveLength(2);
+    expect(screen.getAllByText("$100M")[0].closest("[role='gridcell']")?.className).toContain("text-right");
+
+    const rows = screen.getAllByRole("row", { name: /position details/ });
+    expect(rows.filter((item) => item.tabIndex === 0)).toHaveLength(1);
+    rows[0].focus();
+    fireEvent.keyDown(rows[0], { key: "ArrowDown" });
+    expect(document.activeElement).toBe(rows[1]);
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.keyDown(rows[1], { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith("position-2");
+
+    const firstLinks = within(rows[0]).getAllByRole("link");
+    const secondLinks = within(rows[1]).getAllByRole("link");
+    expect([...firstLinks, ...secondLinks].every((link) => link.tabIndex === -1)).toBe(true);
+    expect(rows[0].getAttribute("aria-keyshortcuts")).toBe("F2");
+    expect(document.getElementById(rows[0].getAttribute("aria-describedby")!)?.textContent).toContain("Press F2");
+
+    rows[0].focus();
+    fireEvent.keyDown(rows[0], { key: "F2" });
+    expect(document.activeElement).toBe(firstLinks[0]);
+    expect(firstLinks.every((link) => link.tabIndex === 0)).toBe(true);
+    expect(secondLinks.every((link) => link.tabIndex === -1)).toBe(true);
+    rerender(<CommandPortfolioTable positions={positions} selected={null} onSelect={onSelect} />);
+    expect(within(screen.getByRole("row", { name: /exact borrower name/i })).getAllByRole("link").every((link) => link.tabIndex === 0)).toBe(true);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    const restored = screen.getByRole("row", { name: /exact borrower name/i });
+    expect(document.activeElement).toBe(restored);
+    expect(within(restored).getAllByRole("link").every((link) => link.tabIndex === -1)).toBe(true);
   });
 });

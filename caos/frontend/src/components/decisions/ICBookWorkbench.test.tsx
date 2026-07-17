@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   patchAgenda: vi.fn(),
   finalizeAgenda: vi.fn(),
   vote: vi.fn(),
+  listOpinions: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -32,6 +33,9 @@ vi.mock("@/lib/api", () => ({
   getPortfolios: mocks.getPortfolios,
   listRuns: mocks.listRuns,
   toErrorMessage: (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback,
+}));
+vi.mock("@/lib/analyst-opinions", () => ({
+  analystOpinionsApi: { list: mocks.listOpinions },
 }));
 vi.mock("@/lib/ic-book", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ic-book")>();
@@ -50,6 +54,10 @@ vi.mock("@/lib/analysis-workbench", async (importOriginal) => {
 });
 
 import { ICBookWorkbench } from "./ICBookWorkbench";
+
+function tableRow(label: RegExp): HTMLTableRowElement {
+  return screen.getAllByText(label).map((element) => element.closest("tr")).find((row): row is HTMLTableRowElement => row != null)!;
+}
 
 const agenda = {
   id: "agenda-1", issuer_id: "issuer-1", portfolio_id: "portfolio-1", owner_id: "analyst-1",
@@ -85,12 +93,19 @@ beforeEach(() => {
   mocks.patchAgenda.mockReset().mockResolvedValue(agenda);
   mocks.finalizeAgenda.mockReset().mockResolvedValue({ agenda: { ...agenda, status: "decided", finalized_decision_id: "decision-1" }, decision });
   mocks.vote.mockReset().mockResolvedValue(decision);
+  mocks.listOpinions.mockReset().mockResolvedValue({ current: null, items: [] });
 });
 
 describe("IC Book workbench", () => {
   it("shows one table owner and replaces agenda with decision history", async () => {
     render(<ICBookWorkbench />);
-    expect(await screen.findByRole("table", { name: "Committee agenda" })).toBeTruthy();
+    const agendaTable = await screen.findByRole("table", { name: "Committee agenda" });
+    expect(agendaTable).toBeTruthy();
+    expect(screen.getByText("72").closest("td")?.className).toContain("text-right");
+    expect(screen.getByText("Conviction (%)")).toBeTruthy();
+    expect(tableRow(/2026-07-20/).getAttribute("tabindex")).toBe("0");
+    fireEvent.click(screen.getByRole("button", { name: /Meeting/ }));
+    expect(window.location.search).toContain("direction=desc");
     expect(document.querySelectorAll("[data-caos-dominant-table-owner]")).toHaveLength(1);
     fireEvent.click(screen.getByRole("tab", { name: "Decision history" }));
     expect(await screen.findByRole("table", { name: "Decision history" })).toBeTruthy();
@@ -100,7 +115,8 @@ describe("IC Book workbench", () => {
 
   it("previews immutable finalization before calling the endpoint", async () => {
     render(<ICBookWorkbench />);
-    fireEvent.click(await screen.findByRole("button", { name: /2026-07-20/ }));
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
     fireEvent.click(await screen.findByRole("button", { name: "Review finalization" }));
     expect(screen.getByText(/Freeze this committee record/i)).toBeTruthy();
     expect(mocks.finalizeAgenda).not.toHaveBeenCalled();
@@ -113,7 +129,8 @@ describe("IC Book workbench", () => {
     mocks.listAgenda.mockResolvedValueOnce({ items: [draft], next_cursor: null, total: 1 });
     mocks.patchAgenda.mockResolvedValueOnce({ ...draft, thesis: "Updated thesis", revision: 4 });
     render(<ICBookWorkbench />);
-    fireEvent.click(await screen.findByRole("button", { name: /2026-07-20/ }));
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
     fireEvent.click(screen.getByRole("button", { name: "Edit preparation" }));
     const inspector = screen.getByRole("article", { name: "Agenda inspector" });
     fireEvent.change(within(inspector).getByLabelText("Thesis"), { target: { value: "Updated thesis" } });
@@ -194,7 +211,8 @@ describe("IC Book workbench", () => {
     const repeatedHour = { ...agenda, scheduled_for: "2026-10-25T01:30:00Z", status: "draft", revision: 4 };
     mocks.listAgenda.mockResolvedValueOnce({ items: [repeatedHour], next_cursor: null, total: 1 });
     render(<ICBookWorkbench />);
-    fireEvent.click(await screen.findByRole("button", { name: /2026-10-25/ }));
+    await screen.findByText(/2026-10-25/);
+    fireEvent.click(tableRow(/2026-10-25/));
     fireEvent.click(screen.getByRole("button", { name: "Edit preparation" }));
     fireEvent.click(within(screen.getByRole("article", { name: "Agenda inspector" })).getByRole("button", { name: "Save preparation" }));
     await waitFor(() => expect(mocks.patchAgenda).toHaveBeenCalledWith("agenda-1", expect.objectContaining({
@@ -222,7 +240,8 @@ describe("IC Book workbench", () => {
       authority: { approval_state: "ratified", as_of: "2026-07-13", source_ids: ["run-1", "report-1", "module-db-1", "claim-db-1", "evidence-db-1", "chunk-db-1", "document-db-1"] },
     } }], next_cursor: null, total: 1 });
     render(<ICBookWorkbench />);
-    fireEvent.click(await screen.findByRole("button", { name: /2026-07-13/ }));
+    await screen.findByText(/2026-07-13/);
+    fireEvent.click(tableRow(/2026-07-13/));
     expect(screen.getByRole("link", { name: "report-1" }).getAttribute("href")).toContain("/reports?issuer=issuer-1&report=report-1&context=ctx-1");
     for (const sourceId of ["module-db-1", "claim-db-1", "evidence-db-1", "chunk-db-1", "document-db-1"]) {
       expect(screen.getByRole("link", { name: sourceId }).getAttribute("href")).toContain("evidence=E-44");
@@ -244,9 +263,10 @@ describe("IC Book workbench", () => {
     window.history.replaceState({}, "", "/decisions?dataset=history&context=ctx-1");
     mocks.listDecisions.mockResolvedValueOnce({ items: [decision, second], next_cursor: null, total: 2 });
     render(<ICBookWorkbench />);
-    fireEvent.click(await screen.findByRole("button", { name: /2026-07-13/ }));
+    await screen.findByText(/2026-07-13/);
+    fireEvent.click(tableRow(/2026-07-13/));
     fireEvent.change(screen.getByLabelText("Dissent rationale"), { target: { value: "Issuer-specific objection" } });
-    fireEvent.click(screen.getByRole("button", { name: /2026-07-14/ }));
+    fireEvent.click(tableRow(/2026-07-14/));
     expect((screen.getByLabelText("Dissent rationale") as HTMLTextAreaElement).value).toBe("");
   });
 });

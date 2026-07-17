@@ -8,6 +8,7 @@
 import { useEffect, useId, useState } from "react";
 import { createQaFlag, listQaFlags } from "@/lib/api";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+import { ActionReason } from "@/components/shared/ActionReason";
 
 export function FlagToQa({ moduleId, stepRef }: { moduleId: string; stepRef: string }) {
   const [phase, setPhase] = useState<"idle" | "composing" | "submitting" | "flagged" | "error">("idle");
@@ -60,20 +61,20 @@ export function FlagToQa({ moduleId, stepRef }: { moduleId: string; stepRef: str
           className="rounded border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-md text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos placeholder:text-caos-muted resize-y"
         />
         <div className="flex gap-1.5">
-          <button
+          <ActionReason
             onClick={submit}
-            disabled={phase === "submitting"}
-            className="tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
+            reason={phase === "submitting" ? "Submitting flag to QA…" : null}
+            className="tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
           >
             {phase === "submitting" ? "FLAGGING…" : "CONFIRM FLAG"}
-          </button>
-          <button
+          </ActionReason>
+          <ActionReason
             onClick={() => setPhase("idle")}
-            disabled={phase === "submitting"}
-            className="tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring disabled:opacity-40"
+            reason={phase === "submitting" ? "Can't cancel while the flag is submitting" : null}
+            className="tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring aria-disabled:opacity-40"
           >
             CANCEL
-          </button>
+          </ActionReason>
         </div>
       </div>
     );

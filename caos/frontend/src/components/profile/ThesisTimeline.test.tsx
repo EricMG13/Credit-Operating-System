@@ -50,9 +50,9 @@ it("recovers history loading and realizes an outstanding prediction", async () =
 
   const realized = screen.getByRole("spinbutton", { name: "Realized EBITDA" }) as HTMLInputElement;
   const set = screen.getByRole("button", { name: "SET" }) as HTMLButtonElement;
-  expect(set.disabled).toBe(true);
+  expect(set.getAttribute("aria-disabled")).toBe("true");
   fireEvent.change(realized, { target: { value: "not-a-number" } });
-  expect(set.disabled).toBe(true);
+  expect(set.getAttribute("aria-disabled")).toBe("true");
   fireEvent.change(realized, { target: { value: "442" } });
   fireEvent.click(set);
   expect(await screen.findByText("442")).toBeTruthy();
@@ -72,7 +72,7 @@ it("saves a predicted thesis, handles a failed save, and toggles editing", async
   await screen.findByText(/No thesis version/);
   fireEvent.click(screen.getByRole("button", { name: "+ VERSION" }));
   const initiallyDisabled = screen.getByRole("button", { name: "SAVE VERSION" }) as HTMLButtonElement;
-  initiallyDisabled.disabled = false;
+  expect(initiallyDisabled.getAttribute("aria-disabled")).toBe("true");
   fireEvent.click(initiallyDisabled);
   expect(createThesisVersion).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText("New thesis version"), { target: { value: "Refinancing closes" } });

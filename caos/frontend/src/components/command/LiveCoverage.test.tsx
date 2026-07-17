@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import type { PortfolioRowDTO } from "@/lib/api";
 import { LiveCoverage } from "./LiveCoverage";
 
@@ -33,6 +33,21 @@ describe("LiveCoverage", () => {
     })]} />);
     // net lev, int cov, RV, fragility all absent → four em-dashes in the row
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("sorts the observed dataset with a keyboard-operable header control", () => {
+    render(<LiveCoverage rows={[
+      row({ issuer_id: "i1", ticker: "BETF", name: "Beta Fiber", metrics: { net_leverage: 6.1, interest_coverage: 2.1 } }),
+      row({ issuer_id: "i2", ticker: "AURC", name: "Aurora Cables", metrics: { net_leverage: 4.2, interest_coverage: 2.1 } }),
+    ]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort NetLev ascending" }));
+    const orderedRows = screen.getAllByRole("row", { name: /details/ });
+    expect(orderedRows.map((item) => item.getAttribute("aria-label"))).toEqual([
+      expect.stringContaining("AURC"),
+      expect.stringContaining("BETF"),
+    ]);
+    expect(screen.getByRole("button", { name: "Sort NetLev descending" })).toBeTruthy();
   });
 
   it("supports selection via click and keyboard (Enter/Space)", () => {
@@ -72,5 +87,68 @@ describe("LiveCoverage", () => {
     fireEvent.click(screen.getByRole("link", { name: "AURC" }));
     fireEvent.keyDown(screen.getByRole("link", { name: "Aurora Cables" }), { key: "Enter" });
     expect(handleSelect).not.toHaveBeenCalled();
+  });
+
+  it("exposes semantic headers and one roving row tab stop with vertical arrow navigation", () => {
+    const handleSelect = vi.fn();
+    const rows = [
+      row({ issuer_id: "i1", ticker: "AURC", name: "Aurora Cables" }),
+      row({ issuer_id: "i2", ticker: "BETF", name: "Beta Fiber" }),
+    ];
+    const { rerender } = render(<LiveCoverage rows={rows} onSelect={handleSelect} />);
+
+    const grid = screen.getByRole("grid", { name: "Live coverage worklist" });
+    expect(grid.getAttribute("aria-rowcount")).toBe("3");
+    expect(screen.getByRole("columnheader", { name: /NetLev/ }).querySelector("button")?.className).toContain("text-right");
+    expect(screen.getAllByRole("rowheader")).toHaveLength(2);
+
+    const dataRows = screen.getAllByRole("row", { name: /details/ });
+    expect(dataRows.filter((item) => item.tabIndex === 0)).toHaveLength(1);
+    dataRows[0].focus();
+    fireEvent.keyDown(dataRows[0], { key: "ArrowDown" });
+    expect(document.activeElement).toBe(dataRows[1]);
+    expect(dataRows[0].tabIndex).toBe(-1);
+    expect(dataRows[1].tabIndex).toBe(0);
+    expect(handleSelect).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(dataRows[1], { key: "Enter" });
+    expect(handleSelect).toHaveBeenCalledWith("i2");
+
+    const firstLinks = within(dataRows[0]).getAllByRole("link");
+    const secondLinks = within(dataRows[1]).getAllByRole("link");
+    expect([...firstLinks, ...secondLinks].every((link) => link.tabIndex === -1)).toBe(true);
+    expect(dataRows[0].getAttribute("aria-keyshortcuts")).toBe("F2");
+    expect(document.getElementById(dataRows[0].getAttribute("aria-describedby")!)?.textContent).toContain("Press F2");
+
+    dataRows[0].focus();
+    fireEvent.keyDown(dataRows[0], { key: "F2" });
+    expect(document.activeElement).toBe(firstLinks[0]);
+    expect(firstLinks.every((link) => link.tabIndex === 0)).toBe(true);
+    expect(secondLinks.every((link) => link.tabIndex === -1)).toBe(true);
+    rerender(<LiveCoverage rows={rows} onSelect={handleSelect} />);
+    expect(within(screen.getByRole("row", { name: /AURC/ })).getAllByRole("link").every((link) => link.tabIndex === 0)).toBe(true);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(document.activeElement).toBe(screen.getByRole("row", { name: /AURC/ }));
+    expect(within(screen.getByRole("row", { name: /AURC/ })).getAllByRole("link").every((link) => link.tabIndex === -1)).toBe(true);
+  });
+
+  it("hands focus across the virtual window boundary instead of clamping at the last rendered row", async () => {
+    const rows = Array.from({ length: 100 }, (_, index) => row({
+      issuer_id: `issuer-${index}`,
+      ticker: `T${index}`,
+      name: `Issuer ${index}`,
+    }));
+    render(<LiveCoverage rows={rows} onSelect={() => undefined} />);
+
+    const rendered = screen.getAllByRole("row", { name: /details/ });
+    const lastRendered = rendered.at(-1)!;
+    const currentIndex = Number(lastRendered.getAttribute("aria-rowindex")) - 2;
+    expect(currentIndex).toBeLessThan(rows.length - 1);
+    lastRendered.focus();
+    fireEvent.keyDown(lastRendered, { key: "ArrowDown" });
+
+    const nextRow = await waitFor(() => screen.getByRole("row", { name: new RegExp(`T${currentIndex + 1} .*details`) }));
+    expect(document.activeElement).toBe(nextRow);
+    expect(nextRow.getAttribute("aria-rowindex")).toBe(String(currentIndex + 3));
   });
 });

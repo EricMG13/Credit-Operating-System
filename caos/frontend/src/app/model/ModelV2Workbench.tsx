@@ -7,6 +7,7 @@ import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { useNavigationGuard } from "@/components/shared/NavigationGuardProvider";
 import { ScenarioNetworkPanel } from "@/components/model/ScenarioNetworkPanel";
+import { Button } from "@/components/ui/Button";
 import {
   calculateModelV2,
   commitModelV2Workbook,
@@ -24,6 +25,7 @@ import {
   toErrorMessage,
 } from "@/lib/api";
 import type {
+  ModelV2Authority,
   ModelV2Calculation,
   ModelV2CellOverride,
   ModelV2Checkpoint,
@@ -79,6 +81,12 @@ interface DisplayNode extends ModelV2Node {
   period_key: string;
   period_label: string;
   period_kind: string;
+}
+
+interface NodeOrigin {
+  label: "LIVE" | "DERIVED" | "REFERENCE" | "ANALYST" | "IMPORTED" | "UNAVAILABLE";
+  glyph: "●" | "ƒ" | "◇" | "△" | "↧" | "○";
+  title: string;
 }
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -263,6 +271,62 @@ function flattenNodes(calculation: ModelV2Calculation | null): DisplayNode[] {
     period_label: period.label,
     period_kind: period.kind,
   })));
+}
+
+function authorityOrigin(authority: ModelV2Authority | undefined): NodeOrigin {
+  if (!authority) {
+    return { label: "UNAVAILABLE", glyph: "○", title: "No authority is attached to this input." };
+  }
+  if (authority.origin === "analyst") {
+    return { label: "ANALYST", glyph: "△", title: authority.method || "Analyst-authored input." };
+  }
+  if (authority.origin === "reference") {
+    return { label: "REFERENCE", glyph: "◇", title: authority.method || "Reference input." };
+  }
+  if (authority.source_ids.length === 0) {
+    return {
+      label: "UNAVAILABLE",
+      glyph: "○",
+      title: `${authority.origin.toUpperCase()} authority has no persisted source identifier.`,
+    };
+  }
+  if (authority.origin === "imported") {
+    return { label: "IMPORTED", glyph: "↧", title: authority.method || "Imported source input." };
+  }
+  return { label: "LIVE", glyph: "●", title: authority.method || "Live persisted source input." };
+}
+
+function nodeOrigin(
+  node: DisplayNode,
+  payload: ModelV2DraftPayload | null,
+  mutation: ModelV2OverrideBatchMutation | undefined,
+): NodeOrigin {
+  if (mutation?.action === "set" || (!mutation && node.overridden)) {
+    return { label: "ANALYST", glyph: "△", title: "Analyst override." };
+  }
+  if (node.value == null) {
+    return { label: "UNAVAILABLE", glyph: "○", title: "No calculated value is available." };
+  }
+  if (node.formula) {
+    return { label: "DERIVED", glyph: "ƒ", title: `Formula-derived: ${node.formula}` };
+  }
+  if (!payload) return authorityOrigin(undefined);
+
+  const parts = node.node_id.split(":");
+  if (parts[0] === "input") {
+    return authorityOrigin(payload.periods.find((period) => period.period_key === parts[1])?.authority);
+  }
+  if (parts[0] === "debt") {
+    return authorityOrigin(payload.debt_instruments.find((instrument) => instrument.instrument_id === parts[1])?.authority);
+  }
+  return authorityOrigin(undefined);
+}
+
+function originClassName(origin: NodeOrigin["label"]): string {
+  if (origin === "LIVE") return "text-caos-success";
+  if (origin === "ANALYST") return "text-caos-accent";
+  if (origin === "UNAVAILABLE") return "text-caos-muted";
+  return "text-caos-text";
 }
 
 function formatValue(value: number | null): string {
@@ -1157,22 +1221,20 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
               Canonical CAOS exports need no mapping. For a close-format workbook, provide reviewed column bindings.
             </p>
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 onClick={setCloseFormatTemplate}
-                disabled={busy !== null}
-                className="caos-action-secondary focus-ring disabled:opacity-40"
+                reason={busy !== null ? "An action is already in progress" : null}
               >
                 Use row-record template
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={setMatrixTemplate}
-                disabled={busy !== null}
-                className="caos-action-secondary focus-ring disabled:opacity-40"
+                reason={busy !== null ? "An action is already in progress" : null}
               >
                 Use account matrix template
-              </button>
+              </Button>
             </div>
           </div>
           <label className="mt-2 block text-caos-xs text-caos-text">
@@ -1187,14 +1249,19 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
             />
           </label>
         </div>
-        <button
-          type="button"
+        <Button
+          variant="secondary"
           onClick={() => void previewImport()}
-          disabled={!importFile || dirty || busy !== null}
-          className="caos-action-secondary focus-ring disabled:opacity-40"
+          reason={!importFile
+            ? "Select a workbook file first"
+            : dirty
+              ? "Discard or save local pending edits first"
+              : busy !== null
+                ? "An action is already in progress"
+                : null}
         >
           {busy === "import-preview" ? "Validating…" : "Preview workbook"}
-        </button>
+        </Button>
         {importPreview ? (
           <div className="space-y-2 rounded border border-caos-border bg-caos-bg/50 p-2 text-caos-xs">
             <p className="tabular text-caos-text">
@@ -1264,14 +1331,23 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
               />
               I reviewed this preview and confirm creating or replacing the canonical model revision.
             </label>
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() => void commitImport()}
-              disabled={!importConfirmed || !importPreview.preview_token || importPreview.blocking_count > 0 || importPreview.ambiguities.length > 0 || busy !== null}
-              className="caos-primary-action focus-ring disabled:opacity-40"
+              reason={importPreview.blocking_count > 0
+                ? "Resolve blocking validation issues first"
+                : importPreview.ambiguities.length > 0
+                  ? "Resolve duplicate row or column selections first"
+                  : !importPreview.preview_token
+                    ? "Re-preview the workbook to get a valid preview token"
+                    : !importConfirmed
+                      ? "Confirm the review checkbox first"
+                      : busy !== null
+                        ? "An action is already in progress"
+                        : null}
             >
               {busy === "import-commit" ? "Committing…" : "Commit workbook import"}
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>
@@ -1336,33 +1412,43 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
             <button
               type="button"
               onClick={() => void recalculateAndSave()}
-              disabled={dirty || busy !== null}
+              aria-disabled={(dirty || busy !== null) || undefined}
               title={dirty ? "Commit or discard local pending edits first" : "Persist the current server calculation without changing model inputs"}
-              className="caos-primary-action focus-ring disabled:opacity-40"
+              className="caos-primary-action focus-ring aria-disabled:opacity-40"
             >
               {busy === "recalculate" ? "Saving…" : "Recalculate & save"}
             </button>
           ) : null}
-          <button
-            type="button"
+          <Button
+            variant={requiresRecalculation ? "secondary" : "primary"}
             onClick={() => void commitPending()}
-            disabled={requiresRecalculation || pendingCount === 0 || editorDirty || !previewCalculation || busy !== null}
-            className={requiresRecalculation
-              ? "caos-action-secondary focus-ring disabled:opacity-40"
-              : "caos-primary-action focus-ring disabled:opacity-40"}
+            reason={requiresRecalculation
+              ? "Recalculate and save the current server calculation first"
+              : pendingCount === 0
+                ? "No pending overrides to commit"
+                : editorDirty
+                  ? "Queue or cancel the open editor change first"
+                  : !previewCalculation
+                    ? "Preview the pending overrides first"
+                    : busy !== null
+                      ? "An action is already in progress"
+                      : null}
           >
             {busy === "commit" ? "Committing…" : `Commit ${pendingCount} pending`}
-          </button>
+          </Button>
         </span>
       ) : (
-        <button
-          type="button"
+        <Button
+          variant="primary"
           onClick={() => void saveSuggestion()}
-          disabled={saveContractMissing || busy !== null}
-          className="caos-primary-action focus-ring disabled:opacity-40"
+          reason={saveContractMissing
+            ? "No owned source run was identified to save against"
+            : busy !== null
+              ? "An action is already in progress"
+              : null}
         >
           {busy === "save-suggestion" ? "Saving…" : "Save suggested draft"}
-        </button>
+        </Button>
       )}
       status={
         <span className="tabular text-caos-2xs text-caos-muted">
@@ -1380,30 +1466,47 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
       }
       contextualControls={record ? (
         <span className="flex items-center gap-1">
-          <button
-            type="button"
+          <Button
+            variant="secondary"
             onClick={() => void previewPending()}
-            disabled={requiresRecalculation || pendingCount === 0 || editorDirty || busy !== null}
-            className="caos-action-secondary focus-ring disabled:opacity-40"
+            reason={requiresRecalculation
+              ? "Recalculate and save the current server calculation first"
+              : pendingCount === 0
+                ? "No pending overrides to preview"
+                : editorDirty
+                  ? "Queue or cancel the open editor change first"
+                  : busy !== null
+                    ? "An action is already in progress"
+                    : null}
           >
             {busy === "preview" ? "Calculating…" : "Preview pending"}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() => void replayHistory("undo")}
-            disabled={!undoEventId || dirty || busy !== null}
-            className="caos-action-secondary focus-ring disabled:opacity-40"
+            reason={!undoEventId
+              ? "No committed change available to undo"
+              : dirty
+                ? "Commit or discard local pending edits first"
+                : busy !== null
+                  ? "An action is already in progress"
+                  : null}
           >
             Undo
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() => void replayHistory("redo")}
-            disabled={!redoEventId || dirty || busy !== null}
-            className="caos-action-secondary focus-ring disabled:opacity-40"
+            reason={!redoEventId
+              ? "No undone change available to redo"
+              : dirty
+                ? "Commit or discard local pending edits first"
+                : busy !== null
+                  ? "An action is already in progress"
+                  : null}
           >
             Redo
-          </button>
+          </Button>
         </span>
       ) : undefined}
       utilityLabel="Model v2 tools"
@@ -1412,9 +1515,9 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
           <button
             type="button"
             onClick={() => void downloadWorkbook()}
-            disabled={requiresRecalculation || dirty || busy !== null}
+            aria-disabled={(requiresRecalculation || dirty || busy !== null) || undefined}
             title={requiresRecalculation ? "Recalculate and save before exporting" : "Export the persisted canonical workbook"}
-            className="caos-action-secondary focus-ring disabled:opacity-40"
+            className="caos-action-secondary focus-ring aria-disabled:opacity-40"
           >
             {busy === "export" ? "Exporting…" : "Export workbook"}
           </button>
@@ -1502,22 +1605,20 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
               <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
                 Page {boundedNodePage + 1} / {nodePageCount}
               </span>
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 onClick={() => setNodePage((current) => Math.max(0, current - 1))}
-                disabled={boundedNodePage === 0}
-                className="caos-action-secondary focus-ring disabled:opacity-40"
+                reason={boundedNodePage === 0 ? "Already at the first page" : null}
               >
                 Previous nodes
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => setNodePage((current) => Math.min(nodePageCount - 1, current + 1))}
-                disabled={boundedNodePage >= nodePageCount - 1}
-                className="caos-action-secondary focus-ring disabled:opacity-40"
+                reason={boundedNodePage >= nodePageCount - 1 ? "Already at the last page" : null}
               >
                 Next nodes
-              </button>
+              </Button>
             </div>
             <div className="overflow-auto">
               <table className="w-full min-w-[980px] border-collapse text-left tabular text-caos-xs">
@@ -1529,6 +1630,7 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
                     <th scope="col" className="px-2 py-2 text-right">Value</th>
                     <th scope="col" className="px-2 py-2 text-right">Original</th>
                     <th scope="col" className="px-2 py-2">Formula</th>
+                    <th scope="col" className="px-2 py-2">Origin</th>
                     <th scope="col" className="px-2 py-2">State</th>
                     <th scope="col" className="px-2 py-2 text-right">Action</th>
                   </tr>
@@ -1536,6 +1638,7 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
                 <tbody>
                   {visibleNodes.map((node) => {
                     const mutation = pending[node.node_id];
+                    const origin = nodeOrigin(node, payload, mutation);
                     const restorable = activeOverrides.has(node.node_id) || mutation?.action === "set";
                     return (
                       <tr key={node.node_id} className="border-b border-caos-border/60 align-top hover:bg-caos-elevated/50">
@@ -1548,6 +1651,14 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
                         <td className="px-2 py-2 text-right font-mono text-caos-muted">{formatValue(node.original_value)}</td>
                         <td className="max-w-[320px] px-2 py-2 font-mono text-caos-muted">{node.formula ?? "INPUT"}</td>
                         <td className="px-2 py-2">
+                          <span
+                            className={`whitespace-nowrap text-caos-2xs font-semibold uppercase tracking-wider ${originClassName(origin.label)}`}
+                            title={origin.title}
+                          >
+                            {origin.glyph} {origin.label}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2">
                           {mutationLabel(mutation) ? (
                             <span className="text-caos-warning">{mutationLabel(mutation)}</span>
                           ) : node.overridden ? (
@@ -1558,26 +1669,36 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
                         </td>
                         <td className="px-2 py-2">
                           <span className="flex justify-end gap-1">
-                            <button
-                              type="button"
+                            <Button
+                              variant="secondary"
                               onClick={() => beginEdit(node)}
-                              disabled={!record || editorDirty || busy !== null}
-                              title={editorDirty ? "Queue or cancel the open editor change first" : undefined}
                               aria-label={`Edit ${node.node_id}`}
-                              className="caos-action-secondary focus-ring disabled:opacity-40"
+                              reason={!record
+                                ? "Save the suggested draft before editing"
+                                : editorDirty
+                                  ? "Queue or cancel the open editor change first"
+                                  : busy !== null
+                                    ? "An action is already in progress"
+                                    : null}
                             >
                               Edit
-                            </button>
-                            <button
-                              type="button"
+                            </Button>
+                            <Button
+                              variant="secondary"
                               onClick={() => restoreNode(node.node_id)}
-                              disabled={!record || !restorable || editorDirty || busy !== null}
-                              title={editorDirty ? "Queue or cancel the open editor change first" : undefined}
                               aria-label={`Restore ${node.node_id}`}
-                              className="caos-action-secondary focus-ring disabled:opacity-40"
+                              reason={!record
+                                ? "Save the suggested draft before editing"
+                                : !restorable
+                                  ? "No override or pending change to restore"
+                                  : editorDirty
+                                    ? "Queue or cancel the open editor change first"
+                                    : busy !== null
+                                      ? "An action is already in progress"
+                                      : null}
                             >
                               Restore
-                            </button>
+                            </Button>
                           </span>
                         </td>
                       </tr>
@@ -1585,7 +1706,7 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
                   })}
                   {visibleNodes.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-3 py-6 text-center text-caos-xs text-caos-muted">
+                      <td colSpan={8} className="px-3 py-6 text-center text-caos-xs text-caos-muted">
                         No calculation nodes match the current filters.
                       </td>
                     </tr>
@@ -1711,32 +1832,40 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
                   />
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
+                  <Button
+                    variant="secondary"
                     onClick={() => void previewScenario()}
-                    disabled={
+                    reason={
                       requiresRecalculation
-                      || !scenarioNodeId
-                      || !scenarioValue.trim()
-                      || !Number.isFinite(Number(scenarioValue))
-                      || editorDirty
-                      || busy !== null
+                        ? "Recalculate and save the current server calculation first"
+                        : !scenarioNodeId
+                          ? "Select a scenario node first"
+                          : !scenarioValue.trim()
+                            ? "Enter a scenario value first"
+                            : !Number.isFinite(Number(scenarioValue))
+                              ? "Enter a finite scenario value"
+                              : editorDirty
+                                ? "Queue or cancel the open editor change first"
+                                : busy !== null
+                                  ? "An action is already in progress"
+                                  : null
                     }
-                    className="caos-action-secondary focus-ring disabled:opacity-40"
                   >
                     {busy === "scenario-preview" ? "Calculating…" : "Preview sensitivity"}
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
+                    variant="secondary"
                     onClick={resetScenario}
-                    disabled={
+                    reason={
                       (!scenarioNodeId && !scenarioValue && !scenarioPreview)
-                      || (busy !== null && busy !== "scenario-preview")
+                        ? "No sensitivity inputs to reset"
+                        : (busy !== null && busy !== "scenario-preview")
+                          ? "An action is already in progress"
+                          : null
                     }
-                    className="caos-action-secondary focus-ring disabled:opacity-40"
                   >
                     Reset sensitivity
-                  </button>
+                  </Button>
                 </div>
                 <p className="text-caos-xs leading-relaxed text-caos-muted lg:col-span-4">
                   Applies one temporary override to the current working inputs through Model Engine v2. It never enters the manual mutation queue.
@@ -1816,8 +1945,8 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
                   <button
                     type="button"
                     onClick={() => void createCheckpoint()}
-                    disabled={!record || !(contextId ?? record.context_id) || requiresRecalculation || dirty || busy !== null}
-                    className="caos-action-secondary focus-ring disabled:opacity-40"
+                    aria-disabled={(!record || !(contextId ?? record.context_id) || requiresRecalculation || dirty || busy !== null) || undefined}
+                    className="caos-action-secondary focus-ring aria-disabled:opacity-40"
                     title={requiresRecalculation
                       ? "Recalculate and save before checkpointing"
                       : contextId ?? record?.context_id
@@ -1834,14 +1963,17 @@ export function ModelV2Workbench({ issuerId, contextId, exactRunId, initialRespo
                         <span className="block truncate">{checkpoint.label}</span>
                         <span className="tabular text-caos-3xs text-caos-muted">REV {checkpoint.draft_revision} · {fmtLocalDateTime(checkpoint.created_at)}</span>
                       </span>
-                      <button
-                        type="button"
+                      <Button
+                        variant="secondary"
                         onClick={() => void restoreCheckpoint(checkpoint)}
-                        disabled={!record || busy !== null}
-                        className="caos-action-secondary focus-ring disabled:opacity-40"
+                        reason={!record
+                          ? "Save the suggested draft first"
+                          : busy !== null
+                            ? "An action is already in progress"
+                            : null}
                       >
                         Restore
-                      </button>
+                      </Button>
                     </div>
                   )) : <p className="p-2 text-caos-xs text-caos-muted">No Model Engine v2 checkpoints.</p>}
                 </div>

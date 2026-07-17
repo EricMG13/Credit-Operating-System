@@ -334,9 +334,9 @@ export function Inspector({
           </span>
         </div>
       ) : null}
-      {planEntry && planEntry.event && ["pass", "warning", "held"].includes(st) ? (
+      {planEntry && planEntry.event && ["pass", "warning", "held", "blocked"].includes(st) ? (
         <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">Latest payload</div>
+          <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">{st === "blocked" ? "Persisted block status" : "Latest payload"}</div>
           <div className="text-caos-lg text-caos-text leading-snug">{planEntry.event}</div>
         </div>
       ) : null}

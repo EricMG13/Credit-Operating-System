@@ -15,9 +15,10 @@ import Link from "next/link";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { SurfaceState } from "@/components/shared/SurfaceState";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { useAutonomyDraft, type AutonomyDraftState } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, requiredActionFor, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
-import { getAlertStates, setAlertState, type AlertStateDTO } from "@/lib/api";
+import { getAlertStates, setAlertState, toErrorMessage, type AlertStateDTO } from "@/lib/api";
 
 function issuerHref(row: AlertRow): string {
   const q = row.issuerId ?? row.issuerName;
@@ -35,6 +36,8 @@ export function RankedChanges() {
 export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
   const { draft, loading, offline } = state;
   const [states, setStates] = useState<Map<string, AlertStateDTO>>(new Map());
+  const [ackPending, setAckPending] = useState<string | null>(null);
+  const [ackErrors, setAckErrors] = useState<Map<string, string>>(new Map());
 
   const rows = draft ? draftToAlertRows(draft) : [];
 
@@ -57,9 +60,18 @@ export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
   }, [draft?.generated_at]);
 
   const ack = (key: string) => {
+    if (ackPending) return;
+    setAckPending(key);
+    setAckErrors((errors) => {
+      const next = new Map(errors);
+      next.delete(key);
+      return next;
+    });
     setAlertState(key, "ack").then((row) => {
       setStates((m) => new Map(m).set(key, row));
-    });
+    }).catch((reason) => {
+      setAckErrors((errors) => new Map(errors).set(key, toErrorMessage(reason, "Acknowledgement could not be saved.")));
+    }).finally(() => setAckPending(null));
   };
 
   if (loading) {
@@ -105,6 +117,8 @@ export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
         const state = states.get(row.key);
         const acked = state?.state === "ack";
         const resolved = state?.state === "resolved";
+        const ackError = ackErrors.get(row.key);
+        const acknowledging = ackPending === row.key;
         const impact = formatImpact(row);
         return (
           <div key={row.key} className="px-3 py-[6px] border-b border-caos-border/50">
@@ -140,16 +154,16 @@ export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
               >
                 Open →
               </Link>
-              <button
+              <ActionReason
                 type="button"
-                disabled={acked || resolved}
+                reason={acknowledging ? "Saving acknowledgement…" : resolved ? "Resolved on Monitor — this row is closed" : acked ? "Already acknowledged" : null}
                 onClick={() => ack(row.key)}
-                title={resolved ? "Resolved on Monitor — this row is closed" : undefined}
-                className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring disabled:opacity-50 caos-target"
+                className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
               >
-                {resolved ? "Resolved" : acked ? "Acked" : "Ack"}
-              </button>
+                {acknowledging ? "Acknowledging…" : resolved ? "Resolved" : acked ? "Acked" : "Ack"}
+              </ActionReason>
             </div>
+            {ackError ? <p className="mt-1 text-caos-2xs text-caos-critical" role="alert">{ackError} Retry acknowledgement for this unchanged alert.</p> : null}
           </div>
         );
       })}

@@ -11,6 +11,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { SurfaceState, type SurfaceStateKind } from "@/components/shared/SurfaceState";
+import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { buildReports } from "@/lib/reports/builders";
 import { listRuns } from "@/lib/api";
@@ -155,7 +156,7 @@ function PipelineVisualizer() {
   // NOT silently render the animated green-PASS demo. Show an honest state instead.
   // The ATLF reference issuer keeps the demo — it is the labelled showcase.
   const blockingState: "error" | "in_flight" | "none" | null =
-    !isReference && liveMode && phase !== "complete" && phase !== "loading"
+    !isReference && liveMode && live == null && phase !== "complete" && phase !== "loading"
       ? phase
       : null;
   // While a *real* issuer's run is still loading, blockingState is null and
@@ -171,6 +172,11 @@ function PipelineVisualizer() {
   const completed = useLive ? live!.completed : run.completed;
   const total = useLive ? live!.total : run.total;
   const modeLabel = useLive ? "LIVE" : mode.label;
+  const liveIsPartial = useLive && ["queued", "running", "failed"].includes(live!.status);
+  const partialBlocked = live?.blocked ?? [];
+  const rerunHref = analysis.context
+    ? contextHref("/upload", analysis.context.id, { issuer: issuerId })
+    : `/upload?issuer=${encodeURIComponent(issuerId)}`;
 
   const cp5 = sim.mods["CP-5"]?.state || "idle";
   const clearance = deriveClearance({ useLive, live, cp5, modeDone: mode.done });
@@ -387,6 +393,33 @@ function PipelineVisualizer() {
         onSelect={selectRun}
       />
       </DominantTableRegion>
+      {liveIsPartial ? (
+        <PanelShell
+          title="Persisted execution snapshot"
+          className="shrink-0 mx-2"
+          right={<Tag sev={live!.status === "failed" ? "blocked" : "running"}>{live!.status === "failed" ? "FAILED · PARTIAL" : "RUNNING · PARTIAL"}</Tag>}
+        >
+          <div className="p-2 grid gap-2">
+            <p className="text-caos-xs text-caos-muted leading-snug">
+              This is the persisted subset of the selected run, not a completed route simulation. Produced rows remain inspectable; pending rows have not produced output.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              <Tag sev="ok">produced {live!.produced}</Tag>
+              <Tag sev="idle">pending {live!.pending}</Tag>
+              <Tag sev={partialBlocked.length ? "blocked" : "idle"}>blocked {partialBlocked.length}</Tag>
+            </div>
+            {partialBlocked.length ? <div className="grid gap-1 border-t border-caos-border pt-2">
+              {partialBlocked.map((blocked) => (
+                <div key={blocked.moduleId} className="flex flex-wrap items-center gap-2 text-caos-xs">
+                  <Tag sev="blocked">{blocked.moduleId} blocked</Tag>
+                  <span className="text-caos-muted">{blocked.reason ?? "Persisted block reason unavailable."}</span>
+                  {blocked.reason ? <Link href={rerunHref} className="caos-action-secondary no-underline focus-ring">Prepare re-run</Link> : null}
+                </div>
+              ))}
+            </div> : null}
+          </div>
+        </PanelShell>
+      ) : null}
       <PipelineWorkspace
         view={view}
         sim={sim}
@@ -438,54 +471,48 @@ function PipelineRunWorklist({
   // deep-link "0 runs" state pass as normal. Only render nothing once the
   // fetch has settled with a real empty result.
   if (loading) {
-    return (
-      <div role="status" className="mx-2 mt-2 rounded border border-caos-border bg-caos-panel px-3 py-2 tabular text-caos-xs text-caos-muted">
-        Loading run worklist…
-      </div>
-    );
+    return <SurfaceState kind="loading" title="Loading run worklist" compact className="mx-2 mt-2" />;
   }
   if (!runs.length) return null;
+  const visible = runs.slice(0, 20);
+  const columns: DataTableColumn<RunListItemDTO>[] = [
+    { key: "run", header: "Run", rowHeader: true, render: (item) => <span className="text-caos-text">{item.id.slice(0, 8)}</span> },
+    { key: "issuer", header: "Issuer", render: (item) => <span className="text-caos-muted">{item.issuer_id}</span> },
+    {
+      key: "state",
+      header: "State",
+      render: (item) => {
+        const statusKind = item.status === "complete" ? "pass" : item.status === "failed" ? "blocked" : "running";
+        return <Tag sev={statusKind}>{item.status.toUpperCase()}</Tag>;
+      },
+    },
+    { key: "freshness", header: "Freshness", render: (item) => <RunFreshnessCell runId={item.id} /> },
+    { key: "committee", header: "Committee", render: (item) => <span className="text-caos-muted">{item.committee_status || "UNRATED"}</span> },
+    { key: "as-of", header: "As of", render: (item) => <span className="text-caos-muted">{item.as_of_date || "UNKNOWN"}</span> },
+    {
+      key: "action",
+      header: "Action",
+      align: "action",
+      render: (item) => {
+        const selected = selectedRunId === item.id;
+        return (
+          <button type="button" onClick={() => onSelect(item)} aria-pressed={selected} className="caos-action-secondary focus-ring">
+            {selected ? "SELECTED" : "OPEN"}
+          </button>
+        );
+      },
+    },
+  ];
   return (
     <div className="mx-2 mt-2 max-h-28 shrink-0 overflow-auto rounded border border-caos-border bg-caos-panel" aria-label="Recent analysis runs">
-      <table className="w-full min-w-[760px] border-collapse tabular text-caos-xs">
-        <thead className="sticky top-0 z-raised bg-caos-elevated text-caos-muted">
-          <tr>
-            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Run</th>
-            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Issuer</th>
-            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">State</th>
-            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Freshness</th>
-            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">Committee</th>
-            <th scope="col" className="px-2 py-1 text-left font-medium uppercase tracking-wider">As of</th>
-            <th scope="col" className="px-2 py-1 text-right font-medium uppercase tracking-wider">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {runs.slice(0, 20).map((item) => {
-            const selected = selectedRunId === item.id;
-            const statusKind = item.status === "complete" ? "pass" : item.status === "failed" ? "blocked" : "running";
-            return (
-              <tr key={item.id} className={`border-t border-caos-border ${selected ? "bg-caos-accent/10" : "hover:bg-caos-elevated/60"}`}>
-                <td className="px-2 py-1.5 text-caos-text">{item.id.slice(0, 8)}</td>
-                <td className="px-2 py-1.5 text-caos-muted">{item.issuer_id}</td>
-                <td className="px-2 py-1.5"><Tag sev={statusKind}>{item.status.toUpperCase()}</Tag></td>
-                <td className="px-2 py-1.5"><RunFreshnessCell runId={item.id} /></td>
-                <td className="px-2 py-1.5 text-caos-muted">{item.committee_status || "UNRATED"}</td>
-                <td className="px-2 py-1.5 text-caos-muted">{item.as_of_date || "UNKNOWN"}</td>
-                <td className="px-2 py-1 text-right">
-                  <button
-                    type="button"
-                    onClick={() => onSelect(item)}
-                    aria-pressed={selected}
-                    className="caos-action-secondary focus-ring"
-                  >
-                    {selected ? "SELECTED" : "OPEN"}
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <DataTable
+        columns={columns}
+        rows={visible}
+        getRowId={(item) => item.id}
+        rowClassName={(item) => (selectedRunId === item.id ? "bg-caos-accent/10" : "hover:bg-caos-elevated/60")}
+        className="min-w-[760px]"
+        caption="Recent analysis runs"
+      />
     </div>
   );
 }

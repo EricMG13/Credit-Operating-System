@@ -8,11 +8,13 @@
 // docs/PHASE2_SCOPE.md) and are simply absent here, not faked.
 
 import type { PortfolioRowDTO } from "@/lib/api";
-import { useMemo, useState, useRef } from "react";
-import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
 import { fmtMult } from "@/lib/format";
 import { IssuerLink } from "@/components/shared/IssuerLink";
+import { useRovingFocus } from "@/lib/useRovingFocus";
+import { focusFirstRowAction, syncRowActionTabStops } from "@/lib/rowActionMode";
 
 // Shared formatter (lib/format.fmtMult): same 1-dp + "x" + em-dash fallback;
 // the local copy could drift from every other multiple on the desk. Exported:
@@ -51,6 +53,10 @@ export function LiveCoverage({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted focus-ring rounded outline-none";
   const [filters, setFilters] = useState<FilterState>({});
+  const [sort, setSort] = useState<SortState>(null);
+  const [actionRowId, setActionRowId] = useState<string | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const pendingFocusId = useRef<string | null>(null);
   const setFilter = (col: string, values: string[] | undefined) =>
     setFilters((filters) => updateColumnFilter(filters, col, values));
   const vals = useMemo<Record<string, (r: PortfolioRowDTO) => string | number | null | undefined>>(() => ({
@@ -62,7 +68,24 @@ export function LiveCoverage({
     fragility: (r) => r.downside_fragility,
     qa: (r) => r.qa_status,
   }), []);
-  const shown = useColumnFilters(rows, filters, vals);
+  const filtered = useColumnFilters(rows, filters, vals);
+  const shown = useMemo(() => {
+    if (!sort) return filtered;
+    const getValue = vals[sort.col];
+    if (!getValue) return filtered;
+    const direction = sort.dir === "asc" ? 1 : -1;
+    return [...filtered].sort((left, right) => {
+      const a = getValue(left);
+      const b = getValue(right);
+      if (a == null || a === "") return b == null || b === "" ? 0 : 1;
+      if (b == null || b === "") return -1;
+      if (typeof a === "number" && typeof b === "number") return direction * (a - b);
+      return direction * String(a).localeCompare(String(b));
+    });
+  }, [filtered, sort, vals]);
+  const handleSort = (col: string) => setSort((current) =>
+    current?.col !== col ? { col, dir: "asc" } : current.dir === "asc" ? { col, dir: "desc" } : null,
+  );
   const { startIndex, endIndex, paddingTop, paddingBottom } = useVirtualScroll({
     itemCount: shown.length,
     estimateHeight: 28,
@@ -70,14 +93,47 @@ export function LiveCoverage({
     containerRef: scrollerRef,
   });
   const visibleRows = useMemo(() => shown.slice(startIndex, endIndex + 1), [shown, startIndex, endIndex]);
+  const visibleRowIds = useMemo(() => visibleRows.map((row) => row.issuer_id), [visibleRows]);
+  const rowIds = useMemo(() => shown.map((row) => row.issuer_id), [shown]);
+  const { activeId, getItemProps: getRowFocusProps, setActiveId: setActiveRowId } = useRovingFocus(rowIds);
+
+  useEffect(() => {
+    if (selected && visibleRowIds.includes(selected)) setActiveRowId(selected);
+  }, [selected, setActiveRowId, visibleRowIds]);
+
+  useEffect(() => {
+    if (actionRowId && !visibleRowIds.includes(actionRowId)) setActionRowId(null);
+    for (const [id, row] of rowRefs.current) {
+      syncRowActionTabStops(row, actionRowId === id);
+    }
+  }, [actionRowId, rowIds, visibleRowIds]);
+
+  useEffect(() => {
+    const pending = pendingFocusId.current;
+    if (pending) {
+      const row = rowRefs.current.get(pending);
+      if (row) {
+        row.focus();
+        pendingFocusId.current = null;
+      }
+      return;
+    }
+    if (activeId && !visibleRowIds.includes(activeId) && visibleRowIds[0]) {
+      setActiveRowId(visibleRowIds[0]);
+    }
+  }, [activeId, setActiveRowId, visibleRowIds]);
 
   const heads = [
     ["Issuer", "issuer"], ["Sector", "sector"], ["NetLev", "netlev"], ["IntCov", "intcov"],
     ["RV posture", "rv"], ["Fragility", "fragility"], ["QA", "qa"],
   ] as const;
   return (
-    <div role="grid" className="text-caos-md flex-1 min-h-0 flex flex-col" style={{ minWidth: 760, height: "100%" }}>
-      <div role="row" className={COLS + " px-3 h-7 border-b border-caos-border bg-caos-panel z-10 shrink-0"}>
+    <>
+    <p id="live-coverage-grid-help" className="sr-only">
+      Use Up and Down Arrow to move between issuer rows. Press Enter or Space to open row details. Press F2 to enter row actions; press Escape to return to the row.
+    </p>
+    <div role="grid" aria-label="Live coverage worklist" aria-rowcount={shown.length + 1} className="text-caos-md flex-1 min-h-0 flex flex-col" style={{ minWidth: 760, height: "100%" }}>
+      <div role="row" aria-rowindex={1} className={COLS + " px-3 h-7 border-b border-caos-border bg-caos-panel z-10 shrink-0"}>
         {heads.map(([h, key], i) => (
           <FilterHeader
             key={key}
@@ -87,6 +143,9 @@ export function LiveCoverage({
             getValue={vals[key]}
             selected={filters[key]}
             onChange={setFilter}
+            sortable
+            sortState={sort}
+            onSort={handleSort}
             asHeaderCell
             className={th + ([2, 3].includes(i) ? " text-right" : "")}
           >
@@ -96,23 +155,60 @@ export function LiveCoverage({
       </div>
       <div ref={scrollerRef} className="flex-1 overflow-y-auto min-h-0">
         <div style={{ paddingTop, paddingBottom }}>
-          {visibleRows.map((r) => {
+          {visibleRows.map((r, visibleIndex) => {
             const rv = r.rv_recommendation;
             const frag = r.downside_fragility;
             // Stable issuer IDs avoid collisions when tickers are reused.
             const selectKey = r.issuer_id;
             const isSelected = selected === selectKey;
+            const focusProps = getRowFocusProps(selectKey);
 
-            const handleClick = () => {
+            const activate = () => {
               if (onSelect) {
                 onSelect(selectKey);
               }
             };
 
             const handleKeyDown = (e: React.KeyboardEvent) => {
+              if (e.key === "Escape" && actionRowId === selectKey) {
+                e.preventDefault();
+                setActionRowId(null);
+                (e.currentTarget as HTMLElement).focus();
+                return;
+              }
+              if (e.currentTarget !== e.target) return;
+              if (e.key === "F2") {
+                if (focusFirstRowAction(e.currentTarget as HTMLElement)) {
+                  e.preventDefault();
+                  setActionRowId(selectKey);
+                }
+                return;
+              }
+              if (["ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) {
+                e.preventDefault();
+                const currentIndex = rowIds.indexOf(selectKey);
+                const targetIndex = e.key === "Home"
+                  ? 0
+                  : e.key === "End"
+                    ? rowIds.length - 1
+                    : Math.max(0, Math.min(rowIds.length - 1, currentIndex + (e.key === "ArrowDown" ? 1 : -1)));
+                const targetId = rowIds[targetIndex];
+                setActionRowId(null);
+                setActiveRowId(targetId);
+                const targetRow = rowRefs.current.get(targetId);
+                if (targetRow) targetRow.focus();
+                else {
+                  pendingFocusId.current = targetId;
+                  if (scrollerRef.current) {
+                    scrollerRef.current.scrollTop = targetIndex * 28;
+                    scrollerRef.current.dispatchEvent(new Event("scroll"));
+                  }
+                }
+                return;
+              }
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                handleClick();
+                activate();
               }
             };
 
@@ -120,10 +216,28 @@ export function LiveCoverage({
               <div
                 key={r.issuer_id}
                 role="row"
-                tabIndex={0}
-                onClick={handleClick}
+                ref={(element) => {
+                  focusProps.ref(element);
+                  if (element) {
+                    rowRefs.current.set(selectKey, element);
+                    syncRowActionTabStops(element, actionRowId === selectKey);
+                  } else rowRefs.current.delete(selectKey);
+                }}
+                tabIndex={actionRowId === selectKey ? -1 : focusProps.tabIndex}
+                onFocus={focusProps.onFocus}
+                onBlur={(event) => {
+                  if (actionRowId === selectKey && !event.currentTarget.contains(event.relatedTarget as Node | null)) setActionRowId(null);
+                }}
+                onClick={(event) => {
+                  const target = event.target as HTMLElement;
+                  if (target.closest("a, button, input, select, textarea, [role='button'], [role='link']")) return;
+                  activate();
+                }}
                 onKeyDown={handleKeyDown}
+                aria-rowindex={startIndex + visibleIndex + 2}
                 aria-selected={isSelected}
+                aria-keyshortcuts="F2"
+                aria-describedby="live-coverage-grid-help"
                 aria-label={`${r.ticker || ""} ${r.name || ""} details`}
                 className={
                   COLS +
@@ -133,7 +247,7 @@ export function LiveCoverage({
                     : "hover:bg-caos-panel/30 text-caos-text")
                 }
               >
-                <span role="gridcell" className="flex items-center gap-1.5 min-w-0">
+                <span role="rowheader" className="flex items-center gap-1.5 min-w-0">
                   <IssuerLink issuer={{ id: r.issuer_id }} className="tabular text-caos-accent focus-ring rounded" title={`Open ${r.name} profile`}>{r.ticker || "—"}</IssuerLink>
                   <IssuerLink issuer={{ id: r.issuer_id }} className="text-caos-text truncate text-caos-md focus-ring rounded" title={`Open ${r.name} profile`}>{r.name}</IssuerLink>
                 </span>
@@ -160,5 +274,6 @@ export function LiveCoverage({
         </div>
       </div>
     </div>
+    </>
   );
 }

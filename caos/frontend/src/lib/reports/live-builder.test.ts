@@ -97,12 +97,18 @@ describe("live Report Studio composition", () => {
     ] });
     expect(model).toMatchObject({
       t: "table", title: "MODEL ENGINE V2 · CALCULATION · GBP MILLIONS",
-      rows: [expect.objectContaining({ cells: expect.arrayContaining(["FY2026", 110, 190]) })],
+      rows: [expect.objectContaining({ cells: [
+        "FY2026", "FY26e", "800", "110", "17", "190", "170",
+        "1.73x", "1.55x", "6.63x", "66",
+      ] })],
     });
     expect(debt).toMatchObject({
       t: "table", title: "MODEL ENGINE V2 · DEBT SCHEDULE · MILLIONS · REPORTING CURRENCY GBP",
       cols: expect.arrayContaining(["Currency", "Debt (GBP millions)"]),
-      rows: [expect.objectContaining({ cells: expect.arrayContaining(["tlb-1", "GBP", 195, 9.75, 190]) })],
+      rows: [expect.objectContaining({ cells: [
+        "FY2026", "tlb-1", "GBP", "200", "190", "195", "10", "6",
+        "–", "1", "–", "–", "–", "17", "190", "–",
+      ] })],
     });
     expect(overrides).toMatchObject({
       t: "table",
@@ -276,10 +282,10 @@ describe("live Report Studio composition", () => {
       ["Model input origins", "unknown"], ["Model analyst override", "NO"],
     ]) });
     expect(model).toMatchObject({ rows: expect.arrayContaining([
-      { cells: ["FY27", "", "", "", "", "", 90, "", 2, "", 5] },
+      { cells: ["FY27", "", "", "", "", "", "90", "", "2.00x", "", "5"] },
     ]) });
     expect(debt).toMatchObject({ rows: expect.arrayContaining([
-      { cells: ["FY27", "tlb", "Unavailable", "", "", "", 1, "", "", 0, "", "", "", 2, 90, ""] },
+      { cells: ["FY27", "tlb", "Unavailable", "", "", "", "1", "", "", "–", "", "", "", "2", "90", ""] },
     ]) });
     expect(overrides).toMatchObject({ rows: expect.arrayContaining([
       { cells: ["ACTIVE AT REPORT EVENT", "node-empty-expiry", 3, "No expiry", "draft", "Analyst", "No expiry", "No formula (input)", "Unavailable"] },

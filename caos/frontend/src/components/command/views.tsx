@@ -24,6 +24,8 @@ import { onActivate } from "@/lib/a11y";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState } from "@/components/shared/TableColumnFilter";
 import { useVirtualScroll } from "@/lib/useVirtualScroll";
+import { useRovingFocus } from "@/lib/useRovingFocus";
+import { focusFirstRowAction, syncRowActionTabStops } from "@/lib/rowActionMode";
 
 export const POSTURE_COLOR: Record<string, string> = {
   OVERWEIGHT: "var(--caos-success)", HOLD: "var(--caos-muted)",
@@ -71,7 +73,7 @@ export function PostureSummary() {
             <div
               key={k}
               title={k + " · " + by[k]}
-              className="transition-all duration-300"
+              className="transition-[width] duration-[160ms] ease-out motion-reduce:transition-none"
               style={{ width: (by[k] / total) * 100 + "%", background: POSTURE_COLOR[k] }}
             />
           ) : null
@@ -140,7 +142,6 @@ const COL_TITLES: Record<string, string> = {
   QA: "QA clearance status",
   "⚑": "Open alerts",
 };
-
 export function PortfolioTable({
   selected, onSelect,
 }: {
@@ -149,9 +150,12 @@ export function PortfolioTable({
 }) {
   const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const pendingFocusId = useRef<string | null>(null);
   const customizerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [filters, setFilters] = useState<FilterState>({});
+  const [actionRowId, setActionRowId] = useState<string | null>(null);
   const setFilter = (col: string, values: string[] | undefined) =>
     setFilters((filters) => updateColumnFilter(filters, col, values));
 
@@ -174,6 +178,31 @@ export function PortfolioTable({
   });
 
   const visibleItems = useMemo(() => shown.slice(startIndex, endIndex + 1), [shown, startIndex, endIndex]);
+  const visibleRowIds = useMemo(() => visibleItems.map((position) => position.id || position.figi || position.code), [visibleItems]);
+  const rowIds = useMemo(() => shown.map((position) => position.id || position.figi || position.code), [shown]);
+  const { activeId, getItemProps: getRowFocusProps, setActiveId: setActiveRowId } = useRovingFocus(rowIds);
+
+  useEffect(() => {
+    if (selected && visibleRowIds.includes(selected)) setActiveRowId(selected);
+  }, [selected, setActiveRowId, visibleRowIds]);
+
+  useEffect(() => {
+    if (actionRowId && !visibleRowIds.includes(actionRowId)) setActionRowId(null);
+    for (const [id, row] of rowRefs.current) syncRowActionTabStops(row, actionRowId === id);
+  }, [actionRowId, rowIds, visibleRowIds]);
+
+  useEffect(() => {
+    const pending = pendingFocusId.current;
+    if (pending) {
+      const row = rowRefs.current.get(pending);
+      if (row) {
+        row.focus();
+        pendingFocusId.current = null;
+      }
+      return;
+    }
+    if (activeId && !visibleRowIds.includes(activeId) && visibleRowIds[0]) setActiveRowId(visibleRowIds[0]);
+  }, [activeId, setActiveRowId, visibleRowIds]);
 
   const presetKeys = {
     full: ["expand", "code", "name", "sector", "subSector", "figi", "rank", "rating", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "lev", "snrLev", "totalLev", "cov", "posture", "conv", "qa", "alerts"],
@@ -368,6 +397,9 @@ export function PortfolioTable({
 
   return (
     <div className="flex h-full min-h-0 flex-col text-caos-md">
+      <p id="coverage-positions-grid-help" className="sr-only">
+        Use Up and Down Arrow to move between position rows. Press Enter or Space to open row details. Press F2 to enter row actions; press Escape to return to the row.
+      </p>
       <div className="flex shrink-0 items-center overflow-visible whitespace-nowrap border-b border-caos-border px-3 h-9">
         <div className="flex items-center gap-1">
           <span className="shrink-0 tabular text-caos-2xs uppercase tracking-wider text-caos-muted mr-2">View</span>
@@ -451,9 +483,9 @@ export function PortfolioTable({
           )}
         </div>
       </div>
-      <div ref={scrollerRef} role="grid" aria-label="Coverage positions" className="flex-1 min-h-0 overflow-auto">
+      <div ref={scrollerRef} role="grid" aria-label="Coverage positions" aria-rowcount={shown.length + 1} className="flex-1 min-h-0 overflow-auto">
         <div style={{ minWidth }}>
-          <div role="row" className="px-3 h-8.5 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
+          <div role="row" aria-rowindex={1} className="px-3 h-8.5 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
             {activeCols.map((col) => {
               const alignsRight = ["size", "margin", "maturity", "bid", "ask", "dd", "lev", "snrLev", "totalLev", "cov", "conv", "alerts"].includes(col.key);
               if (col.key === "expand") {
@@ -498,20 +530,86 @@ export function PortfolioTable({
           </div>
           {/* fallow-ignore-next-line complexity */}
           <div style={{ paddingTop, paddingBottom }}>
-            {visibleItems.map((p) => {
+            {visibleItems.map((p, visibleIndex) => {
               const key = p.id || p.figi || p.code;
               const sel = selected === key;
+              const focusProps = getRowFocusProps(key);
+              const activate = () => onSelect(sel ? null : key);
               const rowBg = sel ? "bg-caos-elevated/30" : "bg-caos-bg";
               const rowHoverBg = sel ? "hover:bg-caos-elevated/55" : "hover:bg-caos-elevated/35";
               return (
                 <div
                   key={key}
                   role="row"
-                  className={`group relative px-3 py-[5px] border-b border-caos-border/40 transition-caos items-center ${rowBg} ${rowHoverBg} z-0`}
+                  ref={(element) => {
+                    focusProps.ref(element);
+                    if (element) {
+                      rowRefs.current.set(key, element);
+                      syncRowActionTabStops(element, actionRowId === key);
+                    } else rowRefs.current.delete(key);
+                  }}
+                  tabIndex={actionRowId === key ? -1 : focusProps.tabIndex}
+                  onFocus={focusProps.onFocus}
+                  onBlur={(event) => {
+                    if (actionRowId === key && !event.currentTarget.contains(event.relatedTarget as Node | null)) setActionRowId(null);
+                  }}
+                  aria-rowindex={startIndex + visibleIndex + 2}
+                  aria-selected={sel}
+                  aria-keyshortcuts="F2"
+                  aria-describedby="coverage-positions-grid-help"
+                  aria-label={`${p.borrower || p.name} position details`}
+                  onClick={(event) => {
+                    const target = event.target as HTMLElement;
+                    if (target.closest("a, button, input, select, textarea, [role='button'], [role='link']")) return;
+                    activate();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && actionRowId === key) {
+                      event.preventDefault();
+                      setActionRowId(null);
+                      event.currentTarget.focus();
+                      return;
+                    }
+                    if (event.currentTarget !== event.target) return;
+                    if (event.key === "F2") {
+                      if (focusFirstRowAction(event.currentTarget)) {
+                        event.preventDefault();
+                        setActionRowId(key);
+                      }
+                      return;
+                    }
+                    if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
+                      event.preventDefault();
+                      const currentIndex = rowIds.indexOf(key);
+                      const targetIndex = event.key === "Home"
+                        ? 0
+                        : event.key === "End"
+                          ? rowIds.length - 1
+                          : Math.max(0, Math.min(rowIds.length - 1, currentIndex + (event.key === "ArrowDown" ? 1 : -1)));
+                      const targetId = rowIds[targetIndex];
+                      setActionRowId(null);
+                      setActiveRowId(targetId);
+                      const targetRow = rowRefs.current.get(targetId);
+                      if (targetRow) targetRow.focus();
+                      else {
+                        pendingFocusId.current = targetId;
+                        if (scrollerRef.current) {
+                          scrollerRef.current.scrollTop = targetIndex * 33;
+                          scrollerRef.current.dispatchEvent(new Event("scroll"));
+                        }
+                      }
+                      return;
+                    }
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      activate();
+                    }
+                  }}
+                  className={`group relative px-3 py-[5px] border-b border-caos-border/40 transition-caos items-center outline-none focus-ring ${rowBg} ${rowHoverBg} z-0`}
                   style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}
                 >
                   {activeCols.map((col) => (
-                    <div key={col.key} role="gridcell" className="contents">
+                    <div key={col.key} role={col.key === "code" ? "rowheader" : "gridcell"} className="contents">
                       {renderCell(col.key, p, sel)}
                     </div>
                   ))}

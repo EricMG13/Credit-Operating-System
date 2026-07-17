@@ -14,6 +14,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/query" }));
+vi.mock("@/components/query/GraphCanvas", () => ({
+  GraphCanvas: ({ graph }: { graph: { title: string; nodes: unknown[]; edges: unknown[] } }) => (
+    <div role="group" aria-label={`Graph: ${graph.title}`}>{graph.nodes.length} rendered nodes · {graph.edges.length} rendered links</div>
+  ),
+}));
 vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/shared/AnalysisContextStrip", () => ({ AnalysisContextStrip: () => null }));
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -73,6 +78,8 @@ describe("Query investigation workbench", () => {
       context_id: "context-1", selected_lane: "metric", question: "which issuers are most levered",
     })));
     expect(await screen.findByText("Atlas Forge")).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Query metric results" })).toBeTruthy();
+    expect(screen.getByText("Observation")).toBeTruthy();
   });
 
   it("keeps the composer usable and names alternatives when a grounded lane is partial", async () => {
@@ -93,20 +100,69 @@ describe("Query investigation workbench", () => {
     expect(screen.getByLabelText("Query coverage")).toBeTruthy();
   });
 
+  it("routes a graph run through GraphCanvas and reports counts from the rendered payload", async () => {
+    mocks.createQueryRun.mockResolvedValue({
+      id: "run-graph", context_id: "context-1", question: "show graph relationships",
+      selected_lane: "graph", method_override: null, status: "ready",
+      result: {
+        capability_id: "peer-set", mode: "peers", title: "Issuer relationships", meta: [], caveats: [],
+        nodes: [
+          { id: "issuer-a", label: "Atlas Forge", kind: "issuer", x: 0.2, y: 0.4 },
+          { id: "issuer-b", label: "Beacon Cable", kind: "issuer", x: 0.8, y: 0.6 },
+        ],
+        edges: [{ source: "issuer-a", target: "issuer-b", kind: "member" }],
+      },
+      authority: { ...authority, method: "graph" }, error: null,
+      created_at: authority.as_of, updated_at: authority.as_of,
+    });
+    render(<QueryPage />);
+    fireEvent.change(await screen.findByLabelText("Query coverage"), { target: { value: "show graph relationships" } });
+    expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Run Query" }));
+    expect(await screen.findByRole("group", { name: "Graph: Issuer relationships" })).toBeTruthy();
+    expect(screen.getByText("2 nodes · 1 links")).toBeTruthy();
+    expect(screen.getByText("2 rendered nodes · 1 rendered links")).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "Query metric results" })).toBeNull();
+  });
+
+  it("renders grounded prose at the sentence boundary with its chunk and fact citations", async () => {
+    mocks.createQueryRun.mockResolvedValue({
+      id: "run-grounded", context_id: "context-1", question: "explain the evidence",
+      selected_lane: "grounded", method_override: null, status: "ready",
+      result: {
+        answer: "Leverage remains elevated.",
+        sentences: [{ text: "Leverage remains elevated.", chunk_ids: ["chunk-1"], fact_ids: ["fact-1"], claim_type: "observation" }],
+        citations: [{ chunk_id: "chunk-1", label: "FY25 credit agreement" }],
+        fact_citations: [{ fact_id: "fact-1", label: "Net leverage 5.4x" }],
+        unavailable: false,
+      },
+      authority: { ...authority, method: "grounded", source_ids: ["chunk-1", "fact-1"] }, error: null,
+      created_at: authority.as_of, updated_at: authority.as_of,
+    });
+    render(<QueryPage />);
+    fireEvent.change(await screen.findByLabelText("Query coverage"), { target: { value: "explain the evidence" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run Query" }));
+    expect(await screen.findByRole("article", { name: "Grounded cited answer" })).toBeTruthy();
+    expect(screen.getByText("Leverage remains elevated.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open cited source FY25 credit agreement" })).toBeTruthy();
+    expect(screen.getByText("F1 · Net leverage 5.4x")).toBeTruthy();
+    expect(screen.getByText("2 cited sources")).toBeTruthy();
+  });
+
   it("keeps Run Query disabled until a question is entered", async () => {
     render(<QueryPage />);
-    expect((await screen.findByRole("button", { name: "Run Query" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((await screen.findByRole("button", { name: "Run Query" })).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("keeps composer interactions inert until the analysis context is ready", async () => {
     mocks.context = null;
     const { rerender } = render(<QueryPage />);
-    expect((screen.getByRole("button", { name: "graph" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-disabled")).toBe("true");
     expect((screen.getByLabelText("Query coverage") as HTMLTextAreaElement).disabled).toBe(true);
 
     mocks.context = { id: "context-1", name: "Coverage", sector_id: null, query_session_id: null, filters: {}, selected: {} };
     rerender(<QueryPage />);
-    expect((screen.getByRole("button", { name: "graph" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-disabled")).not.toBe("true");
     expect((screen.getByLabelText("Query coverage") as HTMLTextAreaElement).disabled).toBe(false);
   });
 

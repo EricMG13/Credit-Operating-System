@@ -89,8 +89,8 @@ describe("API route wrappers", () => {
   it("runs and resumes a durable research job and classifies sentinels", async () => {
     const ids: string[] = [];
     await expect(client.deepResearch({ subject: "Telecom", mode: "sector" }, undefined, (id) => ids.push(id), undefined, "ctx-1"))
-      .resolves.toEqual({ report: "done", sources: [], demo: false, truncated: undefined });
-    await expect(client.resumeResearch("job-1")).resolves.toEqual({ report: "done", sources: [], demo: false, truncated: undefined });
+      .resolves.toEqual({ report: "done", sources: [], demo: false, truncated: undefined, figures: [] });
+    await expect(client.resumeResearch("job-1")).resolves.toEqual({ report: "done", sources: [], demo: false, truncated: undefined, figures: [] });
     expect(ids).toEqual(["job-1"]);
     expect(client.isResearchAborted(null)).toBe(false);
     expect(client.isResearchGone(null)).toBe(false);
