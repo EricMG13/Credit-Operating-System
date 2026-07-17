@@ -146,7 +146,6 @@ export const getPortfolio = (): Promise<PortfolioDTO> =>
 
 // In-app login: the shared access code mints (or re-attaches to) a named analyst
 // profile and sets the signed identity cookie. logout clears it.
-// fallow-ignore-next-line unused-export
 export const createProfile = (code: string, name: string) =>
   api.post("/api/auth/profile", { code, name }, { timeout: 8000 }).then((r) => r.data);
 export const logout = () => api.post("/api/auth/logout", {}, { timeout: 8000 });
@@ -665,7 +664,6 @@ export const listQaFlags = (params: {
 
 // Committee export — rejects (409) unless the run is Committee Ready.
 // Surface ahead of its UI consumer (Report Studio).
-// fallow-ignore-next-line unused-export
 export const exportReport = (runId: string): Promise<unknown> =>
   api.post(`/api/runs/${runId}/report`).then((r) => r.data);
 
@@ -679,7 +677,6 @@ export const exportToVault = (runId: string): Promise<{ written: string[]; vault
 import type { ChunkDTO, MetricDef } from "@/lib/query/types";
 
 // Catalog for the NL-query lane — surface ahead of its UI consumer.
-// fallow-ignore-next-line unused-export
 export const getMetricCatalog = (): Promise<MetricDef[]> =>
   api.get("/api/query/catalog").then((r) => r.data.metrics);
 

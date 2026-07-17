@@ -1232,10 +1232,11 @@ def test_prompt_bundle_manifest_contract_errors(
 def test_anomaly_detector_defensive_numeric_paths(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    series = lambda values: [
-        (f"FY{2020 + index}", value, None)
-        for index, value in enumerate(values)
-    ]
+    def series(values: list[float]) -> list[tuple[str, float, None]]:
+        return [
+            (f"FY{2020 + index}", value, None)
+            for index, value in enumerate(values)
+        ]
     assert anomaly_module._ts_jump(
         series([1.0, 2.0, float("nan")]), "metric", "issuer", "Issuer",
     ) is None
