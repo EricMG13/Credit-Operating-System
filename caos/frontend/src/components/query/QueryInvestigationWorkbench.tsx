@@ -34,7 +34,7 @@ const STARTERS = [
   "Which credits have the largest leverage deterioration?",
   "Show evidence linking refinancing risk to sector posture.",
 ];
-const QUERY_URL_KEYS = ["lane", "run"] as const;
+const QUERY_URL_KEYS = ["context", "lane", "run"] as const;
 
 function inferLane(question: string): QueryRun["selected_lane"] {
   if (/\b(graph|link|connected|relationship|contagion|lineage)\b/i.test(question)) return "graph";
