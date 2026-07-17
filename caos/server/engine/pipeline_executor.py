@@ -333,9 +333,13 @@ class PipelineExecutor:
                     self._inflight.add(task)
                     self._inflight_ids.add(job_id)
                     task.add_done_callback(self._inflight.discard)
-                    task.add_done_callback(
-                        lambda _task, jid=job_id: self._inflight_ids.discard(jid)
-                    )
+                    # mypy cannot infer a bare lambda's parameter type against
+                    # add_done_callback's Callable[[Task[Any]], object]; annotate
+                    # explicitly rather than widen the callback's real signature.
+                    def _discard_job_id(_task: "asyncio.Task[object]", jid: str = job_id) -> None:
+                        self._inflight_ids.discard(jid)
+
+                    task.add_done_callback(_discard_job_id)
                 self._consecutive_failures = 0
             except Exception:  # noqa: BLE001 — worker loops must stay alive
                 self._consecutive_failures += 1
