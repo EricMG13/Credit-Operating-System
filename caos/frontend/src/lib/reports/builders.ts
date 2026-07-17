@@ -132,11 +132,14 @@ function seniorityStackChart(
           range: ["#0f766e", "#0d9488", "#2563eb", "#7c3aed", "#94a3b8"],
         },
       },
-      // Name + value label inside each segment where it fits; thin tranches
-      // hide via overflow/overlap hiding and stay covered by the ink caption
-      // + equivalence table.
+      // Name + value label inside each segment — but only where it fits:
+      // overflowHide is unreliable under transpose (the RCF sliver painted a
+      // clipped "CF 120" onto the paper), so thin tranches are gated
+      // deterministically in the text callback. The same isThin() predicate
+      // builds the ink caption below, so the caption states exactly the
+      // tranches that carry no in-bar label.
       labels: [{
-        text: (d: { cls: string; v: number }) => d.cls.split(" ")[0] + " " + d.v.toLocaleString(),
+        text: (d: { cls: string; v: number }) => (isThin(d.v) ? "" : d.cls.split(" ")[0] + " " + d.v.toLocaleString()),
         position: "inside",
         fontSize: 10,
         fontWeight: 600,

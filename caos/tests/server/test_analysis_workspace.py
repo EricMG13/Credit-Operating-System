@@ -325,6 +325,34 @@ def test_context_artifact_and_surface_patches_merge_without_erasing_siblings():
     app.dependency_overrides.clear()
 
 
+def test_context_patch_persists_hyphen_aliased_surfaces():
+    """A write to an aliased surface key must round-trip, never silently no-op.
+
+    Regression: the PATCH handler dumped the body without ``by_alias``, so the
+    merge received underscore keys ("issuer_profile") that the alias-only
+    surface model dropped on validation — the write 200'd, bumped the
+    revision, and stored nothing. Client sync effects that waited to observe
+    their write looped until the 45/min budget died (the profile-open storm).
+    """
+    from identity import get_identity
+    from main import app
+
+    with TestClient(app) as client:
+        app.dependency_overrides[get_identity] = _identity("analysis-alias")
+        context = client.post("/api/analysis/contexts", json={"name": "Aliased surfaces"}).json()
+        aliased = ["issuer-profile", "deep-dive", "sector-review", "rv-screener", "portfolio-lab", "ic-book", "global-ask"]
+        for surface in aliased:
+            response = client.patch(f"/api/analysis/contexts/{context['id']}", json={
+                "surface_state": {surface: {"active_id": f"{surface}-active", "view": "snapshot"}},
+            })
+            assert response.status_code == 200, response.text
+            stored = response.json()["surface_state"].get(surface)
+            assert stored is not None, f"write to {surface!r} was silently dropped"
+            assert stored["active_id"] == f"{surface}-active"
+
+    app.dependency_overrides.clear()
+
+
 def test_context_patch_rejects_stale_revision():
     from identity import get_identity
     from main import app

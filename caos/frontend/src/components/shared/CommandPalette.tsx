@@ -22,6 +22,13 @@ import { useNavigationAttempt } from "./NavigationGuardProvider";
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
+  // Mirrors `open` for the keydown handler: dispatching caos:modal-open from
+  // inside the setOpen updater ran other components' listeners during THIS
+  // component's render phase (React: "Cannot update ShortcutHelp while
+  // rendering CommandPalette"). The handler decides from the ref and
+  // dispatches before setting state — never inside the updater.
+  const openRef = useRef(false);
+  useEffect(() => { openRef.current = open; }, [open]);
 
   // ⌘K / Ctrl+K and the shared explicit-open event are owned here. Alt+S
   // dispatches the latter from ConceptHotkeys so issuer lookup and page/action
@@ -30,10 +37,9 @@ export function CommandPalette() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
         e.preventDefault();
-        setOpen((current) => {
-          if (!current) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "palette" } }));
-          return !current;
-        });
+        const willOpen = !openRef.current;
+        if (willOpen) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "palette" } }));
+        setOpen(willOpen);
       }
     };
     const onOpen = () => {

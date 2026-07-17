@@ -43,7 +43,7 @@ export default function IssuersPage() {
 // (see server ratings.py / ingestion._collect_ratings) and still shown read-only
 // in the directory + profile from the issuer record.
 const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: "", figi: "", sponsor: "" };
-const COLS = "grid grid-cols-[28px_76px_minmax(200px,1.6fr)_78px_1fr_1fr_104px_84px] items-center gap-x-3";
+const COLS = "grid grid-cols-[28px_76px_minmax(200px,1.6fr)_78px_minmax(96px,1fr)_minmax(120px,1fr)_104px_84px] items-center gap-x-3";
 const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country"] as const;
 const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
 
@@ -164,17 +164,31 @@ function IssuersDirectory() {
       view: "directory",
       filters: persistedFilters,
     };
+    // Field-by-field guard, never a whole-object JSON.stringify: the server
+    // echoes the slice with its own key order and normalization, so a
+    // stringify comparison failed on every response and re-armed the 250ms
+    // patch forever — a write storm that burned the 45/min budget from merely
+    // sitting on the Directory (rev 88 on a minute-old workspace).
+    const saved = context.surface_state.issuers ?? {};
+    const sortedFilters = (value: object) => JSON.stringify(Object.entries(value).sort((a, b) => a[0].localeCompare(b[0])));
     if (
       issuerIds.length === context.issuer_ids.length
       && issuerIds.every((id, index) => id === context.issuer_ids[index])
-      && JSON.stringify(context.surface_state.issuers ?? {}) === JSON.stringify(nextSurface)
+      && (saved.query ?? null) === nextSurface.query
+      && JSON.stringify(saved.selected_ids ?? []) === JSON.stringify(nextSurface.selected_ids)
+      && (saved.sort ?? null) === nextSurface.sort
+      && (saved.view ?? null) === nextSurface.view
+      && sortedFilters(saved.filters ?? {}) === sortedFilters(nextSurface.filters)
     ) return;
     const timer = window.setTimeout(() => {
       void patchIssuerContext({
         issuer_ids: issuerIds,
         surface_state: {
           ...context.surface_state,
-          issuers: nextSurface,
+          // Merge over the saved slice — replacing it wholesale stripped keys
+          // this effect doesn't own (openIssuer's active_id), which set up a
+          // second write ping-pong.
+          issuers: { ...saved, ...nextSurface },
         },
       }).catch(() => undefined);
     }, 250);
@@ -436,7 +450,7 @@ function IssuersDirectory() {
             </div>
           ) : null}
           {loading ? (
-            <div className="text-caos-xl" aria-busy="true" aria-label="Loading issuers">
+            <div className="text-caos-xl" role="status" aria-busy="true" aria-label="Loading issuers">
               {Array.from({ length: 9 }).map((_, i) => (
                 <div key={i} className={COLS + " px-3 py-[7px] border-b border-caos-border/50"}>
                   <span />

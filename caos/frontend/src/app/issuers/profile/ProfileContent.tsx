@@ -547,8 +547,16 @@ export function Profile({
     return () => { document.title = prev; };
   }, [isOverlay, issuer.ticker, issuer.name]);
 
+  // Depend on the stable context object + patch fn, NEVER the whole `analysis`
+  // hook value: its identity changes on every mutationState flip, so a single
+  // failed PATCH (429 under the 45-writes/min budget) re-armed this effect and
+  // produced an unthrottled retry storm that kept the analyst rate-limited
+  // forever. With these deps, a failure changes nothing the effect reads —
+  // recovery is the explicit "Retry context save" affordance, not a loop.
+  const syncPatch = analysis.patch;
+  const syncContext = analysis.context;
   useEffect(() => {
-    const context = analysis.context;
+    const context = syncContext;
     if (!context) return;
     const issuerIds = context.issuer_ids.includes(id) ? context.issuer_ids : [...context.issuer_ids, id];
     const runId = latest_run?.id ?? context.artifacts.issuer_run_id;
@@ -559,7 +567,7 @@ export function Profile({
       && current?.active_id === id
       && current?.view === activeTab
     ) return;
-    void analysis.patch({
+    void syncPatch({
       issuer_ids: issuerIds,
       artifacts: { ...context.artifacts, issuer_run_id: runId },
       surface_state: {
@@ -567,7 +575,7 @@ export function Profile({
         "issuer-profile": { ...(current ?? {}), active_id: id, selected_ids: runId ? [runId] : [], view: activeTab },
       },
     }).catch(() => {});
-  }, [activeTab, analysis, id, latest_run?.id]);
+  }, [activeTab, syncContext, syncPatch, id, latest_run?.id]);
 
   const totalFindings = (findings.CRITICAL || 0) + (findings.MATERIAL || 0) + (findings.MINOR || 0);
 

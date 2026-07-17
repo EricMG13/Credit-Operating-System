@@ -388,6 +388,18 @@ body {
   letter-spacing: 0.02em;
   color: var(--caos-muted);
 }
+/* Guarded-click flash in tight toolbars: the reason surfaces as a transient
+   popover under the control (an inline span is clipped by the shrink-0
+   primary-action slot). Position comes inline from the button rect. */
+.caos-action-reason-pop {
+  z-index: 60;
+  padding: 6px 10px;
+  border: 1px solid var(--caos-border);
+  border-radius: 4px;
+  background: var(--caos-elevated);
+  color: var(--caos-text);
+  box-shadow: var(--shadow-modal, 0 8px 24px rgba(0, 0, 0, 0.5));
+}
 
 html,
 body,
@@ -640,7 +652,7 @@ button.rd-cite:focus-visible { outline: 2px solid var(--paper-link); outline-off
   border-radius: 0;
   background: transparent;
 }
-.rd-paper .semantic-visualization__header h3 { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.rd-paper .semantic-visualization__header :is(h2, h3) { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
 .rd-paper .semantic-visualization__summary { margin: 4px 0; font-size: 8.5px; line-height: 1.4; }
 .rd-paper .semantic-visualization__note { margin-top: 3px; font-size: 8px; }
 .rd-paper .semantic-visualization__meta,
@@ -965,7 +977,7 @@ button.rd-revert-dot:focus-visible {
   justify-content: space-between;
   gap: 12px;
 }
-.semantic-visualization__header h3 { font-size: 13px; font-weight: 650; }
+.semantic-visualization__header :is(h2, h3) { font-size: 13px; font-weight: 650; }
 .semantic-visualization__meta,
 .semantic-visualization__sources,
 .semantic-visualization__status {

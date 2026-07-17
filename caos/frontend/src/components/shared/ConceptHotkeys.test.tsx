@@ -45,14 +45,31 @@ describe("ConceptHotkeys", () => {
     window.addEventListener("caos:command-palette-open", listener);
     renderHotkeys();
 
-    fireEvent.keyDown(window, { key: "s", altKey: true });
+    fireEvent.keyDown(window, { key: "s", code: "KeyS", altKey: true });
     expect(listener).toHaveBeenCalledOnce();
 
     for (const element of [document.createElement("input"), document.createElement("textarea"), document.createElement("select")]) {
-      fireEvent.keyDown(element, { key: "s", altKey: true });
+      fireEvent.keyDown(element, { key: "s", code: "KeyS", altKey: true });
     }
     expect(listener).toHaveBeenCalledOnce();
     window.removeEventListener("caos:command-palette-open", listener);
+  });
+
+  it("fires Alt chords by physical key — macOS resolves Option+letter to a composed character", () => {
+    // On macOS Chrome, Alt+S arrives as key:"ß" / Alt+K as "˚" / Alt+C as "ç";
+    // matching on e.key left every advertised chord dead on the desk's
+    // primary platform. e.code is layout-positional and survives it.
+    const palette = vi.fn();
+    const collapse = vi.fn();
+    window.addEventListener("caos:command-palette-open", palette);
+    window.addEventListener("caos:collapse-toggle", collapse);
+    renderHotkeys();
+    fireEvent.keyDown(window, { key: "ß", code: "KeyS", altKey: true });
+    fireEvent.keyDown(window, { key: "ç", code: "KeyC", altKey: true });
+    expect(palette).toHaveBeenCalledOnce();
+    expect(collapse).toHaveBeenCalledOnce();
+    window.removeEventListener("caos:command-palette-open", palette);
+    window.removeEventListener("caos:collapse-toggle", collapse);
   });
 
   it("dispatches caos:subview-cycle event on Alt+Comma", () => {

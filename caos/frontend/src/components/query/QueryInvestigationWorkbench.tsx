@@ -12,7 +12,7 @@ import { ActionReason } from "@/components/shared/ActionReason";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import { headStat } from "@/components/shared/headStat";
-import { queryCapabilities, toErrorMessage } from "@/lib/api";
+import { getChunk, queryCapabilities, toErrorMessage } from "@/lib/api";
 import { fmtUtcDateTime } from "@/lib/format-date";
 import {
   analysisApi,
@@ -98,17 +98,21 @@ function rowIssuer(row: Record<string, unknown>): Record<string, unknown> | null
 
 function formatMetricValue(value: unknown): string {
   if (typeof value !== "number") return stringValue(value) ?? "—";
-  return Math.abs(value) >= 100 ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  // Fixed decimals down a column (4.40 / 5.68, never 4.4 / 5.68) — mixed
+  // precision in one numeric column breaks the aligned-decimal convention.
+  return Math.abs(value) >= 100
+    ? value.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+    : value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function QueryResult({ run }: { run: QueryRun | null }) {
+function QueryResult({ run, onCitation }: { run: QueryRun | null; onCitation?: (id: string, label: string) => void }) {
   if (!run) {
     return (
       <div className="h-full grid place-items-center p-6 text-center">
         <div className="max-w-xl">
           <p className="tabular text-caos-xs uppercase tracking-widest text-caos-accent">Investigation ready</p>
           <h2 className="mt-2 text-lg font-semibold text-caos-text">Ask one cross-coverage question.</h2>
-          <p className="mt-2 text-caos-sm leading-relaxed text-caos-muted">The lane is declared before execution. No graph, model overlay or report is generated until you run it.</p>
+          <p className="mx-auto mt-2 max-w-[65ch] text-caos-sm leading-relaxed text-caos-muted">The lane is declared before execution. No graph, model overlay or report is generated until you run it.</p>
         </div>
       </div>
     );
@@ -181,9 +185,15 @@ function QueryResult({ run }: { run: QueryRun | null }) {
                   // decimals align down the column (DESIGN.md aligned-decimals).
                   const rankCell = row.rank_value === undefined ? "—" : formatMetricValue(row.rank_value);
                   const details = issuerMeta || Object.entries(row).filter(([key]) => !["label", "name", "company", "issuer_name", "issuer", "metrics", "rank_value"].includes(key)).slice(0, 4).map(([key, value]) => `${key}: ${stringValue(value) ?? "…"}`).join(" · ");
+                  // Row-level click-to-source: the first chunk-cited metric backs
+                  // the row's chip, so tying a figure to its document never
+                  // requires opening every citation and matching from memory.
+                  const rowChunk = onCitation ? Object.values(metrics)
+                    .map((cell) => (cell && typeof cell === "object" ? (cell as { citation?: { chunk_id?: string | null } | null }).citation : null))
+                    .find((cite) => cite && typeof cite === "object" && cite.chunk_id)?.chunk_id ?? null : null;
                   return <tr key={`${label}-${index}`} className="border-t border-caos-border/70 hover:bg-caos-elevated/40">
                     <td className="px-2 py-2 text-caos-accent">{index + 1}</td>
-                    <td className="px-2 py-2 font-semibold text-caos-text">{issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}{issuerMeta ? <span className="block font-normal text-caos-2xs text-caos-muted">{issuerMeta}</span> : null}</td>
+                    <td className="px-2 py-2 font-semibold text-caos-text">{issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}{rowChunk ? <button type="button" title="Open the cited source extract for this row" onClick={() => onCitation?.(rowChunk, label)} className="ml-1.5 tabular text-caos-2xs px-1 py-px rounded border border-caos-accent/50 text-caos-accent hover:bg-caos-elevated focus-ring">❝ src</button> : null}{issuerMeta ? <span className="block font-normal text-caos-2xs text-caos-muted">{issuerMeta}</span> : null}</td>
                     {columns.length ? columns.map((column) => {
                       const key = stringValue(column.key) ?? "";
                       const cell = metrics[key] && typeof metrics[key] === "object" ? (metrics[key] as Record<string, unknown>).value : undefined;
@@ -223,6 +233,10 @@ export function QueryInvestigationWorkbench() {
   // underlying document extract (or an explicit failure) instead of sitting as
   // inert text on the surface whose required action says "inspect citations".
   const [citation, setCitation] = useState<{ id: string; label: string } | null>(null);
+  // Resolved citation labels (issuer · document) — a bare UUID prefix forces the
+  // analyst to open every extract and match issuers from memory. Chunk-backed
+  // ids resolve; non-chunk ids (claim/evidence) keep the id prefix.
+  const [citationMeta, setCitationMeta] = useState<Record<string, string>>({});
   const [findingsKey, setFindingsKey] = useState(0);
   const historyGeneration = useRef(0);
   const historyContextId = useRef<string | null>(null);
@@ -243,6 +257,22 @@ export function QueryInvestigationWorkbench() {
     setRunning(false);
     setRunError(null);
   }, [activeContextId]);
+
+  const citationIds = run?.authority.source_ids;
+  useEffect(() => {
+    if (!citationIds?.length) { setCitationMeta({}); return; }
+    let stale = false;
+    void Promise.all(citationIds.slice(0, 20).map((sourceId) =>
+      getChunk(sourceId)
+        .then((chunk) => [sourceId, `${chunk.issuer_name} · ${chunk.doc}`] as const)
+        // Non-chunk source ids (claim/evidence) 404 here — they keep the id prefix.
+        .catch(() => null),
+    )).then((entries) => {
+      if (stale) return;
+      setCitationMeta(Object.fromEntries(entries.filter((entry) => entry !== null)));
+    });
+    return () => { stale = true; };
+  }, [citationIds]);
 
   useEffect(() => {
     if (urlState.lane === "graph" || urlState.lane === "grounded" || urlState.lane === "metric") {
@@ -378,20 +408,26 @@ export function QueryInvestigationWorkbench() {
   };
 
   const context = contextState.context;
+  // The context row and its URL binding are one readiness boundary. Publishing
+  // controls after the row arrives but before `?context=` lands lets a slower
+  // browser accept input that the pending history update can then overwrite.
+  const contextReady = !!context
+    && !contextState.loading
+    && urlState.context === context.id;
   // The RoleViewSwitch in the compact header already shows the active view —
   // repeating it here was the double "View:" the critique flagged.
   const narrow = { essentialControls: null };
   // One composer, two homes: the dominant region pre-run, the context rail
   // once results exist.
   const composer = (
-    <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer">
+    <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer" aria-busy={!contextReady}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">Selected lane</span>
-        {(["metric", "graph", "grounded"] as const).map((value) => <button key={value} type="button" aria-pressed={lane === value} onClick={() => { setLane(value); setManualLane(true); }} className={`caos-action-secondary focus-ring ${lane === value ? "border-caos-accent text-caos-text" : ""}`}>{value}</button>)}
-        {manualLane ? <button type="button" className="tabular text-caos-2xs text-caos-accent focus-ring" onClick={() => { setManualLane(false); setLane(inferLane(question)); }}>Use suggested lane</button> : null}
+        {(["metric", "graph", "grounded"] as const).map((value) => <button key={value} type="button" disabled={!contextReady} aria-pressed={lane === value} onClick={() => { setLane(value); setManualLane(true); }} className={`caos-action-secondary focus-ring disabled:opacity-40 ${lane === value ? "border-caos-accent text-caos-text" : ""}`}>{value}</button>)}
+        {manualLane ? <button type="button" disabled={!contextReady} className="tabular text-caos-2xs text-caos-accent focus-ring disabled:opacity-40" onClick={() => { setManualLane(false); setLane(inferLane(question)); }}>Use suggested lane</button> : null}
       </div>
-      <textarea aria-label="Query coverage" value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring" />
-      {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <button type="button" key={starter} aria-pressed={question === starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</button>)}</div> : null}
+      <textarea aria-label="Query coverage" disabled={!contextReady} value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring disabled:opacity-40" />
+      {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <button type="button" disabled={!contextReady} key={starter} aria-pressed={question === starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring disabled:opacity-40 " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</button>)}</div> : null}
       {capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {capabilityError}</p> : null}
       {runError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{runError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void runQuery()}>Retry query</button></p> : null}
     </section>
@@ -413,7 +449,7 @@ export function QueryInvestigationWorkbench() {
           decision={<DecisionHeader state={decisionState} defaultOpen={!!run} />}
           context={run ? composer : <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer note"><p className="text-caos-xs leading-relaxed text-caos-muted">TIP · Declare the lane before running — metric ranks coverage, graph traverses relationships, grounded answers from cited documents.</p></section>}
           primary={run
-            ? <section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} /></DominantTableRegion> : <QueryResult run={run} />}</section>
+            ? <section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} onCitation={(id, label) => setCitation({ id, label })} /></DominantTableRegion> : <QueryResult run={run} onCitation={(id, label) => setCitation({ id, label })} />}</section>
             : <section className="min-h-0 h-full overflow-auto border border-caos-border grid place-items-center p-6" aria-label="Query answer">
               {/* Pre-run, the question IS the work — the composer owns the
                   dominant region instead of a blank canvas dwarfing a
@@ -421,7 +457,7 @@ export function QueryInvestigationWorkbench() {
               <div className="w-full max-w-2xl text-center">
                 <p className="tabular text-caos-xs uppercase tracking-widest text-caos-accent">Investigation ready</p>
                 <h2 className="mt-2 text-lg font-semibold text-caos-text">Ask one cross-coverage question.</h2>
-                <p className="mt-2 text-caos-sm leading-relaxed text-caos-muted">The lane is declared before execution. No graph, model overlay or report is generated until you run it.</p>
+                <p className="mx-auto mt-2 max-w-[65ch] text-caos-sm leading-relaxed text-caos-muted">The lane is declared before execution. No graph, model overlay or report is generated until you run it.</p>
                 <div className="mt-5 text-left">{composer}</div>
               </div>
             </section>}
@@ -437,7 +473,7 @@ export function QueryInvestigationWorkbench() {
               className="caos-action-secondary ml-auto focus-ring"
             >{pinning ? "Pinning…" : "Pin finding"}</ActionReason> : null}</div>
             {pinError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{pinError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void pinFinding()}>Retry pin</button></p> : null}
-            {run ? <><div className="mt-3"><AuthorityLine authority={run.authority} /></div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3><p className="mt-1 text-caos-xs leading-relaxed text-caos-text">{run.authority.source_ids.length ? `${run.authority.source_ids.length} cited sources — open one to read the underlying extract.` : "No citation identifiers were attached; keep this result in draft."}</p>{run.authority.source_ids.length ? <ol className="mt-2 space-y-1">{run.authority.source_ids.slice(0, 20).map((id, index) => <li key={id}><button type="button" title={`Open source extract · ${id}`} onClick={() => setCitation({ id, label: `C${index + 1}` })} className="w-full rounded-sm px-1 py-0.5 text-left tabular text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text focus-ring"><span className="text-caos-accent">C{index + 1}</span> · {id.slice(0, 8)}… <span className="text-caos-accent">↗</span></button></li>)}</ol> : null}</div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div></> : <p className="mt-3 text-caos-xs text-caos-muted">Run an investigation to inspect its method, caveats and citations.</p>}
+            {run ? <><div className="mt-3"><AuthorityLine authority={run.authority} /></div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3><p className="mt-1 text-caos-xs leading-relaxed text-caos-text">{run.authority.source_ids.length ? `${run.authority.source_ids.length} cited sources — open one to read the underlying extract.` : "No citation identifiers were attached; keep this result in draft."}</p>{run.authority.source_ids.length ? <ol className="mt-2 space-y-1">{run.authority.source_ids.slice(0, 20).map((id, index) => <li key={id}><button type="button" title={`Open source extract · ${id}`} onClick={() => setCitation({ id, label: `C${index + 1}` })} className="w-full rounded-sm px-1 py-0.5 text-left tabular text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text focus-ring"><span className="text-caos-accent">C{index + 1}</span> · {citationMeta[id] ?? `${id.slice(0, 8)}…`} <span className="text-caos-accent">↗</span></button></li>)}</ol> : null}</div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div></> : <p className="mt-3 text-caos-xs text-caos-muted">Run an investigation to inspect its method, caveats and citations.</p>}
             {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={findingsKey} /></div> : null}
           </aside>}
         />

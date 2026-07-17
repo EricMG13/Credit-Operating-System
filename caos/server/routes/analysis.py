@@ -856,7 +856,13 @@ async def patch_context(
 ):
     _guard(caller, write=True)
     row = await _owned_context(db, context_id, caller.id, for_update=True)
-    changes = body.model_dump(exclude_unset=True)
+    # by_alias is load-bearing: surface_state keys are hyphen-aliased
+    # ("issuer-profile", "deep-dive", …). A field-name dump fed the merge
+    # underscore keys, which AnalysisSurfaceState.model_validate silently
+    # ignored — every write to an aliased surface no-oped with a 200, and the
+    # client sync loops that waited to observe their write spun until the
+    # write budget died.
+    changes = body.model_dump(exclude_unset=True, by_alias=True)
     expected_revision = changes.pop("expected_revision", None)
     if expected_revision is not None and row.revision != expected_revision:
         raise HTTPException(

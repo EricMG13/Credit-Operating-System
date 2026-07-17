@@ -44,17 +44,21 @@ export function ConceptHotkeys() {
         return;
       }
 
-      if (["s", "S", "k", "K", "c", "C"].includes(e.key)) {
+      // Match on e.code, never e.key: with Option held, macOS resolves the key
+      // to a composed character (Alt+S → "ß", Alt+K → "˚", Alt+C → "ç"), so a
+      // key-based match leaves every advertised Alt chord dead on the desk's
+      // primary platform. Comma/Period below already learned this lesson.
+      if (["KeyS", "KeyK", "KeyC"].includes(e.code)) {
         e.preventDefault();
-        if (e.key.toLowerCase() === "s") window.dispatchEvent(new Event("caos:command-palette-open"));
-        if (e.key.toLowerCase() === "k") {
+        if (e.code === "KeyS") window.dispatchEvent(new Event("caos:command-palette-open"));
+        if (e.code === "KeyK") {
           if (pathRef.current?.startsWith("/query")) {
             window.dispatchEvent(new Event("caos:query-focus"));
           } else {
             window.dispatchEvent(new Event("caos:ask-toggle"));
           }
         }
-        if (e.key.toLowerCase() === "c") window.dispatchEvent(new Event("caos:collapse-toggle"));
+        if (e.code === "KeyC") window.dispatchEvent(new Event("caos:collapse-toggle"));
         return;
       }
       if (e.key === "," || e.key === "." || e.code === "Comma" || e.code === "Period") {

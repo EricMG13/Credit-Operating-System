@@ -82,10 +82,14 @@ export function SemanticVisualization<Datum extends VisualizationDatum>({
   spec,
   height = 220,
   mode = "dark",
+  headingLevel = 3,
 }: {
   spec: VisualizationSpec<Datum>;
   height?: number;
   mode?: "dark" | "paper";
+  /** Heading rank for the chart title — pass 2 when the chart sits directly
+   * under a page h1 (a fixed h3 skips a level there). */
+  headingLevel?: 2 | 3;
 }) {
   const [showTable, setShowTable] = useState(false);
   const summaryId = useId();
@@ -94,12 +98,13 @@ export function SemanticVisualization<Datum extends VisualizationDatum>({
     () => ({ ...deriveAxis(spec), ...spec.chart, data: spec.data }),
     [spec],
   );
+  const Heading = headingLevel === 2 ? "h2" : "h3";
 
   return (
     <figure className="semantic-visualization" data-kind={spec.kind} data-mode={mode}>
       <figcaption className="semantic-visualization__header">
         <div>
-          <h3>{spec.title}</h3>
+          <Heading>{spec.title}</Heading>
           <div className="semantic-visualization__meta">
             {spec.unit ? <span>Unit {spec.unit}</span> : null}
             {spec.asOf ? <span>As of {spec.asOf}</span> : null}

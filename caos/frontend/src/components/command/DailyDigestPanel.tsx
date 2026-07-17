@@ -88,10 +88,13 @@ function WatchList({ title, rows, kind, empty }: {
                 title={`Open ${r.name} profile`}
                 className="w-full text-left px-3 py-1 flex items-baseline gap-2 hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
-                <span className="text-caos-md text-caos-text truncate flex-1 min-w-[10ch]">{r.name}</span>
-                {/* Value column has width priority — the name absorbs truncation.
-                    A clipped "neve," is a wrong read; a clipped name is not. */}
-                <span className="tabular text-caos-xs whitespace-nowrap shrink-0 max-w-[50%] truncate text-right" style={{ color }} title={r.detail || undefined}>{r.detail || "—"}</span>
+                {/* Value column has absolute width priority — the name absorbs ALL
+                    truncation (title recovers it). A clipped "neve," is a wrong
+                    read; a clipped name is not. No max-width on the value: in the
+                    narrow digest tiles a % cap resolved to ~46px and re-clipped
+                    "never run". The name keeps no min-width for the same reason. */}
+                <span className="text-caos-md text-caos-text truncate flex-1 min-w-0" title={r.name}>{r.name}</span>
+                <span className="tabular text-caos-xs whitespace-nowrap shrink-0 text-right" style={{ color }}>{r.detail || "—"}</span>
               </button>
             ))}
           </div>

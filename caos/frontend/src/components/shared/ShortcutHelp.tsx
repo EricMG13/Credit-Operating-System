@@ -66,7 +66,10 @@ function ShortcutHelpDialog({ pathname, onClose }: { pathname: string; onClose: 
         <div className="mt-1">{global.map((entry) => <Row key={entry.keys + entry.label} entry={entry} />)}</div>
         {route.length ? (
           <>
-            <h3 className="mt-4 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{route[0].routeLabel ?? "This page"}</h3>
+            {/* One shared label when every scoped binding names the same surface;
+                mixed scopes (e.g. /deepdive hosts Deep-Dive·Model AND
+                Pipeline·Deep-Dive chords) fall back to the generic head. */}
+            <h3 className="mt-4 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{route.every((entry) => entry.routeLabel === route[0].routeLabel) ? route[0].routeLabel ?? "This page" : "This page"}</h3>
             <div className="mt-1">{route.map((entry) => <Row key={entry.keys + entry.label} entry={entry} />)}</div>
           </>
         ) : null}
