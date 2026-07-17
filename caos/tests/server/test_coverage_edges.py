@@ -1479,7 +1479,7 @@ def test_cp1_source_edgar_precedence_resolves_all_evidence(
     )
 
 
-def test_cp1_edgar_vault_refreshes_or_recreates_existing_chunk() -> None:
+def test_cp1_edgar_vault_refreshes_or_recreates_existing_chunk() -> None:  # noqa: C901 — many asserted branches, not decision logic
     issuer = SimpleNamespace(id="issuer")
     document = SimpleNamespace(id="document")
     chunk = SimpleNamespace(id="chunk", text="old")
@@ -2048,7 +2048,7 @@ def test_scenario_translation_live_and_fallback_edges(
     assert asyncio.run(scenario_module.translate_scenario("rate hike")).rate_delta == 0.01
 
 
-def test_seed_helpers_cover_insert_backfill_skip_and_derivation(
+def test_seed_helpers_cover_insert_backfill_skip_and_derivation(  # noqa: C901 — many asserted branches, not decision logic
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class Result:

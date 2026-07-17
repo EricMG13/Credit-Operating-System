@@ -15,7 +15,7 @@ import struct
 
 
 class _ClamdHandler(socketserver.BaseRequestHandler):
-    def handle(self) -> None:
+    def handle(self) -> None:  # noqa: C901 — protocol dispatch, one branch per command
         pending = bytearray()
         while b"\x00" not in pending:
             block = self.request.recv(65_536)

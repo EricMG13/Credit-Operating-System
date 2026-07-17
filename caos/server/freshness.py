@@ -95,6 +95,14 @@ def _unknown(
     )
 
 
+def _reject_unsupported_source_kind(source_kind: str) -> None:
+    # Runtime callers are not constrained by the Literal annotation. Reject an
+    # unsupported kind at this boundary so callers receive the documented
+    # domain error instead of an implementation-specific Pydantic error later.
+    if source_kind not in _SOURCE_KINDS:
+        raise ValueError(f"unsupported source_kind: {source_kind!r}")
+
+
 def evaluate_freshness(
     *,
     source_kind: FreshnessSourceKind,
@@ -111,12 +119,7 @@ def evaluate_freshness(
     ``source_version_state`` is load-bearing for derived and event-driven
     artifacts: a proven mismatch is stale; insufficient lineage is unknown.
     """
-
-    # Runtime callers are not constrained by the Literal annotation. Reject an
-    # unsupported kind at this boundary so callers receive the documented
-    # domain error instead of an implementation-specific Pydantic error later.
-    if source_kind not in _SOURCE_KINDS:
-        raise ValueError(f"unsupported source_kind: {source_kind!r}")
+    _reject_unsupported_source_kind(source_kind)
 
     now_utc = _utc(now)
     observed = _utc(observed_at)

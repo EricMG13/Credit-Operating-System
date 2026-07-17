@@ -168,7 +168,7 @@ def _docs_for(name: str, sector: str, energy: float) -> list[tuple[str, str, str
     ]
 
 
-async def seed(
+async def seed(  # noqa: C901 — linear fixture-assembly script, not decision logic
     target_count: int = len(ISSUERS), *, allow_non_qa_database: bool = False,
     with_workflow_fixture: bool = False,
 ) -> None:
