@@ -76,7 +76,12 @@ export function StepStrip({
 }) {
   const stepIdx = STEPS.findIndex((s) => s.k === step);
   return (
-    <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
+    <div
+      role="region"
+      aria-label="Document intake steps"
+      tabIndex={0}
+      className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto focus-ring"
+    >
       <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">Intake steps</span>
       {STEPS.map((s, i) => {
         const state = i < stepIdx ? "done" : i === stepIdx ? "active" : "pending";
@@ -476,9 +481,13 @@ export function ResultStep({
           {/* Truthful run status (FE-1): report what POST /api/runs actually
               returned — never assert "run queued" when nothing was queued. */}
           {runOutcome?.state === "queued" ? (
-            <> · {modeMeta?.label} ({modeMeta?.code}) run queued · RUN #{runOutcome.runId.slice(0, 8)}</>
+            // The picked mode is descriptive metadata only — the queued run
+            // is always the full CP-X route regardless of mode (see the
+            // comment below). Naming the mode here used to claim it had been
+            // honored; state only what actually happened.
+            <> · run queued (full CP-X route) · RUN #{runOutcome.runId.slice(0, 8)}</>
           ) : runOutcome?.state === "queuing" ? (
-            <> · queuing {modeMeta?.label} ({modeMeta?.code}) run…</>
+            <> · queuing run…</>
           ) : runOutcome?.state === "active" ? (
             <> · a run for this issuer is already in progress — new documents are picked up on the next run</>
           ) : runOutcome?.state === "failed" ? (

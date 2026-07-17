@@ -169,6 +169,42 @@ describe("useModalA11y", () => {
     expect(document.body.style.overflow).toBe("");
   });
 
+  it("closes only the topmost stacked overlay on Escape — the others' listeners must not fire too", () => {
+    // window listeners aren't stopped by stopPropagation (only ancestor
+    // nodes are — there are none above window). Without the topmost gate,
+    // one Escape press over a nested overlay (e.g. a citation viewer opened
+    // from inside the Ask modal) fired every currently-mounted onClose at
+    // once, collapsing the whole stack instead of just the top layer.
+    const onCloseA = vi.fn();
+    const onCloseB = vi.fn();
+    const onCloseC = vi.fn();
+
+    render(<ModalHost onClose={onCloseA} />); // A opens first (bottom)
+    render(<ModalHost onClose={onCloseB} />); // B stacks on A
+    render(<ModalHost onClose={onCloseC} />); // C stacks on B (topmost)
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(onCloseC).toHaveBeenCalledTimes(1);
+    expect(onCloseB).not.toHaveBeenCalled();
+    expect(onCloseA).not.toHaveBeenCalled();
+  });
+
+  it("promotes the next overlay to topmost once the current top closes", () => {
+    const onCloseA = vi.fn();
+    const onCloseB = vi.fn();
+
+    render(<ModalHost onClose={onCloseA} />);
+    const { unmount: unmountB } = render(<ModalHost onClose={onCloseB} />);
+
+    // B closes by its own means (not Escape) — A becomes topmost.
+    unmountB();
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(onCloseA).toHaveBeenCalledTimes(1);
+    expect(onCloseB).not.toHaveBeenCalled();
+  });
+
   it("restores focus to the previously-focused element after closing", () => {
     function ToggleableHost() {
       const [open, setOpen] = useState(false);

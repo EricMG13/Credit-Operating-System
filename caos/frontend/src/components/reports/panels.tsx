@@ -22,6 +22,16 @@ function StatusTag({ held }: { held: boolean }) {
   );
 }
 
+// buildLiveReports never sets `rep.watermark` (that field only exists on the
+// seeded IC Credit Memo fixture, builders.ts), so a live-backed deliverable
+// used to read READY/"clean export" regardless of the run's real committee
+// state — a Restricted or Blocked live run printed exactly like a clean one.
+// `liveHeldReason` carries the run's real committee status for the live
+// (non-reference) path only; the fixture keeps its own `rep.watermark` gate.
+function isReportHeld(rep: Report, liveHeldReason?: string | null): boolean {
+  return !!rep.watermark || !!liveHeldReason;
+}
+
 const REPORT_GLYPH: Record<string, string> = {
   dashboard: "▦", trend: "↗", gavel: "⚖", scroll: "§", bell: "◷",
 };
@@ -34,11 +44,17 @@ export function ReportList({
   active,
   onSel,
   onCollapse,
+  liveHeldReason,
 }: {
   reports: Report[];
   active: string;
   onSel: (id: string) => void;
   onCollapse?: () => void;
+  /** Real committee status for a live (non-reference) run, e.g. "COMMITTEE:
+      Restricted" — applies to every deliverable in the set, since they're
+      all built from the same run. Undefined/null for the reference deal,
+      which keeps its own per-report `watermark` gate. */
+  liveHeldReason?: string | null;
 }) {
   return (
     <Panel
@@ -72,7 +88,7 @@ export function ReportList({
                   {plural(r.sections.length, "section")} · {plural(citeCount(r), "citation")}
                 </span>
               </span>
-              <StatusTag held={!!r.watermark} />
+              <StatusTag held={isReportHeld(r, liveHeldReason)} />
             </button>
           );
         })}
@@ -226,14 +242,19 @@ export function ComposePanel({
 }
 
 /* ---------- right rail: export ---------- */
-export function ExportPanel({ rep, omitCount, editCount, runId }: { rep: Report; omitCount: number; editCount?: number; runId?: string }) {
+export function ExportPanel({ rep, omitCount, editCount, runId, liveHeldReason }: { rep: Report; omitCount: number; editCount?: number; runId?: string; liveHeldReason?: string | null }) {
+  const held = isReportHeld(rep, liveHeldReason);
   const rows: [string, string][] = [
     ["Format", "PDF · US Letter / XLSX"],
     ["Renderer", "CP-RENDER v2.2"],
-    ["Citations", citeCount(rep) + " resolved · 0 orphaned"],
+    // "Orphaned" (a citation referenced in the body with no matching source)
+    // is not computed anywhere in this pipeline — asserting "0" claimed an
+    // audit that never ran. Report only what citeCount actually counts: the
+    // distinct evidence ids listed in the source register.
+    ["Citations", citeCount(rep) + " in source register"],
     ["Sections", rep.sections.length - omitCount + " of " + rep.sections.length + " included"],
     ["Analyst edits", editCount ? editCount + " override" + (editCount === 1 ? "" : "s") : "none"],
-    ["Watermark", rep.watermark ? "CONDITIONAL — QA-117" : "none"],
+    ["Watermark", rep.watermark ? "CONDITIONAL — QA-117" : liveHeldReason ? liveHeldReason : "none"],
   ];
   return (
     <Panel title="Export">
@@ -243,8 +264,8 @@ export function ExportPanel({ rep, omitCount, editCount, runId }: { rep: Report;
             <div key={r[0]} className="flex items-baseline justify-between py-1 border-b border-caos-border/50">
               <span className="text-caos-xs uppercase tracking-wide text-caos-muted">{r[0]}</span>
               <span
-                className={"tabular text-caos-sm " + (r[0] === "Watermark" && rep.watermark ? "" : "text-caos-text")}
-                style={r[0] === "Watermark" && rep.watermark ? { color: "var(--caos-warning)" } : undefined}
+                className={"tabular text-caos-sm " + (r[0] === "Watermark" && held ? "" : "text-caos-text")}
+                style={r[0] === "Watermark" && held ? { color: "var(--caos-warning)" } : undefined}
               >
                 {r[1]}
               </span>
@@ -263,8 +284,18 @@ export function ExportPanel({ rep, omitCount, editCount, runId }: { rep: Report;
               Pack held by CP-5 — export carries the conditional watermark until E-44 is re-anchored (remediation R-1).
             </span>
           </div>
+        ) : liveHeldReason ? (
+          <div className="flex items-start gap-2">
+            <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0 mt-1" style={{ background: "var(--caos-warning)" }} />
+            <span className="text-caos-xs leading-relaxed text-caos-muted">
+              {liveHeldReason} — this run has not reached Committee Ready; export is not withheld, but the pack is not clean.
+            </span>
+          </div>
         ) : (
-          <span className="text-caos-xs text-caos-muted">{"Clean export — CP-5 trace audit passed · " + citeCount(rep) + (citeCount(rep) === 1 ? " citation" : " citations") + " resolved."}</span>
+          // Never claim a specific audit ("CP-5 trace audit passed") that no
+          // code path actually runs — state only what's true: no held
+          // watermark, and how many evidence ids the register carries.
+          <span className="text-caos-xs text-caos-muted">{"No held watermark · " + citeCount(rep) + (citeCount(rep) === 1 ? " citation" : " citations") + " in the source register."}</span>
         )}
       </div>
     </Panel>

@@ -44,6 +44,7 @@ _WRITE_DEPENDENCY_HANDLERS = {
     "patch_analyst_settings",
     "create_thesis",
     "realize_prediction",
+    "refresh_autonomy_draft",
 }
 
 
@@ -113,6 +114,10 @@ def test_viewer_is_denied_mutations_but_keeps_read_style_posts():
                     "target_issuer_id": "issuer-b",
                     "capability_id": "peer-set",
                 },
+            ).status_code == 403
+            assert client.post(
+                "/api/autonomy/draft",
+                headers={"X-CAOS-Action": "autonomy-refresh"},
             ).status_code == 403
 
             # POST is also used for bounded analytical requests. These remain

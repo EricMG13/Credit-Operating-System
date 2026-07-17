@@ -21,7 +21,7 @@ import { type G2Spec } from "@/components/charts/G2Chart";
 import { SemanticVisualization } from "@/components/charts/SemanticVisualization";
 import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 import { OutSections } from "./OutSections";
-import { OutputRegister, StepOutputGrid } from "./OutputRegister";
+import { LiveOutputRegister, OutputRegister, StepOutputGrid } from "./OutputRegister";
 import { ModuleCharts } from "./ModuleCharts";
 import { type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 
@@ -518,27 +518,24 @@ export function ModuleView({
       </div>
     </div>
   ) : null;
-  const liveFixtureNote = (
-    <div className="bg-caos-bg px-3 py-2 text-caos-sm text-caos-muted leading-snug">
-      Charts, step detail, and the workflow register are not yet wired for live
-      runs — the figures above are this issuer&apos;s live engine output.
-    </div>
-  );
   const analysisBody = (
     <>
       {kpiBlock}
-      {leadBlock}
-      <OutSections sections={rest} onOpenEvidence={onOpenEvidence} />
+      {!isLive ? leadBlock : null}
+      {!isLive ? <OutSections sections={rest} onOpenEvidence={onOpenEvidence} /> : null}
       {!isLive ? <ModuleCharts id={id} /> : null}
     </>
   );
+  const liveRegister = isLive ? (
+    <LiveOutputRegister id={id} output={out} onOpenEvidence={onOpenEvidence} />
+  ) : null;
   const body = (() => {
     switch (layout) {
       case "summary":
         return (
           <>
             {analysisBody}
-            {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="summary" /> : liveFixtureNote}
+            {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="summary" /> : liveRegister}
           </>
         );
       case "report":
@@ -546,7 +543,7 @@ export function ModuleView({
           <>
             {analysisBody}
             {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="report" /> : null}
-            {!isLive ? <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} /> : liveFixtureNote}
+            {!isLive ? <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} /> : liveRegister}
           </>
         );
       case "dense":
@@ -554,7 +551,7 @@ export function ModuleView({
           <>
             {analysisBody}
             {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="dense" /> : null}
-            {!isLive ? <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} /> : liveFixtureNote}
+            {!isLive ? <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} /> : liveRegister}
           </>
         );
     }

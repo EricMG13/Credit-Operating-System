@@ -32,7 +32,7 @@ export const MODULES: ModuleDef[] = [
   { id: "CP-4D", name: "Restricted Group & Guarantees", layer: "L4", desc: "Entity perimeter · guarantee/security map · structural priority · leakage and priming exposure" },
   { id: "CP-4C", name: "Covenant Capacity", layer: "L4", desc: "Headroom table · debt/lien/priming capacity · nearest pressure point" },
   { id: "CP-5", name: "QA Clearance", layer: "L5", desc: "Citation/evidence audit · math & logic audit · consolidated issue log · clearance" },
-  { id: "CP-5B", name: "Traceability", layer: "L5", desc: "Top-5 material drivers · source lineage register · auditability assessment" },
+  { id: "CP-5B", name: "Traceability", layer: "L5", desc: "Decision-relevant drivers · source lineage register · auditability assessment" },
   { id: "CP-6A", name: "IC Debate", layer: "L6", desc: "Bull vs Bear adversarial debate · IC Chair evidence weighting · final memo" },
   { id: "CP-6E", name: "Portfolio Debate", layer: "L6", desc: "RV Trader vs Compliance · CIO weighting · final sizing posture" },
   { id: "CP-RENDER", name: "Render", layer: "INFRA", desc: "Committee-ready document assembly" },
@@ -100,14 +100,14 @@ export const SIM_PLAN: PlanStep[] = [
   { id: "CP-4C", deps: ["CP-1", "CP-4"], dur: 4, outcome: "warning", event: "CP-4C WARNING — $612M day-one incremental + RP capacity; priming risk MEDIUM-HIGH" },
   { id: "CP-6A", deps: ["CP-1", "CP-1C", "CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F", "CP-3", "CP-3B", "CP-3C", "CP-3D", "CP-4", "CP-4C"], dur: 7, outcome: "pass", event: "CP-6A PASS — IC verdict: CONSTRUCTIVE, bear case priced · greatest uncertainty: add-back realization" },
   { id: "CP-6E", deps: ["CP-2B", "CP-3", "CP-3C", "CP-4C", "CP-6A"], dur: 5, outcome: "pass", event: "CP-6E PASS — CIO sizing: 75bps initial, 125bps max · add-on-weakness posture" },
-  { id: "CP-5B", deps: ["CP-6A", "CP-6E"], dur: 4, outcome: "pass", event: "CP-5B PASS — 5/5 material drivers fully traced · auditability STRONG" },
+  { id: "CP-5B", deps: ["CP-6A", "CP-6E"], dur: 4, outcome: "pass", event: "CP-5B PASS — 5/5 decision drivers fully traced · auditability STRONG" },
   { id: "CP-5", deps: ["CP-5B"], dur: 5, outcome: "warning", event: "CP-5 CONDITIONAL — 1 HIGH finding open (CP-1C citation E-44 unresolved) · export held" },
   { id: "CP-RENDER", deps: ["CP-5"], dur: 2, outcome: "held", event: "CP-RENDER HELD — awaiting CP-5 remediation of QA-117 before committee pack assembly" },
   { id: "CP-EXTRACT", deps: ["CP-5"], dur: 2, outcome: "held", event: "CP-EXTRACT HELD — structured export gated on clearance" },
   { id: "CP-DB", deps: ["CP-EXTRACT"], dur: 1, outcome: "idle", event: "" },
 ];
 
-// CP-5B-02 Top-5 material credit drivers with lineage
+// CP-5B-02 seeded decision-relevant credit drivers with lineage
 export interface Driver {
   n: number;
   driver: string;

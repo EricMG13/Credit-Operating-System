@@ -49,6 +49,22 @@ describe("useRovingFocus · logic", () => {
     expect(result.current.activeId).toBeNull();
     expect(result.current.getItemProps("anything").tabIndex).toBe(-1);
   });
+
+  it("safely ignores navigation when no target id exists", () => {
+    const { result } = renderHook(() => useRovingFocus([]));
+    const props = result.current.getItemProps("ghost");
+    act(() => props.onKeyDown({ key: "ArrowRight", preventDefault() {} } as never));
+    act(() => props.onKeyDown({ key: "Home", preventDefault() {} } as never));
+    expect(result.current.activeId).toBeNull();
+  });
+
+  it("starts from index zero if a non-empty defensive collection has no active id", () => {
+    const ids = [undefined as unknown as string, "b"];
+    const { result } = renderHook(() => useRovingFocus(ids));
+    const props = result.current.getItemProps("ghost");
+    act(() => props.onKeyDown({ key: "ArrowRight", preventDefault() {} } as never));
+    expect(result.current.activeId).toBeNull();
+  });
 });
 
 // Rendered integration: real DOM focus must move with the arrow keys, not

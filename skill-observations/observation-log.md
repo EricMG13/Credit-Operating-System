@@ -62,3 +62,27 @@ not a `bundler: "webpack"` `NextConfig` key. With
 `.next/dev/trace-turbopack`, not a root `trace.json`. Update both examples and
 prefer the documented `next experimental-analyze --output` CLI for reusable
 bundle-analysis artifacts.
+
+## 2026-07-16 — outstanding — CLOSED
+
+The prescribed server command targets `caos/server`, which contains application
+code but no pytest files and therefore exits 5 after collecting zero tests. It
+also selects the Python 3.9 `.venv`, which cannot collect the current Python
+3.10+ syntax and FastAPI dependency set. The server suite now lives under
+`caos/tests/server`; update the command to `env -u ANTHROPIC_API_KEY
+caos/server/.venv311/bin/python -m pytest caos/tests/server` and refresh the
+obsolete ~317-pass baseline.
+
+Integrated into `.agents/skills/outstanding/SKILL.md` on 2026-07-16: the skill
+now targets `.venv311`, the real `caos/tests/server` suite, and the current
+355-story tracker / ~1910-pass baseline.
+
+## 2026-07-16 — gitnexus-exploring — OPEN
+
+A local `node .gitnexus/run.cjs analyze` followed by an explicit
+`--repair-fts` reported success, but the active MCP `query` endpoint still
+returned an empty result with “FTS indexes are missing.” Add troubleshooting
+for a stale MCP/server-side index handle (including restart/cache/branch-index
+checks) after repair succeeds; the current guidance stops at reindexing and can
+leave semantic exploration silently unavailable even while symbol
+context/impact continues to work.

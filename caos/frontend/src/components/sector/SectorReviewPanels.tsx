@@ -4,6 +4,7 @@ import Link from "next/link";
 import { AnalysisStateBadge } from "@/components/shared/AnalysisWorkbench";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { IssuerLink } from "@/components/shared/IssuerLink";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { contextHref, type SectorReviewV2 } from "@/lib/analysis-workbench";
 
 export type SectorReviewTab = "overview" | "signals" | "comparables" | "early-warning" | "risks" | "sources";
@@ -19,8 +20,21 @@ export const SECTOR_REVIEW_TABS: Array<{ id: SectorReviewTab; label: string }> =
 
 function EmptyPanel() {
   return (
-    <div className="grid h-full place-items-center p-6 text-center text-caos-sm text-caos-muted">
-      No versioned dossier exists for this context. Request a refresh to create a draft without replacing any prior published review.
+    <div className="grid h-full place-items-center p-6">
+      <SurfaceState
+        kind="not-run"
+        title="No versioned dossier"
+        detail="Request a refresh to create a draft without replacing any prior published review."
+        compact
+      />
+    </div>
+  );
+}
+
+function LoadingPanel() {
+  return (
+    <div className="grid h-full place-items-center p-6">
+      <SurfaceState kind="loading" title="Loading sector review" compact />
     </div>
   );
 }
@@ -49,7 +63,7 @@ function OverviewPanel({
       </section>
       <section className="rounded-md border border-caos-border bg-caos-panel">
         <div className="border-b border-caos-border px-3 py-2">
-          <h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Seven-section dossier</h2>
+          <h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">{review.sections.length}-section dossier</h2>
         </div>
         <ol>
           {review.sections.map((section) => (
@@ -156,13 +170,16 @@ export function SectorReviewContent({
   selectedSection,
   onSelectSection,
   contextId,
+  loading = false,
 }: {
   review: SectorReviewV2 | null;
   tab: SectorReviewTab;
   selectedSection: string | null;
   onSelectSection: (sectionId: string) => void;
   contextId?: string;
+  loading?: boolean;
 }) {
+  if (loading) return <LoadingPanel />;
   if (!review) return <EmptyPanel />;
   switch (tab) {
     case "overview": return <OverviewPanel review={review} selectedSection={selectedSection} onSelectSection={onSelectSection} />;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildScenarios, metricValue, METRICS } from "./scenarios";
+import { buildScenarios, metricValue, METRICS, swingLabel } from "./scenarios";
 import { buildModel } from "@/lib/reports/model";
 import { DEFAULT_CASE, type Assumptions } from "@/lib/reports/assumptions";
 
@@ -28,6 +28,18 @@ describe("project (cash-flow lens)", () => {
     expect(p.netLev[2]).toBeLessThan(p.netLev[0]);
     expect(p.cash[2]).toBeGreaterThan(p.cash[0]);
   });
+
+  it("degrades leverage and coverage to NaN when their denominators are non-positive", () => {
+    const p = lens.project({ ...lens.base, adjMargin: 0, rate: 0 });
+    expect(p.netLev.every(Number.isNaN)).toBe(true);
+    expect(p.intCov.every(Number.isNaN)).toBe(true);
+  });
+
+  it("reads every projection metric", () => {
+    const p = lens.project(lens.base);
+    expect(metricValue(p, "minCash")).toBe(Math.min(...p.cash));
+    expect(metricValue(p, "intCovExit")).toBe(p.intCov.at(-1));
+  });
 });
 
 describe("best / base / worst ordering", () => {
@@ -45,6 +57,10 @@ describe("best / base / worst ordering", () => {
 });
 
 describe("tornado (adjustable sensitivity)", () => {
+  it("formats percentage-point and basis-point swing labels", () => {
+    expect(swingLabel("revGrowth", 2)).toContain("pp");
+    expect(swingLabel("rate", 2)).toBe("±200bps");
+  });
   it("returns one bar per driver, sorted widest-impact first", () => {
     const { base, bars } = lens.tornado("netLevExit");
     expect(base).toBe(metricValue(lens.project(lens.base), "netLevExit"));
@@ -148,5 +164,11 @@ describe("scenario builder adjust re-centers base & downside", () => {
 
   it("reset (no adjust) equals the assumption forecast", () => {
     expect(buildScenarios(model, undefined).base).toEqual(buildScenarios(model).base);
+  });
+
+  it("treats a missing forecast growth input as zero", () => {
+    const model = buildModel(1);
+    model.cols.b0.gRev = undefined as never;
+    expect(Number.isFinite(buildScenarios(model).base.revGrowth)).toBe(true);
   });
 });

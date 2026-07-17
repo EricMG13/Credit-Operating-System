@@ -1,20 +1,16 @@
-"""Pipeline executor — durable, multi-worker-safe execution of autonomous cycles.
+"""Durable execution for autonomous Sentinel→Analyst→Reporter cycles.
 
-Mirrors [research_executor.py]: a ``pipeline_runs`` row in ``running`` state is
-claimed via ``SELECT FOR UPDATE SKIP LOCKED`` (Postgres) so two workers never
-execute the same job; a process restart sweeps stranded ``running`` rows to
-``failed`` (a cycle can't be resumed mid-flight — the Analyst LLM pass is not
-idempotent-in-progress). No Redis — the claim lives inside the existing Postgres
-transaction boundary, the same posture the codebase uses for pgvector and the
-advisory locks. SQLite (the test dialect) has no ``SKIP LOCKED``; it falls back
-to a module-level claimed-id set, correct under the one-process test assumption.
+``pipeline.enqueue_cycle`` persists a ``queued`` row. This worker continuously
+claims queued rows and expired ``running`` leases, heartbeats live claims, and
+executes each cycle outside the request that requested it. PostgreSQL uses
+``FOR UPDATE SKIP LOCKED``; SQLite relies on the launcher's enforced one-process
+boundary. A hard crash therefore leaves a reclaimable lease instead of a
+permanently stranded in-memory task.
 
-The route (routes/autonomy.py) currently runs the cycle synchronously; this
-executor is the infrastructure for the async path — ``enqueue_cycle`` (in
-engine/pipeline.py) writes a ``running`` row, the ``PipelineExecutor`` claims +
-runs it off the request thread, and the client polls the ``complete`` draft. The
-route wiring (sync → enqueue + poll) is a follow-on that needs the route-contract
-sign-off; the claim/execute/sweep mechanism here is additive and inert until then.
+No schema expansion is required: bounded attempt metadata lives in the job's
+pre-terminal ``summary`` JSON and is replaced by the public result summary on
+success. Terminal writes re-check ``worker_id`` so an expired, stale claimant
+cannot overwrite a newer owner.
 """
 
 from __future__ import annotations
@@ -24,22 +20,21 @@ import logging
 import os
 import socket
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import and_, or_, select
 
 from config import get_settings
 from database import AsyncSessionLocal, PipelineRun, engine as db_engine
 from engine import autonomy
-from executor_base import InProcessTaskExecutor
 
 logger = logging.getLogger("caos.pipeline_executor")
 
 _WORKER_ID = f"{socket.gethostname()}:{os.getpid()}"
 
-# SQLite fallback: ids claimed in this process. Sync add (no await) so two
-# coroutines can't interleave a double-claim. Cleared per test by _sqlite_reset.
-_sqlite_claimed: set = set()
+# Retained for backwards-compatible test isolation. Claim safety now comes from
+# the durable queued/running transition, so there is no process-local claim set.
+_sqlite_claimed: set[str] = set()
 
 
 def _is_postgres() -> bool:
@@ -51,84 +46,162 @@ def _utcnow() -> datetime:
 
 
 def _sqlite_reset() -> None:
-    """Clear the SQLite claimed set. Test isolation only."""
+    """Clear legacy SQLite claim state. Test-isolation compatibility only."""
     _sqlite_claimed.clear()
 
 
-async def claim_next_job(db, worker_id: str) -> Optional[PipelineRun]:
-    """Claim one ``running`` autonomy-cycle job for this worker. Postgres uses
-    ``FOR UPDATE SKIP LOCKED`` so a row another worker is locking is skipped (not
-    blocked) — two workers each claim a distinct row, never the same one. SQLite
-    falls back to the module-level claimed set. Returns the claimed row (with
-    ``worker_id`` set) or None when no runnable job remains. Commits to release
-    the Postgres row lock before the job runs (the row is ``running`` + claimed,
-    so another worker's ``SKIP LOCKED`` skips it regardless)."""
-    if _is_postgres():
-        row = (await db.execute(
-            select(PipelineRun)
-            .where(PipelineRun.kind == "autonomy-cycle", PipelineRun.status == "running")
-            .order_by(PipelineRun.created_at)
-            .limit(1)
-            .with_for_update(skip_locked=True)
-        )).scalars().first()
-        if row is None:
-            return None
-        row.worker_id = worker_id
-        await db.commit()
-        return row
-    # SQLite fallback: first running row not already claimed in-process.
-    rows = (await db.execute(
+def _attempt_count(row: PipelineRun) -> int:
+    raw = (row.summary or {}).get("_attempts", 0)
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return 0
+
+
+async def claim_next_job(
+    db,
+    worker_id: str,
+    *,
+    exclude_ids: Iterable[str] = (),
+) -> Optional[PipelineRun]:
+    """Claim one queued or expired autonomy job for ``worker_id``.
+
+    PostgreSQL locks the selected row with ``SKIP LOCKED``. The launcher rejects
+    multi-process SQLite, so the same state transition is sufficient there. A
+    NULL lease is reclaimable for legacy rows and crashes before lease commit.
+    """
+    now = _utcnow()
+    stmt = (
         select(PipelineRun)
-        .where(PipelineRun.kind == "autonomy-cycle", PipelineRun.status == "running")
+        .where(
+            PipelineRun.kind == "autonomy-cycle",
+            or_(
+                PipelineRun.status == "queued",
+                and_(
+                    PipelineRun.status == "running",
+                    or_(
+                        PipelineRun.lease_expires_at.is_(None),
+                        PipelineRun.lease_expires_at < now,
+                    ),
+                ),
+            ),
+        )
         .order_by(PipelineRun.created_at)
-    )).scalars().all()
-    for r in rows:
-        if r.id in _sqlite_claimed:
-            continue
-        _sqlite_claimed.add(r.id)
-        r.worker_id = worker_id
+        .limit(1)
+    )
+    excluded = tuple(exclude_ids)
+    if excluded:
+        stmt = stmt.where(PipelineRun.id.notin_(excluded))
+    if _is_postgres():
+        stmt = stmt.with_for_update(skip_locked=True)
+
+    row = (await db.execute(stmt)).scalars().first()
+    if row is None:
+        return None
+
+    settings = get_settings()
+    attempts = _attempt_count(row)
+    if attempts >= settings.caos_pipeline_max_attempts:
+        row.status = "failed"
+        row.error = "abandoned after max attempts"
+        row.completed_at = now
+        row.lease_expires_at = None
         await db.commit()
-        return r
-    return None
+        return None
+
+    row.status = "running"
+    row.worker_id = worker_id
+    row.lease_expires_at = now + timedelta(seconds=settings.caos_pipeline_lease_seconds)
+    row.summary = {**(row.summary or {}), "_attempts": attempts + 1}
+    await db.commit()
+    return row
 
 
-async def _mark_failed(db, job_id: str, reason: str) -> None:
-    """Roll back and mark a job failed; never raises (last-resort recovery)."""
+async def _mark_failed(
+    db,
+    job_id: str,
+    reason: str,
+    *,
+    expected_worker_id: str | None = None,
+) -> None:
+    """Mark an owned attempt failed; never overwrite a reclaimed attempt."""
     try:
         await db.rollback()
         job = await db.get(PipelineRun, job_id)
-        if job is not None:
-            job.status = "failed"
-            job.error = reason
-            job.completed_at = _utcnow()
-            await db.commit()
+        if job is None:
+            return
+        if expected_worker_id is not None and (
+            job.status != "running" or job.worker_id != expected_worker_id
+        ):
+            logger.warning(
+                "discarding stale pipeline failure %s worker=%s",
+                job_id,
+                expected_worker_id,
+            )
+            return
+        job.status = "failed"
+        job.error = reason
+        job.completed_at = _utcnow()
+        job.lease_expires_at = None
+        await db.commit()
     except Exception:  # noqa: BLE001
         logger.exception("could not mark pipeline job %s failed", job_id)
 
 
-async def execute_job(job_id: str) -> None:
-    """Run one claimed autonomy-cycle job to ``complete`` (or ``failed``). Opens
-    its own session so it outlives the request that enqueued it. The row is
-    UPDATED in place (not a new row) so the audit trail is one-row-per-cycle."""
+async def execute_job(job_id: str, *, expected_worker_id: str | None = None) -> None:
+    """Execute one claimed job and fence its terminal write by worker identity."""
     async with AsyncSessionLocal() as db:
         job = await db.get(PipelineRun, job_id)
         if job is None or job.status != "running":
-            return  # vanished, or already complete/failed (e.g. sweep beat us)
-        try:
-            # Lease this job before doing any real work, committed on its own so
-            # a sibling replica's boot sweep can see it durably right away.
-            # Gates PipelineExecutor.start()'s reap below. Inside the try: a
-            # commit failure here must still reach the except-Exception guard
-            # below and mark the job failed, not strand it in 'running' with
-            # the lease never set.
-            job.worker_id = _WORKER_ID
-            job.lease_expires_at = _utcnow() + timedelta(
-                seconds=get_settings().caos_background_job_lease_seconds
+            return
+        if expected_worker_id is not None and job.worker_id != expected_worker_id:
+            logger.warning(
+                "discarding stale pipeline claim %s worker=%s",
+                job_id,
+                expected_worker_id,
             )
-            await db.commit()
+            return
+
+        owner = expected_worker_id or job.worker_id or _WORKER_ID
+        # A direct/local caller may not have persisted ownership yet. Until its
+        # lease commit succeeds, failure cleanup must not require a fence value
+        # that the database has never observed.
+        fenced_owner = owner if expected_worker_id is not None or job.worker_id else None
+        try:
+            # Direct unit/local callers may enter without the poller's claim.
+            # Persist an owner+lease before any LLM work so the same fencing rule
+            # applies to every execution path.
+            if job.worker_id is None:
+                job.worker_id = owner
+                job.lease_expires_at = _utcnow() + timedelta(
+                    seconds=get_settings().caos_pipeline_lease_seconds
+                )
+                await db.commit()
+                fenced_owner = owner
 
             result = await autonomy.run_cycle(
-                db, prior_fingerprints=job.prior_fingerprints or None)
+                db, prior_fingerprints=job.prior_fingerprints or None
+            )
+
+            # Read through the identity map to observe a reclaim committed by a
+            # different process while this attempt was running.
+            ownership = (
+                await db.execute(
+                    select(PipelineRun.status, PipelineRun.worker_id).where(
+                        PipelineRun.id == job_id
+                    )
+                )
+            ).one_or_none()
+            if ownership is None or tuple(ownership) != ("running", owner):
+                await db.rollback()
+                logger.warning(
+                    "discarding stale pipeline result %s worker=%s",
+                    job_id,
+                    owner,
+                )
+                return
+
+            await db.refresh(job)
             draft = result.get("draft") or {}
             summary = draft.get("summary") or {}
             job.status = "complete"
@@ -142,49 +215,143 @@ async def execute_job(job_id: str) -> None:
                 "n_deterministic_bullets": summary.get("n_deterministic_bullets", 0),
             }
             job.completed_at = _utcnow()
+            job.lease_expires_at = None
             await db.commit()
         except asyncio.CancelledError:
-            logger.warning("pipeline job %s cancelled during shutdown — marking failed", job_id)
-            await _mark_failed(db, job_id, "worker shutdown during autonomy cycle")
+            logger.warning(
+                "pipeline job %s cancelled during shutdown — marking failed", job_id
+            )
+            await _mark_failed(
+                db,
+                job_id,
+                "worker shutdown during autonomy cycle",
+                expected_worker_id=fenced_owner,
+            )
             raise
-        except Exception as e:  # noqa: BLE001 — last-resort guard so a job is never stranded
+        except Exception as exc:  # noqa: BLE001
             logger.exception("pipeline job %s failed", job_id)
-            await _mark_failed(db, job_id, str(e)[:2000])
+            await _mark_failed(
+                db,
+                job_id,
+                str(exc)[:2000],
+                expected_worker_id=fenced_owner,
+            )
 
 
-class PipelineExecutor(InProcessTaskExecutor):
-    """In-process background tasks for autonomy-cycle jobs (mirrors
-    ResearchExecutor): enqueue() spawns same-process (a cycle is bound to
-    whichever replica's request handler enqueued it — ``claim_next_job``'s SKIP
-    LOCKED path stays additive and inert, unused by this executor). start()'s
-    boot sweep is lease-expiry gated like QueueWorker._reap_orphans, so one
-    replica can't kill another replica's still-live cycle on a rolling
-    redeploy."""
+class PipelineExecutor:
+    """Continuous, lease-backed autonomy worker for PostgreSQL and local SQLite."""
 
-    name = "autonomy_in_process"
+    name = "autonomy_queue_worker"
+
+    def __init__(self) -> None:
+        self._settings = get_settings()
+        self._worker_id = f"{socket.gethostname()}:{os.getpid()}:{id(self)}"
+        self._inflight: set[asyncio.Task] = set()
+        self._inflight_ids: set[str] = set()
+        self._loop_task: asyncio.Task | None = None
+        self._stop = asyncio.Event()
+        self._wake = asyncio.Event()
+        self._consecutive_failures = 0
 
     async def start(self) -> None:
-        """Hard-crash recovery: a SIGKILL/restart skips stop()'s cancel handler,
-        stranding a job in 'running' forever. Gated on lease_expires_at (not
-        unconditional) so a rolling multi-replica redeploy can't have this
-        replica's boot sweep kill a cycle genuinely still running on a sibling.
-        A NULL lease is reapable (legacy rows, or a crash before the lease-set
-        commit) — see migrations/0038_background_job_leases and
-        .agent-reviews/redteam.md RT-2026-07-11-03."""
-        async with AsyncSessionLocal() as db:
-            await db.execute(
-                update(PipelineRun)
-                .where(
-                    PipelineRun.status == "running",
-                    or_(PipelineRun.lease_expires_at.is_(None), PipelineRun.lease_expires_at < _utcnow()),
-                )
-                .values(status="failed", error="abandoned (lease expired)",
-                        completed_at=_utcnow(), lease_expires_at=None)
-            )
-            await db.commit()
+        self._stop.clear()
+        self._wake.clear()
+        self._loop_task = asyncio.create_task(
+            self._run_loop(), name="caos-autonomy-worker"
+        )
+
+    async def stop(self) -> None:
+        self._stop.set()
+        self._wake.set()
+        if self._loop_task is not None:
+            await self._loop_task
+        tasks = list(self._inflight)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._inflight.clear()
+        self._inflight_ids.clear()
 
     def enqueue(self, job_id: str) -> None:
-        """Spawn a background task for one job. The task claims-via-execute (the
-        row is already 'running' from enqueue_cycle; execute_job guards on
-        status=='running' so a swept-to-failed row is a no-op)."""
-        self._spawn(execute_job(job_id))
+        """Wake the poller; the durable row, not this notification, owns work."""
+        del job_id
+        self._wake.set()
+
+    def health(self) -> dict[str, object]:
+        loop_live = self._loop_task is not None and not self._loop_task.done()
+        healthy = loop_live and self._consecutive_failures < 3
+        return {
+            "status": "ok" if healthy else "degraded",
+            "loop_live": loop_live,
+            "consecutive_failures": self._consecutive_failures,
+            "inflight": len(self._inflight),
+        }
+
+    async def _heartbeat(self) -> None:
+        if not self._inflight_ids:
+            return
+        lease = timedelta(seconds=self._settings.caos_pipeline_lease_seconds)
+        async with AsyncSessionLocal() as db:
+            rows = (
+                await db.execute(
+                    select(PipelineRun).where(
+                        PipelineRun.id.in_(tuple(self._inflight_ids)),
+                        PipelineRun.worker_id == self._worker_id,
+                        PipelineRun.status == "running",
+                    )
+                )
+            ).scalars().all()
+            expires = _utcnow() + lease
+            for row in rows:
+                row.lease_expires_at = expires
+            await db.commit()
+
+    async def _claim_one(self) -> str | None:
+        async with AsyncSessionLocal() as db:
+            row = await claim_next_job(
+                db,
+                self._worker_id,
+                exclude_ids=self._inflight_ids,
+            )
+            return row.id if row is not None else None
+
+    async def _run_loop(self) -> None:
+        poll = self._settings.caos_pipeline_poll_seconds
+        cap = max(1, self._settings.caos_pipeline_concurrency)
+        while not self._stop.is_set():
+            try:
+                await self._heartbeat()
+                while len(self._inflight) < cap:
+                    job_id = await self._claim_one()
+                    if job_id is None:
+                        break
+                    task = asyncio.create_task(
+                        execute_job(job_id, expected_worker_id=self._worker_id),
+                        name=f"caos-autonomy-{job_id}",
+                    )
+                    self._inflight.add(task)
+                    self._inflight_ids.add(job_id)
+                    task.add_done_callback(self._inflight.discard)
+                    task.add_done_callback(
+                        lambda _task, jid=job_id: self._inflight_ids.discard(jid)
+                    )
+                self._consecutive_failures = 0
+            except Exception:  # noqa: BLE001 — worker loops must stay alive
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= 3:
+                    logger.error(
+                        "autonomy worker loop failing repeatedly (%d ticks) — queue degraded",
+                        self._consecutive_failures,
+                        exc_info=True,
+                    )
+                else:
+                    logger.exception("autonomy worker loop tick failed")
+
+            self._wake.clear()
+            if self._stop.is_set():
+                break
+            try:
+                await asyncio.wait_for(self._wake.wait(), timeout=poll)
+            except asyncio.TimeoutError:
+                pass

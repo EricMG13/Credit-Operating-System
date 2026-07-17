@@ -13,8 +13,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { IssuerLink } from "@/components/shared/IssuerLink";
-import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { useAutonomyDraft, type AutonomyDraftState } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, requiredActionFor, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
 import { getAlertStates, setAlertState, type AlertStateDTO } from "@/lib/api";
@@ -63,28 +63,30 @@ export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
   };
 
   if (loading) {
-    return <div className="px-3 py-4 tabular text-caos-xs text-caos-muted">loading…</div>;
+    return <SurfaceState kind="loading" title="Loading ranked changes" compact className="m-2" />;
   }
 
   if (offline) {
-    return (
-      <div className="px-3 py-4 flex items-center gap-2">
-        <ProvenanceChip prov={{ origin: "DEMO", detail: "Autonomy engine unreachable — no draft data to show." }} />
-        <span className="tabular text-caos-xs text-caos-muted">Autonomy engine unreachable</span>
-      </div>
-    );
+    // Was labeled origin: "DEMO" — DEMO means seeded/illustrative, and this
+    // is the opposite fact (a live service is genuinely unreachable).
+    // SurfaceState's "offline" kind exists precisely for this.
+    return <SurfaceState kind="offline" title="Autonomy engine unreachable" detail="No draft data to show." compact className="m-2" />;
   }
 
   if (rows.length === 0) {
     const cycling = draft?.refreshing;
+    // approval={null} equivalent: an empty board has no conclusion to be
+    // unratified — SurfaceState's "empty" kind already conveys "a real check
+    // ran and genuinely found nothing", so no separate provenance chip is
+    // needed here.
     return (
-      <div className="px-3 py-4 flex items-center gap-2">
-        {/* approval={null}: an empty board has no conclusion to be unratified. */}
-        <ConclusionAuthority prov={{ origin: "LIVE", method: "MODELLED", detail: draft?.marking }} approval={null} />
-        <span className="tabular text-caos-xs text-caos-muted">
-          {cycling ? "cycle running — no changes yet" : "no ranked changes to report"}
-        </span>
-      </div>
+      <SurfaceState
+        kind="empty"
+        title={cycling ? "cycle running — no changes yet" : "no ranked changes to report"}
+        detail={draft?.marking ?? undefined}
+        compact
+        className="m-2"
+      />
     );
   }
 

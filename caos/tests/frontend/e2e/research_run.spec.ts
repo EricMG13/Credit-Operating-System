@@ -31,13 +31,8 @@
  *     needs a model key (multi-minute web search) and cannot complete offline,
  *     so the stub is the only way to exercise the demo:false branch here.
  *
- *     BUILD-STALENESS NOTE: the exact "AI-synthesized" provenance-marker text
- *     lives in ReportPane.tsx:286 in *source*, but the static build the QA
- *     server serves is ~2 days old (page-a0bab7efb8101366.js) and predates that
- *     marker — its live footer is a bare "N sources", with no "AI-synthesized"
- *     span. So the specific "AI-synthesized" text assertion is split into its
- *     own test.skip()-guarded case below; the green E2E-6c test asserts the
- *     live-provenance signals that ARE in the deployed build.
+ *     The current production export includes the exact "AI-synthesized"
+ *     tear-sheet marker, covered in its own focused browser case below.
  *
  * Run (from caos/frontend):
  *   PLAYWRIGHT_BASE_URL='http://localhost:8010' E2E_ACCESS_CODE='131113' \
@@ -107,7 +102,7 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
   // footer does NOT show. Mirrors research_flow.spec.ts:47-69 with demo:false.
   test("live run shows the live-provenance render branch [E2E-6c]", async ({ page }) => {
     // POST creates a job; the client then polls GET to completion.
-    await page.route("**/api/research", (route) =>
+    await page.route((url) => url.pathname === "/api/research", (route) =>
       route.fulfill({ status: 201, json: { id: "live-job-1", status: "running" } }),
     );
     // First GET reports `running` (client must loop), the second `complete`
@@ -163,12 +158,9 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
   });
 
   // ── E2E-6c (exact marker) ───────────────────────────────────────────────────
-  // The specific "AI-synthesized" provenance-marker text (ReportPane.tsx:189-191).
-  // Source-present + unit-guarded (report-provenance.test.tsx); this browser leg
-  // needs a bundle rebuilt from current source (the marker post-dates the served
-  // 2026-07-02 static build). Un-skip once caos/server/static is rebuilt/redeployed.
-  test.skip("live run shows the AI-synthesized marker text [E2E-6c marker]", async ({ page }) => {
-    await page.route("**/api/research", (route) =>
+  // The specific current provenance-marker text in the on-screen tear-sheet.
+  test("live run shows the AI-synthesized marker text [E2E-6c marker]", async ({ page }) => {
+    await page.route((url) => url.pathname === "/api/research", (route) =>
       route.fulfill({ status: 201, json: { id: "live-job-2", status: "running" } }),
     );
     let polls = 0;
@@ -202,7 +194,7 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
       .getByRole("button", { name: /Run (deep|example) research/ })
       .click();
 
-    await expect(page.getByText("● LIVE", { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("LIVE", { exact: true })).toBeVisible({ timeout: 15000 });
     // The badge marker + the tear-sheet footer both name the LLM synthesis.
     await expect(page.getByText("AI-synthesized").first()).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(/AI-synthesized · 2 sources/).first()).toBeVisible({

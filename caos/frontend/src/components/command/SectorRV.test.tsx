@@ -2,7 +2,7 @@
 import React from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { SectorRV } from "./SectorRV";
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 
 afterEach(cleanup);
 import {
@@ -13,6 +13,7 @@ import {
   RV_AS_OF,
   RV_SOURCE,
   rvStaleness,
+  rows as seedRows,
 } from "@/lib/command/rvdata";
 
 beforeAll(() => {
@@ -283,5 +284,161 @@ describe("Broader Sector RV Calculations & Presentation", () => {
     const firstSectorCell = within(within(heatmap).getByRole("table")).getAllByRole("cell")[0];
 
     expect(firstSectorCell.textContent).toContain(expected);
+  });
+
+  it("covers every chart measure and aggregate mode, including linked hover and selection", () => {
+    const { container } = render(<SectorRV />);
+    const xControls = screen.getByRole("group", { name: "Chart X measure" });
+    const chartControls = screen.getByRole("group", { name: "Chart type" });
+
+    fireEvent.click(within(chartControls).getByRole("button", { name: "Bar" }));
+    expect(screen.getByRole("group", { name: /Average three-year discount margin per rating/i })).toBeDefined();
+    expect(screen.getByText("Point selection is available in the Scatter view and the peer table.")).toBeDefined();
+
+    fireEvent.click(within(chartControls).getByRole("button", { name: "Box" }));
+    expect(screen.getByRole("group", { name: /distribution per rating/i })).toBeDefined();
+    fireEvent.click(within(xControls).getByRole("button", { name: "Sub-sector" }));
+    expect(screen.getByRole("group", { name: /distribution per sub-sector/i })).toBeDefined();
+    fireEvent.click(within(chartControls).getByRole("button", { name: "Bar" }));
+    expect(screen.getByRole("group", { name: /Average three-year discount margin per sub-sector/i })).toBeDefined();
+
+    fireEvent.click(within(xControls).getByRole("button", { name: "Size" }));
+    expect(within(chartControls).getByRole("button", { name: "Bar" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("group", { name: /against size/i })).toBeDefined();
+    let point = screen.getAllByRole("button", { name: /Position/i })[0];
+    fireEvent.mouseEnter(point);
+    fireEvent.mouseLeave(point);
+    fireEvent.focus(point);
+    fireEvent.blur(point);
+    fireEvent.click(point);
+    expect(screen.getByRole("button", { name: "Clear" })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    fireEvent.click(within(xControls).getByRole("button", { name: "Price" }));
+    expect(screen.getByRole("group", { name: /against price/i })).toBeDefined();
+    point = screen.getAllByRole("button", { name: /Position/i })[0];
+    fireEvent.click(point);
+    fireEvent.keyDown(container.firstElementChild!, { key: "Escape" });
+    expect(point.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("covers full and market table lenses, filter projections, row events, sorts, and statistics tabs", () => {
+    render(<SectorRV />);
+    const lens = screen.getByRole("group", { name: "Loans table lens" });
+    fireEvent.click(within(lens).getByRole("button", { name: "Full" }));
+    const peers = screen.getByRole("table", { name: "Sector relative value" });
+
+    for (const label of ["Company", "RV comp.", "Cohort RV", "Instrument", "Portf. Held", "Carry RV (bp/yr)", "Δ 1M"]) {
+      const sort = within(peers).getByTitle(`Sort by ${label}`);
+      fireEvent.click(sort);
+      fireEvent.click(sort);
+    }
+
+    const companyButton = within(peers).getAllByRole("button", { name: /Select .+, rating/i })[0];
+    const row = companyButton.closest("tr")!;
+    fireEvent.mouseEnter(row);
+    fireEvent.mouseLeave(row);
+    fireEvent.focus(companyButton);
+    fireEvent.blur(companyButton);
+    fireEvent.click(row);
+    fireEvent.click(companyButton);
+
+    fireEvent.click(within(lens).getByRole("button", { name: "Market" }));
+    expect(peers.className).toContain("min-w-[1100px]");
+    fireEvent.click(within(lens).getByRole("button", { name: "RV" }));
+
+    fireEvent.click(within(peers).getByRole("button", { name: "Filter Company" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Filter Company" })).getByRole("button", { name: "Clear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close Company filter" }));
+    fireEvent.click(screen.getByRole("button", { name: /Clear 1 column filter/ }));
+
+    const stats = screen.getByRole("group", { name: "Statistics view type" });
+    fireEvent.click(within(stats).getByRole("button", { name: "Sub-Sectors" }));
+    const subsectors = screen.getByRole("table", { name: "Sub-sector market average" });
+    fireEvent.click(within(subsectors).getByTitle("Sort by Sub-Sector"));
+    fireEvent.click(within(subsectors).getByTitle("Sort by Δ 1M"));
+    fireEvent.click(within(subsectors).getByTitle("Sort by Loans"));
+
+    fireEvent.click(within(stats).getByRole("button", { name: "Indexes" }));
+    const indexes = screen.getByRole("table", { name: "Index statistics" });
+    fireEvent.click(within(indexes).getByTitle("Sort by Index"));
+    fireEvent.click(within(indexes).getByTitle("Sort by Δ 1M"));
+    fireEvent.click(within(indexes).getByTitle("Sort by Loans"));
+
+    fireEvent.click(within(stats).getByRole("button", { name: "Ratings" }));
+    const ratings = screen.getByRole("table", { name: "Sector ratings average" });
+    fireEvent.click(within(ratings).getByTitle("Sort by Rating"));
+    fireEvent.click(within(ratings).getByTitle("Sort by Δ 1M"));
+    fireEvent.click(within(ratings).getByTitle("Sort by Loans"));
+  });
+
+  it("rebuilds from holdings, exercises top-of-book events, and clears selection on sector change", () => {
+    const rebuilt = buildRVRows();
+    const initialSector = rebuilt[0]!.sector;
+    const first = rebuilt
+      .filter((row) => row.sector === initialSector && row.rvBp !== null)
+      .sort((a, b) => Math.abs(b.rvBp!) - Math.abs(a.rvBp!))[0]!;
+    const holdings = new Map([[first.figi, { held: true, headroomPct: 17 }]]);
+    render(<SectorRV holdings={holdings} />);
+
+    expect(screen.getAllByText(/^held/).length).toBeGreaterThan(0);
+    const cheapSection = screen.queryByText("Cheap · add")?.parentElement;
+    const richSection = screen.queryByText("Rich · fade")?.parentElement;
+    const pick = (cheapSection ?? richSection)?.querySelector("button") as HTMLButtonElement;
+    expect(pick).toBeDefined();
+    fireEvent.mouseEnter(pick);
+    fireEvent.mouseLeave(pick);
+    fireEvent.focus(pick);
+    fireEvent.blur(pick);
+    fireEvent.click(pick);
+    fireEvent.click(pick);
+
+    const point = screen.getAllByRole("button", { name: /Position/i })[0];
+    fireEvent.click(point);
+    const sectorSelect = screen.getByLabelText("Sector tables") as HTMLSelectElement;
+    expect(sectorSelect.options.length).toBeGreaterThan(1);
+    fireEvent.change(sectorSelect, { target: { value: "1" } });
+    expect(sectorSelect.value).toBe("1");
+    expect(screen.getByText("Click a point or a peer-table row — selection links both ways · Esc clears.")).toBeDefined();
+  });
+
+  it("renders warning and critical staleness caveats from the clock", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-01T12:00:00Z"));
+      render(<SectorRV />);
+      expect(screen.getByText("POTENTIALLY STALE (91–180d)").className).toContain("text-caos-warning");
+      cleanup();
+
+      vi.setSystemTime(new Date("2027-02-01T12:00:00Z"));
+      render(<SectorRV />);
+      expect(screen.getByText("STALE (>180d)").className).toContain("text-caos-critical");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("renders cautious, neutral, thin-benchmark, and no-cheap-tail reads", () => {
+    const original = seedRows.map((row) => row.rvBp);
+    try {
+      seedRows.forEach((row, index) => { row.rvBp = index + 1; });
+      render(<SectorRV />);
+      expect(screen.getByText("CONSTRUCTIVE")).toBeDefined();
+      cleanup();
+
+      seedRows.forEach((row, index) => { row.rvBp = -(index + 1); });
+      render(<SectorRV />);
+      expect(screen.getByText("CAUTIOUS")).toBeDefined();
+      expect(screen.getByText("No loan screens wide of its bucket median in the current selection.")).toBeDefined();
+      cleanup();
+
+      seedRows.forEach((row) => { row.rvBp = null; });
+      render(<SectorRV />);
+      expect(screen.getByText("NEUTRAL")).toBeDefined();
+      expect(screen.getByText(/0 of .* loans carry a sector×rating benchmark/)).toBeDefined();
+      expect(screen.getByText(/No benchmarked loans in scope/)).toBeDefined();
+    } finally {
+      seedRows.forEach((row, index) => { row.rvBp = original[index]; });
+    }
   });
 });

@@ -25,6 +25,7 @@ import { VaultMemoUpload } from "@/components/query/VaultMemoUpload";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
@@ -282,7 +283,7 @@ function worstProvenance(ms: { provenance: string }[]): string | null {
 function Splash({ msg }: { msg: string }) {
   return (
     <div className="h-screen flex items-center justify-center bg-caos-bg">
-      <span className="tabular text-caos-lg text-caos-muted">{msg}</span>
+      <SurfaceState kind="loading" title={msg} className="max-w-md" />
     </div>
   );
 }
@@ -417,19 +418,24 @@ function IssuerProfileView() {
 
 function ErrorView({ id, msg }: { id: string | null; msg: string }) {
   return (
-    <div className="h-screen flex flex-col items-center justify-center gap-3 bg-caos-bg text-center">
-      <span style={{ color: "var(--caos-warning)" }}><StatusGlyph kind="warning" size={20} /></span>
-      <p className="text-caos-2xl text-caos-text font-medium">{msg}</p>
-      <div className="flex gap-2">
-        <Link href="/issuers" className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring">
-          ← BACK TO DIRECTORY
-        </Link>
-        {id ? (
-          <Link href={"/deepdive?issuer=" + encodeURIComponent(id)} className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring">
-            OPEN DEEP-DIVE
+    <div className="h-screen flex items-center justify-center bg-caos-bg">
+      <SurfaceState
+        kind="error"
+        title={msg}
+        className="max-w-md text-center"
+        primaryAction={
+          <Link href="/issuers" className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring">
+            ← BACK TO DIRECTORY
           </Link>
-        ) : null}
-      </div>
+        }
+        secondaryAction={
+          id ? (
+            <Link href={"/deepdive?issuer=" + encodeURIComponent(id)} className="no-underline tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring">
+              OPEN DEEP-DIVE
+            </Link>
+          ) : undefined
+        }
+      />
     </div>
   );
 }
@@ -604,25 +610,34 @@ export function Profile({
   const EVIDENCE_SEV_COLOR: Record<string, string> = {
     critical: "var(--caos-critical)", warning: "var(--caos-warning)", ok: "var(--caos-success)", low: "var(--caos-muted)",
   };
-  const profileAsOf = latest_run?.as_of_date ?? null;
-  const profileAuthority = profileAsOf ? {
-    provenance: { origin: "LIVE" as const, method: "DERIVED" as const, freshness: toProvFreshness(profileFreshness), detail: profileFreshness ? freshnessDetail(profileFreshness) : "Central freshness evaluation unavailable for the issuer read-model.", asOf: profileAsOf },
+  // A completed run is authority even when it has no as_of_date (older rows
+  // predating the backfill, or a genuinely undated source) — branch on the
+  // run's presence, not on the timestamp. Collapsing to "no completed run"
+  // whenever as_of_date was null used to contradict the header's own
+  // RESTRICTED/UNDERWEIGHT chips, which read `latest_run` directly.
+  const hasCompletedRun = !!latest_run;
+  const profileAsOf = latest_run?.as_of_date ?? (hasCompletedRun ? "timestamp unavailable" : null);
+  const profileAuthority = hasCompletedRun ? {
+    provenance: { origin: "LIVE" as const, method: "DERIVED" as const, freshness: toProvFreshness(profileFreshness), detail: profileFreshness ? freshnessDetail(profileFreshness) : "Central freshness evaluation unavailable for the issuer read-model.", asOf: profileAsOf as string },
     approval: latest_run?.committee_status === "Approved" ? "RATIFIED" as const : "UNRATIFIED" as const,
   } : undefined;
-  const profileUnavailable = { kind: "unavailable" as const, message: "No timestamped completed run available" };
-  const profileDecision: DecisionContextState = profileAsOf
-    ? {
-        whatChanged: { kind: "ready", value: deskRead, asOf: profileAsOf, authority: profileAuthority },
-        whyItMatters: { kind: "ready", value: pmPosture ? `${pmPosture.label} · ${pmRisk}` : pmRisk, asOf: profileAsOf, authority: profileAuthority },
-        requiredAction: { kind: "ready", value: <Link href={pmAction.href} className="text-caos-accent hover:text-caos-text transition-caos focus-ring rounded outline-none">{pmAction.label} →</Link>, asOf: profileAsOf, authority: profileAuthority },
-        evidenceHealth: {
-          kind: profileFreshness?.state === "stale" ? "stale" : profileFreshness?.state === "current" && !totalFindings ? "ready" : "partial",
-          value: <span className="inline-flex items-center gap-2" style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] ?? "var(--caos-text)" }}><FreshnessIndicator evaluation={profileFreshness} />{pmEvidence.label}</span>,
-          missingSources: [...(totalFindings ? [`${totalFindings} QA finding${totalFindings === 1 ? "" : "s"}`] : []), ...(!profileFreshness || profileFreshness.state === "unknown" ? ["central freshness evaluation"] : [])],
-          asOf: profileAsOf,
-          authority: profileAuthority,
-        },
-      }
+  const profileUnavailable = { kind: "unavailable" as const, message: "No completed run available" };
+  const profileDecision: DecisionContextState = hasCompletedRun
+    ? (() => {
+        const asOf = profileAsOf as string;
+        return {
+          whatChanged: { kind: "ready", value: deskRead, asOf, authority: profileAuthority },
+          whyItMatters: { kind: "ready", value: pmPosture ? `${pmPosture.label} · ${pmRisk}` : pmRisk, asOf, authority: profileAuthority },
+          requiredAction: { kind: "ready", value: <Link href={pmAction.href} className="text-caos-accent hover:text-caos-text transition-caos focus-ring rounded outline-none">{pmAction.label} →</Link>, asOf, authority: profileAuthority },
+          evidenceHealth: {
+            kind: profileFreshness?.state === "stale" ? "stale" : profileFreshness?.state === "current" && !totalFindings ? "ready" : "partial",
+            value: <span className="inline-flex items-center gap-2" style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] ?? "var(--caos-text)" }}><FreshnessIndicator evaluation={profileFreshness} />{pmEvidence.label}</span>,
+            missingSources: [...(totalFindings ? [`${totalFindings} QA finding${totalFindings === 1 ? "" : "s"}`] : []), ...(!profileFreshness || profileFreshness.state === "unknown" ? ["central freshness evaluation"] : [])],
+            asOf,
+            authority: profileAuthority,
+          },
+        };
+      })()
     : { whatChanged: profileUnavailable, whyItMatters: profileUnavailable, requiredAction: profileUnavailable, evidenceHealth: profileUnavailable };
 
   const evidenceAtlas = (

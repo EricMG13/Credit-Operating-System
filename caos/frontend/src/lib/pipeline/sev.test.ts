@@ -17,7 +17,16 @@ describe("moduleLiveState", () => {
   it("maps a produced module's qa_status to a launcher state", () => {
     expect(moduleLiveState("Passed")).toBe("pass");
     expect(moduleLiveState("Restricted")).toBe("warning"); // cleared-with-concerns
-    expect(moduleLiveState("Not Reviewed")).toBe("pass");  // produced, not blocked
+  });
+  it("maps 'Not Reviewed' to its own state — never silently 'pass'", () => {
+    // A module that hasn't been reviewed yet is not the same fact as a clean
+    // pass; a caller that folded them together (the prior behavior) showed an
+    // unreviewed module as if review had happened and it cleared.
+    expect(moduleLiveState("Not Reviewed")).toBe("not-reviewed");
+    expect(moduleLiveState("Not Reviewed")).not.toBe("pass");
+  });
+  it("'not-reviewed' is not 'cleared' — it hasn't earned that yet", () => {
+    expect(isCleared(moduleLiveState("Not Reviewed"))).toBe(false);
   });
   it("maps the engine's per-module failure gate (Blocked) to failed", () => {
     // runner._persist_blocked sets qa_status="Blocked"; it must read as failed —

@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1.11
+
+ARG ALPINE_IMAGE=alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+
+FROM ${ALPINE_IMAGE} AS script-check
+RUN apk add --no-cache shellcheck
+COPY deploy/backup.sh deploy/restore_drill.sh /src/
+RUN shellcheck /src/backup.sh /src/restore_drill.sh
+
+FROM ${ALPINE_IMAGE} AS runtime
+RUN apk add --no-cache ca-certificates postgresql18-client=18.4-r0 \
+    && addgroup -S -g 10000 recovery \
+    && addgroup -S -g 10001 backup \
+    && adduser -S -D -H -u 10001 -G backup backup \
+    && install -d -o 10001 -g 10000 -m 0750 /backups \
+    && install -d -o 10001 -g 10001 -m 0750 /tmp
+COPY --from=script-check --chown=10001:10001 /src/backup.sh /usr/local/bin/backup.sh
+COPY --from=script-check --chown=10001:10001 /src/restore_drill.sh /usr/local/bin/restore_drill.sh
+RUN chmod 0555 /usr/local/bin/backup.sh /usr/local/bin/restore_drill.sh \
+    && command -v pg_dump \
+    && command -v pg_restore \
+    && command -v psql \
+    && command -v createdb \
+    && command -v dropdb \
+    && ! command -v gcc \
+    && ! command -v make \
+    && ! command -v git
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/backup.sh"]

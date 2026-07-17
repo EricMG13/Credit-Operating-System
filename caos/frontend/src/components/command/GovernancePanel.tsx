@@ -24,6 +24,7 @@
 
 import { QaQueue, GapsList } from "@/components/command/views";
 import { IssuerLink } from "@/components/shared/IssuerLink";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import type { QaQueueItem, GapItem } from "@/lib/command/data";
 import type { DigestWatchRow } from "@/lib/api";
 
@@ -39,11 +40,7 @@ function WatchList({
   emptyBody: string;
 }) {
   if (rows.length === 0) {
-    return (
-      <div className="px-3 py-4 tabular text-caos-xs text-caos-muted" style={{ color: "var(--caos-success)" }}>
-        {emptyBody}
-      </div>
-    );
+    return <SurfaceState kind="empty" title={emptyBody} compact className="mx-3" />;
   }
   return (
     <div>
@@ -89,17 +86,13 @@ type SourceStatus = "loading" | "error" | "ready";
 function SourceUnavailable({ source, status }: { source: string; status: Exclude<SourceStatus, "ready"> }) {
   const loading = status === "loading";
   return (
-    <div
-      role={loading ? "status" : "alert"}
-      className="m-3 rounded-md border border-caos-warning/45 bg-caos-panel px-3 py-2.5 text-caos-muted"
-    >
-      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning">
-        {loading ? "… STATUS PENDING" : "⚠ STATUS UNAVAILABLE"}
-      </div>
-      <div className="mt-0.5 text-caos-md leading-snug">
-        {source} has not resolved, so this category cannot be marked clear.
-      </div>
-    </div>
+    <SurfaceState
+      kind={loading ? "loading" : "error"}
+      title={`${source} has not resolved`}
+      detail="This category cannot be marked clear."
+      compact
+      className="m-3"
+    />
   );
 }
 
@@ -109,6 +102,7 @@ export function GovernancePanel({
   liveGaps,
   liveMixedOrigin,
   staleRows,
+  findingStatus = "ready",
   qaStatus = "ready",
   digestStatus = "ready",
 }: {
@@ -117,6 +111,7 @@ export function GovernancePanel({
   liveGaps?: GapItem[];
   liveMixedOrigin?: DigestWatchRow[];
   staleRows: DigestWatchRow[];
+  findingStatus?: SourceStatus;
   qaStatus?: SourceStatus;
   digestStatus?: SourceStatus;
 }) {
@@ -126,9 +121,9 @@ export function GovernancePanel({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-2.5">
       <Category title="QA Queue · CP-5 open findings">
-        {qaStatus === "ready"
+        {findingStatus === "ready"
           ? <QaQueue items={liveQa ?? []} />
-          : <SourceUnavailable source="Live CP-5 status" status={qaStatus} />}
+          : <SourceUnavailable source="Live CP-5 findings" status={findingStatus} />}
       </Category>
       <Category title="Failed Gates · committee gate">
         {qaStatus === "ready" ? (

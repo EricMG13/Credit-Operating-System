@@ -40,6 +40,15 @@ const KEY = "caos.research.prefs";
 const AI_MODES: readonly AiMode[] = ["max", "standard", "lite"];
 const MODES: readonly ResearchPrefs["mode"][] = ["sector", "issuer"];
 
+export function hasStoredPrefs(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 // Per-field validation against DEFAULT_PREFS's shape — a malformed, stale-schema,
 // or hand-edited localStorage value must never inject a wrong-typed field into the
 // merged prefs (downstream code trusts this shape without re-checking it). Any

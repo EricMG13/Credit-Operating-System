@@ -127,7 +127,15 @@ body {
   box-shadow: none;
 }
 
-.caos-enterprise-page :is(button, a, input, select, textarea):focus-visible {
+/* Scoped to body, not .caos-enterprise-page: chrome overlays (Ask modal, the
+   ⌘K palette, citation viewers, ShortcutHelp) render outside every routed
+   page's .caos-enterprise-page wrapper, so this rule never reached them —
+   several chrome controls (Ask trigger/Back/CSV, view-switcher) fell back to
+   the UA default outline with no code change needed there, just a wider net.
+   Existing more-specific selectors (.ic-book, .portfolio-lab__*, .rd-cite,
+   .graph-node, etc.) keep winning by specificity — this is a fallback, not a
+   replacement. */
+body :is(button, a, input, select, textarea):focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
@@ -1164,7 +1172,14 @@ button.rd-revert-dot:focus-visible {
 .portfolio-lab__insight-actions button,
 .portfolio-lab__next { padding: 0 10px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em; }
 .portfolio-lab__toolbar button[aria-selected="true"] { border-color: var(--caos-accent); color: var(--caos-accent); }
-.portfolio-lab button[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
+/* No element on this surface ever carried the bare "portfolio-lab" class (the
+   real root is "portfolio-lab__*" throughout, matching the sibling rules
+   above/below) — this rule never matched anything, so aria-disabled
+   ActionReason buttons here ("Preview stress" in __stress, "Generate/Refresh
+   cited brief" in __insight-actions) rendered at full opacity, looking
+   identical to their enabled state. */
+.portfolio-lab__stress button[aria-disabled="true"],
+.portfolio-lab__insight-actions button[aria-disabled="true"] { opacity: 0.4; cursor: not-allowed; }
 .portfolio-lab__toolbar label,
 .portfolio-lab__context label { display: grid; gap: 4px; color: var(--caos-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
 .portfolio-lab__toolbar select,
@@ -1224,7 +1239,7 @@ button.rd-revert-dot:focus-visible {
 .portfolio-lab__next:focus-visible,
 .portfolio-lab__table-scroll button:focus-visible { outline: 2px solid var(--caos-accent); outline-offset: 2px; }
 
-@media (max-width: 899px) {
+@media (max-width: 1023px) {
   .portfolio-lab__decision-header { align-items: start; flex-direction: column; }
   .portfolio-lab__decision-header dl { width: 100%; grid-template-columns: repeat(3, 1fr); }
   .portfolio-lab__toolbar { align-items: stretch; flex-wrap: wrap; }

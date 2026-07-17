@@ -106,12 +106,19 @@ async def latest_complete(db: AsyncSession) -> Optional[PipelineRun]:
 
 
 async def latest_running(db: AsyncSession) -> Optional[PipelineRun]:
-    """The most recent ``running`` cycle row — the single-flight signal: a route
-    that sees a running row serves the latest complete draft instead of enqueuing
-    a second concurrent cycle. None when no cycle is in progress."""
+    """The most recent non-terminal cycle row — the single-flight signal.
+
+    ``queued`` is included because a durable job waiting for a worker is already
+    in progress from the caller's perspective. Treating only ``running`` as live
+    would let concurrent POSTs enqueue duplicates before the poller claims the
+    first row.
+    """
     return (await db.execute(
         select(PipelineRun)
-        .where(PipelineRun.kind == "autonomy-cycle", PipelineRun.status == "running")
+        .where(
+            PipelineRun.kind == "autonomy-cycle",
+            PipelineRun.status.in_(("queued", "running")),
+        )
         .order_by(PipelineRun.created_at.desc())
         .limit(1)
     )).scalars().first()
@@ -119,15 +126,17 @@ async def latest_running(db: AsyncSession) -> Optional[PipelineRun]:
 
 async def enqueue_cycle(db: AsyncSession,
                         prior_fingerprints: Optional[dict] = None) -> str:
-    """Create one ``running`` ``pipeline_runs`` row — the job the
-    ``PipelineExecutor`` claims via ``SELECT FOR UPDATE SKIP LOCKED`` and runs to
-    ``complete``. Returns the row id. The row is the durable claim: a second
-    worker sees it ``running`` and skips; a crash leaves it ``running`` until the
-    executor's sweep-on-boot marks it ``failed``. ``prior_fingerprints`` is the
-    snapshot the cycle will diff against (None → full scan)."""
+    """Create one durable ``queued`` autonomy job and return its row id.
+
+    ``PipelineExecutor`` claims it via ``SELECT FOR UPDATE SKIP LOCKED`` and
+    transitions it to ``running`` with a lease. A hard crash leaves a reclaimable
+    expired lease rather than an in-memory task that can disappear forever.
+    ``prior_fingerprints`` is the snapshot the cycle will diff against
+    (``None`` means a full scan).
+    """
     row = PipelineRun(
         kind="autonomy-cycle",
-        status="running",
+        status="queued",
         prior_fingerprints=prior_fingerprints,
         current_fingerprints={},
         draft={},

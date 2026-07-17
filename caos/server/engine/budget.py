@@ -222,10 +222,9 @@ async def trace_llm(resp, *, lane: str, model: str, ms: Optional[float] = None,
             )
             session.add(record)
             await session.commit()
-            if hasattr(resp, "__dict__") or isinstance(resp, object):
-                try:
-                    resp.llm_call_id = record.id
-                except AttributeError:
-                    pass
+            try:
+                resp.llm_call_id = record.id
+            except AttributeError:
+                pass
     except Exception:  # noqa: BLE001 — a trace must never fail the inference
         _trace_logger.exception("caos.llm trace failed for lane=%s", lane)

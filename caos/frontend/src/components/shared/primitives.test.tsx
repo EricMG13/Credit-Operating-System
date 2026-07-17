@@ -10,7 +10,10 @@ import { FlashOnChange } from "./FlashOnChange";
 import { ScopeToggle } from "./ScopeToggle";
 import { FilterHeader, updateColumnFilter } from "./TableColumnFilter";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 // jsdom doesn't reliably parse modern CSS values (var()/color-mix) on inline
 // styles, so these assert structure/behavior; the sevSurface tint *logic* is
@@ -46,6 +49,18 @@ describe("StatusGlyph", () => {
     const svg = container.querySelector("svg");
     expect(svg).toBeTruthy();
     expect(svg?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("applies optional classes and returns nothing for an unsupported defensive value", () => {
+    const { container, rerender } = render(<StatusGlyph kind="warning" className="probe" />);
+    expect(container.querySelector("svg")?.className.baseVal).toContain("probe");
+    rerender(<StatusGlyph kind={"unknown" as never} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("applies an optional class to the locked glyph variant", () => {
+    const { container } = render(<StatusGlyph kind="locked" className="locked-probe" />);
+    expect(container.querySelector("svg")?.className.baseVal).toContain("locked-probe");
   });
 });
 
@@ -102,6 +117,28 @@ describe("updateColumnFilter", () => {
 });
 
 describe("FilterHeader", () => {
+  it("keeps the standalone filter trigger at the minimum pointer target size", () => {
+    render(
+      <FilterHeader
+        label="Sector"
+        col="sector"
+        rows={[{ sector: "Telecom" }]}
+        getValue={(row) => row.sector}
+        selected={undefined}
+        onChange={() => {}}
+        iconOnly
+      >
+        Sector
+      </FilterHeader>
+    );
+
+    const trigger = screen.getByRole("button", { name: "Filter Sector" });
+    expect(trigger.className).toContain("h-6");
+    expect(trigger.className).toContain("min-h-6");
+    expect(trigger.className).toContain("w-6");
+    expect(trigger.className).toContain("min-w-6");
+  });
+
   it("opens from the visible filter button and closes on outside pointerdown", () => {
     render(
       <div>
@@ -262,5 +299,33 @@ describe("Panel", () => {
     fireEvent.click(expandButton);
 
     expect(screen.getByText("Toggle Body")).toBeTruthy();
+  });
+
+  it("delegates collapse when controlled by an onCollapse callback", () => {
+    const onCollapse = vi.fn();
+    render(<Panel title="Controlled" collapsible onCollapse={onCollapse}>Body</Panel>);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Controlled panel" }));
+    expect(onCollapse).toHaveBeenCalledOnce();
+    expect(screen.getByText("Body")).toBeTruthy();
+  });
+
+  it("makes an overflowing body a labelled focusable region", () => {
+    let notify = () => {};
+    class Observer {
+      constructor(callback: () => void) { notify = callback; }
+      observe() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", Observer);
+    render(<Panel title="Overflow"><div>Large body</div></Panel>);
+    const body = screen.getByText("Large body").parentElement!;
+    Object.defineProperties(body, {
+      scrollHeight: { configurable: true, value: 100 },
+      clientHeight: { configurable: true, value: 20 },
+    });
+    act(() => notify());
+    expect(body.tabIndex).toBe(0);
+    expect(body.getAttribute("aria-label")).toBe("Overflow");
+    expect(body.className).toContain("focus-ring");
   });
 });

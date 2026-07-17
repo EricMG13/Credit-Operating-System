@@ -263,15 +263,18 @@ class Settings(BaseSettings):
     # scan, and parse. Without a ceiling, many callers uploading large files at once
     # scales resident memory with the sum of their sizes. Uploads past the cap queue
     # on a semaphore rather than all buffer at once (mirrors caos_research_concurrency).
-    caos_upload_concurrency: int = 2
+    # One whole-file upload per process keeps the bytes buffer + isolated parser
+    # child bounded under the shipped 4 GiB container limit. WEB_CONCURRENCY is
+    # separately capped at two by run.validate_workers.
+    caos_upload_concurrency: int = 1
     caos_run_poll_seconds: float = 1.0   # worker loop tick
-    # Boot-sweep lease for the 2 fire-and-forget executors (report/pipeline;
-    # research_jobs use the re-claiming caos_research_lease_seconds above
-    # instead). Generous ceiling, not a per-job-type tune: report synthesis is
-    # the longest profile (one multi-thousand-token LLM call), the autonomy
-    # cycle's Analyst stage is shorter. One shared knob is fine because it only
-    # gates a rare event (replica boot), not a hot loop — being too generous
-    # just delays reaping a truly-dead row, it never risks reaping a live one.
+    # Durable autonomy-cycle queue. The poller claims queued/expired rows,
+    # heartbeats live attempts, and stops retrying after the bounded attempt cap.
+    caos_pipeline_lease_seconds: int = 1800
+    caos_pipeline_max_attempts: int = 3
+    caos_pipeline_poll_seconds: float = 2.0
+    caos_pipeline_concurrency: int = 1
+    # Boot-sweep lease retained for the report fire-and-forget executor.
     caos_background_job_lease_seconds: int = 1800
     # (caos_llm_timeout_s is declared once, above — google-genai wants milliseconds,
     # so convert at that call site.)

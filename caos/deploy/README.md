@@ -67,17 +67,33 @@ survives `docker compose restart app`, and EDGAR search returns pointers.
 | Tail logs | `docker compose logs -f app` |
 | Inspect backups | `docker compose exec backup ls -lh /backups` |
 | Ad-hoc DB dump (same format as the service) | `docker compose exec db pg_dump -U caos -Fc caos > caos-$(date +%F).dump` |
-| Restore drill (scratch targets, safe to run anytime — G1) | `docker compose exec backup sh /restore_drill.sh` |
+| Local restore drill (scratch targets, safe to run anytime — G1) | `docker compose exec backup /usr/local/bin/restore_drill.sh` |
+| Off-host sync/restore health | `docker compose ps backup backup-sync && docker compose logs --tail=100 backup-sync` |
 | Stop everything | `docker compose down` (volumes persist; `down -v` destroys DB, vault **and backups**) |
 
-Backups are AUTOMATED: the `backup` service writes a daily `pg_dump -Fc`
-(pg_restore-able) + a vault tarball to the `backups` volume with rotation — no
-cron needed on the host. Copy `/backups` OFF the host (rsync / object storage)
-for host-loss protection; the restore drill lives in
+Backups are automated in two least-privilege services: `backup` writes a daily
+`pg_dump -Fc` (pg_restore-able) plus vault tarball and drills the local copy;
+`backup-sync` mounts those artifacts read-only, uploads them to the required
+rclone remote, downloads the remote copy, and restores it into scratch DB/vault
+targets every seven successful cycles by default. Any artifact, transfer, or
+drill failure makes the responsible service unhealthy. The drill lives in
 [LAUNCH_PHASE1](../docs/LAUNCH_PHASE1.md) Operations. (An earlier version of
 this table predated the backup service and taught a plain-SQL dump — that
 format needs `psql`, not `pg_restore`; prefer `-Fc` so drills and recovery use
 one path.)
+
+Existing installs must migrate the `backups` volume once before starting the
+new non-root images. Stop both backup services, preserve the volume, then set
+the producer UID and shared read-only recovery GID:
+
+```bash
+docker compose stop backup backup-sync
+docker run --rm --user 0 --entrypoint sh -v caos_backups:/backups \
+  caos-backup:pg18 -c 'chown -R 10001:10000 /backups && chmod 0750 /backups'
+docker compose up -d backup backup-sync
+```
+
+Do not use `down -v` for this migration; that deletes the recovery set.
 
 ## Security notes
 

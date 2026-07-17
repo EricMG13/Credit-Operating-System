@@ -5,18 +5,14 @@
 # then tears the scratch down. Never touches the live `caos` DB or `/vault`.
 #
 # Run it (from the deploy dir, same container the backup service uses):
-#   docker compose exec backup sh /restore_drill.sh
+#   docker compose exec backup /usr/local/bin/restore_drill.sh
 # or, if the backup service isn't running, mount + run once:
-#   docker compose run --rm -v "$(pwd)/restore_drill.sh:/restore_drill.sh:ro" \
-#     backup sh /restore_drill.sh
+#   docker compose run --rm backup /usr/local/bin/restore_drill.sh
 #
-# Rehearsing from the OFF-HOST copy (G6, BACKUP_SYNC_CMD): this script always
-# drills the LOCAL /backups volume — the always-available path. If
-# BACKUP_SYNC_CMD is configured, a full host-loss rehearsal additionally means
-# pulling the latest artifacts back FROM that off-host destination into a
-# fresh /backups-equivalent directory and re-running this same script against
-# it; the exact pull command is destination-specific (rsync/rclone/aws s3 cp)
-# and is an operator step, not something this script can generalize.
+# The backup service drills the local /backups volume. The separate backup-sync
+# service downloads the configured rclone remote into isolated scratch storage
+# and invokes this same script with BACKUPS_DIR pointed at that downloaded copy.
+# That remote round trip proves the host-loss copy, not merely the local volume.
 #
 # Exit 0 = both restores verified and scratch state cleaned up. Non-zero =
 # see stderr for which leg failed.
@@ -24,8 +20,9 @@ set -u
 
 DB_HOST="${DB_HOST:-db}"
 BACKUPS_DIR="${BACKUPS_DIR:-/backups}"
-SCRATCH_DB="caos_restore_test"
-SCRATCH_VAULT="/tmp/caos_restore_drill_vault"
+SCRATCH_DB="${SCRATCH_DB:-caos_restore_test}"
+# Restore payloads can be large, so default to the disk-backed recovery volume.
+SCRATCH_VAULT="${SCRATCH_VAULT:-$BACKUPS_DIR/.restore-drill-vault}"
 
 fail() {
   echo "[restore-drill] FAIL: $1" >&2
@@ -73,7 +70,7 @@ fi
 echo "[restore-drill] db: OK — $table_count tables restored, alembic_version present"
 
 if ! PGPASSWORD="$POSTGRES_PASSWORD" dropdb -h "$DB_HOST" -U caos "$SCRATCH_DB"; then
-  echo "[restore-drill] WARNING: could not drop scratch DB $SCRATCH_DB — clean it up manually" >&2
+  fail "could not drop scratch DB $SCRATCH_DB — clean it up manually"
 fi
 
 # ── Vault leg ─────────────────────────────────────────────────────────────

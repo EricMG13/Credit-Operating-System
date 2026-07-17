@@ -492,6 +492,7 @@ def api_client():
 
 
 def test_post_runs_returns_queued_fast(api_client):
+    # pipeline-36 — creation returns a durable queued run before execution drains.
     from conftest import wait_for_run
     from engine.fixtures import REFERENCE_ISSUER_ID
     r = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
@@ -501,6 +502,7 @@ def test_post_runs_returns_queued_fast(api_client):
 
 
 def test_post_runs_then_polls_to_complete(api_client):
+    # pipeline-38 — polling GET /api/runs/{runId} returns terminal run detail.
     from conftest import wait_for_run
     from engine.fixtures import REFERENCE_ISSUER_ID
     r = api_client.post("/api/runs", json={"issuer_id": REFERENCE_ISSUER_ID})
@@ -510,6 +512,7 @@ def test_post_runs_then_polls_to_complete(api_client):
 
 
 def test_list_runs_is_bounded(api_client):
+    # pipeline-37 — list pagination enforces both truncation and input bounds.
     """list_runs must clamp page size — an unbounded SELECT grows into a DoS as
     runs accumulate (P4). Validate the bounds and that limit truncates."""
     from conftest import wait_for_run

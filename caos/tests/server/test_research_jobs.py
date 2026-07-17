@@ -29,6 +29,7 @@ def test_research_job_model_has_lease_columns():
 # ── Background execution ─────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_execute_research_by_id_completes_demo(seeded_db):
+    # research-19: the executor materializes the result and terminal metadata.
     from database import AsyncSessionLocal, ResearchJob
     from research_executor import execute_research_by_id
 
@@ -51,6 +52,7 @@ async def test_execute_research_by_id_completes_demo(seeded_db):
 
 @pytest.mark.asyncio
 async def test_execute_research_marks_failed_on_error(seeded_db, monkeypatch):
+    # research-12 research-19: executor failures become explicit terminal errors.
     from database import AsyncSessionLocal, ResearchJob
     import research_executor
 
@@ -101,6 +103,7 @@ _BOB = {"x-forwarded-user": "bob", "x-forwarded-email": "bob@example.com"}
 
 
 def test_research_job_is_scoped_to_owner():
+    # research-10: polling is owner-scoped and hides foreign job existence with 404.
     from main import app
 
     with TestClient(app) as c:
@@ -124,6 +127,8 @@ def test_research_get_unknown_id_404():
 # ── Poll-again branch: GET returns 'running' for an in-progress job ───────────
 @pytest.mark.asyncio
 async def test_get_returns_running_for_in_progress_job(seeded_db):
+    # research-10 research-28: non-terminal polling preserves running state and
+    # forwards the persisted real-work counters unchanged.
     """The durable contract's core: a not-yet-finished job polls as 'running' (so
     the client loops), with no report yet. Exercises the GET endpoint's passthrough
     of the non-terminal state directly (no flaky timing)."""
@@ -150,6 +155,7 @@ async def test_get_returns_running_for_in_progress_job(seeded_db):
 # ── Concurrency cap: jobs past the cap queue, but all still complete ──────────
 @pytest.mark.asyncio
 async def test_research_concurrency_cap_completes_all(seeded_db, monkeypatch):
+    # research-19: bounded executor concurrency serializes work without dropping jobs.
     """With the cap at 1, two jobs must serialize on the semaphore yet BOTH still
     complete — the gate must not drop or deadlock a queued job."""
     import asyncio

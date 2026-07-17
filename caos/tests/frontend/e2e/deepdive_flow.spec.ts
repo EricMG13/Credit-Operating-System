@@ -90,20 +90,30 @@ test.describe("Deep-Dive · evidence-sync (journey 2)", () => {
     expect(await boxShadow(sibling)).toBe("");
     expect(await boxShadow(other)).toBe("");
 
-    // Hover one E-44 chip → the sibling E-44 chip gains the accent ring…
-    await hovered.hover();
-    await expect
-      .poll(() => boxShadow(sibling), { timeout: 5000 })
-      .toContain(ACCENT_RING);
-    // …and the hovered chip itself is ringed…
-    expect(await boxShadow(hovered)).toContain(ACCENT_RING);
-    // …while the different-id (E-09) chip stays unlit.
-    expect(await boxShadow(other)).toBe("");
+    // Hover one E-44 chip → the sibling E-44 chip gains the accent ring. Under
+    // parallel cold-start load the visible static markup can precede React's
+    // event hydration by a few frames, so re-dispatch the actual pointer action
+    // within one bounded assertion instead of relying on one pre-hydration
+    // mouseenter. A genuinely missing sync handler still exhausts the window.
+    await expect(async () => {
+      await page.mouse.move(0, 0);
+      await hovered.hover();
+      const [siblingRing, hoveredRing, otherRing] = await Promise.all([
+        boxShadow(sibling),
+        boxShadow(hovered),
+        boxShadow(other),
+      ]);
+      expect(siblingRing).toContain(ACCENT_RING);
+      expect(hoveredRing).toContain(ACCENT_RING);
+      expect(otherRing).toBe("");
+    }).toPass({ timeout: 10000 });
 
     // Moving the pointer away clears the whole selection (onMouseLeave).
     await page.mouse.move(0, 0);
-    await expect.poll(() => boxShadow(sibling), { timeout: 5000 }).toBe("");
-    expect(await boxShadow(hovered)).toBe("");
+    await expect(async () => {
+      expect(await boxShadow(sibling)).toBe("");
+      expect(await boxShadow(hovered)).toBe("");
+    }).toPass({ timeout: 5000 });
   });
 
   // (3) KEYBOARD [E2E-2b] — focus fires the same cross-pane highlight.

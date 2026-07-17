@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPastePatch, fmt, isEditCol, isEditable, ovField, parseNum } from "./model-format";
+import { buildPastePatch, fmt, isEditCol, isEditable, OV_SIGN, ovField, parseNum } from "./model-format";
 
 describe("fmt", () => {
   it("is blank for null / undefined / NaN / Infinity", () => {
@@ -26,6 +26,9 @@ describe("fmt", () => {
   });
   it("days (d) is a rounded integer string", () => {
     expect(fmt(42.7, "d")).toBe("43");
+  });
+  it("uses the plain numeric string when no specialized format is requested", () => {
+    expect(fmt(42.7)).toBe("42.7");
   });
 });
 
@@ -158,5 +161,20 @@ describe("buildPastePatch — multi-cell paste", () => {
   it("returns an empty, harmless result when the anchor isn't in the visible grid", () => {
     const r = buildPastePatch(rowIds, colKeys, { row: "not-a-row", col: "q1" }, "10");
     expect(r).toEqual({ patch: {}, applied: 0, skippedNotEditable: 0, invalid: [] });
+  });
+
+  it("uses a neutral sign if a dynamic sign source disappears after editability is checked", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(OV_SIGN, "rev");
+    let reads = 0;
+    Object.defineProperty(OV_SIGN, "rev", {
+      configurable: true,
+      get: () => (++reads === 1 ? 1 : undefined),
+    });
+    try {
+      expect(buildPastePatch(["rev"], ["q1"], { row: "rev", col: "q1" }, "7").patch)
+        .toEqual({ "q1:rev": 7 });
+    } finally {
+      Object.defineProperty(OV_SIGN, "rev", descriptor!);
+    }
   });
 });

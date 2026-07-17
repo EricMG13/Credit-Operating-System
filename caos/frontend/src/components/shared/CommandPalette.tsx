@@ -81,6 +81,18 @@ function PalettePanel({ onClose }: { onClose: () => void }) {
     inputRef.current?.focus();
   }, []);
 
+  // Arrow-key navigation moved aria-activedescendant without ever scrolling
+  // the listbox — past ~14 rows the highlighted option sat below the fold
+  // with zero visible indication of the selection (measured: 94px below the
+  // listbox's own bottom edge, scrollTop still 0). "nearest" only moves the
+  // list when the option is actually out of view, so it never fights a
+  // stationary in-view selection.
+  useEffect(() => {
+    // jsdom (component tests) doesn't implement scrollIntoView — guard the
+    // call itself, not just the element lookup.
+    document.getElementById(`palette-row-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [active]);
+
   // Issuer search — 2+ chars, 150ms debounce, top 6 (the prior standalone search's
   // contract); errors degrade to no issuer rows, never a broken palette.
   useEffect(() => {

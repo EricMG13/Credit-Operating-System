@@ -22,6 +22,12 @@ def _pdf() -> bytes:
     return b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
 
 
+def _extract_lineage_pdf_text(content, filename="x.pdf"):
+    """Spawn-safe parser double for upload-driven lineage tests."""
+    del content, filename
+    return "lineage source evidence " * 80, False
+
+
 def test_artifact_merge_is_deterministic_and_preserves_extensions():
     from analysis_contracts import ArtifactRef
     from context_lineage import merge_artifact_refs
@@ -205,7 +211,7 @@ def test_ingestion_and_run_lineage_share_domain_transactions(client, monkeypatch
     monkeypatch.setattr(get_settings(), "caos_lineage_v2_enabled", True)
     monkeypatch.setattr(
         ingest, "extract_pdf_text",
-        lambda content, filename="x.pdf": ("source evidence " * 80, False),
+        _extract_lineage_pdf_text,
     )
     issuer = client.post("/api/issuers/", json={
         "name": f"Phase 1B Producer {uuid.uuid4().hex[:8]}",
@@ -383,7 +389,7 @@ def test_flag_off_and_wrong_issuer_context_preserve_non_enumerable_v1(client, mo
 
     monkeypatch.setattr(
         ingest, "extract_pdf_text",
-        lambda content, filename="x.pdf": ("flag evidence " * 80, False),
+        _extract_lineage_pdf_text,
     )
     issuer_a = client.post("/api/issuers/", json={
         "name": f"Phase 1B Flag A {uuid.uuid4().hex[:8]}"
@@ -422,7 +428,7 @@ def test_flag_off_preserves_all_v1_producers_and_run_context_omission(client, mo
 
     monkeypatch.setattr(
         ingest, "extract_pdf_text",
-        lambda content, filename="x.pdf": ("legacy producer evidence " * 80, False),
+        _extract_lineage_pdf_text,
     )
     monkeypatch.setattr(get_settings(), "caos_lineage_v2_enabled", False)
     issuer = client.post("/api/issuers/", json={
@@ -524,7 +530,7 @@ def test_forced_producer_failure_rolls_back_domain_context_and_edges(client, mon
     monkeypatch.setattr(get_settings(), "caos_lineage_v2_enabled", True)
     monkeypatch.setattr(
         ingest, "extract_pdf_text",
-        lambda content, filename="x.pdf": ("rollback evidence " * 80, False),
+        _extract_lineage_pdf_text,
     )
     issuer = client.post("/api/issuers/", json={
         "name": f"Phase 1B Rollback {uuid.uuid4().hex[:8]}",
@@ -562,7 +568,7 @@ def test_run_checkpoint_report_and_insight_failures_rollback_together(client, mo
     monkeypatch.setattr(get_settings(), "caos_lineage_v2_enabled", True)
     monkeypatch.setattr(
         ingest, "extract_pdf_text",
-        lambda content, filename="x.pdf": ("atomic evidence " * 80, False),
+        _extract_lineage_pdf_text,
     )
     issuer = client.post("/api/issuers/", json={
         "name": f"Phase 1B Atomic {uuid.uuid4().hex[:8]}"
@@ -663,7 +669,7 @@ def test_insight_uniqueness_loser_returns_winner_without_duplicate_lineage(
     monkeypatch.setattr(get_settings(), "caos_lineage_v2_enabled", True)
     monkeypatch.setattr(
         ingest, "extract_pdf_text",
-        lambda content, filename="x.pdf": ("uniqueness evidence " * 80, False),
+        _extract_lineage_pdf_text,
     )
     issuer = client.post("/api/issuers/", json={
         "name": f"Phase 1B Insight Race {uuid.uuid4().hex[:8]}"
@@ -788,7 +794,7 @@ def test_all_producers_reject_foreign_owner_and_foreign_team_scopes(
     monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
     monkeypatch.setattr(
         ingest, "extract_pdf_text",
-        lambda content, filename="x.pdf": ("authorization evidence " * 80, False),
+        _extract_lineage_pdf_text,
     )
 
     async def identity_a():

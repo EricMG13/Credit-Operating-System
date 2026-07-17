@@ -16,11 +16,23 @@ import { test, expect } from "@playwright/test";
 // Auth is handled once in global-setup (storageState); pages render signed-in.
 test.describe("Deep Research", () => {
   test("renders the brief form with an empty report", async ({ page }) => {
+    const contextResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST"
+        && url.pathname === "/api/analysis/contexts";
+    });
     await page.goto("/research/");
 
     await expect(page.getByRole("heading", { name: "Research brief" })).toBeVisible({
       timeout: 10000,
     });
+    const loadedContext = await (await contextResponse).json() as {
+      surface_state?: { research?: { query?: string | null } };
+    };
+    const subject = page.getByLabel(/Sector \/ theme|Issuer/);
+    await expect(subject).toHaveValue(loadedContext.surface_state?.research?.query ?? "");
+    await subject.fill("");
+    await expect(subject).toHaveValue("");
     // Run is gated until a subject is entered.
     // Label is "Run deep research" with a key, "Run example research" in demo mode (CI has no key).
     await expect(
@@ -48,7 +60,7 @@ test.describe("Deep Research", () => {
   test("running deep research renders the returned report and sources", async ({ page }) => {
     // Durable flow (M-3): POST creates a job, the client polls GET to completion.
     // Stub both so the run is fast and deterministic (no real web search / key).
-    await page.route("**/api/research", (route) =>
+    await page.route((url) => url.pathname === "/api/research", (route) =>
       route.fulfill({ status: 201, json: { id: "job-1", status: "running" } }),
     );
     // Poll-again coverage: the first GET reports `running` with live progress
@@ -81,10 +93,10 @@ test.describe("Deep Research", () => {
     await expect(run).toBeEnabled();
     await run.click();
 
-    await expect(page.getByText("2", { exact: true })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText("sources", { exact: true })).toBeVisible();
-    await expect(page.getByText("3", { exact: true })).toBeVisible();
-    await expect(page.getByText("searches", { exact: true })).toBeVisible();
+    const sourceCounter = page.getByText("sources", { exact: true }).locator("..");
+    const searchCounter = page.getByText("searches", { exact: true }).locator("..");
+    await expect(sourceCounter.getByText("2", { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(searchCounter.getByText("3", { exact: true })).toBeVisible();
     await expect(page.getByText("DEMO", { exact: true })).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("heading", { name: "Executive Summary" })).toBeVisible({
       timeout: 15000,

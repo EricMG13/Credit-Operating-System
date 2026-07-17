@@ -281,6 +281,54 @@ function adaptCp4c(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { 
   return { kpis, sections: adaptGeneric(rt).sections };
 }
 
+function adaptCp5b(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
+  const driverRegister = Array.isArray(rt.driver_register) ? rt.driver_register : null;
+  const drivers = (driverRegister ?? []).filter(
+    (row: unknown): row is Record<string, unknown> => row !== null && typeof row === "object" && !Array.isArray(row),
+  );
+  const sections: OutSection[] = [];
+  if (typeof rt.selection_basis === "string" && rt.selection_basis) {
+    sections.push({ type: "text", title: "CP-5B · Selection basis", body: rt.selection_basis });
+  }
+  if (driverRegister) {
+    sections.push({
+      type: "flags",
+      title: "CP-5B · Decision-relevant driver lineage",
+      items: drivers.map((driver) => {
+        const confidence = typeof driver.confidence === "number" && Number.isFinite(driver.confidence)
+          ? `${Math.round(driver.confidence * 100)}% confidence`
+          : "confidence unavailable";
+        const qa = Array.isArray(driver.qa_findings) && driver.qa_findings.length
+          ? ` · QA ${driver.qa_findings.map(String).join(", ")}`
+          : "";
+        const ev = Array.isArray(driver.evidence_ids) ? driver.evidence_ids.map(String) : undefined;
+        return {
+          sev: driver.status === "open" ? "warning" : "ok",
+          text: `#${num(driver.rank)} [${String(driver.module_id || "CP")}] ${String(driver.driver || "Unnamed driver")} — ${String(driver.lineage || "lineage unavailable")} · ${confidence}${qa}`,
+          ev,
+        };
+      }),
+    });
+    if (!drivers.length) {
+      sections.push({
+        type: "text",
+        title: "CP-5B · Driver register state",
+        body: "No persisted analytical claims were available for deterministic driver selection.",
+      });
+    }
+  }
+  return {
+    kpis: [
+      { l: "Decision drivers", v: num(drivers.length) },
+      { l: "Claims traced", v: num(rt.claims_traced) },
+      { l: "Weak lineage flags", v: num(rt.weak_lineage_flags), sev: Number(rt.weak_lineage_flags) > 0 ? "warning" : "ok" },
+      { l: "Orphan claims", v: num(rt.orphan_claims), sev: Number(rt.orphan_claims) > 0 ? "critical" : "ok" },
+      { l: "Auditability", v: num(rt.auditability), sev: rt.auditability === "STRONG" ? "ok" : "warning" },
+    ],
+    sections,
+  };
+}
+
 function adaptSpecialized(
   moduleId: "CP-2G" | "CP-4D",
   rt: Record<string, unknown>,
@@ -330,6 +378,7 @@ export function adaptModule(detail: ModuleDetailDTO): ModuleOutput {
     detail.module_id === "CP-2G" ? adaptSpecialized("CP-2G", rt) :
     detail.module_id === "CP-4D" ? adaptSpecialized("CP-4D", rt) :
     detail.module_id === "CP-4C" ? adaptCp4c(rt) :
+    detail.module_id === "CP-5B" ? adaptCp5b(rt) :
     adaptGeneric(rt);
 
   const sections = [...base.sections];

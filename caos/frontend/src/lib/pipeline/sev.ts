@@ -24,18 +24,23 @@ export const isCleared = (state?: string): boolean =>
  *  (runner._persist_blocked), so presence-of-output alone can't tell a failure
  *  from a clean pass — it would read Blocked as a false green. This maps the
  *  authoritative status instead:
- *    - undefined  → "idle"    (module not produced in this run at all)
- *    - "Blocked"  → "failed"  (ran but hit the per-module failure gate)
- *    - "Restricted" → "warning" (committee-usable with concerns; downstream still clears)
- *    - anything else defined ("Passed" / "Not Reviewed") → "pass"
+ *    - undefined      → "idle"         (module not produced in this run at all)
+ *    - "Blocked"      → "failed"       (ran but hit the per-module failure gate)
+ *    - "Restricted"   → "warning"      (committee-usable with concerns; downstream still clears)
+ *    - "Not Reviewed" → "not-reviewed" (produced, but no verdict computed yet —
+ *      distinct from a clean "Passed"; a caller that folds this into "pass"
+ *      shows an unreviewed module as if it had cleared review)
+ *    - anything else defined ("Passed") → "pass"
  *  "failed" is deliberately NOT in isCleared(), so a failed module never unlocks
- *  its pane as if it had produced usable output. */
+ *  its pane as if it had produced usable output; "not-reviewed" isn't either,
+ *  for the same reason — it hasn't earned that yet. */
 export const moduleLiveState = (
   qaStatus: string | undefined,
-): "idle" | "failed" | "warning" | "pass" => {
+): "idle" | "failed" | "warning" | "pass" | "not-reviewed" => {
   if (qaStatus === undefined) return "idle";
   if (qaStatus === "Blocked") return "failed";
   if (qaStatus === "Restricted") return "warning";
+  if (qaStatus === "Not Reviewed") return "not-reviewed";
   return "pass";
 };
 

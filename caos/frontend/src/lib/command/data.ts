@@ -18392,10 +18392,11 @@ export const COVERAGE = PORTFOLIO.map((p, i) => ({
   cells: Object.fromEntries(Object.entries(COVERAGE_CELLS).map(([l, arr]) => [l, arr[i % arr.length]])) as Record<string, string>,
 }));
 
-// One CP-5 QA-gate item. The live derivation (lib/command/qa.ts) emits the same
-// shape from real run gate roll-ups so QaQueue can prefer live over this seed.
+// One CP-5 QA-gate item. The live derivation (lib/command/qa.ts) emits this shape
+// from exact findings, with a run-gate fallback only when a run has no findings.
 export interface QaQueueItem {
   id: string;
+  key?: string;
   issuer: string;
   module: string;
   sev: "HIGH" | "MEDIUM" | "LOW";

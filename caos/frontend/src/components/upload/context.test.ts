@@ -58,4 +58,17 @@ describe("UploadWizard issuer scoping", () => {
     await expect(ensureIssuerScope(scoped, "issuer-1", patch)).resolves.toBe(scoped);
     expect(patch).not.toHaveBeenCalled();
   });
+
+  it("leaves a missing context unscoped", async () => {
+    const patch = vi.fn();
+    await expect(ensureIssuerScope(null, "issuer-1", patch)).resolves.toBeNull();
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the scope patch returns no context", async () => {
+    const patch = vi.fn().mockResolvedValue(null);
+    await expect(ensureIssuerScope(context, "issuer-1", patch)).rejects.toThrow(
+      "Analysis context could not be scoped to the issuer.",
+    );
+  });
 });

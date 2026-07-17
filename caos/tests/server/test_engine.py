@@ -245,6 +245,50 @@ def test_directly_sourced_claim_raises_no_finding():
     assert validate_lineage([payload]) == []
 
 
+def test_cp5b_driver_register_is_diverse_traced_and_qa_aware():
+    from engine.runner import _build_driver_register
+
+    def claim(claim_id, text, evidence_id, locator, *, lineage="Directly Sourced", confidence="High"):
+        return ClaimSpec(claim_id, text, evidence=[
+            EvidenceSpec(
+                evidence_id, "sourced_fact", lineage, locator, confidence,
+                resolved_chunk_id=f"chunk-{evidence_id}",
+            ),
+        ])
+
+    produced = [
+        ModulePayload(
+            module_id="CP-1", module_name="Financials", owned_object="financials", runtime_output={},
+            claims=[
+                claim("C-1A", "Normalized leverage is elevated.", "E-1", "10-K p.42"),
+                claim("C-1B", "Coverage remains thin.", "E-2", "10-K p.43"),
+            ],
+        ),
+        ModulePayload(
+            module_id="CP-4C", module_name="Capacity", owned_object="capacity", runtime_output={},
+            claims=[claim("C-4C", "Incremental capacity is open.", "E-4C", "Credit Agreement §4.09")],
+        ),
+        ModulePayload(
+            module_id="CP-6A", module_name="Debate", owned_object="memo", runtime_output={},
+            claims=[claim("C-6A", "The IC conclusion is conditional.", "E-6A", "IC synthesis")],
+        ),
+    ]
+    findings = [Finding(
+        finding_id="QA-CAP", severity="MATERIAL", description="Capacity needs review.",
+        module_id="CP-4C", affected_claim_id="C-4C",
+    )]
+
+    register = _build_driver_register(produced, findings, limit=3)
+
+    assert [row["module_id"] for row in register] == ["CP-6A", "CP-4C", "CP-1"]
+    assert len({row["module_id"] for row in register}) == 3
+    assert register[1]["status"] == "open"
+    assert register[1]["qa_findings"] == ["QA-CAP"]
+    assert register[1]["evidence_ids"] == ["E-4C"]
+    assert "Credit Agreement §4.09" in register[1]["lineage"]
+    assert register[0]["confidence"] == 0.95
+
+
 # ── Payload validation ───────────────────────────────────────────────────────
 def test_validate_payload_rejects_bad_module_and_enums():
     bad = ModulePayload(
@@ -299,6 +343,16 @@ def test_run_per_module_status(atlf_run):
     assert "CP-X" in by_id and "CP-5B" in by_id and "CP-5" in by_id
 
 
+def test_cp5b_driver_register_is_persisted(client, atlf_run):
+    # pipeline-39 — module detail exposes persisted runtime output.
+    detail = client.get(f"/api/runs/{atlf_run['id']}/modules/CP-5B").json()
+    runtime = detail["runtime_output"]
+    assert "not a market-materiality score" in runtime["selection_basis"]
+    assert 1 <= len(runtime["driver_register"]) <= 5
+    assert all(driver["module_id"].startswith("CP-") for driver in runtime["driver_register"])
+    assert all(isinstance(driver["evidence_ids"], list) for driver in runtime["driver_register"])
+
+
 def test_cpx_route_plan_persisted(client, atlf_run):
     """CP-X persists an auditable route plan: the wired slice routes Full Run and
     the spec-only modules are shown as Not Implemented but never executed."""
@@ -341,6 +395,7 @@ def test_doc_scanners_light_up_on_atlf_corpus(client, atlf_run):
 
 
 def test_qa_endpoint_reports_findings(client, atlf_run):
+    # pipeline-40 — the run QA endpoint exposes status, counts, and findings.
     qa = client.get(f"/api/runs/{atlf_run['id']}/qa").json()
     assert qa["qa_status"] == "Restricted"
     assert qa["findings_by_severity"]["CRITICAL"] == 0
@@ -411,6 +466,93 @@ def test_export_refused_for_restricted_run(client, atlf_run):
     assert detail["committee_status"] == "Restricted"
     assert detail["blocking_findings"], "refusal should surface the blocking findings"
     assert any(f["severity"] == "MATERIAL" for f in detail["blocking_findings"])
+
+
+def test_reports_15_vault_export_writes_the_owned_run(client, atlf_run, tmp_path, monkeypatch):
+    """reports-15: an authenticated analyst can explicitly mirror a run."""
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "vault_export_dir", str(tmp_path))
+    response = client.post(f"/api/runs/{atlf_run['id']}/vault")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["written"]
+    assert response.json()["vault_dir"] == str(tmp_path)
+
+
+def test_reports_16_vault_export_fails_closed_without_configuration(client, atlf_run, monkeypatch):
+    """reports-16: a missing VAULT_EXPORT_DIR is an explicit 503."""
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "vault_export_dir", "")
+    response = client.post(f"/api/runs/{atlf_run['id']}/vault")
+
+    assert response.status_code == 503
+    assert "Vault export not configured" in response.json()["detail"]
+
+
+def test_reports_17_vault_export_surfaces_write_failure(client, atlf_run, tmp_path, monkeypatch):
+    """reports-17: an OSError is translated to a bounded configuration error."""
+    from config import get_settings
+    import vault_export
+
+    async def fail_export(*_args, **_kwargs):
+        raise OSError("read-only test vault")
+
+    monkeypatch.setattr(get_settings(), "vault_export_dir", str(tmp_path))
+    monkeypatch.setattr(vault_export, "export_run", fail_export)
+    response = client.post(f"/api/runs/{atlf_run['id']}/vault")
+
+    assert response.status_code == 500
+    assert "exists and is writable" in response.json()["detail"]
+
+
+def test_reports_18_vault_export_rate_limit_precedes_work(client, atlf_run, monkeypatch):
+    """reports-18: an exhausted per-analyst window returns 429 before export."""
+    from routes import runs
+
+    monkeypatch.setattr(runs.rate_limit, "hit", lambda *_args, **_kwargs: False)
+    response = client.post(f"/api/runs/{atlf_run['id']}/vault")
+
+    assert response.status_code == 429
+    assert "rate limit" in response.json()["detail"].lower()
+
+
+def test_reports_19_vault_export_rejects_a_missing_run(client, tmp_path, monkeypatch):
+    """reports-19: existence and access are checked before filesystem writes."""
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "vault_export_dir", str(tmp_path))
+    response = client.post("/api/runs/00000000-0000-0000-0000-000000000000/vault")
+
+    assert response.status_code == 404
+
+
+def test_reports_26_27_committee_export_endpoint_enforces_then_clears_the_gate(client, atlf_run):
+    """reports-26/reports-27: the route refuses Restricted and renders Ready."""
+    import asyncio
+
+    from database import AsyncSessionLocal, Run
+
+    restricted = client.post(f"/api/runs/{atlf_run['id']}/report")
+    assert restricted.status_code == 409
+    assert restricted.json()["detail"]["blocking_findings"]
+
+    async def set_committee_status(value: str):
+        async with AsyncSessionLocal() as session:
+            run = await session.get(Run, atlf_run["id"])
+            assert run is not None
+            run.committee_status = value
+            await session.commit()
+
+    asyncio.run(set_committee_status("Committee Ready"))
+    try:
+        exported = client.post(f"/api/runs/{atlf_run['id']}/report")
+        assert exported.status_code == 200, exported.text
+        assert exported.json()["committee_status"] == "Committee Ready"
+        assert exported.json()["sections"]
+    finally:
+        asyncio.run(set_committee_status("Restricted"))
 
 
 # ── Item #10: keyless fixture served for a NON-demo issuer is tagged + flagged ─

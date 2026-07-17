@@ -319,6 +319,7 @@ class QueueWorker:
         self._inflight_ids: set[str] = set()
         self._loop_task: asyncio.Task | None = None
         self._stop = asyncio.Event()
+        self._consecutive_failures = 0
 
     async def start(self) -> None:
         self._stop.clear()
@@ -339,6 +340,16 @@ class QueueWorker:
     async def enqueue(self, run_id: str) -> None:
         # The row already exists as 'queued'; the loop will pick it up. No-op.
         return None
+
+    def health(self) -> dict[str, object]:
+        loop_live = self._loop_task is not None and not self._loop_task.done()
+        healthy = loop_live and self._consecutive_failures < 3
+        return {
+            "status": "ok" if healthy else "degraded",
+            "loop_live": loop_live,
+            "consecutive_failures": self._consecutive_failures,
+            "inflight": len(self._inflight),
+        }
 
     async def _reap_orphans(self) -> None:
         async with AsyncSessionLocal() as s:
@@ -412,7 +423,6 @@ class QueueWorker:
     async def _run_loop(self) -> None:
         poll = self._settings.caos_run_poll_seconds
         cap = self._settings.caos_run_concurrency
-        fails = 0
         while not self._stop.is_set():
             try:
                 await self._heartbeat()
@@ -433,15 +443,16 @@ class QueueWorker:
                     task.add_done_callback(
                         lambda _t, rid=run_id: self._inflight_ids.discard(rid)
                     )
-                fails = 0
+                self._consecutive_failures = 0
             except Exception:  # noqa: BLE001 — never let the loop die
-                fails += 1
+                self._consecutive_failures += 1
                 # A loop that throws every tick (e.g. DB unreachable) is alive but
                 # silently idle — queued runs never execute. Escalate to error so a
                 # stalled queue is distinguishable from an empty one (no APM here). C6.
-                if fails >= 3:
+                if self._consecutive_failures >= 3:
                     logger.error(
-                        "worker loop failing repeatedly (%d consecutive ticks) — queue stalled", fails
+                        "worker loop failing repeatedly (%d consecutive ticks) — queue stalled",
+                        self._consecutive_failures,
                     )
                 else:
                     logger.exception("worker loop tick failed")

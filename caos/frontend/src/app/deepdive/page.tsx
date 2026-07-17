@@ -306,6 +306,10 @@ function DeepDive() {
   // analysis didn't complete. Drives a ✕ FAILED badge + an explicit failed pane
   // instead of an empty ModuleView under a ● LIVE badge.
   const moduleFailed = !isReference && moduleLiveState(live.liveStatus[tab]) === "failed";
+  // A Restricted module reads as unqualified ● LIVE below (same treatment as a
+  // clean pass) — the one word an analyst must repeat to committee (Restricted
+  // vs clean) was invisible on the pane they're reading it from.
+  const moduleRestricted = !isReference && moduleLiveState(live.liveStatus[tab]) === "warning";
   const referenceUnavailable = isReference && (tab === "CP-2G" || tab === "CP-4D");
   // The replay sim gates the reference showcase only. A real issuer is never
   // sim-locked (its honest empty state is the module view's own no-output
@@ -640,15 +644,22 @@ function DeepDive() {
                 {!open ? (() => {
                   // Aggregate the layer's module states into counts instead of a
                   // run of up to 7 undifferentiated glyphs (which read as soup).
-                  let cleared = 0, failed = 0, pending = 0;
+                  // "cleared" and "concerns" are kept as separate buckets — folding
+                  // Restricted (isCleared()===true, since it doesn't block downstream
+                  // work) into the same green "N cleared" glyph as a clean pass used
+                  // to render an all-Restricted live run as unqualified green, the
+                  // exact state a QA reader most needs distinguished from clean.
+                  let cleared = 0, concerns = 0, failed = 0, pending = 0;
                   for (const id of g.mods) {
                     const st = modState(id);
-                    if (isCleared(st)) cleared++;
+                    if (st === "pass") cleared++;
+                    else if (st === "warning") concerns++;
                     else if (st === "failed") failed++;
                     else pending++;
                   }
                   const parts = [
                     cleared ? { key: "ok", n: cleared, dot: <Dot sev="pass" glyph />, word: `${cleared} cleared` } : null,
+                    concerns ? { key: "concerns", n: concerns, dot: <Dot sev="warning" glyph />, word: `${concerns} w/ concerns` } : null,
                     failed ? { key: "fail", n: failed, dot: <Dot sev="blocked" glyph />, word: `${failed} failed` } : null,
                     pending ? { key: "pend", n: pending, dot: <StatusGlyph kind={isReference ? "locked" : "idle"} />, word: `${pending} ${isReference ? "gated" : "no output"}` } : null,
                   ].filter(Boolean) as { key: string; n: number; dot: React.ReactNode; word: string }[];
@@ -773,6 +784,10 @@ function DeepDive() {
               {moduleFailed ? (
                 <span className="tabular text-caos-xs" style={{ color: "var(--caos-critical)" }} title="This module hit its failure gate (qa_status Blocked) and did not complete — no usable output.">
                   ✕ FAILED
+                </span>
+              ) : moduleRestricted ? (
+                <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }} title="QA gate: this module's output is Restricted — committee-usable with caveats, not a clean pass.">
+                  △ RESTRICTED
                 </span>
               ) : moduleIsLive ? (
                 <span className="tabular text-caos-xs" style={{ color: "var(--caos-accent)" }} title="Rendering this issuer's live engine output for this module">

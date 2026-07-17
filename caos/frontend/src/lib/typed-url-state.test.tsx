@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { renderToString } from "react-dom/server";
 import { mergeAllowedUrlState, useTypedUrlState } from "./typed-url-state";
 
 afterEach(cleanup);
@@ -17,6 +18,11 @@ function Harness() {
       </button>
     </div>
   );
+}
+
+function ReplaceHarness() {
+  const { values, update } = useTypedUrlState(ROUTE_KEYS);
+  return <button type="button" onClick={() => update({ tab: null, sort: undefined }, "replace")}>{values.tab ?? "none"}</button>;
 }
 
 describe("typed URL state", () => {
@@ -47,5 +53,16 @@ describe("typed URL state", () => {
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
     expect(screen.getByRole("status", { name: "Active tab" }).textContent).toBe("overview");
+  });
+
+  it("skips undefined values, deletes null values, and replaces with an empty query", () => {
+    window.history.replaceState({}, "", "/portfolios?tab=overview#evidence");
+    render(<ReplaceHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "overview" }));
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe("/portfolios#evidence");
+  });
+
+  it("uses the empty server snapshot during SSR", () => {
+    expect(renderToString(<Harness />)).toContain("none");
   });
 });

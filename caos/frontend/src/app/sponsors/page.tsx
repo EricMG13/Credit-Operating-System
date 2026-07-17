@@ -148,9 +148,9 @@ function SponsorsView() {
       />
 
       <DominantTableRegion ownerId="sponsor-register" label="Sponsor coverage register" className="flex-1 min-h-0">
-      <div className="h-full min-h-0 flex gap-2">
+      <div className="h-full min-h-0 flex flex-col gap-2 md:flex-row">
         {/* sponsor register */}
-        <Panel title="Sponsors · by coverage" className="w-80 shrink-0">
+        <Panel title="Sponsors · by coverage" className="w-full shrink-0 md:w-80">
           {sponsors === null ? (
             <div className="p-3"><SurfaceState kind="loading" title="Loading sponsor register" compact /></div>
           ) : sponsorsError ? (
@@ -194,7 +194,7 @@ function SponsorsView() {
         </Panel>
 
         {/* track record */}
-        <div id="sponsor-record" tabIndex={-1} className="flex-1 min-w-0 focus:outline-none">
+        <div id="sponsor-record" tabIndex={-1} className="min-h-56 flex-1 min-w-0 focus:outline-none md:min-h-0">
         <Panel
           title={selected ? `Track record · ${selected}` : "Track record"}
           className="h-full"

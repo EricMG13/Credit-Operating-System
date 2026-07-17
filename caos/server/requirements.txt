@@ -25,6 +25,10 @@ google-genai>=2.10,<3  # Gemini provider adapter (engine/gemini.py); imported on
 pypdf==6.*
 openpyxl==3.1.*
 reportlab==4.*
+# markitdown[pdf] pulls Pillow into the production image. Keep an explicit
+# security floor here so the generated deploy lock cannot retain vulnerable
+# 12.2.x transitively (fixed upstream in 12.3.0).
+pillow>=12.3.0,<13
 # Token-accurate chunking for ingest + context packing (ingest.chunk_text,
 # engine/packer.pack_context); both import tiktoken at module load, so it is a
 # hard runtime dependency, not optional. The get_encoding() download failure path

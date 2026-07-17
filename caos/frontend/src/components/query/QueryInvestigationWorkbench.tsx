@@ -10,6 +10,7 @@ import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ActionReason } from "@/components/shared/ActionReason";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import { headStat } from "@/components/shared/headStat";
 import { getChunk, queryCapabilities, toErrorMessage } from "@/lib/api";
@@ -109,23 +110,25 @@ function QueryResult({ run, onCitation }: { run: QueryRun | null; onCitation?: (
   if (!run) {
     return (
       <div className="h-full grid place-items-center p-6 text-center">
-        <div className="max-w-xl">
-          <p className="tabular text-caos-xs uppercase tracking-widest text-caos-accent">Investigation ready</p>
-          <h2 className="mt-2 text-lg font-semibold text-caos-text">Ask one cross-coverage question.</h2>
-          <p className="mx-auto mt-2 max-w-[65ch] text-caos-sm leading-relaxed text-caos-muted">The lane is declared before execution. No graph, model overlay or report is generated until you run it.</p>
-        </div>
+        <SurfaceState
+          kind="not-run"
+          title="Ask one cross-coverage question."
+          detail="The lane is declared before execution. No graph, model overlay or report is generated until you run it."
+          className="max-w-xl"
+        />
       </div>
     );
   }
   if (run.status === "partial" || run.status === "error") {
     const alternatives = Array.isArray(run.result.available_lanes) ? run.result.available_lanes.join(" · ") : "metric · graph";
     return (
-      <div className="m-3 rounded-md border border-caos-warning/50 bg-caos-warning/5 p-4" role="status">
-        <AnalysisStateBadge state={run.status} />
-        <h2 className="mt-2 text-caos-md font-semibold text-caos-text">Question preserved</h2>
-        <p className="mt-1 text-caos-sm text-caos-muted">{run.error ?? stringValue(run.result.recovery) ?? "The selected lane is incomplete."}</p>
-        <p className="mt-3 tabular text-caos-xs uppercase tracking-wider text-caos-muted">Available alternatives · {alternatives}</p>
-      </div>
+      <SurfaceState
+        kind={run.status}
+        title="Question preserved"
+        detail={run.error ?? stringValue(run.result.recovery) ?? "The selected lane is incomplete."}
+        supporting={<p className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">Available alternatives · {alternatives}</p>}
+        className="m-3"
+      />
     );
   }
   const answer = stringValue(run.result.answer) ?? stringValue(run.result.summary) ?? stringValue(run.result.synthesis) ?? stringValue(run.result.interpretation);
@@ -247,6 +250,29 @@ export function QueryInvestigationWorkbench() {
   const activeQuerySessionId = contextState.context?.query_session_id ?? null;
   const activeContextIdRef = useRef<string | null>(activeContextId);
   activeContextIdRef.current = activeContextId;
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const setLane = useCallback((next: QueryRun["selected_lane"]) => {
+    setLaneState(next);
+    updateUrlState({ lane: next === "metric" ? null : next }, "replace");
+  }, [updateUrlState]);
+
+  // Ask.tsx's openWith() redirects ⌘K "Ask CAOS: <text>" here on /query — it
+  // used to dispatch a bare Event with no payload, so the composer was never
+  // even focused, let alone prefilled, and the typed question was silently
+  // dropped. `detail?.text` is undefined for the plain Alt+K/header-button
+  // toggle (which only wants a focus, no prefill change).
+  useEffect(() => {
+    const onFocus = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text;
+      if (text) {
+        setQuestion(text);
+        if (!manualLane) setLane(inferLane(text));
+      }
+      composerRef.current?.focus();
+    };
+    window.addEventListener("caos:query-focus", onFocus);
+    return () => window.removeEventListener("caos:query-focus", onFocus);
+  }, [manualLane, setLane]);
 
   useEffect(() => {
     // A run belongs to the exact context that created it. Scope navigation
@@ -323,11 +349,6 @@ export function QueryInvestigationWorkbench() {
     });
     return () => { current = false; };
   }, []);
-
-  const setLane = (next: QueryRun["selected_lane"]) => {
-    setLaneState(next);
-    updateUrlState({ lane: next === "metric" ? null : next }, "replace");
-  };
 
   const setAnalysisContext = contextState.setContext;
   const runQuery = useCallback(async () => {
@@ -426,7 +447,7 @@ export function QueryInvestigationWorkbench() {
         {(["metric", "graph", "grounded"] as const).map((value) => <button key={value} type="button" disabled={!contextReady} aria-pressed={lane === value} onClick={() => { setLane(value); setManualLane(true); }} className={`caos-action-secondary focus-ring disabled:opacity-40 ${lane === value ? "border-caos-accent text-caos-text" : ""}`}>{value}</button>)}
         {manualLane ? <button type="button" disabled={!contextReady} className="tabular text-caos-2xs text-caos-accent focus-ring disabled:opacity-40" onClick={() => { setManualLane(false); setLane(inferLane(question)); }}>Use suggested lane</button> : null}
       </div>
-      <textarea aria-label="Query coverage" disabled={!contextReady} value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring disabled:opacity-40" />
+      <textarea ref={composerRef} aria-label="Query coverage" disabled={!contextReady} value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring disabled:opacity-40" />
       {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <button type="button" disabled={!contextReady} key={starter} aria-pressed={question === starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring disabled:opacity-40 " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</button>)}</div> : null}
       {capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {capabilityError}</p> : null}
       {runError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{runError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void runQuery()}>Retry query</button></p> : null}

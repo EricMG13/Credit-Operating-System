@@ -150,7 +150,7 @@ async def lifespan(app: FastAPI):
     logger.info("CAOS research executor started (%s)", app.state.research_executor.name)
     # Autonomous-pipeline executor (Phase 3 remainder): claims pipeline_runs rows
     # the autonomy route enqueues, runs the Sentinel→Analyst→Reporter cycle off
-    # the request thread. Sweeps stranded 'running' rows to 'failed' on boot.
+    # the request thread. Continuously reclaims expired leases after hard crashes.
     app.state.pipeline_executor = PipelineExecutor()
     await app.state.pipeline_executor.start()
     logger.info("CAOS pipeline executor started (%s)", app.state.pipeline_executor.name)

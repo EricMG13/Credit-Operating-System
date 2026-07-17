@@ -32,9 +32,17 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("RoleViewProvider", () => {
+  it("paints a valid cache immediately and tolerates a failed reconcile", async () => {
+    window.localStorage.setItem("caos_role_view", "qa");
+    getAnalystSettings.mockRejectedValue(new Error("offline"));
+    render(<RoleViewProvider><Probe /></RoleViewProvider>);
+    expect(screen.getByTestId("role").textContent).toBe("qa");
+    await act(async () => {});
+  });
   it("reconciles the server value on mount and persists it locally", async () => {
     getAnalystSettings.mockResolvedValue({ model_lanes: {}, email_intelligence: {}, role_view: "pm" });
     render(
@@ -115,5 +123,41 @@ describe("RoleViewProvider", () => {
       resolveGet({ model_lanes: {}, email_intelligence: {}, role_view: "pm" });
     });
     expect(screen.getByTestId("role").textContent).toBe("qa");
+  });
+
+  it("reads a fresh base at save time if initial reconciliation has not completed", async () => {
+    let resolveInitial!: (value: unknown) => void;
+    getAnalystSettings
+      .mockReturnValueOnce(new Promise((done) => { resolveInitial = done; }))
+      .mockResolvedValueOnce({ model_lanes: { a: "b" }, email_intelligence: {}, role_view: "analyst" });
+    saveAnalystSettings.mockImplementation(async (value: unknown) => value);
+    render(<RoleViewProvider><Probe /></RoleViewProvider>);
+    act(() => screen.getByText("pm").click());
+    await act(async () => { vi.advanceTimersByTime(900); });
+    expect(saveAnalystSettings).toHaveBeenCalledWith(expect.objectContaining({ role_view: "pm", model_lanes: { a: "b" } }));
+    resolveInitial({ model_lanes: {}, email_intelligence: {}, role_view: "qa" });
+    await act(async () => {});
+  });
+
+  it("keeps optimistic state on non-404 save failures and storage write errors", async () => {
+    getAnalystSettings.mockResolvedValue({ model_lanes: {}, email_intelligence: {}, role_view: "analyst" });
+    saveAnalystSettings.mockRejectedValue(new Error("500"));
+    render(<RoleViewProvider><Probe /></RoleViewProvider>);
+    await act(async () => {});
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+    act(() => screen.getByText("qa").click());
+    await act(async () => { vi.advanceTimersByTime(900); });
+    expect(screen.getByTestId("role").textContent).toBe("qa");
+  });
+
+  it("cancels a pending save and ignores a late reconciliation after unmount", async () => {
+    let resolve!: (value: unknown) => void;
+    getAnalystSettings.mockReturnValue(new Promise((done) => { resolve = done; }));
+    const view = render(<RoleViewProvider><Probe /></RoleViewProvider>);
+    act(() => screen.getByText("pm").click());
+    view.unmount();
+    await act(async () => resolve({ model_lanes: {}, email_intelligence: {}, role_view: "pm" }));
+    vi.advanceTimersByTime(900);
+    expect(saveAnalystSettings).not.toHaveBeenCalled();
   });
 });

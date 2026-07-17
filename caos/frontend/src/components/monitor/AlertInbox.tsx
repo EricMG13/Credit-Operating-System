@@ -7,13 +7,16 @@
 // collapse out of the active list into their own disclosure below, never
 // mixed back in with (or relabeled as) an open/acked row.
 //
-// Renders null when there is nothing live to show (offline, or a settled
-// empty draft) — the caller (Monitor page) decides what DEMO fallback to
-// show in that case; this component never fabricates rows.
+// When there is nothing live to show (loading, offline, or a settled empty
+// draft) this renders its own honest SurfaceState line instead of a row —
+// never a fabricated row, and never silent null either. The Monitor page's
+// demo tape sibling is a separate, user-toggled data source, not a fallback
+// for this component's state.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { BatchBar } from "@/components/shared/BatchBar";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
@@ -316,7 +319,16 @@ export function AlertInbox() {
     }));
   }, [events, selected]);
 
-  if (loading || offline || rows.length === 0) return null;
+  // Loading / offline / genuinely-empty are three different facts and must
+  // read as three different things — the demo tape rendered as this panel's
+  // sibling (Monitor page.tsx) is a separate data source gated on a user
+  // toggle, not a fallback for this component's own state, so a silent
+  // `return null` across all three used to leave the live lane's status
+  // unstated regardless of which of the three was actually true. Never
+  // fabricates a row here — only an honest status line for THIS component.
+  if (loading) return <SurfaceState kind="loading" title="Loading alert inbox" compact className="m-2" />;
+  if (offline) return <SurfaceState kind="offline" title="Autonomy engine unreachable" detail="No draft data to show." compact className="m-2" />;
+  if (rows.length === 0) return <SurfaceState kind="empty" title="No live alerts" detail="Nothing routed from the autonomy draft." compact className="m-2" />;
 
   const activeRows = rows.filter((r) => states.get(r.key)?.state !== "resolved");
   const resolvedRows = rows.filter((r) => states.get(r.key)?.state === "resolved");

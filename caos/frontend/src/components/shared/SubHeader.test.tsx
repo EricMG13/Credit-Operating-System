@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { act, render, cleanup, screen } from "@testing-library/react";
 import { SubHeader, nextCollapseState } from "./SubHeader";
 
 vi.mock("@/lib/useBreakpoint", () => ({
@@ -49,5 +49,22 @@ describe("SubHeader — slots", () => {
     );
     expect(screen.getByRole("button", { name: "Save" }).closest("[data-page-primary-action]")).toBeTruthy();
     expect(screen.getByText("Filters")).toBeTruthy();
+  });
+
+  it("ignores a resize callback after the header unmounts", () => {
+    let notify: ResizeObserverCallback = () => undefined;
+    const disconnect = vi.fn();
+    class Observer {
+      constructor(callback: ResizeObserverCallback) { notify = callback; }
+      observe = vi.fn();
+      disconnect = disconnect;
+      unobserve = vi.fn();
+    }
+    vi.stubGlobal("ResizeObserver", Observer);
+    const view = render(<SubHeader identity={<span>Identity</span>} />);
+    view.unmount();
+    act(() => notify([], {} as ResizeObserver));
+    expect(disconnect).toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

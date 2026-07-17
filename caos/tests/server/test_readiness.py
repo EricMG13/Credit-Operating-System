@@ -97,3 +97,39 @@ def test_ticker_does_not_claim_edgar_when_execution_is_disabled(client, monkeypa
     ro = client.get(f"/api/runs/{run['id']}/modules/CP-0").json()["runtime_output"]
     assert ro["edgar_available"] is False
     assert not any(g["id"] == "G-EDGAR" for g in ro["gap_log"])
+
+
+@pytest.mark.asyncio
+async def test_readiness_combines_multiple_head_chunks_and_reports_medium(seeded_db):
+    import hashlib
+    import uuid
+
+    from database import AsyncSessionLocal, Document, DocumentChunk, Issuer
+    from engine.readiness import synthesize_source_readiness
+
+    async with AsyncSessionLocal() as db:
+        issuer = Issuer(id=str(uuid.uuid4()), name="Partial Readiness Co", ticker=None)
+        db.add(issuer)
+        await db.flush()
+        doc = Document(
+            issuer_id=issuer.id,
+            doc_type="Document",
+            file_name="accession.pdf",
+            storage_key="test:partial-readiness",
+            chunk_count=2,
+        )
+        db.add(doc)
+        await db.flush()
+        for seq, text in enumerate(("Form 10-K", "Consolidated financial statements")):
+            db.add(DocumentChunk(
+                document_id=doc.id,
+                seq=seq,
+                text=text,
+                chunk_hash=hashlib.sha256(text.encode()).hexdigest(),
+            ))
+        await db.flush()
+
+        result = await synthesize_source_readiness(db, issuer)
+
+    assert result.confidence == "Medium"
+    assert result.runtime_output["categories_present"] == ["financials"]

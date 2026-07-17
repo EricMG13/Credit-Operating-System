@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { ActionableDislocations } from "./ActionableDislocations";
+import { ActionableDislocations, freshnessFrom } from "./ActionableDislocations";
 import type { RVRow } from "@/lib/command/rvdata";
 
 afterEach(cleanup);
@@ -37,6 +37,11 @@ function mkRow(overrides: Partial<RVRow> = {}): RVRow {
 }
 
 describe("ActionableDislocations", () => {
+  it("maps every market freshness label to provenance freshness", () => {
+    expect(freshnessFrom("UNKNOWN")).toBe("UNKNOWN");
+    expect(freshnessFrom("CURRENT · 1d")).toBe("CURRENT");
+    expect(freshnessFrom("STALE · 30d")).toBe("STALE");
+  });
   it("renders ranked rows with the disclosed REFERENCE/DERIVED basis chip and a benchmarked count", () => {
     const rows = [
       mkRow({ figi: "A", company: "Alpha Holdings", rvBp: 220, carryRv: 55.1 }),
@@ -75,6 +80,13 @@ describe("ActionableDislocations", () => {
     // Only one Deep-Dive link exists — the unmatched synthetic peer name never
     // gets one (never a dead link).
     expect(screen.getAllByRole("link", { name: /Deep-Dive/i })).toHaveLength(1);
+  });
+
+  it("renders a held badge without fabricated headroom when none was supplied", () => {
+    render(<ActionableDislocations rows={[
+      mkRow({ figi: "A", company: "Held No Headroom", rvBp: 300, portfolioRv: { held: true } }),
+    ]} />);
+    expect(screen.getByText("held")).toBeTruthy();
   });
 
   it("shows an honest empty state when nothing in the universe carries a benchmark", () => {

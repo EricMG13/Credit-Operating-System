@@ -15,7 +15,7 @@ import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { getIssuer, queryCapabilities, toErrorMessage } from "@/lib/api";
-import { useModalA11y } from "@/lib/use-modal-a11y";
+import { useModalA11y, hasOpenModalA11yOverlay } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { GraphCanvas } from "@/components/query/GraphCanvas";
@@ -131,7 +131,11 @@ export function AskProvider({ children }: { children: ReactNode }) {
   // routes back here through openWith() — muscle-memory text is preserved.
   const openWith = useCallback((text?: string) => {
     if (pathRef.current.startsWith("/query")) {
-      window.dispatchEvent(new Event("caos:query-focus"));
+      // Carry the typed text through — a bare Event has no payload, so
+      // ⌘K → type a question → Enter on /query used to focus (nothing,
+      // actually — see below) an empty composer and silently drop the
+      // question the analyst just typed.
+      window.dispatchEvent(new CustomEvent("caos:query-focus", { detail: { text } }));
       return;
     }
     window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "ask" } }));
@@ -149,7 +153,13 @@ export function AskProvider({ children }: { children: ReactNode }) {
       }
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      // AskModal (and anything opened over it, e.g. a citation viewer) is
+      // itself a useModalA11y-tracked overlay whose own topmost-gated
+      // handler already owns Escape correctly. This coordinator-level
+      // listener exists for the inline issuer-scoped Ask panel, which isn't
+      // a useModalA11y dialog — defer whenever a tracked overlay is open so
+      // this doesn't fire in parallel and collapse the wrong layer.
+      if (e.key === "Escape" && !hasOpenModalA11yOverlay()) setOpen(false);
     };
     const onAskToggle = () => fire();
     const onModalOpen = (event: Event) => {
@@ -249,7 +259,7 @@ export function AskLauncher() {
 
   if (pathname.startsWith("/query")) return null;
 
-  const triggerPosition = pathname.startsWith("/sector")
+  const triggerPosition = pathname.startsWith("/sector") || pathname.startsWith("/command")
     ? "bottom-16 right-3"
     : "bottom-3 right-3";
 

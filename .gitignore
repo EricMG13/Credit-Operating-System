@@ -25,6 +25,7 @@ __pycache__/
 # Secrets / local env
 .env
 .env.local
+caos/deploy/rclone.conf
 
 # Test artifacts
 .pytest_cache/

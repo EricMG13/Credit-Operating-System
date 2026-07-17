@@ -3,7 +3,8 @@
 The Docker deploy sets HOST=0.0.0.0 and PORT (deploy/Dockerfile), so the
 container binds the wide interface; local `python run.py` stays on localhost.
 
-WEB_CONCURRENCY (E1): number of uvicorn worker PROCESSES. Postgres-only —
+WEB_CONCURRENCY (E1): number of uvicorn worker PROCESSES. One or two only;
+Postgres-only above one —
 run_executor.get_executor() picks QueueWorker (Postgres FOR UPDATE SKIP
 LOCKED claim) vs InProcessExecutor (SQLite) by DB dialect at runtime, and
 InProcessExecutor's own docstring is explicit that concurrent workers are
@@ -24,7 +25,15 @@ import uvicorn
 
 
 def validate_workers(workers: int, database_url: str) -> None:
-    """Raise if >1 worker is requested against a non-Postgres DATABASE_URL."""
+    """Enforce the deployment's measured memory/DB process envelope."""
+    if workers < 1:
+        raise SystemExit("WEB_CONCURRENCY must be at least 1.")
+    if workers > 2:
+        raise SystemExit(
+            f"WEB_CONCURRENCY={workers} exceeds the supported maximum of 2. "
+            "Each process owns a 15-connection DB pool and upload/parser memory; "
+            "scale only after raising the documented resource envelope and load testing."
+        )
     if workers > 1 and not database_url.startswith("postgresql"):
         raise SystemExit(
             f"WEB_CONCURRENCY={workers} requires a Postgres DATABASE_URL — "

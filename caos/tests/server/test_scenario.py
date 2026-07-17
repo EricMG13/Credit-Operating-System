@@ -25,6 +25,15 @@ def test_input_cost_deflation_lifts_margin():
     assert s.rate_delta == 0
 
 
+def test_easing_inflation_is_not_treated_as_cost_spike():
+    s = _demo_translate("inflation eases and raw material costs normalize")
+    assert s.margin_delta > 0
+    assert s.rate_delta == 0
+    assert s.rev_growth_delta == 0
+    assert s.capex_delta == 0
+    assert "input-cost inflation" not in s.rationale
+
+
 def test_explicit_bps_rate_move_signed():
     assert _demo_translate("a rate hike of 200bps").rate_delta == pytest.approx(0.02)
     assert _demo_translate("150 bps rate cut").rate_delta == pytest.approx(-0.015)
@@ -42,6 +51,15 @@ def test_recovery_demand_is_not_treated_as_recession():
     assert s.rev_growth_delta > 0
     assert s.margin_delta >= 0
     assert "weaker demand" not in s.rationale
+
+
+def test_growth_slowdown_is_not_treated_as_upside():
+    s = _demo_translate("revenue growth slows as customer churn rises")
+    assert s.rev_growth_delta < 0
+    assert s.margin_delta < 0
+    assert s.rate_delta == 0
+    assert s.capex_delta == 0
+    assert "revenue +3pp" not in s.rationale
 
 
 def test_volume_recovery_with_pricing_power_is_upside():
@@ -105,6 +123,18 @@ def test_scenario_endpoint_translates(client):
 def test_scenario_endpoint_422_on_noop(client):
     r = client.post("/api/scenario/nl", json={"text": "the weather is pleasant today"})
     assert r.status_code == 422
+
+
+def test_model_41_scenario_endpoint_enforces_per_analyst_quota(client):
+    # model-41: canonical tracker attribution for the NL scenario quota boundary.
+    payload = {"text": "rate hike of 100bps"}
+    for _ in range(20):
+        response = client.post("/api/scenario/nl", json=payload)
+        assert response.status_code == 200, response.text
+
+    limited = client.post("/api/scenario/nl", json=payload)
+    assert limited.status_code == 429, limited.text
+    assert limited.json()["detail"] == "Scenario rate limit reached — try again in a minute."
 
 
 def test_translate_scenario_async_path_runs_offline():

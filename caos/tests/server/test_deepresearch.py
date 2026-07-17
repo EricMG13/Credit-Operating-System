@@ -24,6 +24,8 @@ from deepresearch import (
 
 # ── Brief assembly ───────────────────────────────────────────────────────────
 def test_build_brief_includes_subject_audience_and_criteria():
+    # research-03 research-05 research-21: structured framing and normalized
+    # criteria survive schema validation and are assembled into the prompt.
     brief = build_brief(
         ResearchBrief(
             subject="Atlas Forge",
@@ -39,9 +41,14 @@ def test_build_brief_includes_subject_audience_and_criteria():
 
 
 def test_build_brief_falls_back_to_default_credit_criteria():
+    # research-20 research-21: the implemented prompt carries the credit lens,
+    # primary-source/QC discipline, and indirect-prompt-injection boundary.
     brief = build_brief(ResearchBrief(subject="Enterprise Software"))
     assert "Macro impact" in brief  # first default criterion
     assert "Executive Summary" in brief  # output contract is always present
+    assert "senior buy-side leveraged-finance" in deepresearch.SYSTEM_PROMPT
+    assert "Prefer primary" in deepresearch.SYSTEM_PROMPT
+    assert "untrusted DATA" in deepresearch.SYSTEM_PROMPT
 
 
 def test_demo_report_is_nonempty_markdown():
@@ -51,6 +58,7 @@ def test_demo_report_is_nonempty_markdown():
 
 # ── AI power presets ──────────────────────────────────────────────────────────
 def test_ai_modes_resolve_distinct_effort_and_searches():
+    # research-22: every public AI mode resolves to a distinct effort/search budget.
     # standard keeps the engine defaults; max trades cost for depth; lite is leaner.
     std, mx, lite = _AI_MODES["standard"], _AI_MODES["max"], _AI_MODES["lite"]
     assert std["effort"] == "medium" and std["model"] is None
@@ -59,6 +67,7 @@ def test_ai_modes_resolve_distinct_effort_and_searches():
 
 
 def test_brief_rejects_unknown_ai_mode():
+    # research-21 research-22: the schema rejects modes outside max/standard/lite.
     import pytest
 
     with pytest.raises(ValueError):
@@ -88,6 +97,7 @@ def test_collect_sources_drops_non_http_schemes():
 
 # ── Live progress (real running counts for the polled UI, never fabricated) ───
 def test_emit_progress_reports_unique_source_count_and_is_best_effort():
+    # research-28: progress is deduplicated real work and a failed sink cannot fail the run.
     """The running counter must reflect REAL work: unique sources so far (deduped
     by URL) and the search count. A None sink is a no-op, and a raising sink is
     swallowed — the counter is a nicety, never a reason to abort the run."""
@@ -156,6 +166,7 @@ class _FakeClient:
 
 @pytest.mark.asyncio
 async def test_double_overload_with_no_progress_degrades_to_demo_report(monkeypatch):
+    # research-19: sustained provider overload completes through the defined fallback.
     """Primary model overloads -> falls back (existing M-2 behavior) -> fallback
     ALSO overloads with nothing gathered yet -> must degrade to a demo report
     (job completes), not propagate and strand the job as failed (BE4-2)."""
@@ -179,6 +190,7 @@ async def test_double_overload_with_no_progress_degrades_to_demo_report(monkeypa
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("seeded_db")  # turn 1 succeeds -> budget.trace_llm writes an llm_call_records row
 async def test_double_overload_with_partial_progress_composes_truncated_report(monkeypatch):
+    # research-19: partial live work is retained and marked truncated on double overload.
     """Same double-overload, but the first continuation turn already gathered real
     text before the SECOND turn's fallback overloads too — must compose what was
     already gathered (truncated=True), not discard real progress for a canned demo."""
@@ -213,6 +225,7 @@ async def test_double_overload_with_partial_progress_composes_truncated_report(m
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("seeded_db")  # turn 1's fallback success traces an llm call
 async def test_cross_turn_overload_on_fallback_composes_not_raises(monkeypatch):
+    # research-19: later-turn fallback overload preserves earlier gathered evidence.
     """BE4-2 cross-turn variant: `model` persists across loop turns, so after an
     earlier turn degraded to the fallback, a LATER turn's overload arrives at the
     OUTER except with model == fb_model already. That must hit the same compose-
@@ -256,6 +269,8 @@ def _wait_research(c, job_id, timeout_s=10.0):
 
 
 def test_research_endpoint_creates_job_and_polls_to_demo_report():
+    # research-09 research-10 research-17 research-19: POST returns a queued durable
+    # id, server execution outlives the request, and polling reaches demo completion.
     from main import app
 
     with TestClient(app) as c:
@@ -271,8 +286,32 @@ def test_research_endpoint_creates_job_and_polls_to_demo_report():
 
 
 def test_research_endpoint_rejects_blank_subject():
+    # research-21: subject is required and must contain at least two characters.
     from main import app
 
     with TestClient(app) as c:
         r = c.post("/api/research", json={"subject": ""})
     assert r.status_code == 422
+
+
+def test_research_endpoint_applies_per_analyst_rate_limit_before_work(monkeypatch):
+    # research-18: creation is keyed per analyst at exactly 3/minute; polling is
+    # intentionally outside this route guard and remains available to active jobs.
+    from main import app
+    from routes import research as route
+
+    seen = {}
+
+    def reject(key, *, max_attempts, window_seconds):
+        seen.update(key=key, max_attempts=max_attempts, window_seconds=window_seconds)
+        return False
+
+    monkeypatch.setattr(route.rate_limit, "hit", reject)
+    with TestClient(app) as c:
+        response = c.post("/api/research", json={"subject": "Atlas Forge"})
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "Deep-research rate limit reached — try again in a minute."
+    assert seen["key"].startswith("research:")
+    assert seen["max_attempts"] == 3
+    assert seen["window_seconds"] == 60

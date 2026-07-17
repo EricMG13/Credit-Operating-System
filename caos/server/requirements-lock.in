@@ -1,0 +1,4 @@
+# Production image input. requirements.txt is the application contract;
+# markitdown is installed only in the image as the out-of-process PDF CLI.
+-r requirements.txt
+markitdown[pdf]==0.1.6

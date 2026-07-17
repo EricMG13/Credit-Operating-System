@@ -18,7 +18,7 @@ SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
 sys.path.insert(0, str(SERVER_DIR))
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def client():
     # conftest establishes the canonical process-wide DB, storage, and model
     # environment before any server module is imported.
@@ -35,6 +35,23 @@ def test_health(client):
     assert body["status"] == "ok"
     assert body["llm"] == "demo-fallback"
     assert body["db"] == "ok"  # readiness probe hit the DB (D3)
+    assert set(body["workers"]) == {"runs", "research", "autonomy", "reports"}
+    assert set(body["workers"].values()) == {"ok"}
+
+
+def test_health_degrades_when_durable_worker_is_stalled(client):
+    from main import app
+
+    worker = app.state.pipeline_executor
+    prior = worker._consecutive_failures
+    worker._consecutive_failures = 3
+    try:
+        response = client.get("/api/health")
+        assert response.status_code == 503
+        assert response.json()["status"] == "degraded"
+        assert response.json()["workers"]["autonomy"] == "degraded"
+    finally:
+        worker._consecutive_failures = prior
 
 
 def test_me_local_dev_identity(client):
@@ -130,6 +147,7 @@ def test_issuers_collection_slash_tolerant(client):
 
 
 def test_create_and_get_issuer(client):
+    # pipeline-41 — issuer detail round-trips the created issuer by ID.
     # Use a name that does NOT collide with a seeded demo issuer: create_issuer now
     # dedups on a case-insensitive name (409 on a duplicate), and the seed already
     # holds "Atlas Forge Industrials" — creating a second one is the duplicate-issuer
@@ -243,6 +261,7 @@ def test_search_blank_query_returns_all(client):
 
 
 def test_upload_pdf_document_and_list(client):
+    # pipeline-42 — issuer document listing returns the newly ingested document.
     from config import get_settings
 
     issuer_id = client.get("/api/issuers/").json()[0]["id"]
@@ -270,8 +289,12 @@ def test_upload_zero_chunks_surfaces_warning(client, monkeypatch):
     import ingest
 
     issuer_id = client.get("/api/issuers/").json()[0]["id"]
-    # Force the extractor to yield no text (mimics a scanned/encrypted PDF).
-    monkeypatch.setattr(ingest, "extract_pdf_text", lambda content, filename="x.pdf": ("", False))
+    # Patch the async process boundary, not the child parser callable: spawned
+    # processes intentionally reject non-pickleable local lambdas.
+    async def no_text(_parser, *_args):
+        return "", False
+
+    monkeypatch.setattr(ingest, "parse_bounded", no_text)
     pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     r = client.post(
         "/api/ingestion/upload/document",
@@ -289,7 +312,10 @@ def test_upload_with_text_has_no_warning(client, monkeypatch):
     import ingest
 
     issuer_id = client.get("/api/issuers/").json()[0]["id"]
-    monkeypatch.setattr(ingest, "extract_pdf_text", lambda content, filename="x.pdf": ("real content " * 50, False))
+    async def with_text(_parser, *_args):
+        return "real content " * 50, False
+
+    monkeypatch.setattr(ingest, "parse_bounded", with_text)
     pdf = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
     r = client.post(
         "/api/ingestion/upload/document",

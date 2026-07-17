@@ -85,8 +85,6 @@ async def compose_draft_report(
         # OR investigated-but-gates-dropped-all). No signal vanishes silently.
         covered_kinds = {c.anomaly_kind for c in issuer_claims}
         bullets = [a for a in issuer_anoms if a.kind not in covered_kinds]
-        if not issuer_claims and not bullets:
-            continue  # nothing to render for this issuer
         max_sev = max((a.severity for a in issuer_anoms), default=0.0)
 
         # Deterministic exhibit: the Metric Engine facts for this issuer (deltas +

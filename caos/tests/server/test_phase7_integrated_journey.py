@@ -58,6 +58,20 @@ def _identity(owner: str):
     )
 
 
+def _phase7_source_text() -> str:
+    fixture_dir = Path(__file__).parents[1] / "fixtures" / "modules"
+    return "\n\n".join([
+        (fixture_dir / "cp-4d-synthetic-structure.txt").read_text(),
+        (fixture_dir / "cp-2g-synthetic-disclosure.txt").read_text(),
+    ])
+
+
+def _extract_phase7_pdf_text(content, filename="phase7.pdf"):
+    """Spawn-safe parser double for the integrated release journey."""
+    del content, filename
+    return _phase7_source_text(), False
+
+
 def test_phase7_source_market_run_modules_model_report_xlsx_identity(
     monkeypatch,
 ):
@@ -83,16 +97,12 @@ def test_phase7_source_market_run_modules_model_report_xlsx_identity(
     ):
         monkeypatch.setattr(settings, flag, True)
 
-    fixture_dir = Path(__file__).parents[1] / "fixtures" / "modules"
-    source_text = "\n\n".join([
-        (fixture_dir / "cp-4d-synthetic-structure.txt").read_text(),
-        (fixture_dir / "cp-2g-synthetic-disclosure.txt").read_text(),
-    ])
+    source_text = _phase7_source_text()
     assert source_text.count("SYNTHETIC TEST DOCUMENT") >= 2
     monkeypatch.setattr(
         ingest,
         "extract_pdf_text",
-        lambda content, filename="phase7.pdf": (source_text, False),
+        _extract_phase7_pdf_text,
     )
     app.dependency_overrides[get_identity] = lambda: _identity(owner)
 

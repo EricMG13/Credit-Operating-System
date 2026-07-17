@@ -628,6 +628,15 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             run.error = None
         run.status = "complete"
         run.completed_at = _now()
+        # A run created without an explicit as_of_date (keyless/demo runs never
+        # supply one) must not stay null forever — every consumer that reads
+        # run.as_of_date (model_service period selection, vault_export history
+        # ordering, querygraph labels, the freshness/profile surfaces) treats
+        # null as "unknown", which is wrong once the run has actually produced
+        # output. Backfill with the completion date; never overwrite an
+        # analyst-declared as_of_date.
+        if not run.as_of_date:
+            run.as_of_date = run.completed_at.date().isoformat()
     except Exception:
         logger.exception("run %s failed", run.id)
         run.status = "failed"
@@ -751,11 +760,100 @@ async def _persist_cpx(session: AsyncSession, run_id: str, plan: RoutePlan) -> N
     ))
 
 
+_DRIVER_MODULE_ORDER = (
+    "CP-6A", "CP-6E", "CP-4C", "CP-4D", "CP-4", "CP-3B", "CP-3D",
+    "CP-3", "CP-2B", "CP-2E", "CP-2", "CP-1B", "CP-1C", "CP-1A",
+    "CP-1", "CP-2C", "CP-2D", "CP-2F", "CP-2G", "CP-3C", "CP-0",
+)
+_DRIVER_CONFIDENCE = {
+    "High": 0.95,
+    "Medium": 0.75,
+    "Low": 0.50,
+    "Insufficient Information": 0.25,
+}
+_WEAK_DRIVER_LINEAGE = {"Weak Lineage", "Untraced", "Conflicting", "Insufficient Information"}
+
+
+def _build_driver_register(
+    produced: List[ModulePayload], findings: List[Finding], *, limit: int = 5
+) -> List[Dict]:
+    """Select a bounded, evidence-carrying decision-driver register.
+
+    The ordering is intentionally disclosed as a deterministic decision-proximity
+    heuristic, not a measured market-materiality score. Module diversity wins the
+    first pass; only then can a second claim from the same module fill a spare slot.
+    """
+    order = {module_id: rank for rank, module_id in enumerate(_DRIVER_MODULE_ORDER)}
+    candidates = [
+        (order.get(payload.module_id, len(order)), payload_index, claim_index, payload, claim)
+        for payload_index, payload in enumerate(produced)
+        for claim_index, claim in enumerate(payload.claims)
+    ]
+    candidates.sort(key=lambda item: item[:3])
+
+    selected = []
+    selected_keys = set()
+    seen_modules = set()
+    for candidate in candidates:
+        module_id = candidate[3].module_id
+        if module_id in seen_modules:
+            continue
+        selected.append(candidate)
+        selected_keys.add((candidate[1], candidate[2]))
+        seen_modules.add(module_id)
+        if len(selected) == limit:
+            break
+    if len(selected) < limit:
+        for candidate in candidates:
+            key = (candidate[1], candidate[2])
+            if key in selected_keys:
+                continue
+            selected.append(candidate)
+            selected_keys.add(key)
+            if len(selected) == limit:
+                break
+
+    register: List[Dict] = []
+    for rank, (_, _, _, payload, claim) in enumerate(selected, start=1):
+        evidence_ids = list(dict.fromkeys(e.evidence_id for e in claim.evidence if e.evidence_id))
+        locators = list(dict.fromkeys(
+            e.source_locator.strip() for e in claim.evidence
+            if e.source_locator and e.source_locator.strip()
+        ))
+        matching_findings = [
+            finding for finding in findings
+            if finding.module_id == payload.module_id
+            and (finding.affected_claim_id is None or finding.affected_claim_id == claim.claim_id)
+        ]
+        weak_lineage = not claim.evidence or any(
+            evidence.lineage_class in _WEAK_DRIVER_LINEAGE for evidence in claim.evidence
+        )
+        confidence = min(
+            (_DRIVER_CONFIDENCE.get(evidence.confidence, 0.25) for evidence in claim.evidence),
+            default=0.0,
+        )
+        lineage_tail = f"{payload.module_id} · {claim.claim_id}"
+        lineage = " → ".join([*locators[:2], lineage_tail]) if locators else f"No source locator → {lineage_tail}"
+        register.append({
+            "rank": rank,
+            "driver": claim.claim_text,
+            "module_id": payload.module_id,
+            "claim_id": claim.claim_id,
+            "lineage": lineage,
+            "confidence": confidence,
+            "status": "open" if matching_findings or weak_lineage else "verified",
+            "evidence_ids": evidence_ids,
+            "qa_findings": [finding.finding_id for finding in matching_findings],
+        })
+    return register
+
+
 async def _persist_cp5b(
     session: AsyncSession, run_id: str, produced: List[ModulePayload], findings: List[Finding]
 ) -> None:
     total_claims = sum(len(p.claims) for p in produced)
     weak = sum(1 for f in findings if f.lane == 6)
+    driver_register = _build_driver_register(produced, findings)
     session.add(ModuleOutput(
         run_id=run_id, module_id="CP-5B", module_name="EvidenceTraceValidator",
         owned_object="evidence_trace_validation", confidence="High",
@@ -765,6 +863,11 @@ async def _persist_cp5b(
             "weak_lineage_flags": weak,
             "orphan_claims": sum(1 for f in findings if f.lane == 1),
             "auditability": "STRONG" if weak == 0 else "QUALIFIED",
+            "selection_basis": (
+                "Decision-proximity plus module diversity; deterministic review ordering, "
+                "not a market-materiality score."
+            ),
+            "driver_register": driver_register,
         },
         downstream_consumers=["CP-5"],
     ))

@@ -18,7 +18,52 @@ import { SEV_COLOR } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvidenceModal";
 import { Dot, Tag } from "@/components/pipeline/atoms";
 import { OutSections } from "./OutSections";
-import type { OutSection } from "@/lib/deepdive/module-outputs";
+import type { ModuleOutput, OutSection } from "@/lib/deepdive/module-outputs";
+
+export function LiveOutputRegister({
+  id,
+  output,
+  onOpenEvidence,
+  defaultOpen = true,
+}: {
+  id: string;
+  output: ModuleOutput;
+  onOpenEvidence: (id: string) => void;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="rounded border border-caos-accent/45 bg-caos-bg" aria-label={`${id} live runtime output register`}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-controls={`${id}-live-runtime-outputs`}
+        className="w-full px-3 py-2 flex items-center gap-2.5 text-left hover:bg-caos-elevated/40 transition-caos focus-ring"
+      >
+        <span className="tabular text-caos-xs uppercase tracking-wider text-caos-accent whitespace-nowrap">
+          {id} runtime output register · {output.sections.length} emitted section{output.sections.length === 1 ? "" : "s"}
+        </span>
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
+          Live · persisted engine output
+        </span>
+        <span className="flex-1" />
+        <span className="text-caos-muted text-caos-xs" aria-hidden="true">{open ? "▲" : "▼"}</span>
+      </button>
+      {open ? (
+        <div id={`${id}-live-runtime-outputs`} className="border-t border-caos-border p-3 flex flex-col gap-3">
+          {output.sections.length ? (
+            <OutSections sections={output.sections} onOpenEvidence={onOpenEvidence} />
+          ) : (
+            <div role="note" className="text-caos-md text-caos-muted leading-snug">
+              The engine emitted headline fields only; no structured runtime sections were persisted.
+            </div>
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
 
 export function OutputRegister({
   id,

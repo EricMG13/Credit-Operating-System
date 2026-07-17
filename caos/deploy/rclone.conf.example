@@ -1,0 +1,12 @@
+# Copy this file to a secret-managed path outside source control and point
+# BACKUP_RCLONE_CONFIG_FILE at it. Example for an S3-compatible destination:
+#
+# [offhost]
+# type = s3
+# provider = Other
+# env_auth = false
+# access_key_id = REPLACE_ME
+# secret_access_key = REPLACE_ME
+# endpoint = https://object-storage.example
+#
+# Then set BACKUP_REMOTE=offhost:caos/production in .env.

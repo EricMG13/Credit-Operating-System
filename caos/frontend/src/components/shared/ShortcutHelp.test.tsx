@@ -8,7 +8,7 @@ import { ShortcutHelp } from "./ShortcutHelp";
 import { ConceptHotkeys } from "./ConceptHotkeys";
 import { SHORTCUTS } from "@/lib/shortcuts";
 
-let pathname = "/command";
+let pathname: string | null = "/command";
 vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
@@ -38,6 +38,38 @@ describe("ShortcutHelp", () => {
     fireEvent.keyDown(window, { key: "?" });
     expect(screen.getByText("Report Studio")).toBeTruthy();
     expect(screen.getByText("Fit the sheet to the preview width")).toBeTruthy();
+  });
+
+  it("stops panel clicks, closes from the backdrop and close button, and tolerates a null pathname", () => {
+    pathname = null;
+    render(<ShortcutHelp />);
+    fireEvent(window, new CustomEvent("caos:help-open"));
+    const dialog = screen.getByRole("dialog", { name: "Keyboard shortcuts" });
+    fireEvent.click(dialog);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close shortcut reference" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent(window, new CustomEvent("caos:help-open"));
+    fireEvent.click(screen.getByRole("dialog").parentElement!);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("relinquishes ownership when a bare modal-open event is dispatched", () => {
+    render(<ShortcutHelp />);
+    fireEvent(window, new CustomEvent("caos:help-open"));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent(window, new Event("caos:modal-open"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("uses the generic page label when the active route mixes shortcut scopes", () => {
+    pathname = "/deepdive";
+    render(<ShortcutHelp />);
+    fireEvent(window, new CustomEvent("caos:help-open"));
+    expect(screen.getByText("This page")).toBeTruthy();
+    expect(screen.getByText("Find a module by code or name")).toBeTruthy();
+    expect(screen.getByText("Cycle sub-views within the surface")).toBeTruthy();
   });
 
   it("never hijacks ? typed into an editable field", () => {

@@ -70,7 +70,7 @@ describe("ModuleView", () => {
     expect(screen.getByText(/workflow step outputs/i)).toBeTruthy();
   });
 
-  it("summary layout keeps live issuer analysis without seeded summaries", () => {
+  it("summary layout renders live issuer sections in a persisted runtime register without seeded summaries", () => {
     render(
       <ModuleView
         id="CP-2"
@@ -86,7 +86,9 @@ describe("ModuleView", () => {
 
     expect(screen.getByText("Live KPI")).toBeTruthy();
     expect(screen.getByText(/Issuer-specific live read/i)).toBeTruthy();
-    expect(screen.getByText(/not yet wired for live runs/i)).toBeTruthy();
+    expect(screen.getByText(/runtime output register/i)).toBeTruthy();
+    expect(screen.getByText(/Live · persisted engine output/i)).toBeTruthy();
+    expect(screen.queryByText(/not yet wired for live runs/i)).toBeNull();
     expect(screen.queryByText(/Fundamental Synthesis/i)).toBeNull();
   });
 });

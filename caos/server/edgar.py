@@ -20,6 +20,7 @@ process under ``caos/mcp/edgar/`` that calls the API).
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -42,11 +43,26 @@ _ARCHIVES = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}"
 PROV_POINTER = "external · unverified"
 PROV_VAULTED = "primary · vaulted"
 
-# SEC fair-access: stay well under 10 req/s. One in-process throttle (the route
-# runs blocking calls in a threadpool, so guard with a lock).
+# SEC fair-access: stay well under 10 req/s across all configured app processes.
+# Each process owns a lock, so its interval is multiplied by the total partition
+# count; N processes then aggregate to at most 1/0.15 = 6.67 requests/second.
 _MIN_INTERVAL_S = 0.15
 _rate_lock = threading.Lock()
 _last_request = 0.0
+
+
+def _rate_partitions() -> int:
+    values = []
+    for name in ("WEB_CONCURRENCY", "CAOS_SEC_RATE_PARTITIONS"):
+        try:
+            values.append(max(1, int(os.environ.get(name, "1"))))
+        except ValueError:
+            values.append(1)
+    return max(values)
+
+
+def _process_min_interval_s() -> float:
+    return _MIN_INTERVAL_S * _rate_partitions()
 
 
 class EdgarError(Exception):
@@ -98,7 +114,7 @@ def _http_get(url: str, accept: str = "application/json", cap_bytes: Optional[in
 
     global _last_request
     with _rate_lock:
-        wait = _MIN_INTERVAL_S - (time.monotonic() - _last_request)
+        wait = _process_min_interval_s() - (time.monotonic() - _last_request)
         if wait > 0:
             time.sleep(wait)
         _last_request = time.monotonic()

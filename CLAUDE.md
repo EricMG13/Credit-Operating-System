@@ -7,7 +7,7 @@ repository. This is the single canonical source: `AGENTS.md` is a symlink to
 ## Project
 
 **CAOS — Credit Agent OS**: an institutional leveraged-finance credit analysis
-platform. A six-concept Next.js 15 analyst UI (Command Center, Pipeline,
+platform. A six-concept Next.js 16 analyst UI (Command Center, Pipeline,
 Deep-Dive, Model Builder, Report Studio, Monitor — plus the global Ask ⌘K
 launcher) backed by a FastAPI service, deployed
 as a self-hosted Docker stack (Caddy → oauth2-proxy → FastAPI → Postgres). The analytical methodology is the 27-module
@@ -132,18 +132,11 @@ permanently integrated during a later review pass.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project can be indexed by GitNexus as **Credit-Operating-System**. The
-"Always Do" rules below apply **only when the GitNexus MCP tools are actually
-available in your session AND a `.gitnexus/` index exists in the tree** — the
-index is not committed, so most sessions have neither. In that (common) case,
-do NOT skip the underlying diligence: trace callers/blast-radius with exhaustive
-`grep`/read before editing a shared symbol, and review your diff before
-committing. (An earlier version of this section demanded GitNexus
-unconditionally, which no session could satisfy — audit 2026-07-10 META-1.)
+This project is indexed by GitNexus as **Credit-Operating-System** (21562 symbols, 38876 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-> Index stale/missing? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
-## Always Do (when GitNexus is available — see above)
+## Always Do
 
 - **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
 - **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.

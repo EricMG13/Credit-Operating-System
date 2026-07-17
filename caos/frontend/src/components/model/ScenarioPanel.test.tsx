@@ -18,6 +18,14 @@ afterEach(() => {
 const model = buildModel();
 
 describe("ScenarioPanel", () => {
+  it("model-24 exposes a named collapse action without changing the active scenario", () => {
+    const onCollapse = vi.fn();
+    render(<ScenarioPanel model={model} onCollapse={onCollapse} />);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Scenario panel" }));
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Apply a scenario to re-center base/i)).toBeTruthy();
+  });
+
   it("separates model and propagation modes without erasing model scenario state", () => {
     render(<ScenarioPanel model={model} />);
     const modelTab = screen.getByRole("tab", { name: "Model scenario" });
@@ -130,5 +138,105 @@ describe("ScenarioPanel", () => {
     await waitFor(() => expect(screen.getByText(/couldn't parse that/)).toBeTruthy());
     // Still on module forecasts — no active card / RESET.
     expect(screen.queryByText(/RESET/)).toBeNull();
+  });
+
+  it("renders CP-2B fragility with breached and surviving shocks plus coverage fallbacks", () => {
+    render(<ScenarioPanel model={model} downside={{
+      currentNetLeverage: 5.8,
+      breachThresholdX: 7,
+      shockToBreachPct: 18,
+      fragility: "HIGH",
+      shocks: [
+        { shockPct: 10, stressedNetLeverage: 6.4, stressedCoverage: 1.8 },
+        { shockPct: 20, stressedNetLeverage: 7.25, stressedCoverage: null },
+      ],
+    }} />);
+    expect(screen.getByTitle(/fragility: HIGH/).textContent).toContain("▲ HIGH");
+    expect(screen.getByText(/A −18% EBITDA decline lifts net leverage/)).toBeTruthy();
+    expect(screen.getByText("1.80x")).toBeTruthy();
+  });
+
+  it("renders the surviving-through-30% fragility read and each non-critical band", () => {
+    const base = {
+      currentNetLeverage: 3,
+      breachThresholdX: 7,
+      shockToBreachPct: null,
+      shocks: [{ shockPct: 30, stressedNetLeverage: 5, stressedCoverage: 2 }],
+    };
+    const view = render(<ScenarioPanel model={model} downside={{ ...base, fragility: "LOW" }} />);
+    expect(screen.getByTitle(/fragility: LOW/).textContent).toContain("● LOW");
+    expect(screen.getByText(/stays below the 7.00x distress marker/)).toBeTruthy();
+    view.rerender(<ScenarioPanel model={model} downside={{ ...base, fragility: "MODERATE" }} />);
+    expect(screen.getByTitle(/fragility: MODERATE/).textContent).toContain("■ MODERATE");
+  });
+
+  it("builds from Enter, includes every returned driver, and falls back to the analyst text", async () => {
+    vi.mocked(scenarioFromNL).mockResolvedValue({
+      rev_growth_delta: 0.01,
+      margin_delta: -0.02,
+      capex_delta: 0.03,
+      rate_delta: -0.004,
+      label: "",
+      rationale: "",
+    });
+    render(<ScenarioPanel model={model} />);
+    const input = screen.getByLabelText("Describe a scenario");
+    fireEvent.keyDown(input, { key: "Tab" });
+    fireEvent.change(input, { target: { value: "full custom case" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await screen.findByText("full custom case")).toBeTruthy();
+    expect(screen.getByText(/\+1pp rev growth/)).toBeTruthy();
+    expect(screen.getByText(/−2pp margin/)).toBeTruthy();
+    expect(screen.getByText(/\+3pp capex/)).toBeTruthy();
+    expect(screen.getByText(/−40bps rate/)).toBeTruthy();
+  });
+
+  it("shows a no-change scenario when the parser returns only zero deltas", async () => {
+    vi.mocked(scenarioFromNL).mockResolvedValue({
+      rev_growth_delta: 0, margin_delta: 0, capex_delta: 0, rate_delta: 0,
+      label: "No move", rationale: "",
+    });
+    render(<ScenarioPanel model={model} />);
+    const input = screen.getByLabelText("Describe a scenario");
+    fireEvent.change(input, { target: { value: "nothing changes" } });
+    fireEvent.click(screen.getByRole("button", { name: "BUILD" }));
+    expect(await screen.findByText("no driver change")).toBeTruthy();
+  });
+
+  it("ignores empty and duplicate natural-language submits while one build is pending", async () => {
+    let resolve!: (value: Awaited<ReturnType<typeof scenarioFromNL>>) => void;
+    vi.mocked(scenarioFromNL).mockReturnValue(new Promise((done) => { resolve = done; }));
+    render(<ScenarioPanel model={model} />);
+    const input = screen.getByLabelText("Describe a scenario");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(scenarioFromNL).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "pending case" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(scenarioFromNL).toHaveBeenCalledTimes(1);
+    resolve({ rev_growth_delta: 0, margin_delta: 0, capex_delta: 0, rate_delta: 0, label: "Pending", rationale: "done" });
+    expect(await screen.findByText("Pending")).toBeTruthy();
+  });
+
+  it.each([
+    [{ response: { data: { detail: "backend detail" } } }, "backend detail"],
+    [{}, "couldn't build that scenario"],
+  ])("prefers the most useful parser failure for %p", async (failure, message) => {
+    vi.mocked(scenarioFromNL).mockRejectedValue(failure);
+    render(<ScenarioPanel model={model} />);
+    const input = screen.getByLabelText("Describe a scenario");
+    fireEvent.change(input, { target: { value: "bad case" } });
+    fireEvent.click(screen.getByRole("button", { name: "BUILD" }));
+    expect(await screen.findByText(message)).toBeTruthy();
+  });
+
+  it("changes tornado swing intensity", () => {
+    render(<ScenarioPanel model={model} />);
+    const half = screen.getByTitle("Driver swing intensity ×0.5");
+    fireEvent.click(half);
+    expect(half.className).toContain("border-caos-accent");
+    const oneAndHalf = screen.getByTitle("Driver swing intensity ×1.5");
+    fireEvent.click(oneAndHalf);
+    expect(oneAndHalf.className).toContain("border-caos-accent");
   });
 });

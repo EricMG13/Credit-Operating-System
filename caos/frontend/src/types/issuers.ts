@@ -1,12 +1,12 @@
 export interface Issuer {
   id: string;
   name: string;
-  ticker?: string;
+  ticker?: string | null;
   sector?: string | null;
-  industry?: string;
+  industry?: string | null;
   sub_sector?: string | null;
-  country?: string;
-  figi?: string;
+  country?: string | null;
+  figi?: string | null;
   rating_sp?: string | null;
   rating_moody?: string | null;
   rating_fitch?: string | null;

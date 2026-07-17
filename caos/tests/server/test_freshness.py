@@ -225,7 +225,10 @@ def test_reporting_profile_flag_validation_intake_and_unknown_defaults(monkeypat
         assert saved.json()["configured"] is True
         assert saved.json()["updated_by"] == "freshness-owner"
 
-        monkeypatch.setattr(ingest, "extract_pdf_text", lambda *_args, **_kwargs: ("reported facts " * 40, False))
+        async def parsed_reported_facts(_parser, *_args):
+            return "reported facts " * 40, False
+
+        monkeypatch.setattr(ingest, "parse_bounded", parsed_reported_facts)
         pdf = b"%PDF-1.4\n%%EOF"
         uploaded = client.post(
             "/api/ingestion/upload/document",

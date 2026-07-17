@@ -9,6 +9,7 @@ import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { SemanticVisualization, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
 import { MarketWorkbookImport } from "@/components/rv/MarketWorkbookImport";
 import { SlideOver } from "@/components/shared/SlideOver";
@@ -96,9 +97,23 @@ function VirtualCandidateGrid({
   onCompare: (candidate: RVCandidate) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const pendingFocusId = useRef<string | null>(null);
   const [start, setStart] = useState(0);
   const end = Math.min(candidates.length, start + WINDOW_ROWS);
   const visible = candidates.slice(start, end);
+  const activeId = selectedId ?? candidates[0]?.id ?? null;
+
+  useEffect(() => {
+    if (pendingFocusId.current && pendingFocusId.current === selectedId) {
+      const el = rowRefs.current.get(selectedId);
+      if (el) {
+        el.focus();
+        pendingFocusId.current = null;
+      }
+    }
+  }, [selectedId, start]);
+
   return (
     <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-caos-border bg-caos-panel flex flex-col" role="grid" aria-label="Ranked RV candidates" aria-rowcount={candidates.length + 1}>
       <div role="row" className="grid h-9 grid-cols-[40px_minmax(170px,1.5fr)_100px_90px_90px_100px_110px] items-center border-b border-caos-border bg-caos-panel px-2 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
@@ -110,18 +125,35 @@ function VirtualCandidateGrid({
             const index = start + offset;
             const pickup = (candidate.pitch.market_relative_value as Record<string, unknown> | undefined)?.dm_pickup_bps;
             return (
-              <div key={candidate.id} role="row" aria-rowindex={index + 2} style={{ position: "absolute", top: index * ROW_HEIGHT, height: ROW_HEIGHT, left: 0, right: 0 }} className={`grid grid-cols-[40px_minmax(170px,1.5fr)_100px_90px_90px_100px_110px] items-center border-b border-caos-border/70 px-2 tabular text-caos-xs ${selectedId === candidate.id ? "bg-caos-info-surface" : "hover:bg-caos-elevated/30"}`}>
-                <button type="button" className="contents focus-ring" onClick={() => onSelect(candidate)} onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); const next = Math.max(0, Math.min(candidates.length - 1, index + (event.key === "ArrowDown" ? 1 : -1))); viewport.current?.scrollTo({ top: next * ROW_HEIGHT }); onSelect(candidates[next]); } }}>
-                  <span role="gridcell" className="text-caos-accent">{candidate.rank}</span>
-                  <span role="gridcell" className="min-w-0"><span className="block truncate font-semibold text-caos-text">{candidate.borrower}</span><span className="block truncate text-caos-2xs text-caos-muted">{display(candidate.market.ranking)} · {candidate.figi ?? "identity unavailable"}</span></span>
-                  <span role="gridcell" className={candidate.classification === "actionable" ? "text-caos-success" : candidate.classification === "unavailable" ? "text-caos-critical" : "text-caos-warning"}>{classificationLabel(candidate.classification)}</span>
-                  <span role="gridcell" className="text-caos-text">{display(candidate.market.dm, "bp")}</span>
-                  <span role="gridcell" className="text-caos-text">{display(pickup, "bp")}</span>
-                  <span role="gridcell" className="text-caos-muted">{display(candidate.market.bid)} / {display(candidate.market.ask)}</span>
-                </button>
+              <div
+                key={candidate.id}
+                role="row"
+                aria-rowindex={index + 2}
+                aria-selected={candidate.id === activeId}
+                ref={(el) => { if (el) rowRefs.current.set(candidate.id, el); else rowRefs.current.delete(candidate.id); }}
+                tabIndex={candidate.id === activeId ? 0 : -1}
+                style={{ position: "absolute", top: index * ROW_HEIGHT, height: ROW_HEIGHT, left: 0, right: 0 }}
+                className={`grid grid-cols-[40px_minmax(170px,1.5fr)_100px_90px_90px_100px_110px] items-center border-b border-caos-border/70 px-2 tabular text-caos-xs focus-ring ${selectedId === candidate.id ? "bg-caos-info-surface" : "hover:bg-caos-elevated/30"}`}
+                onClick={() => onSelect(candidate)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    const next = Math.max(0, Math.min(candidates.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+                    pendingFocusId.current = candidates[next].id;
+                    viewport.current?.scrollTo({ top: next * ROW_HEIGHT });
+                    onSelect(candidates[next]);
+                  }
+                }}
+              >
+                <span role="gridcell" className="text-caos-accent">{candidate.rank}</span>
+                <span role="gridcell" className="min-w-0"><span className="block truncate font-semibold text-caos-text">{candidate.borrower}</span><span className="block truncate text-caos-2xs text-caos-muted">{display(candidate.market.ranking)} · {candidate.figi ?? "identity unavailable"}</span></span>
+                <span role="gridcell" className={candidate.classification === "actionable" ? "text-caos-success" : candidate.classification === "unavailable" ? "text-caos-critical" : "text-caos-warning"}>{classificationLabel(candidate.classification)}</span>
+                <span role="gridcell" className="text-caos-text">{display(candidate.market.dm, "bp")}</span>
+                <span role="gridcell" className="text-caos-text">{display(pickup, "bp")}</span>
+                <span role="gridcell" className="text-caos-muted">{display(candidate.market.bid)} / {display(candidate.market.ask)}</span>
                 <span role="gridcell">{(() => {
                   const atCap = !compareIds.has(candidate.id) && compareIds.size >= 5;
-                  return <button type="button" aria-pressed={compareIds.has(candidate.id)} aria-disabled={atCap || undefined} title={atCap ? "Compare holds at most 5 candidates — remove one first" : undefined} onClick={() => { if (!atCap) onCompare(candidate); }} className="caos-action-secondary focus-ring">{compareIds.has(candidate.id) ? "Remove" : "Compare"}</button>;
+                  return <button type="button" aria-pressed={compareIds.has(candidate.id)} aria-disabled={atCap || undefined} title={atCap ? "Compare holds at most 5 candidates — remove one first" : undefined} onClick={(event) => { event.stopPropagation(); if (!atCap) onCompare(candidate); }} className="caos-action-secondary focus-ring">{compareIds.has(candidate.id) ? "Remove" : "Compare"}</button>;
                 })()}</span>
               </div>
             );
@@ -267,7 +299,12 @@ export function RVScreenerWorkbench() {
           })}{screen ? <div className="ml-auto"><AuthorityLine authority={screen.authority} /></div> : null}</div>
           {error ? <div className="mb-2 rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">{error}</div> : null}
           {contextState.error ? <div className="mb-2 rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">Analysis workspace unavailable — the screen cannot run without it. <button type="button" className="text-caos-accent focus-ring" onClick={() => window.location.reload()}>Reload to retry</button></div> : null}
-          {!screen ? <div className="grid min-h-0 flex-1 place-items-center rounded-md border border-dashed border-caos-border p-6 text-center"><div><p className="tabular text-caos-xs uppercase tracking-widest text-caos-accent">{contextState.loading ? "Preparing workspace" : "Immutable snapshot required"}</p><p className="mx-auto mt-2 max-w-[60ch] text-caos-sm leading-relaxed text-caos-muted">{contextState.loading ? "Resolving the analysis context — the screen unlocks in a moment." : "Run the screen to normalize the reference pricing sheet. Reference observations can surface candidates but can never produce an actionable recommendation."}</p></div></div> : null}
+          {!screen ? <SurfaceState
+            kind={contextState.loading ? "loading" : "not-run"}
+            title={contextState.loading ? "Preparing workspace" : "Immutable snapshot required"}
+            detail={contextState.loading ? "Resolving the analysis context — the screen unlocks in a moment." : "Run the screen to normalize the reference pricing sheet. Reference observations can surface candidates but can never produce an actionable recommendation."}
+            className="m-auto max-w-xl"
+          /> : null}
           {screen && view === "table" ? <DominantTableRegion ownerId="rv-candidates" label="Ranked RV candidates" className="min-h-0 flex-1"><VirtualCandidateGrid candidates={screen.candidates} selectedId={selected?.id ?? null} compareIds={compareIds} onSelect={(candidate) => { setSelected(candidate); updateUrlState({ selected: candidate.id }, "replace"); }} onCompare={toggleCompare} /></DominantTableRegion> : null}
           {screen && view === "distribution" ? <div className="min-h-0 flex-1 overflow-auto"><SemanticVisualization spec={distributionSpec} headingLevel={2} /></div> : null}
           {screen && view === "compare" ? <div className="min-h-0 flex-1 overflow-auto"><div className="grid gap-3 xl:grid-cols-2">{compared.map((candidate) => <article key={candidate.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><h2 className="text-caos-sm font-semibold text-caos-text">{candidate.borrower}</h2><span className="ml-auto tabular text-caos-2xs uppercase text-caos-warning">{classificationLabel(candidate.classification)}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-caos-xs"><div><dt className="text-caos-muted">DM</dt><dd className="tabular text-caos-text">{display(candidate.market.dm, "bp")}</dd></div><div><dt className="text-caos-muted">Pickup</dt><dd className="tabular text-caos-text">{display((candidate.pitch.market_relative_value as Record<string, unknown>).dm_pickup_bps, "bp")}</dd></div><div><dt className="text-caos-muted">Ranking</dt><dd className="text-caos-text">{display(candidate.market.ranking)}</dd></div><div><dt className="text-caos-muted">Maturity</dt><dd className="text-caos-text">{display(candidate.market.maturity)}</dd></div></dl><p className="mt-3 text-caos-xs text-caos-warning">{candidate.missing_gates.join(" · ") || "All gates satisfied"}</p></article>)}</div></div> : null}

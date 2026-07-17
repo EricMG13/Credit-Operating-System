@@ -931,7 +931,13 @@ backup:
   networks: [internal]
 ```
 
-Do not bind-mount the scripts after they are copied into the image. Remove `BACKUP_SYNC_CMD` from this service and delete the `sh -c "$BACKUP_SYNC_CMD"` block from `backup.sh`. An arbitrary command running as the owner of `/backups` can delete the local recovery set, and the current `.env.example` destination `/mnt/offhost` is not mounted in the hardened container. Off-host transfer must be a separately reviewed host job or a separately hardened sync service with `/backups:ro`, destination-specific credentials/config, and only its destination writable. It is not part of this six-image blueprint.
+Do not bind-mount the scripts after they are copied into the image. Remove `BACKUP_SYNC_CMD` from this service and delete the `sh -c "$BACKUP_SYNC_CMD"` block from `backup.sh`. An arbitrary command running as the owner of `/backups` can delete the local recovery set. Off-host transfer must be a separately hardened sync service with `/backups:ro`, destination-specific credentials/config, and only its scratch destination writable.
+
+**Implemented 2026-07-17:** `backup-sync` now supplies that seventh, isolated
+service. It receives rclone configuration as a Docker secret, mounts
+`/backups` read-only, downloads remote artifacts into a separate recovery
+volume, and runs `restore_drill.sh` against the downloaded copy before its
+health check turns green.
 
 Also make a partially failed cycle return non-zero. In `run_once`, initialize `db_ok=0` and `vault_ok=0`, set the corresponding flag to `1` only after each non-empty artifact succeeds, and finish with:
 

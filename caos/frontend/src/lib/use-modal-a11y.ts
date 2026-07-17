@@ -13,6 +13,27 @@ import { useEffect, useRef } from "react";
 // document app would need per-document state.
 let scrollLockCount = 0;
 
+// Shared topmost-overlay registry. Every useModalA11y instance registers a
+// window-level keydown listener, and stopPropagation() on a window listener
+// does not stop OTHER listeners on the same target — it only stops
+// propagation to ANCESTOR nodes, which doesn't exist for window listeners.
+// Without this, one Escape press fired every currently-mounted overlay's
+// onClose at once (e.g. a citation viewer opened inside the Ask modal: Esc
+// meant to dismiss just the citation closed the whole Ask stack instead,
+// losing the in-progress query/graph/reader state). Each instance pushes a
+// token on mount, pops it on unmount, and only the topmost (most recently
+// opened) instance's Escape handler actually calls onClose.
+const overlayStack: symbol[] = [];
+function isTopOverlay(token: symbol): boolean {
+  return overlayStack[overlayStack.length - 1] === token;
+}
+/** True while any useModalA11y-tracked overlay is mounted. Lets a non-hook
+    Escape handler (e.g. a coordinator that isn't itself a dialog panel) defer
+    to whichever tracked overlay is currently topmost, instead of racing it. */
+export function hasOpenModalA11yOverlay(): boolean {
+  return overlayStack.length > 0;
+}
+
 // Modal behavior in one place — consolidates the per-modal Escape-to-close
 // effect that was copy-pasted across every overlay, and adds the focus
 // management none of them had:
@@ -40,6 +61,8 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
     // on screen ⇒ no modal ⇒ no side effects.
     if (!panel) return;
     const prevFocus = document.activeElement as HTMLElement | null;
+    const token = Symbol("modal-a11y-overlay");
+    overlayStack.push(token);
     if (scrollLockCount === 0) document.body.style.overflow = "hidden";
     scrollLockCount++;
     if (!panel.hasAttribute("tabindex")) panel.tabIndex = -1;
@@ -62,6 +85,10 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
+        // Not topmost — a nested overlay (e.g. a citation viewer opened over
+        // this dialog) owns this Escape; its own handler will fire the same
+        // event, since window listeners aren't stopped by stopPropagation.
+        if (!isTopOverlay(token)) return;
         onCloseRef.current();
         return;
       }
@@ -92,6 +119,8 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
+      const i = overlayStack.indexOf(token);
+      if (i !== -1) overlayStack.splice(i, 1);
       scrollLockCount = Math.max(0, scrollLockCount - 1);
       if (scrollLockCount === 0) document.body.style.overflow = "";
       prevFocus?.focus?.();

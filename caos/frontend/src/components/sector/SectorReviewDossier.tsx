@@ -36,7 +36,8 @@ function decisionAuthority(authority: AuthorityEnvelope): DecisionAuthority {
   };
 }
 
-function reviewDatum(review: SectorReviewV2 | null, value: React.ReactNode, fallback = "No versioned sector review in this context."): DecisionDatumState {
+function reviewDatum(review: SectorReviewV2 | null, value: React.ReactNode, fallback = "No versioned sector review in this context.", loading = false): DecisionDatumState {
+  if (loading) return { kind: "loading", message: "Loading sector review…" };
   if (!review) return { kind: "unavailable", message: fallback };
   const authority = decisionAuthority(review.authority);
   const asOf = fmtUtcDateTime(review.as_of);
@@ -54,6 +55,13 @@ export function SectorReviewDossier() {
   const [feeds, setFeeds] = useState<SectorFeed[]>([]);
   const [history, setHistory] = useState<SectorReviewV2[]>([]);
   const [review, setReview] = useState<SectorReviewV2 | null>(null);
+  // `review === null` is ambiguous — it means both "still fetching" and
+  // "no versioned dossier exists" until the history fetch settles. Without
+  // this the surface asserted an authoritative empty ("No versioned dossier
+  // exists… Request a refresh") while the request was still in flight,
+  // which could read as license to mint a duplicate draft. Distinct from
+  // `busy`, which only covers the mutating actions (refresh/ratify/publish).
+  const [reviewLoading, setReviewLoading] = useState(true);
   const tab: SectorReviewTab = SECTOR_REVIEW_TABS.some((item) => item.id === urlState.tab) ? urlState.tab as SectorReviewTab : roleView === "qa" ? "sources" : "overview";
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const compareVersion = urlState.compare ?? "";
@@ -67,12 +75,14 @@ export function SectorReviewDossier() {
 
   useEffect(() => {
     if (!contextState.context) return;
+    setReviewLoading(true);
     analysisApi.listSectorReviews(contextState.context.id).then((rows) => {
       setHistory(rows);
       const active = rows.find((item) => item.id === contextState.context?.sector_review_run_id) ?? rows[0] ?? null;
       setReview(active);
       setSelectedSection(urlState.section ?? active?.sections[0]?.id ?? null);
-    }).catch((reason) => setError(toErrorMessage(reason, "Sector review history unavailable.")));
+    }).catch((reason) => setError(toErrorMessage(reason, "Sector review history unavailable.")))
+      .finally(() => setReviewLoading(false));
   }, [contextState.context, urlState.section]);
 
   const requestRefresh = async () => {
@@ -145,10 +155,10 @@ export function SectorReviewDossier() {
   const selected = review?.sections.find((section) => section.id === selectedSection) ?? review?.sections[0] ?? null;
   const compare = history.find((item) => item.id === compareVersion) ?? null;
   const decisionState: DecisionContextState = {
-    whatChanged: reviewDatum(review, review?.what_changed, "No change observation — no versioned review in this context."),
-    whyItMatters: reviewDatum(review, review?.why_it_matters, "No impact assessment yet — run a review to establish one."),
-    requiredAction: reviewDatum(review, review?.required_action, "No required action — no review to act on."),
-    evidenceHealth: reviewDatum(review, review?.evidence_health, "No evidence register — no review has been run."),
+    whatChanged: reviewDatum(review, review?.what_changed, "No change observation — no versioned review in this context.", reviewLoading),
+    whyItMatters: reviewDatum(review, review?.why_it_matters, "No impact assessment yet — run a review to establish one.", reviewLoading),
+    requiredAction: reviewDatum(review, review?.required_action, "No required action — no review to act on.", reviewLoading),
+    evidenceHealth: reviewDatum(review, review?.evidence_health, "No evidence register — no review has been run.", reviewLoading),
   };
   const context = contextState.context;
   const finalAction = !review || review.status === "partial" || review.status === "stale"
@@ -182,6 +192,7 @@ export function SectorReviewDossier() {
             <SectorReviewContent
               review={review}
               tab={tab}
+              loading={reviewLoading}
               selectedSection={selectedSection}
               contextId={context?.id}
               onSelectSection={(sectionId) => {

@@ -871,7 +871,7 @@ export function QaQueue({
   return (
     <div>
       {queue.map((q) => (
-        <div key={q.id} className="px-3 py-[6px] border-b border-caos-border/50">
+        <div key={q.key ?? q.id} className="px-3 py-[6px] border-b border-caos-border/50">
           <div className="flex items-center gap-2">
             <Tag sev={q.sev === "HIGH" ? "critical" : q.sev === "MEDIUM" ? "warning" : "low"}>{q.sev}</Tag>
             <span className="tabular text-caos-md text-caos-muted">{q.id}</span>

@@ -292,7 +292,10 @@ function IssuersDirectory() {
     ? issuers.length + (issuers.length === 1 ? " match" : " matches") + " for “" + query + "”"
     : demo
     ? DEMO_UNIVERSE.length + " sample issuers"
-    : issuers.length + " issuers" + (ratedCount ? " · " + ratedCount + " rated" : "") + " · US HY sleeve";
+    // No universe/sleeve descriptor is computed anywhere — the register mixes
+    // US, UK, and French issuers, so a hardcoded "US HY sleeve" suffix was a
+    // false claim about the actual coverage. State only what's counted.
+    : issuers.length + " issuers" + (ratedCount ? " · " + ratedCount + " rated" : "");
 
   const narrowContract: NarrowContract = {
     essentialControls: (

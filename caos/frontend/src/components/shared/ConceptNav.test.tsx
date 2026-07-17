@@ -11,7 +11,7 @@ vi.mock("./RoleViewSwitch", () => ({ RoleViewSwitch: () => null }));
 afterEach(cleanup);
 
 describe("ConceptNav compact — Concepts drawer (guaranteed nav path)", () => {
-  it("exposes a Concepts trigger that lists every concept with its full label", () => {
+  it("pipeline-13 pipeline-35 exposes a Concepts trigger that lists every concept with its full label", () => {
     render(<ConceptNav compact />);
     fireEvent.click(screen.getByRole("button", { name: /open concepts/i }));
     const drawer = screen.getByRole("dialog", { name: "Concepts" });

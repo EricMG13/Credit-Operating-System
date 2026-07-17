@@ -24,7 +24,7 @@ tested in `test_audit_p0_fixes.py`). Never weaken those guards to "warn".
 | `ANTHROPIC_API_KEY` | app LLM lanes | Anthropic API | Rotate in the Anthropic console; update `.env`; restart app. Keyless boot degrades to fixture/deterministic lanes — the app stays up during rotation. | Token spend + prompt exfiltration on the vendor account — rotate at vendor, check usage logs. |
 | `OPENROUTER_API_KEY` | app LLM lanes (DEFAULT hybrid) | OpenRouter/DeepSeek | Same pattern as Anthropic. | Same. |
 | `GEMINI_API_KEY` | app LLM lanes (optional) | Gemini | Same pattern. | Same. |
-| `BACKUP_SYNC_CMD` | `backup.sh` off-host sync hook | May embed remote credentials (rsync target, object-store key) | Treat any credential inside the command as its own secret: rotate at the remote, update `.env`. Never echo the command in cron logs. | Off-host backup destination compromise — rotate remote creds, verify backup integrity. |
+| `BACKUP_RCLONE_CONFIG_FILE` contents | isolated `backup-sync` service (Docker secret at `/run/secrets/backup_rclone_config`) | Authenticates the provider-neutral off-host backup remote | Rotate the backend credential at the provider, replace the host file referenced by `.env`, then `docker compose up -d --force-recreate backup-sync`; confirm a new remote-copy restore drill passes. The path is configuration, but the referenced file is secret and must stay outside source control. | Read/write access to off-host recovery artifacts — rotate, inspect remote history, and prove a fresh round-trip restore. |
 | *(future, C5)* Bloomberg credentials | Settings → Market Data (admin-gated) | Market-data entitlement | Enters the inventory when C5 lands: stored server-side, masked in UI, admin-only under E2, never logged (extend the sentinel test). | Entitlement misuse — vendor-side rotation. |
 
 Non-secrets deliberately excluded: `EDGAR_USER_AGENT` (contact string, not a
@@ -35,9 +35,10 @@ credential), model names, ports.
 1. **Never log a secret value.** The sentinel test is the guard; if you add
    a new secret, add it to the sentinel list in
    `test_secret_log_hygiene.py` in the same PR.
-2. **`.env` is the only home** on the host (`caos/deploy/.env`, mode 600,
-   never committed — `.env.example` carries names only). No secrets in
-   compose files, code, or docs.
+2. **`.env` plus Docker-secret source files are the only homes** on the host
+   (`caos/deploy/.env` and the file named by `BACKUP_RCLONE_CONFIG_FILE`, both
+   mode 600, never committed). `.env.example` and `rclone.conf.example` carry
+   names/placeholders only. No secret values in compose files, code, or docs.
 3. **Rotation is a deploy, not an edit** — every rotation ends with the
    affected container(s) restarted and a smoke check (login + one run).
 4. gitleaks runs per-PR in CI (`security` job) and blocks committed secrets;

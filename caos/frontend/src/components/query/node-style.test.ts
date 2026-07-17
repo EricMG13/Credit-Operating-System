@@ -24,6 +24,7 @@ describe("nodeStyle — shape resolution", () => {
     expect(s.shape).toBe("compact");
     expect(s.r).toBe(6);
     expect(s.sw).toBe(1.4);
+    expect(nodeStyle(node("driver", { compact: true })).fill).toBe("rgba(245, 165, 36, 0.15)");
   });
   it("center → circle, accent stroke (warning when flagged)", () => {
     expect(nodeStyle(node("center")).shape).toBe("circle");

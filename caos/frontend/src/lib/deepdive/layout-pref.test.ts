@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_LAYOUT, loadLayout, saveLayout } from "./layout-pref";
 
 afterEach(() => {
   localStorage.clear();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("Deep-Dive layout preference", () => {
@@ -29,5 +31,17 @@ describe("Deep-Dive layout preference", () => {
     localStorage.setItem("caos.deepdive.layout", "compact");
     expect(loadLayout()).toBe(DEFAULT_LAYOUT);
   });
-});
 
+  it("defaults without a browser and when storage reads fail", () => {
+    vi.stubGlobal("window", undefined);
+    expect(loadLayout()).toBe(DEFAULT_LAYOUT);
+    vi.unstubAllGlobals();
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    expect(loadLayout()).toBe(DEFAULT_LAYOUT);
+  });
+
+  it("silently tolerates storage write failures", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+    expect(() => saveLayout("summary")).not.toThrow();
+  });
+});

@@ -2,29 +2,75 @@
  * Playwright E2E: The Model Builder (/model) — journey 3, gaps E2E-3a/3b/3c.
  *
  * Runs against the single-process QA server (FastAPI serving the API + the
- * static Next export on one origin). Route: bare /model resolves to the ATLF
- * reference issuer (a71f0000-…-000000000001), which carries a seeded offline
- * model; on this QA DB it also has a completed run, so the CP-1 anchor is LIVE.
- * We assert on stable roles / text (the served static build is a couple days
- * old), never on exact numbers.
+ * static Next export on one origin). Read-only reference-fixture checks use bare
+ * /model. Durable save/reload checks discover the explicit sanitized QA workflow
+ * issuer. A clean CI database creates that issuer and submits an explicitly
+ * analyst-authored, sanitized suggestion through the real calculation/save
+ * endpoints; no synthetic CP-1 run is relabelled as live evidence.
+ * We assert on stable roles / text from the current production export, never on
+ * exact model values other than a value this test itself persists.
  *
  * Auth is handled once in global-setup (storageState); pages render signed-in —
  * do NOT add per-test login (per-test auth trips the 10/min login rate limit).
  *
- * Notes on the served build vs. current source:
- *   • the worksheet <div> carries aria-label="Model worksheet" but NO
- *     role="grid" in the deployed bundle — select it via getByLabel, not
- *     getByRole("grid").
- *   • the SAVED-status text is `hidden xl:inline`, so a ≥1280px viewport is
- *     required for it to be visible; we run every test at 1500px, which also
- *     gives the two flank panels room (below 1280 the keyhole guard collapses
- *     the Scenario panel to a rail).
- *   • the "Downside fragility · CP-2B" readout only renders when a run produced
- *     a usable CP-2B pathway (eng.downside). The offline demo-fallback run does
- *     not, so that specific sub-leg is skipped (see the [3a] test).
+ * The worksheet uses aria-label="Model worksheet" rather than role="grid".
+ * A ≥1280px viewport keeps both flank panels expanded.
  */
 
 import { test, expect } from "@playwright/test";
+
+let workflowIssuerId = "";
+
+const E2E_MODEL_PAYLOAD = {
+  schema_version: 2,
+  reporting_currency: "USD",
+  reporting_unit: "millions",
+  periods: [{
+    period_key: "FY2026",
+    label: "E2E FY26",
+    kind: "forecast",
+    months: 12,
+    revenue: 800,
+    reported_ebitda: 100,
+    adjustments: 10,
+    cash: 20,
+    taxes: 5,
+    capex: 10,
+    working_capital_change: -2,
+    other_cash_flow: 0,
+    authority: { origin: "analyst", method: "e2e-sanitized", source_ids: [] },
+  }],
+  debt_instruments: [{
+    instrument_id: "e2e-tlb-1",
+    name: "Sanitized first-lien term loan",
+    priority: 1,
+    seniority: "1L",
+    currency: "USD",
+    rate_type: "floating",
+    authority: { origin: "analyst", method: "e2e-sanitized", source_ids: [] },
+    periods: [{
+      period_key: "FY2026",
+      opening_balance: 200,
+      closing_balance: 190,
+      draws: 0,
+      repayments: 10,
+      scheduled_amortization: 0,
+      commitment: 220,
+      benchmark_rate: 0.04,
+      floor_rate: 0.05,
+      spread_rate: 0.03,
+      coupon_rate: 0.01,
+      commitment_fee_rate: 0.005,
+      pik_rate: 0,
+      cash_fees: 1,
+      hedge_effect: -0.5,
+      fx_rate: 1,
+    }],
+  }],
+  overrides: [],
+  ui_preferences: {},
+  source_ids: [],
+};
 
 // Wide viewport: keeps both flank panels expanded and un-hides the SAVED status
 // (hidden below the xl / 1280px breakpoint in the served build).
@@ -33,6 +79,28 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Model Builder", () => {
+  test.describe.configure({ mode: "serial" });
+  test.beforeAll(async ({ request }) => {
+    const response = await request.get("/api/issuers/?q=Granite%20Peak%20Healthcare");
+    expect(response.ok()).toBe(true);
+    const issuers = await response.json() as Array<{ id: string; name: string }>;
+    let fixture = issuers.find((issuer) => issuer.name === "Granite Peak Healthcare");
+    if (!fixture) {
+      const created = await request.post("/api/issuers/", {
+        data: {
+          name: "Granite Peak Healthcare",
+          ticker: "GPHQ",
+          industry: "Healthcare",
+          country: "US",
+        },
+      });
+      expect(created.ok(), `model fixture issuer create failed: ${created.status()}`).toBe(true);
+      fixture = await created.json() as { id: string; name: string };
+    }
+    expect(fixture.name).toBe("Granite Peak Healthcare");
+    workflowIssuerId = fixture.id;
+
+  });
   // [3b] The engine-provenance badge renders (LIVE CP-1 anchor, or the seeded
   // demo fallback) — the model is grounded, not blank.
   test("provenance badge renders the CP-1 anchor state", async ({ page }) => {
@@ -75,59 +143,153 @@ test.describe("Model Builder", () => {
     await expect(page.getByRole("button", { name: "↶ RESET" })).toBeVisible();
   });
 
-  // [3a — DownsideFragility sub-leg] Only renders with a live CP-2B pathway
-  // (eng.downside). The offline demo-fallback run doesn't produce one, so the
-  // "Downside fragility · CP-2B" readout is absent here — skipped rather than
-  // left red (needs a real run with a usable CP-2B; not reproducible offline).
-  test.skip("downside fragility (CP-2B) readout renders", async ({ page }) => {
+  // [3a — DownsideFragility sub-leg] The local run may legitimately omit CP-2B.
+  // Stub only that optional read with the canonical DTO shape while retaining
+  // the real run, CP-1 anchor, page, and rendering path.
+  test("downside fragility (CP-2B) readout renders", async ({ page }) => {
+    // The demo seed creates the reference issuer/model storage contract but not
+    // a completed analytical run. Supply one exact completed run plus its CP-1
+    // anchor so useModelEngine follows the same live module-fetch path as prod.
+    await page.route((url) => url.pathname === "/api/runs" && url.searchParams.has("issuer_id"), (route) => route.fulfill({
+      json: [{
+        id: "e2e-model-run",
+        issuer_id: "a71f0000-0000-0000-0000-000000000001",
+        status: "complete",
+        qa_status: "Restricted",
+        committee_status: "Restricted",
+        as_of_date: "2026-05-31",
+        created_at: "2026-07-16T00:00:00Z",
+      }],
+    }));
+    await page.route("**/api/runs/e2e-model-run/modules/CP-1", (route) => route.fulfill({
+      json: {
+        module_id: "CP-1",
+        module_name: "CanonicalDataFoundation",
+        owned_object: "canonical_financials",
+        schema_family: "Nested",
+        runtime_output: {
+          normalized_financials: {
+            revenue: { LTM_Q1_26: 2801 },
+            adj_ebitda: { LTM_Q1_26: 421 },
+            net_debt_ltm: 2391,
+            net_leverage_adj_ltm: 5.68,
+            interest_coverage_ltm: 2.1,
+          },
+        },
+        confidence: "Medium",
+        qa_status: "Restricted",
+        committee_status: "Restricted",
+        validation_status: "Passed",
+        limitation_flags: [],
+        downstream_consumers: ["CP-2"],
+        claims: [],
+      },
+    }));
+    await page.route("**/api/runs/*/modules/CP-2B", (route) => route.fulfill({
+      json: {
+        module_id: "CP-2B",
+        module_name: "DownsidePathway",
+        owned_object: null,
+        schema_family: "runtime",
+        runtime_output: {
+          current_net_leverage: 5.68,
+          breach_threshold_x: 7.0,
+          fragility: "MODERATE",
+          shock_to_breach_pct: 20,
+          scenarios: [
+            { ebitda_shock_pct: 10, stressed_net_leverage: 6.31, stressed_interest_coverage: 1.89 },
+            { ebitda_shock_pct: 20, stressed_net_leverage: 7.1, stressed_interest_coverage: 1.68 },
+          ],
+        },
+        confidence: "High",
+        qa_status: "Passed",
+        committee_status: "Restricted",
+        validation_status: "Passed",
+        limitation_flags: [],
+        downstream_consumers: ["CP-3D", "CP-6A"],
+        claims: [],
+      },
+    }));
     await page.goto("/model/");
-    await expect(page.getByText("Downside fragility · CP-2B")).toBeVisible();
+    await expect(page.getByText("Downside fragility · CP-2B", { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTitle("First-order EBITDA-shock fragility: MODERATE")).toContainText("MODERATE");
+    await expect(page.getByText(/A −20% EBITDA decline lifts net leverage/)).toBeVisible();
   });
 
-  // [3c] Durable mutation: SAVE MODEL persists via PUT /api/models + a "SAVED"
-  // stamp. Skipped: the served build gates SAVE on a dirty flag, so a click on a
-  // freshly-loaded (unchanged) model fires no PUT and the waitForResponse times
-  // out. Needs a cell-edit / override step to dirty the model first — same
-  // served-build-vs-source caveat as the downside sub-leg above. Un-skip when the
-  // spec dirties the model before saving.
-  test.skip("saving the model persists via PUT /api/models and confirms SAVED", async ({ page }) => {
-    await page.goto("/model/");
-    await expect(page.getByLabel("Model worksheet")).toBeVisible({ timeout: 15000 });
-
-    // Watch the durable write at the network boundary (do not stub — we want the
-    // real round-trip against caos_qa.db).
-    const putOk = page
-      .waitForResponse(
-        (r) => r.request().method() === "PUT" && r.url().includes("/api/models") && r.status() === 200,
-        { timeout: 15000 },
+  // [3c] Live issuers use the canonical v2 authority. Establish revision 1 from
+  // an explicit sanitized analyst draft; repeated runs may find it saved. The
+  // offline engine's CP-1 fixture is deliberately synthetic, so it must never be
+  // presented as a server suggestion or relabelled as live source evidence.
+  test("a sanitized analyst draft establishes a durable Model Engine v2 revision", async ({ page, request }) => {
+    const current = await request.get(`/api/models/v2/${workflowIssuerId}`);
+    expect(current.ok()).toBe(true);
+    const currentBody = await current.json() as { record: unknown | null };
+    if (!currentBody.record) {
+      const saveResponse = await request.put(
+        `/api/models/v2/${workflowIssuerId}`,
+        {
+          data: {
+            payload: E2E_MODEL_PAYLOAD,
+            expected_revision: 0,
+            context_id: null,
+            source_run_id: null,
+          },
+        },
       );
-
-    await page.getByRole("button", { name: /SAVE MODEL/i }).click();
-
-    // PUT succeeded …
-    await putOk;
-    // … and the header stamps the save.
-    await expect(page.getByText(/^SAVED /)).toBeVisible({ timeout: 15000 });
+      expect(
+        saveResponse.ok(),
+        `sanitized model save failed: ${saveResponse.status()}`,
+      ).toBe(true);
+    }
+    await page.goto(`/model/?issuer=${encodeURIComponent(workflowIssuerId)}`);
+    await expect(page.getByRole("table", { name: "Canonical Model Engine v2 calculation nodes" })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/USD · millions · (ready|partial) · rev \d+/i)).toBeVisible();
   });
 
-  // [3c cont.] Reload after a save: the model still loads from the restored
-  // state. Skipped for the same dirty-gated-SAVE reason as the test above (the
-  // PUT never fires on an unchanged model). Un-skip alongside it.
-  test.skip("saved model survives a reload", async ({ page }) => {
-    await page.goto("/model/");
-    await expect(page.getByLabel("Model worksheet")).toBeVisible({ timeout: 15000 });
+  // [3c cont.] Queue an input replacement, prove the server preview precedes
+  // the atomic commit, then verify the exact node/value survives reload.
+  test("a committed Model Engine v2 override survives a reload", async ({ page }) => {
+    await page.goto(`/model/?issuer=${encodeURIComponent(workflowIssuerId)}`);
+    const table = page.getByRole("table", { name: "Canonical Model Engine v2 calculation nodes" });
+    await expect(table).toBeVisible({ timeout: 15000 });
 
-    const putOk = page.waitForResponse(
-      (r) => r.request().method() === "PUT" && r.url().includes("/api/models") && r.status() === 200,
+    const edit = page.getByRole("button", { name: /^Edit input:/ }).first();
+    await expect(edit).toBeEnabled();
+    const nodeId = (await edit.getAttribute("aria-label"))!.replace(/^Edit /, "");
+    await edit.click();
+    const numeric = page.getByLabel("Numeric value");
+    const original = Number(await numeric.inputValue());
+    const changed = original >= 9_999_999 ? original - 1 : original + 1;
+    await numeric.fill(String(changed));
+    await page.getByRole("button", { name: "Queue override" }).click();
+    await expect(page.getByText(`${nodeId} queued locally. Preview before committing.`, { exact: true })).toBeVisible();
+
+    const previewOk = page.waitForResponse(
+      (response) => response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/models/v2/${workflowIssuerId}/calculate`
+        && response.status() === 200,
       { timeout: 15000 },
     );
-    await page.getByRole("button", { name: /SAVE MODEL/i }).click();
-    await putOk;
-    await expect(page.getByText(/^SAVED /)).toBeVisible({ timeout: 15000 });
+    await page.getByRole("button", { name: "Preview pending" }).click();
+    await previewOk;
+    await expect(page.getByText("Server preview refreshed. No mutation has been committed.", { exact: true })).toBeVisible();
 
-    // Restored on reload: grid comes back, no empty state.
+    const commitOk = page.waitForResponse(
+      (response) => response.request().method() === "POST"
+        && new URL(response.url()).pathname === `/api/models/v2/${workflowIssuerId}/overrides/batch`
+        && response.status() === 200,
+      { timeout: 15000 },
+    );
+    await page.getByRole("button", { name: "Commit 1 pending" }).click();
+    await commitOk;
+    await expect(page.getByText("1 pending mutation committed atomically.", { exact: true })).toBeVisible();
+
     await page.reload();
-    await expect(page.getByLabel("Model worksheet")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(/No issuer-specific model output/)).toHaveCount(0);
+    await expect(table).toBeVisible({ timeout: 15000 });
+    const restored = page.getByRole("row", { name: new RegExp(nodeId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) });
+    await expect.poll(async () => Number(
+      (await restored.locator("td").nth(1).innerText()).replaceAll(",", ""),
+    )).toBe(changed);
+    await expect(restored).toContainText("OVERRIDDEN");
   });
 });

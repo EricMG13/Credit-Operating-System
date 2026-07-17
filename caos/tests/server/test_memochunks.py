@@ -30,6 +30,41 @@ from database import (
 from engine.memochunks import chunk_memo_into_corpus, MEMO_DOC_TYPE
 
 
+@pytest.mark.asyncio
+async def test_chunk_memo_noops_when_chunker_extracts_nothing(monkeypatch):
+    """Non-empty input can still be non-extractable; do not create an empty doc."""
+    monkeypatch.setattr("engine.memochunks.chunk_text", lambda _text: [])
+
+    assert await chunk_memo_into_corpus(
+        None, "Binary-only memo", "non-empty", ["issuer-1"], "analyst@example.test",
+    ) == []
+
+
+@pytest.mark.asyncio
+async def test_reupload_replaces_prior_memo_that_had_no_chunks(seeded_db):
+    """A legacy/partial memo document can exist before its chunks were written."""
+    from engine.memochunks import _delete_prior_memo_docs
+
+    async with AsyncSessionLocal() as db:
+        i1, _ = await _seed_two_issuers(db)
+        empty_prior = Document(
+            issuer_id=i1,
+            doc_type=MEMO_DOC_TYPE,
+            file_name="Legacy Empty Memo",
+            storage_key="memo:Legacy Empty Memo",
+            chunk_count=0,
+            uploaded_by="a@b.c",
+        )
+        db.add(empty_prior)
+        await db.flush()
+        prior_id = empty_prior.id
+
+        await _delete_prior_memo_docs(db, "Legacy Empty Memo", None)
+        await db.flush()
+
+        assert await db.get(Document, prior_id) is None
+
+
 async def _seed_two_issuers(db) -> tuple[str, str]:
     """Ensure two distinct issuers exist (the seeded reference deal ships one)."""
     existing = (await db.execute(select(Issuer))).scalars().all()

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import multiprocessing
 import re
 import shlex
 import subprocess
@@ -47,14 +48,67 @@ _MAX_XLSX_EXTRACTED_CHARS = 8_000_000
 _T = TypeVar("_T")
 
 
-async def parse_bounded(parser: Callable[..., _T], *args) -> _T:
-    """Run a synchronous parser off-loop with an analyst-visible time bound."""
+def _parser_process_entry(send_conn, parser: Callable[..., _T], args: tuple) -> None:
+    """Run one trusted parser in an isolated child and return its result/error."""
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(parser, *args),
-            timeout=float(get_settings().upload_parse_timeout_s),
+        send_conn.send((True, parser(*args)))
+    except BaseException as exc:  # noqa: BLE001 — marshal parser failures to parent
+        try:
+            send_conn.send((False, exc))
+        except Exception:  # pragma: no cover — only for an unpickleable exception
+            send_conn.send((False, RuntimeError(f"{type(exc).__name__}: {exc}")))
+    finally:
+        send_conn.close()
+
+
+def _run_parser_process(parser: Callable[..., _T], args: tuple, timeout: float) -> _T:
+    """Run a parser in a killable spawned process with a hard deadline."""
+    ctx = multiprocessing.get_context("spawn")
+    recv_conn, send_conn = ctx.Pipe(duplex=False)
+    process = ctx.Process(
+        target=_parser_process_entry,
+        args=(send_conn, parser, args),
+        name="caos-upload-parser",
+        daemon=True,
+    )
+    try:
+        process.start()
+        send_conn.close()
+        if not recv_conn.poll(timeout):
+            process.terminate()
+            process.join(timeout=1)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=1)
+            raise TimeoutError("upload parser exceeded deadline")
+        try:
+            ok, value = recv_conn.recv()
+        except EOFError as exc:
+            raise RuntimeError(
+                f"upload parser exited without a result (exit={process.exitcode})"
+            ) from exc
+        process.join(timeout=1)
+        if not ok:
+            raise value
+        return value
+    finally:
+        recv_conn.close()
+        send_conn.close()
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=1)
+
+
+async def parse_bounded(parser: Callable[..., _T], *args) -> _T:
+    """Run a synchronous parser off-loop in a process that can be terminated."""
+    try:
+        return await asyncio.to_thread(
+            _run_parser_process,
+            parser,
+            args,
+            float(get_settings().upload_parse_timeout_s),
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise HTTPException(
             422,
             "Upload parsing exceeded the configured time limit; split or simplify the file.",

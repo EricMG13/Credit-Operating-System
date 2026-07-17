@@ -98,13 +98,13 @@ TLS is terminated at the edge proxy (Caddy on the self-hosted stack).
   (`MAX_UPLOAD_MB`, default 250), **magic-byte MIME sniff** (PDF / OOXML),
   and **path-traversal-safe storage** — the filename is sanitized and the
   storage key is UUID-prefixed, so a hostile filename can't escape the vault.
-  `run_mode` is validated against an allow-list. An **optional ClamAV scan**
+  `run_mode` is validated against an allow-list. The production Compose stack
+  requires a **ClamAV scan**
   ([avscan.py](../server/avscan.py), `CLAMAV_HOST`) streams every upload to clamd
   before it is parsed or vaulted; a signature hit is rejected (422) and a
-  configured-but-unreachable scanner **fails closed** (503). Off by default
-  (single trusted coverage team); enable it via the `av` compose profile when the
-  team or the data sensitivity grows. This is the control this section previously
-  conditioned upload-safety on — it is now built and wired, gated to opt-in.
+  configured-but-unreachable scanner **fails closed** (503); production startup
+  also fails closed when no scanner host is configured. Local development may
+  leave `CLAMAV_HOST` empty, where scanning is an explicit no-op.
 - **Market price workbooks** ([market_xlsx.py](../server/market_xlsx.py),
   [market_import.py](../server/routes/market_import.py)) accept `.xlsx` only and
   are gated by `CAOS_MARKET_XLSX_V2_ENABLED` plus lineage v2. Preview scans and
@@ -119,9 +119,10 @@ TLS is terminated at the edge proxy (Caddy on the self-hosted stack).
   are exact FIGI matches or explicit analyst mappings only; fuzzy borrower-name
   matching is prohibited. New snapshots and source documents are analyst-owned,
   foreign identifiers return 404, and disabling the flag retains their evidence.
-- **Document parsing** is best-effort and exception-swallowing (`pypdf`,
-  `openpyxl` read-only) — hostile/scanned files vault without crashing the app.
-  Parsing untrusted documents is an inherent surface, bounded by the size cap.
+- **Document parsing** uses a spawned child process with a configured hard
+  deadline; timed-out PDF/XLSX work is terminated rather than continuing in an
+  unkillable thread. `openpyxl` remains read-only and package limits apply before
+  workbook parsing. Scanned/empty documents vault with an explicit zero-chunk warning.
 - **Report editing** ([ReportDoc.tsx](../frontend/src/components/reports/ReportDoc.tsx)):
   `contentEditable` leaves sanitize paste to plain text and cap length; React
   escapes rendered text, so analyst edits cannot inject markup.

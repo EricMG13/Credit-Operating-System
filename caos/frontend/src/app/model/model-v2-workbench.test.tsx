@@ -6,6 +6,7 @@ import {
   calculateModelV2,
   commitModelV2Workbook,
   createModelV2Checkpoint,
+  exportModelV2Workbook,
   getAnalystSettings,
   getModelV2,
   getModelV2Checkpoints,
@@ -335,6 +336,25 @@ const closeFormatMapping: ModelV2LegacyWorkbookMapping = {
   authority_as_of: "2026-07-14T00:00:00Z",
 };
 
+const matrixMapping: ModelV2LegacyWorkbookMapping = {
+  mode: "mapped_legacy",
+  assumptions: {
+    layout: "account_period_matrix",
+    sheet: "Model",
+    header_row: 1,
+    account_column: "Account",
+    account_rows: { revenue: "Revenue" },
+    period_columns: { FY2026: "FY26" },
+    period_kinds: { FY2026: "forecast" },
+  },
+  debt_schedule: null,
+  overrides: null,
+  reporting_currency: "USD",
+  reporting_unit: "millions",
+  source_ids: ["document-1"],
+  authority_as_of: "2026-07-14T00:00:00Z",
+};
+
 function renderWorkbench(initialResponse = response()) {
   return render(
     <NavigationGuardProvider>
@@ -587,6 +607,9 @@ describe("Model Engine v2 workbench", () => {
     expect(screen.getByRole("row", { name: /calc:FY2026:node-100/ })).toBeTruthy();
     expect(screen.queryByRole("row", { name: /calc:FY2026:node-000/ })).toBeNull();
 
+    fireEvent.click(screen.getByRole("button", { name: "Previous nodes" }));
+    expect(screen.getByRole("row", { name: /calc:FY2026:node-000/ })).toBeTruthy();
+
     fireEvent.change(screen.getByLabelText("Filter calculation nodes"), {
       target: { value: "node-349" },
     });
@@ -598,6 +621,14 @@ describe("Model Engine v2 workbench", () => {
     });
     expect(screen.getByRole("option", { name: /node-349/ })).toBeTruthy();
     expect((screen.getByLabelText("Scenario node") as HTMLSelectElement).options).toHaveLength(2);
+
+    fireEvent.change(screen.getByLabelText("Scenario node"), {
+      target: { value: "calc:FY2026:node-349" },
+    });
+    fireEvent.change(screen.getByLabelText("Filter scenario nodes"), {
+      target: { value: "" },
+    });
+    expect((screen.getByLabelText("Scenario node") as HTMLSelectElement).options[1].value).toBe("calc:FY2026:node-349");
   });
 
   it("discards an in-flight sensitivity when its node or value changes", async () => {
@@ -782,10 +813,13 @@ describe("Model Engine v2 workbench", () => {
     vi.mocked(restoreModelV2Checkpoint).mockResolvedValue(makeRecord(false, 3));
     renderWorkbench();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Create checkpoint" }));
+    fireEvent.change(await screen.findByLabelText("Checkpoint label"), {
+      target: { value: "IC downside" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create checkpoint" }));
     await waitFor(() => expect(createModelV2Checkpoint).toHaveBeenCalledWith("issuer-1", {
       context_id: "context-1",
-      label: "Analyst checkpoint",
+      label: "IC downside",
       issuer_run_id: "run-exact",
       expected_revision: 2,
       calculation_hash: "c".repeat(64),
@@ -1023,6 +1057,78 @@ describe("Model Engine v2 workbench", () => {
     }));
   });
 
+  it("binds reviewed account rows, the account column, and period columns in a matrix workbook", async () => {
+    const ambiguous = workbookPreview({
+      mode: "mapped_legacy",
+      mapping: matrixMapping,
+      draft_payload: null,
+      calculation: null,
+      ambiguities: [{
+        table: "assumptions", field: "revenue", selector: "row",
+        candidates: ["Revenue", "Revenue (4)", "Invalid candidate", "Invalid (0)"], message: "Choose revenue row.",
+      }, {
+        table: "assumptions", field: "account_column", selector: "column",
+        candidates: ["Account (1)", "Account (3)"], message: "Choose account column.",
+      }, {
+        table: "assumptions", field: "FY2026", selector: "column",
+        candidates: ["FY26 (2)", "FY26 (5)"], message: "Choose period column.",
+      }],
+      blocking_count: 3,
+      preview_token: null,
+    });
+    vi.mocked(previewModelV2Workbook).mockResolvedValue(ambiguous);
+    renderWorkbench();
+    const file = new File(["xlsx"], "matrix.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    fireEvent.change(await screen.findByLabelText("Model workbook"), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText(/Close-format mapping JSON/), {
+      target: { value: JSON.stringify(matrixMapping) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview workbook" }));
+
+    await screen.findByLabelText("Source row for assumptions revenue");
+    expect(screen.queryByRole("option", { name: "Invalid candidate" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Invalid (0)" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Source row for assumptions revenue"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Source column for assumptions account_column"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("Source column for assumptions FY2026"), { target: { value: "5" } });
+
+    const reviewed = JSON.parse((screen.getByLabelText(/Close-format mapping JSON/) as HTMLTextAreaElement).value) as ModelV2LegacyWorkbookMapping;
+    const assumptions = reviewed.assumptions;
+    if (assumptions.layout !== "account_period_matrix") throw new Error("matrix mapping expected");
+    expect(assumptions.account_row_indices).toEqual({ revenue: 4 });
+    expect(assumptions.account_column_index).toBe(1);
+    expect(assumptions.period_column_indices).toEqual({ FY2026: 5 });
+    expect(screen.getByText(/Duplicate header selection recorded locally/)).toBeTruthy();
+  });
+
+  it("surfaces invalid mapping, preview, and commit failures without mutating the draft", async () => {
+    vi.mocked(previewModelV2Workbook)
+      .mockRejectedValueOnce(new Error("preview offline"))
+      .mockResolvedValueOnce(workbookPreview());
+    vi.mocked(commitModelV2Workbook).mockRejectedValueOnce(new Error("commit offline"));
+    renderWorkbench();
+    const file = new File(["xlsx"], "errors.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    fireEvent.change(await screen.findByLabelText("Model workbook"), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText(/Close-format mapping JSON/), {
+      target: { value: JSON.stringify({ mode: "wrong" }) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Preview workbook" }));
+    expect(await screen.findByText(/must be a JSON object with mode "mapped_legacy"/)).toBeTruthy();
+    expect(previewModelV2Workbook).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/Close-format mapping JSON/), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview workbook" }));
+    expect(await screen.findByText("preview offline")).toBeTruthy();
+    expect(screen.queryByText(/strict_v1/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview workbook" }));
+    await screen.findByText(/strict_v1/);
+    fireEvent.click(screen.getByRole("checkbox", { name: /I reviewed this preview/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Commit workbook import" }));
+    expect(await screen.findByText("commit offline")).toBeTruthy();
+    expect(screen.getByText("input:FY2026:revenue")).toBeTruthy();
+  });
+
   it("never preselects USD or millions for a close-format workbook", async () => {
     renderWorkbench();
     const file = new File(["xlsx"], "close-format.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -1039,6 +1145,132 @@ describe("Model Engine v2 workbench", () => {
 
     expect(await screen.findByText(/requires an explicit reporting_currency and reporting_unit/i)).toBeTruthy();
     expect(previewModelV2Workbook).not.toHaveBeenCalled();
+  });
+
+  it("loads the account-matrix mapping template without inferring reporting units", async () => {
+    renderWorkbench();
+    await screen.findByText("input:FY2026:revenue");
+
+    fireEvent.click(screen.getByRole("button", { name: "Use account matrix template" }));
+
+    const mappingInput = screen.getByLabelText(/Close-format mapping JSON/) as HTMLTextAreaElement;
+    const template = JSON.parse(mappingInput.value) as ModelV2LegacyWorkbookMapping;
+    expect(template.reporting_currency).toBe("");
+    expect(template.reporting_unit).toBe("");
+    expect(template.assumptions?.layout).toBe("account_period_matrix");
+    expect(screen.getByText(/Account-row matrix template loaded/)).toBeTruthy();
+  });
+
+  it("exports the persisted workbook through a temporary download and reports failures", async () => {
+    const blob = new Blob(["xlsx"], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    vi.mocked(exportModelV2Workbook)
+      .mockResolvedValueOnce({ blob, filename: "issuer-model.xlsx", revision: 2 })
+      .mockRejectedValueOnce(new Error("export offline"));
+    const createObjectURL = vi.fn(() => "blob:model-export");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    renderWorkbench();
+    await screen.findByText("input:FY2026:revenue");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Model v2 tools" }));
+    fireEvent.click(screen.getByRole("button", { name: "Export workbook" }));
+    expect(await screen.findByText("Workbook exported from revision 2.")).toBeTruthy();
+    expect(exportModelV2Workbook).toHaveBeenCalledWith("issuer-1");
+    expect(createObjectURL).toHaveBeenCalledWith(blob);
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:model-export");
+
+    fireEvent.click(screen.getByRole("button", { name: "Export workbook" }));
+    expect(await screen.findByText("export offline")).toBeTruthy();
+  });
+
+  it("validates finite values and future expiry before queuing a derived override", async () => {
+    renderWorkbench();
+    await screen.findByText("calc:FY2026:net_leverage");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit calc:FY2026:net_leverage" }));
+    fireEvent.change(screen.getByLabelText("Numeric value"), { target: { value: "not-a-number" } });
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Committee case" } });
+    fireEvent.click(screen.getByRole("button", { name: "Queue override" }));
+    expect(screen.getByText("Enter a finite number or select Set unavailable (null).")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Numeric value"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Override expiry"), { target: { value: "2000-01-01T00:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Queue override" }));
+    expect(screen.getByText("A derived-cell override requires a future expiry.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Commit 0 pending" })).toBeTruthy();
+  });
+
+  it("filters periods and empty node results and switches between scenario modes", async () => {
+    const draft = makeRecord();
+    const secondPeriod = {
+      ...draft.calculation.periods[0],
+      period_key: "FY2027",
+      label: "FY27",
+      nodes: draft.calculation.periods[0].nodes.map((node) => ({
+        ...node,
+        node_id: node.node_id.replace("FY2026", "FY2027"),
+      })),
+    };
+    draft.calculation = {
+      ...draft.calculation,
+      periods: [...draft.calculation.periods, secondPeriod],
+    };
+    renderWorkbench(response(draft));
+    await screen.findByText("input:FY2027:revenue");
+
+    fireEvent.change(screen.getByLabelText("Filter calculation period"), {
+      target: { value: "FY2027" },
+    });
+    expect(screen.queryByText("input:FY2026:revenue")).toBeNull();
+    expect(screen.getByText("input:FY2027:revenue")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Filter calculation nodes"), {
+      target: { value: "does-not-exist" },
+    });
+    expect(screen.getByText("No calculation nodes match the current filters.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Cross-module propagation" }));
+    expect(screen.getByText(/Propagates EBITDA and rate shocks/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Model scenario" }));
+    expect(screen.getByLabelText("Scenario node")).toBeTruthy();
+  });
+
+  it.each([
+    ["partial", ["Missing debt schedule"], [], "Missing debt schedule", "None."],
+    ["insufficient_inputs", [], ["Coverage invariant unavailable"], "Coverage invariant unavailable", "None."],
+  ] as const)("renders %s calculation gaps and warnings honestly", async (status, gaps, warnings, expected, none) => {
+    const draft = makeRecord();
+    draft.calculation = { ...draft.calculation, status, gaps: [...gaps], warnings: [...warnings] };
+    renderWorkbench(response(draft));
+    expect(await screen.findByText(expected)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`${status.replace("_", " ")} · rev 2`, "i"))).toBeTruthy();
+    expect(screen.getByText(none)).toBeTruthy();
+    expect(screen.getByText(/Named gaps/)).toBeTruthy();
+    expect(screen.getByText(/Invariant warnings/)).toBeTruthy();
+  });
+
+  it("discards all local model state only after explicit navigation confirmation", async () => {
+    renderWorkbench();
+    await screen.findByText("input:FY2026:revenue");
+    editNode("input:FY2026:revenue", "125");
+    fireEvent.change(screen.getByLabelText("Scenario node"), { target: { value: "input:FY2026:adjusted_ebitda" } });
+    fireEvent.change(screen.getByLabelText("Scenario value"), { target: { value: "15" } });
+
+    const link = document.createElement("a");
+    link.href = "/reports";
+    link.textContent = "Leave model";
+    document.body.appendChild(link);
+    fireEvent.click(link);
+    fireEvent.click(await screen.findByRole("button", { name: "Discard & leave" }));
+
+    expect(navigation.push).toHaveBeenCalledWith("/reports");
+    expect(screen.getByRole("button", { name: "Commit 0 pending" })).toBeTruthy();
+    expect((screen.getByLabelText("Scenario node") as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("Scenario value") as HTMLInputElement).value).toBe("");
+    link.remove();
   });
 
   it.each(["2000-01-01T00:00:00Z", "not-a-timestamp"])(

@@ -68,10 +68,16 @@ test.describe("Settings", () => {
     await saveAudience(page, value);
 
     // Same browser context → localStorage carries the standing lens to Research.
+    const researchHydrated = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/settings/analyst" && response.ok(),
+    );
     await page.goto("/research/");
+    await researchHydrated;
     // Audience is seeded into state on load but lives inside the collapsed
     // "Advanced brief" disclosure — expand it before reading the field.
-    await page.getByRole("button", { name: "Advanced brief" }).click();
+    const advanced = page.getByRole("button", { name: "Advanced brief" });
+    await advanced.click();
+    await expect(advanced).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByLabel("Audience")).toHaveValue(value);
   });
 });

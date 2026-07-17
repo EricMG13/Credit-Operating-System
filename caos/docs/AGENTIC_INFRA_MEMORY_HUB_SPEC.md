@@ -2,7 +2,7 @@
 
 **Status:** design-only implementation contract  
 **Target implementer:** Opus 4.8  
-**Evidence date:** 2026-07-15  
+**Evidence date:** 2026-07-16
 **Normative terms:** **MUST**, **MUST NOT**, **SHOULD**, and **MAY** have their RFC 2119 meanings.
 
 This document consolidates existing CAOS infrastructure. It does not authorize a
@@ -78,7 +78,7 @@ requested work, not telemetry overhead.
 | Citation FKs | Evidence and metric facts can point to `document_chunks.id`; deleting a cited chunk is unsafe. | `caos/server/database.py:552-604` |
 | Deployment | `WEB_CONCURRENCY` may create multiple Uvicorn worker processes on Postgres; SQLite is explicitly limited to one. | `caos/server/run.py:6-15,26-44`; `caos/deploy/docker-compose.yml:69` |
 | MCP | The repository contains a stdio FastMCP EDGAR server with three read tools and one write tool. | `caos/mcp/edgar/server.py:1-103`; `caos/mcp/edgar/pyproject.toml` |
-| OKF | `PDF_INGESTION_OKF_BLUEPRINT.md` is a design blueprint; no `okf_*.py` implementation exists, so `Sources/` is not current runtime behavior. This specification can only ground a manual-edit lane in that documented file/frontmatter contract. | `caos/docs/PDF_INGESTION_OKF_BLUEPRINT.md:42-56,725-751`; repository file search on 2026-07-15 |
+| OKF | `PDF_INGESTION_OKF_BLUEPRINT.md` is a design blueprint; no `okf_*.py` implementation exists, so `Sources/` is not current runtime behavior. This specification can only ground a manual-edit lane in that documented file/frontmatter contract. | `caos/docs/PDF_INGESTION_OKF_BLUEPRINT.md:42-56,725-751`; repository file search on 2026-07-16 |
 
 The exact current generative registry is
 `engine/{llm_client,llm_safety,council,debate,synth,queryoverlay,queryinsights,queryanswer,rerank,entailment}.py`
@@ -364,7 +364,10 @@ requirement of this consolidation.
 
 After the final response/error, the gateway performs only:
 
-1. Existing `budget.record_usage(response)` ContextVar arithmetic.
+1. Existing `budget.record_usage(response)` ContextVar arithmetic. Its current
+   lightweight token accrual MAY inspect `usage.iterations` to preserve RunBudget
+   behavior; it MUST NOT create telemetry child steps, normalize provider objects,
+   construct `Decimal` values, calculate cost, or serialize payloads.
 2. Construct an `LLMCallEvent` from the shallow outer-container snapshot and steps.
 3. `telemetry.enqueue_nowait(event)`.
 
@@ -420,9 +423,11 @@ The empty default exposes no tools. The router MUST:
    model `tool_result`; web/filing text is untrusted input. The existing safety
    wrapper is in `engine/llm_safety.py` and OpenRouter already fail-closes malformed
    tool arguments at `engine/openrouter.py:102-117`.
-7. Stop after five model tool rounds (constant, not a setting). If the limit is hit,
-   return status `max_tool_turns` with the last model message; do not execute another
-   tool.
+7. Keep an `executed_tool_rounds` counter, initially zero. A response with tool calls
+   executes only when the counter is <5, then increments it once for the complete
+   parallel call set. After five such executions, make the next model turn with the
+   fifth results; if it requests tools again, return `max_tool_turns` with that last
+   message and execute none of them. The cap is a code constant, not a setting.
 
 The executable round-trip contract is exact:
 
@@ -455,9 +460,9 @@ The executable round-trip contract is exact:
    NOT flatten or discard either block family.
 5. A model response without tool calls returns
    `ToolRunResult(status="completed", message=..., used_model=..., fallback=...)`.
-   After the fifth response that requests tools, return the last response as
-   `status="max_tool_turns"` without executing those calls. Terminal provider
-   errors still raise under §4.4; they are not represented as a successful result.
+   Once `executed_tool_rounds == 5`, a further tool-bearing response returns as
+   `status="max_tool_turns"` without executing those calls. Terminal provider errors
+   still raise under §4.4; they are not represented as a successful result.
 
 Golden tests MUST execute a two-round tool exchange through both Anthropic and
 OpenRouter and assert id preservation, argument equality, wrapped-result placement,
@@ -633,7 +638,9 @@ pricing step per iteration: `type="message"` uses the executor model;
 and double counting; the current hot-path budget already recognizes advisor entries
 at `engine/budget.py:93-109`. Top-level usage is used only when iterations are absent.
 The background writer also emits one synthetic execution-path child and one OTel
-child span per iteration; no iteration parsing occurs before dequeue.
+child span per iteration. No **telemetry** iteration expansion or pricing occurs
+before dequeue; the existing lightweight RunBudget token accrual explicitly allowed
+by §4.5 remains unchanged.
 
 Normalize `usage.server_tool_use.web_search_requests` into
 `server_tool_counts["anthropic.web_search"]`. Other unknown server-tool counters are
@@ -1030,6 +1037,8 @@ WATCH_DEBOUNCE_MS = 1600
 WATCH_STEP_MS = 50
 QUIET_WINDOW_S = 2.0
 RECONCILE_INTERVAL_S = 300
+VAULT_MARKER_NAME = ".caos-vault-sync-v1"
+VAULT_MARKER_BYTES = b"caos-vault-sync-v1\n"
 
 @dataclass(frozen=True, slots=True)
 class VaultEvent:
@@ -1127,9 +1136,14 @@ comes first:
    guess—log `identity_ambiguous` and quarantine.
 4. Detect DB paths missing on disk. Return present paths before missing paths, each
    group sorted lexically, so rename adoption precedes deletion in reconcile too.
-5. If the scan finds zero watched Markdown files while any synced documents exist,
-   perform no deletion and emit `vault_mass_delete_guard`. This treats an unmounted
-   volume as an outage, not an analyst command.
+5. A successful scan containing at least one watched Markdown file atomically creates
+   `VAULT_MARKER_NAME` with the exact constant bytes if absent; the normal hidden-file
+   filter ignores it. If a later scan finds zero watched files while synced Documents
+   exist, converge all missing paths **only** when the marker is a regular,
+   non-symlink file under the resolved root with the exact bytes. A missing/invalid
+   marker performs no deletion and emits `vault_mass_delete_guard`. Thus deleting the
+   last note on a healthy mounted vault converges, while an absent/empty mount cannot
+   erase the corpus. Never create the marker during an empty scan.
 
 No durable queue is required: every job is deterministically reconstructable from
 files plus database state, and the bounded five-minute retry delay closes transient
@@ -1146,11 +1160,15 @@ written by `vault_export._yaml_block` (`vault_export.py:45-54`). It returns
 frontmatter plus body and tolerates a missing/temporarily incomplete delimiter.
 
 The canonical chunk basis is `split_note(file_text).body.strip()`, including the H1
-title. `upload_memo` MUST render/write the Markdown first and pass that same body to
-`chunk_memo_into_corpus`; today it chunks the pre-render input while the file contains
-frontmatter and an H1 (`vault_export.py:400-428`, `routes/ingestion.py:579-618`). This
-one-time basis change may re-chunk legacy memos during first reconcile and MUST be
-reported in migration notes.
+title. `upload_memo` MUST only render/write the Markdown and enqueue the targeted
+`sync_file_projection`; that function re-reads the committed file, derives this body,
+and calls `ingest.chunk_text`. The upload route MUST NOT call
+`chunk_memo_into_corpus` or create chunks synchronously. Today it chunks the
+pre-render input while the file contains frontmatter and an H1
+(`vault_export.py:400-428`, `routes/ingestion.py:579-618`). Retire that public helper
+after its caller moves, or reduce it to private diff code used only by
+`sync_file_projection`; there is one convergence path. This one-time basis change may
+re-chunk legacy memos during first reconcile and MUST be reported in migration notes.
 
 Reuse `ingest.chunk_text` unchanged. Do not create a vault-specific chunker.
 
@@ -1646,8 +1664,8 @@ requirement needs another config surface.
 
 Deployment deltas:
 
-- Mount the Obsidian vault read/write at `VAULT_EXPORT_DIR`; existing exporters need
-  writes even though the watcher only reads.
+- Mount the Obsidian vault read/write at `VAULT_EXPORT_DIR`; existing exporters write
+  notes and reconcile writes only the hidden health marker from §9.5.
 - Add `watchfiles>=1.2,<2` directly to server requirements.
 - Add OTel API/SDK and the OTLP exporter matching the chosen endpoint protocol.
 - If EDGAR MCP is configured, copy `caos/mcp/edgar/` into the image and add its `mcp`
@@ -1727,7 +1745,8 @@ Required vault test matrix:
 | Legacy NULL chunk hash | Migration hashes exact UTF-8 text; pre-EXCEPT NULL assertion is empty |
 | Direct citation writer races delete | EvidenceItem and MetricFact families each lock, recheck, and force shadowing |
 | Ordinary upload before embedding task | BM25-visible/vector-invisible transient is acknowledged and later converges |
-| Empty/unmounted vault | Mass-delete guard performs no destructive write |
+| Delete final watched file with valid marker | All projection rows converge to the empty vault |
+| Empty/unmounted vault without valid marker | Mass-delete guard performs no destructive write |
 
 ### Final invariants to assert
 
@@ -1762,10 +1781,11 @@ the named source files, and this checklist:
 | Transformation | Source evidence required | Pass criteria | Session result |
 |---|---|---|---|
 | Prompt formatting | `llm_client.py`, `gemini.py`, `openrouter.py`, synth/stream callers | Provider shape preserved; forced tools not executed; only the specified shallow outer snapshot; no deep copy/serialization | **VERIFIED after correction** — fresh verifier initially failed the tuple shape, sticky stream model, broadened retries, and synchronous log. Root audit confirmed each against `openrouter.py:37-48`, `synth.py:530-578`, `deepresearch.py:263-331`, `research_report.py:950-1026`, and `llm_client.py:137-270`; §§4.1–4.5/H1/Z3 were corrected. |
-| Cost calculation | `budget.py`, `config.py`, `presets.py`, official price pages | Tier mapping complete; cache bands/date bands/provider override/unknown model exact | **VERIFIED after correction** — fresh verifier initially failed fallback labelling, mixed-source aggregation, pre-enqueue normalization, unknown-TTL cache writes, and obsolete OpenRouter request syntax. Root audit confirmed the code distinctions at `presets.py:73-80,167-188`, `llm_client.py:168-173,235-270`, `budget.py:81-90`, `gemini.py:175-190`, and `openrouter.py:128-132`; §§4.3, 5.2, and 6.1–6.4 were corrected. |
+| Cost calculation | `budget.py`, `config.py`, `presets.py`, official price pages | Tier mapping complete; cache bands/date bands/provider override/unknown model exact | **VERIFIED after correction** — fresh verifier initially failed fallback labelling, mixed-source aggregation, pre-enqueue normalization, unknown-TTL cache writes, and obsolete OpenRouter request syntax. Root audit confirmed the code distinctions at `presets.py:73-80,167-188`, `llm_client.py:168-173,235-270`, `budget.py:81-90`, `gemini.py:175-190`, and current provider-cost capture at `openrouter.py:130-144`; §§4.3, 5.2, and 6.1–6.4 were corrected, including provider-exact OpenRouter NULL behavior. |
 | Masking | Telemetry schema/order plus mask rules | Nested coverage, protected tokens, idempotence, no raw payload persistence/export, background only | **VERIFIED after correction** — fresh verifier initially failed numeric JSON leaves, identifier grammars, raw prompt hashing, JSON truncation, exception tracebacks, and full-call-graph hot-path enforcement. Root audit confirmed current raw hashing/DB tracing at `llm_client.py:93-107` and `budget.py:112-181`, plus `logger.exception` at `research_report.py:1022`; §§4.3, 5.3, 7.1–7.3, and Z3 were corrected. |
-| Chunk diffing | `vault_export.py`, `memochunks.py`, `ingest.py`, citation FKs | Duplicate-safe, rename/delete/citation behavior exact, multi-worker race controlled, background only | **VERIFIED after correction** — fresh verifier initially failed multi-issuer rename identity, nested memo links, overflow wakeup, post-embedding revalidation, JSON-held citations, SQLite cache invalidation, and migration numbering. Root audit confirmed projection rows at `memochunks.py:98-141`, stem-only links at `vault_export.py:445-568`/`database.py:1238-1247`/`engine/querygraph.py:1515-1532`, citation stores at `database.py:1217-1337` plus `engine/queryanswer.py:440-454`, cache version at `retrieval.py:103-124,362-388`, and live `0061_context_revision.py`; §§9.3–10.6 and 11.1/11.3 were corrected. |
+| Chunk diffing | `vault_export.py`, `memochunks.py`, `ingest.py`, citation FKs | Duplicate-safe, rename/delete/citation behavior exact, multi-worker race controlled, background only | **VERIFIED after correction** — fresh verifier initially failed multi-issuer rename identity, nested memo links, overflow wakeup, post-embedding revalidation, JSON-held citations, SQLite cache invalidation, and migration numbering. Root audit confirmed projection rows at `memochunks.py:98-141`, stem-only/unscoped links at `vault_export.py:445-568`/`database.py:1243-1254`/`engine/querygraph.py:1489-1512`, direct citation writers at `runner.py:548-571,675-706`, and cache version at `retrieval.py:103-124,362-388`. A live `.venv/bin/alembic heads` check on 2026-07-16 returned `0062`; §§9.3–10.6 and 11.1/11.3 now specify ownership, periodic recovery, shared citation locks, and migration `0063`. |
 | Embedding refresh | `embeddings.py`, embedding schema/retrieval, Google model docs | Retired model corrected, 768 explicit, missing-only, no mock/live collision, atomic visibility, background only | **VERIFIED after correction** — fresh verifier initially failed cutover concurrency, Gemini batch validation, query-vs-refresh failure semantics, conflict handling across all writers, document-egress policy, and mixed-model HNSW recall. Root audit confirmed the parallel current default/768 change plus still-invalid multi-Content request at `config.py:129-136` and `embeddings.py:28-74`, memo exclusion/plain inserts at `embeddings.py:83,135,158,201`, every-worker warmup at `main.py:163-174`, BM25 query degradation at `retrieval.py:236-247,414-425,545-556`, and the global HNSW at `database.py:1389-1408`; §§2.1, 10.5, and 10.7–10.9 plus migration/lifecycle tests were corrected. |
+| Final integration gate | Complete specification plus current local source | No remaining HIGH/MED contradiction; all cross-workstream placement and migration contracts compose | **PASS after correction** — a fresh-context final verifier found two MED contradictions only: current `record_usage` iteration accrual versus the background telemetry rule, and duplicate upload/chunk convergence. Root tool reads confirmed both at `budget.py:81-109` and `routes/ingestion.py:579-618`; §§4.5/6.1 and §§9.4/10.1 now distinguish existing lightweight budget accrual from telemetry expansion and make `sync_file_projection` the sole chunking path. The verifier re-read those corrections and returned PASS with zero-latency placement coherent. |
 
 A final root audit MUST compare each verifier claim to the actual source/tool output;
 agent agreement alone is not evidence. The completed handoff updates this table with

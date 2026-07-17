@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_CRITERIA, DEFAULT_PREFS, loadPrefs, savePrefs } from "./research-prefs";
+import { DEFAULT_CRITERIA, DEFAULT_PREFS, hasStoredPrefs, loadPrefs, savePrefs } from "./research-prefs";
 
 const KEY = "caos.research.prefs";
 
@@ -11,6 +11,7 @@ afterEach(() => {
 
 describe("research prefs", () => {
   it("defaults when nothing is stored", () => {
+    expect(hasStoredPrefs()).toBe(false);
     expect(loadPrefs()).toEqual(DEFAULT_PREFS);
   });
 
@@ -24,6 +25,7 @@ describe("research prefs", () => {
       criteria: "custom criteria",
     };
     savePrefs(p);
+    expect(hasStoredPrefs()).toBe(true);
     expect(loadPrefs()).toEqual(p);
   });
 

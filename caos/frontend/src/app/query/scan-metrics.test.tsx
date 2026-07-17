@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
@@ -8,11 +8,14 @@ const mocks = vi.hoisted(() => ({
   listFindings: vi.fn().mockResolvedValue([]),
   createFinding: vi.fn(),
   setContext: vi.fn(),
-  context: { id: "context-1", name: "Coverage", sector_id: null, query_session_id: null, filters: {}, selected: {} },
+  context: { id: "context-1", name: "Coverage", sector_id: null, query_session_id: null, filters: {}, selected: {} } as {
+    id: string; name: string; sector_id: null; query_session_id: null; filters: Record<string, never>; selected: Record<string, never>;
+  } | null,
 }));
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/query" }));
 vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
+vi.mock("@/components/shared/AnalysisContextStrip", () => ({ AnalysisContextStrip: () => null }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   queryCapabilities: vi.fn().mockResolvedValue({ groups: [{ capabilities: [{ id: "peer-set", enabled: true }] }] }),
@@ -22,7 +25,7 @@ vi.mock("@/lib/analysis-workbench", () => ({
     context: mocks.context,
     setContext: mocks.setContext,
     patch: vi.fn(),
-    loading: false,
+    loading: mocks.context === null,
     error: null,
   }),
   contextHref: (path: string, id: string) => `${path}?context=${id}`,
@@ -41,6 +44,10 @@ const authority = {
   source_ids: ["fact-1"], run_id: "run-1", version_id: null, confidence: 0.9,
   approval_state: "draft", analyst_override: null,
 };
+
+beforeEach(() => {
+  window.history.replaceState({}, "", "/query?context=context-1");
+});
 
 afterEach(() => {
   cleanup();
@@ -91,6 +98,18 @@ describe("Query investigation workbench", () => {
     expect((await screen.findByRole("button", { name: "Run Query" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("keeps composer interactions inert until the analysis context is ready", async () => {
+    mocks.context = null;
+    const { rerender } = render(<QueryPage />);
+    expect((screen.getByRole("button", { name: "graph" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Query coverage") as HTMLTextAreaElement).disabled).toBe(true);
+
+    mocks.context = { id: "context-1", name: "Coverage", sector_id: null, query_session_id: null, filters: {}, selected: {} };
+    rerender(<QueryPage />);
+    expect((screen.getByRole("button", { name: "graph" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByLabelText("Query coverage") as HTMLTextAreaElement).disabled).toBe(false);
+  });
+
   it("surfaces a rejected run and retries without an unhandled promise", async () => {
     mocks.createQueryRun
       .mockRejectedValueOnce(new Error("query transport failed"))
@@ -133,7 +152,7 @@ describe("Query investigation workbench", () => {
       .mockImplementationOnce(() => new Promise((resolve) => { resolveB = resolve; }));
     const { rerender } = render(<QueryPage />);
     await waitFor(() => expect(mocks.listQueryRuns).toHaveBeenCalledWith("context-1"));
-    mocks.context = { ...mocks.context, id: "context-2", name: "Second context" };
+    mocks.context = { ...mocks.context!, id: "context-2", name: "Second context" };
     rerender(<QueryPage />);
     await waitFor(() => expect(mocks.listQueryRuns).toHaveBeenCalledWith("context-2"));
     fireEvent.click(screen.getByRole("button", { name: "Open Query utilities" }));
@@ -153,7 +172,7 @@ describe("Query investigation workbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "Run Query" }));
     await waitFor(() => expect(mocks.createQueryRun).toHaveBeenCalledWith(expect.objectContaining({ context_id: "context-1" })));
 
-    mocks.context = { ...mocks.context, id: "context-2", name: "Second context" };
+    mocks.context = { ...mocks.context!, id: "context-2", name: "Second context" };
     rerender(<QueryPage />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Run Query" })).toBeTruthy());
     resolveA({

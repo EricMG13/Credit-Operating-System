@@ -77,6 +77,7 @@ function PipelineVisualizer() {
   const [latestLiveIssuer, setLatestLiveIssuer] = useState<string | null>(null);
   const [runRows, setRunRows] = useState<RunListItemDTO[]>([]);
   const [runRowsError, setRunRowsError] = useState(false);
+  const [runRowsLoading, setRunRowsLoading] = useState(true);
   const [view, setView] = useViewPreference("graph");
 
   useEffect(() => {
@@ -108,20 +109,31 @@ function PipelineVisualizer() {
   const reports = useMemo(() => buildReports(), []);
 
   useEffect(() => {
-    if (issuerParam) { setLatestLiveIssuer(null); return; }
+    // The worklist must populate regardless of whether the URL already names
+    // an issuer/run — a deep link, bookmark, or refresh after selectRun()
+    // (which writes ?issuer=&run=) used to short-circuit this fetch entirely,
+    // leaving the worklist permanently empty ("0 runs") on every non-bare
+    // /pipeline visit. issuerParam only decides whether we ALSO derive a
+    // fallback latestLiveIssuer — it must never gate the fetch itself.
     let stale = false;
+    setRunRowsLoading(true);
     listRuns()
       .then((runs) => {
         if (stale) return;
         setRunRows(runs);
         setRunRowsError(false);
-        setLatestLiveIssuer(runs.find((r) => r.status === "complete")?.issuer_id ?? null);
+        if (!issuerParam) {
+          setLatestLiveIssuer(runs.find((r) => r.status === "complete")?.issuer_id ?? null);
+        }
       })
       .catch(() => {
         if (stale) return;
         setRunRows([]);
         setRunRowsError(true);
         setLatestLiveIssuer(null);
+      })
+      .finally(() => {
+        if (!stale) setRunRowsLoading(false);
       });
     return () => { stale = true; };
   }, [issuerParam]);
@@ -371,6 +383,7 @@ function PipelineVisualizer() {
         runs={runRows}
         selectedRunId={runParam}
         unavailable={runRowsError}
+        loading={runRowsLoading}
         onSelect={selectRun}
       />
       </DominantTableRegion>
@@ -404,17 +417,30 @@ function PipelineRunWorklist({
   runs,
   selectedRunId,
   unavailable,
+  loading,
   onSelect,
 }: {
   runs: RunListItemDTO[];
   selectedRunId: string | null;
   unavailable: boolean;
+  loading: boolean;
   onSelect: (run: RunListItemDTO) => void;
 }) {
   if (unavailable) {
     return (
       <div role="status" className="mx-2 mt-2 rounded border border-caos-warning/50 bg-caos-warning-surface px-3 py-2 tabular text-caos-xs text-caos-warning">
         Run index unavailable. The selected run remains visible, but no live worklist can be asserted.
+      </div>
+    );
+  }
+  // Loading and genuinely-empty must render differently — a worklist that
+  // silently shows nothing while the fetch is still in flight is what let the
+  // deep-link "0 runs" state pass as normal. Only render nothing once the
+  // fetch has settled with a real empty result.
+  if (loading) {
+    return (
+      <div role="status" className="mx-2 mt-2 rounded border border-caos-border bg-caos-panel px-3 py-2 tabular text-caos-xs text-caos-muted">
+        Loading run worklist…
       </div>
     );
   }

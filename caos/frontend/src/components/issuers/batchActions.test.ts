@@ -121,6 +121,12 @@ describe("issuersToCsv", () => {
     expect(lines[1]).toBe("ATLF,Atlas Forge Industrials,B2,Industrials,Engineered Components,United States");
     expect(lines[2]).toBe('KSTL,"Kestrel Chemicals, Inc.",,Chemicals,,United Kingdom');
   });
+
+  it("emits an empty ticker for issuers without one", () => {
+    const row = issuersToCsv([{ ...ISSUERS[0], ticker: undefined, country: undefined }]).split("\n")[1];
+    expect(row).toMatch(/^,/);
+    expect(row).toMatch(/,$/);
+  });
 });
 
 describe("exportCsvAction", () => {

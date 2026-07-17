@@ -11,14 +11,17 @@ need to fix data (not rebuild the box), use G1's scratch-target restore drill
 
 | | Value | Why |
 |---|---|---|
-| **RPO** (data loss window) | **Up to 24h + time since last off-host sync** | `backup.sh` runs daily (`BACKUP_INTERVAL_SECONDS`, default 86400s) and `BACKUP_SYNC_CMD` (if configured) copies off-host immediately after each local backup completes. If `BACKUP_SYNC_CMD` is **unset**, the off-host copy doesn't exist and RPO is **total loss** — this is the single most important prerequisite below. |
+| **RPO** (data loss window) | **Up to 24h + configured sync lag** | `backup.sh` and `backup_sync.sh` default to daily cycles (`BACKUP_INTERVAL_SECONDS` and `BACKUP_SYNC_INTERVAL_SECONDS`, both 86400s). At worst, a change can arrive just after a backup and that artifact just after a sync: **48h** with both defaults. Set the sync interval shorter if the operational RPO must remain 24h. Artifact, sync, or drill failure marks its service unhealthy. |
 | **RTO** (time to serve again) | **Restore-and-boot leg: 88s, measured (§6).** Total RTO = that + host provisioning (untimed, infra-specific — could be minutes on a warm standby image, hours on a cold cloud order). Don't quote "88s" as the production RTO on its own — it excludes provisioning and was measured at pilot-scale data volume; re-time §6 at realistic data volume before citing a production number. | Provisioning a fresh host + Docker is the dominant, unbounded term this runbook can't estimate — it depends entirely on your infra (warm spare vs. cold order). The restore mechanics themselves (steps 3–5) are fast and now proven, not the bottleneck. |
 
-**Prerequisite this whole runbook depends on:** `BACKUP_SYNC_CMD` must be
-configured and actually working *before* the host is lost — verify it's set
-and its last run logged `[backup] off-host sync ok` (`docker compose logs
-backup | grep sync`). An unset or silently-failing sync hook means there is
-nothing to recover from; this is a **G-phase exit-gate check**, not just a
+**Prerequisite this whole runbook depends on:** Compose refuses an empty
+`BACKUP_REMOTE` or missing `BACKUP_RCLONE_CONFIG_FILE`, but credentials must
+also work before host loss. Verify the last run logged
+`[backup-sync] remote round trip healthy` and periodically
+`remote-copy restore drill ok` (`docker compose logs backup-sync`). An invalid
+or silently failing remote means there is nothing to recover from. Also verify
+`docker compose ps backup backup-sync` reports both healthy;
+this is a **G-phase exit-gate check**, not just a
 runbook note — confirm it at every ops readiness pass, not only during an
 actual incident.
 
@@ -44,15 +47,15 @@ this is expected, not a defect.
 
 ## 3. Pull the off-host backup artifacts onto the new host
 
-Destination-specific (rsync target / S3 bucket / whatever `BACKUP_SYNC_CMD`
-pushed to) — pull the **latest** `caos-db-<ts>.dump` and
+Use rclone with the protected config referenced by `BACKUP_RCLONE_CONFIG_FILE`
+(or the storage provider's recovery tooling) to pull the **latest**
+`caos-db-<ts>.dump` and
 `caos-vault-<ts>.tar.gz` down into a local directory, e.g.:
 
 ```bash
 mkdir -p /tmp/dr-restore && cd /tmp/dr-restore
-# example for the rsync/plain-copy pattern from .env.example:
-rsync -avz remote-offhost-host:/mnt/offhost/caos-backups/ .
-# or for object storage: aws s3 sync s3://your-bucket/caos-backups/ .
+# BACKUP_REMOTE and the config path are copied from the recovered ops secrets.
+rclone --config /secure/path/rclone.conf copy offhost:caos/production .
 ls -t caos-db-*.dump | head -1     # confirm you have the latest
 ls -t caos-vault-*.tar.gz | head -1
 ```

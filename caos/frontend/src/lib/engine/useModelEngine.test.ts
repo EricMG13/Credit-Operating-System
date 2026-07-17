@@ -79,4 +79,36 @@ describe("useModelEngine · phase (M-4)", () => {
     expect(broken.result.current.downside).toBeNull();
     expect(broken.result.current.downsideState).toBe("error");
   });
+
+  it("surfaces a valid optional CP-2B downside pathway", async () => {
+    vi.mocked(listRuns).mockResolvedValueOnce([{
+      id: "run-downside", issuer_id: "issuer-downside", status: "complete", qa_status: "Passed",
+      committee_status: "Committee Ready", as_of_date: "2026-07-15", created_at: null,
+    }]);
+    const base = {
+      module_name: "module", owned_object: "object", schema_family: "Nested",
+      confidence: "High", qa_status: "Passed", committee_status: "Committee Ready",
+      validation_status: "Passed", limitation_flags: [], downstream_consumers: [], claims: [],
+    };
+    vi.mocked(getModule)
+      .mockResolvedValueOnce({
+        ...base, module_id: "CP-1", runtime_output: { normalized_financials: {
+          revenue: { LTM: 100 }, adj_ebitda: { LTM: 20 }, net_debt_ltm: 80,
+          net_leverage_adj_ltm: 4, interest_coverage_ltm: 2,
+        } },
+      } as ModuleDetailDTO)
+      .mockResolvedValueOnce({
+        ...base, module_id: "CP-2B", runtime_output: {
+          current_net_leverage: 4, breach_threshold_x: 7, fragility: "LOW",
+          scenarios: [{ ebitda_shock_pct: 10, stressed_net_leverage: 4.4, stressed_interest_coverage: 1.8 }],
+          shock_to_breach_pct: null,
+        },
+      } as ModuleDetailDTO);
+
+    const state = renderHook(() => useModelEngine("issuer-downside"));
+    await waitFor(() => expect(state.result.current.phase).toBe("complete"));
+    expect(state.result.current.downside?.fragility).toBe("LOW");
+    expect(state.result.current.downsideState).toBe("ready");
+    expect(state.result.current.asOf).toBe("2026-07-15");
+  });
 });

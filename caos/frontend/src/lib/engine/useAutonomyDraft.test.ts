@@ -36,6 +36,7 @@ describe("useAutonomyDraft", () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.draft).toEqual(EMPTY_DRAFT);
     expect(result.current.offline).toBe(false);
+    expect(getAutonomyDraft).toHaveBeenCalledWith(true);
 
     await act(async () => {
       vi.advanceTimersByTime(10000);
@@ -56,6 +57,7 @@ describe("useAutonomyDraft", () => {
       vi.advanceTimersByTime(4000);
     });
     expect(getAutonomyDraft).toHaveBeenCalledTimes(2);
+    expect(getAutonomyDraft).toHaveBeenLastCalledWith();
 
     await act(async () => {
       vi.advanceTimersByTime(4000);
@@ -76,5 +78,43 @@ describe("useAutonomyDraft", () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.offline).toBe(true);
     expect(result.current.draft).toBeNull();
+  });
+
+  it("falls back to read-only GET when the caller cannot request a refresh", async () => {
+    getAutonomyDraft
+      .mockRejectedValueOnce(new Error("403 read-only"))
+      .mockResolvedValueOnce(EMPTY_DRAFT);
+    const { result } = renderHook(() => useAutonomyDraft());
+    await act(async () => {});
+    expect(getAutonomyDraft).toHaveBeenNthCalledWith(1, true);
+    expect(getAutonomyDraft).toHaveBeenNthCalledWith(2);
+    expect(result.current.offline).toBe(false);
+    expect(result.current.draft).toEqual(EMPTY_DRAFT);
+  });
+
+  it("ignores a response that settles after unmount", async () => {
+    let resolve!: (draft: typeof EMPTY_DRAFT) => void;
+    getAutonomyDraft.mockReturnValue(new Promise((done) => { resolve = done; }));
+    const hook = renderHook(() => useAutonomyDraft());
+    hook.unmount();
+    await act(async () => { resolve(EMPTY_DRAFT); });
+    expect(getAutonomyDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a rejection after unmount", async () => {
+    let reject!: (reason: Error) => void;
+    getAutonomyDraft.mockReturnValue(new Promise((_done, fail) => { reject = fail; }));
+    const hook = renderHook(() => useAutonomyDraft());
+    hook.unmount();
+    await act(async () => { reject(new Error("late")); });
+  });
+
+  it("clears a scheduled poll when unmounted while refreshing", async () => {
+    getAutonomyDraft.mockResolvedValue({ ...EMPTY_DRAFT, refreshing: true });
+    const hook = renderHook(() => useAutonomyDraft());
+    await act(async () => {});
+    hook.unmount();
+    await act(async () => { vi.advanceTimersByTime(4000); });
+    expect(getAutonomyDraft).toHaveBeenCalledTimes(1);
   });
 });

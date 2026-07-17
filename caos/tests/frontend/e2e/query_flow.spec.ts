@@ -41,7 +41,13 @@ test.describe("Query — persisted investigation workbench", () => {
 
   test("graph intent is explicit and URL-addressable", async ({ page }) => {
     await page.goto("/query/");
-    await page.getByRole("button", { name: "graph", exact: true }).click();
+    // Context creation writes its durable id into history asynchronously. Wait
+    // for that merge before changing lanes so the assertion tests lane state,
+    // not a race between two legitimate replaceState operations.
+    await expect(page).toHaveURL(/(?:\?|&)context=/);
+    const graph = page.getByRole("button", { name: "graph", exact: true });
+    await expect(graph).toBeEnabled();
+    await graph.click();
     await expect(page).toHaveURL(/(?:\?|&)lane=graph(?:&|$)/);
     await expect(page.getByRole("button", { name: "graph", exact: true })).toHaveAttribute("aria-pressed", "true");
     await runInvestigation(page, `show the relationship graph for refinancing risk ${uniq()}`);

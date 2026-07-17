@@ -66,7 +66,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: caos/server/requirements.txt
+          cache-dependency-path: caos/server/requirements.lock
       # Lint gate first — fails fast on dead imports / quality regressions
       # before the heavier dependency install (config: ruff.toml).
       - run: pip install ruff==0.15.18
@@ -85,7 +85,9 @@ jobs:
         run: |
           pip install vulture==2.14
           vulture caos/server caos/scripts --min-confidence 80 --ignore-names cls
-      - run: pip install -r caos/server/requirements.txt pytest pytest-asyncio httpx
+      - run: |
+          pip install --require-hashes -r caos/server/requirements.lock
+          pip install pytest pytest-asyncio httpx
       # Engine type gate (mypy.ini: files=engine — the deterministic math core).
       # The gate had drifted RED unnoticed because nothing in CI ran it; wire it in
       # so a bad type in the engine can't merge. 3.11 leg only (mypy.ini pins 3.11).
@@ -121,10 +123,9 @@ jobs:
         with:
           python-version: "3.11"
       # requirements.txt is the loose spec; requirements.lock is what the prod image
-      # installs (pip install --require-hashes). Dependabot bumps only the .txt and the
-      # rest of CI installs from the .txt, so a bumped floor or an added dep can silently
-      # miss the lock and never reach prod (this shipped anthropic 0.112 vs a >=0.115.1
-      # floor, and google-genai absent entirely). Fails when the lock doesn't satisfy
+      # and CI install (pip install --require-hashes). Dependabot can bump only the .txt,
+      # so a bumped floor or an added dep could otherwise miss the lock and never reach
+      # prod. This check fails when the lock doesn't satisfy
       # every requirements.txt spec. Deterministic — no regen/network (a regen+diff guard
       # is not reproducible: pip-compile bakes the input path + Python version into it).
       - run: pip install "packaging>=24"
@@ -144,7 +145,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: caos/server/requirements.txt
+          cache-dependency-path: caos/server/requirements.lock
       - name: Install frontend deps
         working-directory: caos/frontend
         run: npm ci
@@ -153,10 +154,10 @@ jobs:
       - name: Build static frontend
         run: bash caos/scripts/build_frontend.sh
       - name: Install server deps
-        run: pip install -r caos/server/requirements.txt
+        run: pip install --require-hashes -r caos/server/requirements.lock
       - name: Install Playwright browser
         working-directory: caos/frontend
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
       # No DATABASE_URL → SQLite; no model key → /api/chat uses demo fallback
       # (the research run test stubs /api/research, so a key isn't needed).
       - name: Start app server
@@ -260,10 +261,11 @@ jobs:
           cache-dependency-path: caos/frontend/package-lock.json
       # OSS-only gate — no paid SaaS (project policy: no-paid-services). Each
       # step below exits nonzero on a finding, failing the PR.
-      - run: pip install pip-audit==2.7.3 bandit==1.7.10
-      # Python deps vs live OSV data — authoritative, unlike an offline CVE table.
+      - run: pip install pip-audit==2.10.1 bandit==1.7.10
+      # Audit the exact, hashed production dependency graph (including
+      # markitdown/Pillow), not the loose application input.
       - name: Dependency CVEs (pip-audit)
-        run: pip-audit -r caos/server/requirements.txt
+        run: pip-audit -r caos/server/requirements.lock --require-hashes
       # Python SAST — high severity, medium+ confidence. server/ + scripts/ only;
       # the test dirs live under caos/tests and are out of scope here.
       - name: Python SAST (bandit)

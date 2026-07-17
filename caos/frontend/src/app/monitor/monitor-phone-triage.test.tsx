@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import MonitorPage from "./page";
 
 let mockBreakpoint: "wide" | "desktop" | "tablet" | "mobile" = "wide";
+const analysisState = vi.hoisted(() => ({ loading: false, patch: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/monitor",
@@ -18,6 +19,19 @@ vi.mock("@/components/shared/RequireAuth", () => ({
 }));
 vi.mock("@/lib/useBreakpoint", () => ({
   useBreakpoint: () => ({ breakpoint: mockBreakpoint, hydrated: true }),
+}));
+vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
+  useAnalysisContext: () => ({
+    context: null,
+    setContext: vi.fn(),
+    patch: analysisState.patch,
+    loading: analysisState.loading,
+    error: null,
+    mutationState: "idle",
+    mutationError: null,
+    retryLastPatch: vi.fn(),
+  }),
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -31,6 +45,8 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mockBreakpoint = "wide";
+  analysisState.loading = false;
+  window.history.replaceState({}, "", "/monitor");
 });
 
 describe("Monitor · phone triage breakpoint gate (G6)", () => {
@@ -63,6 +79,23 @@ describe("Monitor · phone triage breakpoint gate (G6)", () => {
     render(<MonitorPage />);
     await waitFor(() => expect(screen.getByRole("tab", { name: "Email intake" })).toBeTruthy());
     expect(screen.getByText("Governance summary")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Email intake" }));
+    expect(screen.getByText("Email Intelligence · CP-MON intake")).toBeTruthy();
+  });
+
+  it("keeps dataset tabs inert until analysis-context bootstrap settles", () => {
+    window.history.replaceState({}, "", "/monitor");
+    analysisState.loading = true;
+    const { rerender } = render(<MonitorPage />);
+
+    const email = screen.getByRole("tab", { name: "Email intake" });
+    expect((email as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(email);
+    expect(screen.getByRole("tab", { name: "Alerts" }).getAttribute("aria-selected")).toBe("true");
+
+    analysisState.loading = false;
+    rerender(<MonitorPage />);
+    expect((screen.getByRole("tab", { name: "Email intake" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("tab", { name: "Email intake" }));
     expect(screen.getByText("Email Intelligence · CP-MON intake")).toBeTruthy();
   });

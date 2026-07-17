@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useRef } from "react";
 import type { GraphEdge, GraphNode, GraphResult, OverlayEdge } from "@/lib/query/graph";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { CHART_HEX } from "@/lib/chart-colors";
 import { onActivate } from "@/lib/a11y";
 import { hueFor, nodeStyle, MODEL_HUE } from "./node-style";
@@ -111,9 +112,7 @@ export function GraphCanvas({
   if (graph.nodes.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-center px-6">
-        <div className="tabular text-caos-xl text-caos-muted max-w-md">
-          {graph.meta[0] || graph.title}
-        </div>
+        <SurfaceState kind="empty" title={graph.title} detail={graph.meta[0]} className="max-w-md" />
       </div>
     );
   }

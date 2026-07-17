@@ -19,6 +19,8 @@ CASES = [
     "management cuts capex by 150bps to preserve liquidity",
     "margins compress 150bps",
     "volume recovery with pricing power",
+    "revenue growth slows as customer churn rises",
+    "inflation eases and raw material costs normalize",
 ]
 
 

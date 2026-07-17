@@ -18,7 +18,7 @@ vi.mock("@/components/shared/AuthProvider", () => ({
 vi.mock("@/components/shared/ModalBackdrop", () => ({
   ModalBackdrop: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("@/lib/use-modal-a11y", () => ({ useModalA11y: () => ({ current: null }) }));
+vi.mock("@/lib/use-modal-a11y", () => ({ useModalA11y: () => ({ current: null }), hasOpenModalA11yOverlay: () => false }));
 vi.mock("@/components/query/GraphCanvas", () => ({ GraphCanvas: () => <div>graph canvas</div> }));
 vi.mock("@/components/query/RelativeValueTable", () => ({ RelativeValueTable: () => <div>rv table</div> }));
 vi.mock("@/components/query/ScatterCanvas", () => ({ ScatterCanvas: () => <div>scatter</div> }));
@@ -65,6 +65,14 @@ afterEach(() => {
 });
 
 describe("ASK finding pin scope", () => {
+  it("clears the Command Center bottom action strip", () => {
+    render(<AskProvider><AskLauncher /></AskProvider>);
+
+    const launcher = screen.getByRole("button", { name: /Ask/ });
+    expect(launcher.className).toContain("bottom-16");
+    expect(launcher.className).not.toContain("bottom-3");
+  });
+
   it("ignores a stale pin rejection after both the query run and context change", async () => {
     let rejectPin!: (reason: Error) => void;
     mocks.createQueryRun

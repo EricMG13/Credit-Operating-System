@@ -28,9 +28,21 @@ describe("GovernancePanel", () => {
     expect(screen.getByText(/No stale sources/)).toBeTruthy();
   });
 
+  it("uses ready-state empty defaults and omits a blank watch-row detail", () => {
+    render(
+      <GovernancePanel
+        staleRows={[{ issuer_id: "blank", name: "Blank Detail", detail: "" }]}
+      />,
+    );
+
+    expect(screen.getByText("Blank Detail")).toBeTruthy();
+    expect(screen.getByText("No failed gates")).toBeTruthy();
+  });
+
   it("never renders green all-clears while live QA or digest status is unknown", () => {
     render(
       <GovernancePanel
+        findingStatus="loading"
         qaStatus="loading"
         digestStatus="error"
         staleRows={[]}

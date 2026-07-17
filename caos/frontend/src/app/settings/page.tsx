@@ -21,7 +21,7 @@ import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
 import { TextInput, INPUT_BASE } from "@/components/shared/TextInput";
 import { getAnalystSettings, getSettings, patchAnalystSettings, type AnalystSettings, type WorkspaceSettings } from "@/lib/api";
-import { DEFAULT_PREFS, loadPrefs, savePrefs, type ResearchPrefs } from "@/lib/research-prefs";
+import { DEFAULT_PREFS, hasStoredPrefs, loadPrefs, savePrefs, type ResearchPrefs } from "@/lib/research-prefs";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
 import { ModelModeToggle } from "@/components/shared/ModelModeToggle";
 import { loadMode, saveMode, DEFAULT_MODE, type ModelMode } from "@/lib/model-mode";
@@ -230,7 +230,7 @@ function Settings() {
         setSendersRaw((s.email_intelligence?.approved_senders || []).join("\n"));
         const workspace = s.workspace || {};
         const serverPrefs = workspace.research_prefs;
-        if (serverPrefs && typeof serverPrefs === "object") {
+        if (serverPrefs && typeof serverPrefs === "object" && !hasStoredPrefs()) {
           setPrefs({ ...DEFAULT_PREFS, ...(serverPrefs as Partial<ResearchPrefs>) });
         }
         if (typeof workspace.model_mode === "string" && ["test", "lite", "balanced", "max"].includes(workspace.model_mode)) {

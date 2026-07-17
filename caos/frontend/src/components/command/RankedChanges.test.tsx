@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, act, fireEvent, waitFor } from "@testing-library/react";
-import { RankedChanges } from "./RankedChanges";
+import { RankedChanges, RankedChangesView } from "./RankedChanges";
 
 const getAutonomyDraft = vi.fn();
 const getAlertStates = vi.fn();
@@ -27,11 +27,11 @@ const EMPTY_DRAFT = {
 };
 
 describe("RankedChanges", () => {
-  it("shows an honest OFFLINE state when the endpoint is unreachable — never a fabricated list", async () => {
+  it("shows an honest OFFLINE state when the endpoint is unreachable — never a fabricated list, and never mislabels a real outage as DEMO content", async () => {
     getAutonomyDraft.mockRejectedValue(new Error("network error"));
     render(<RankedChanges />);
     await waitFor(() => expect(screen.getByText("Autonomy engine unreachable")).toBeTruthy());
-    expect(screen.getByText("DEMO")).toBeTruthy();
+    expect(screen.queryByText(/^DEMO$/)).toBeNull();
   });
 
   it("shows 'cycle running' while refreshing with no sections yet — distinct from a settled empty draft", async () => {
@@ -40,11 +40,12 @@ describe("RankedChanges", () => {
     await waitFor(() => expect(screen.getByText("cycle running — no changes yet")).toBeTruthy());
   });
 
-  it("settled empty draft reads 'no ranked changes' as LIVE, not DEMO", async () => {
+  it("settled empty draft reads 'no ranked changes' as a genuine empty check, not DEMO or an outage", async () => {
     getAutonomyDraft.mockResolvedValue(EMPTY_DRAFT);
-    render(<RankedChanges />);
+    const { container } = render(<RankedChanges />);
     await waitFor(() => expect(screen.getByText("no ranked changes to report")).toBeTruthy());
-    expect(screen.getByText("LIVE")).toBeTruthy();
+    expect(container.querySelector('[data-surface-state="empty"]')).toBeTruthy();
+    expect(screen.queryByText(/^DEMO$/)).toBeNull();
   });
 
   it("renders ranked rows with the disclosed severity-only basis chip, and Ack posts the alert state", async () => {
@@ -118,5 +119,54 @@ describe("RankedChanges", () => {
     const resolveBtn = await screen.findByRole("button", { name: "Resolved" });
     expect((resolveBtn as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("resolved")).toBeTruthy(); // owner slot, not "unassigned"
+  });
+
+  it("omits the impact chip and falls back to the issuer name when an alert has no issuer id", async () => {
+    getAlertStates.mockResolvedValue([]);
+    render(<RankedChangesView state={{
+      draft: {
+        ...EMPTY_DRAFT,
+        generated_at: "2026-07-17T00:00:00Z",
+        sections: [{
+          issuer_id: null,
+          issuer_name: "Name Only Co",
+          max_severity: null,
+          claims: [],
+          deterministic_bullets: [{
+            kind: "unquantified-change", severity: Number.NaN, metric: null,
+            direction: null, chunk_id: null, context: {},
+          }],
+          exhibit: [],
+        }],
+      },
+      loading: false,
+      offline: false,
+    } as never} />);
+
+    expect(await screen.findByText("unquantified-change")).toBeTruthy();
+    expect(screen.queryByText(/σ$/)).toBeNull();
+    expect(screen.getByTitle("Open Name Only Co in Deep-Dive").getAttribute("href"))
+      .toContain("Name%20Only%20Co");
+  });
+
+  it("ignores a late alert-state enrichment after unmount", async () => {
+    let resolve!: (value: never[]) => void;
+    getAlertStates.mockReturnValue(new Promise((done) => { resolve = done; }));
+    const view = render(<RankedChangesView state={{
+      draft: {
+        ...EMPTY_DRAFT,
+        generated_at: "late",
+        sections: [{
+          issuer_id: "ATLF", issuer_name: "Atlas Forge", max_severity: 1,
+          claims: [], deterministic_bullets: [{
+            kind: "late-state", severity: 1, metric: null,
+            direction: null, chunk_id: null, context: {},
+          }], exhibit: [],
+        }],
+      }, loading: false, offline: false,
+    } as never} />);
+    await waitFor(() => expect(getAlertStates).toHaveBeenCalled());
+    view.unmount();
+    await act(async () => resolve([]));
   });
 });

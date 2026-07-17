@@ -2,8 +2,8 @@
 """Fail if requirements.lock doesn't satisfy every requirements.txt spec.
 
 The prod image installs from ``requirements.lock`` (``pip install --require-hashes``);
-``requirements.txt`` is the loose spec dependabot bumps. CI installs from the .txt, so
-it is BLIND to the case where a bumped or added dependency never reached the lock — e.g.
+``requirements.txt`` is the loose spec dependabot bumps. The production/test install
+uses the lock, so this guard catches a bumped/added input that never reached it — e.g.
 an ``anthropic`` floor raised in the .txt while the lock still pins the old version, or a
 new ``google-genai`` line that the lock never gained. In that state prod silently ships
 the stale/absent package. This guard closes the gap: every top-level requirement must be
@@ -22,8 +22,8 @@ from pathlib import Path
 from packaging.requirements import Requirement
 
 SERVER = Path(__file__).resolve().parent.parent / "server"
-# markitdown[pdf] is appended to the lock input outside requirements.txt (see the
-# regen recipe in caos/deploy/Dockerfile), so the guard expects it in the lock too.
+# markitdown[pdf] lives in requirements-lock.in outside requirements.txt, so the
+# guard expects it in the production lock too.
 EXTRA_LOCK_INPUTS = ["markitdown[pdf]==0.1.6"]
 
 
@@ -78,9 +78,9 @@ def main() -> int:
             print(f"  - {p}")
         print(
             "\nRegenerate the hashed lock (recipe in caos/deploy/Dockerfile) and commit it:"
-            "\n  cd caos/server && cat requirements.txt > reqin.in"
-            "\n  echo 'markitdown[pdf]==0.1.6' >> reqin.in"
-            "\n  pip-compile --generate-hashes --strip-extras --output-file=requirements.lock reqin.in"
+            "\n  pip-compile --generate-hashes --strip-extras"
+            " --output-file=caos/server/requirements.lock"
+            " caos/server/requirements-lock.in"
         )
         return 1
 

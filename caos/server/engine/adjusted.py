@@ -178,12 +178,10 @@ async def reconcile_adjusted_ebitda(
     disclosed = latest_annual(nf.get("adj_ebitda") or {})
     if is_finite_number(disclosed) and disclosed > 0:
         ebitda = float(disclosed)
-    elif lev != 0:
+    else:
         ebitda = safe_div(nd, lev)  # reconstruct from leverage only when adj_ebitda is absent
         if ebitda is None:
             return None  # |nd / lev| past float range — no meaningful reconstruction
-    else:
-        return None  # no disclosed adj-EBITDA and lev == 0 can't reconstruct it
     ebitda_excl = safe_mul(ebitda, 1 - pct)  # excluding the disclosed add-backs
     if not (is_finite_number(ebitda_excl) and ebitda_excl > 0):
         return None  # add-backs claim >= 100% of EBITDA (or pct is junk) — no meaningful excl leverage

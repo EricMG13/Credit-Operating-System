@@ -52,6 +52,8 @@ afterEach(() => {
 
 describe("Deep Research recovery boundaries", () => {
   it("blocks unknown provenance and retries configuration explicitly", async () => {
+    // research-07 research-12: an unknown live/demo configuration fails closed
+    // with a visible, retryable error rather than starting an ambiguously labelled run.
     mocks.getSettings.mockRejectedValueOnce(new Error("configuration offline")).mockResolvedValueOnce({ llm_configured: true });
     render(<ResearchPage />);
 
@@ -63,6 +65,8 @@ describe("Deep Research recovery boundaries", () => {
   });
 
   it.each(["server returned 500", "request timed out"])("preserves the durable job after %s and allows retry", async (message) => {
+    // research-10 research-12: transient poll failures retain the durable id and
+    // expose an explicit retry that can recover the completed paid report.
     sessionStorage.setItem(jobKey, "job-1");
     mocks.getSettings.mockResolvedValue({ llm_configured: true });
     mocks.getResearchStatus.mockRejectedValueOnce(new Error(message)).mockResolvedValueOnce(completed);
@@ -77,6 +81,7 @@ describe("Deep Research recovery boundaries", () => {
   });
 
   it("deletes the pointer only after an authoritative terminal result", async () => {
+    // research-10: only the server's terminal gone state invalidates a saved id.
     sessionStorage.setItem(jobKey, "job-1");
     mocks.getSettings.mockResolvedValue({ llm_configured: false });
     mocks.getResearchStatus.mockResolvedValue({ state: "gone" });

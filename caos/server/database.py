@@ -1682,7 +1682,7 @@ class PipelineRun(Base):
     """A durable autonomous-cycle run (Phase 3 remainder) — the committee-
     defensibility audit trail + the multi-worker shared prior.
 
-    ``routes/autonomy`` enqueues one ``running`` row per cycle (via
+    ``routes/autonomy`` enqueues one ``queued`` row per cycle (via
     ``pipeline.enqueue_cycle``); the ``PipelineExecutor`` claims it
     (``SELECT FOR UPDATE SKIP LOCKED`` on Postgres) and runs
     ``autonomy.run_cycle`` to ``complete`` (or ``failed``). The next cycle
@@ -1694,8 +1694,8 @@ class PipelineRun(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     kind: Mapped[str] = mapped_column(String(32), default="autonomy-cycle", index=True)
-    # running|complete|failed — running is the durable claim (SKIP LOCKED target),
-    # complete is the audit row + prior source, failed is the swept strand.
+    # queued|running|complete|failed — running is the durable claimed attempt,
+    # complete is the audit row + prior source, failed is exhausted/terminal.
     status: Mapped[str] = mapped_column(String(16), default="complete")
     prior_fingerprints: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     current_fingerprints: Mapped[dict] = mapped_column(JSON, default=dict)

@@ -427,23 +427,28 @@ function ReportStudio() {
       artifacts: { issuer_run_id: live.runId },
       surface_state: {
         ...context.surface_state,
-        reports: { ...context.surface_state.reports, active_id: activeId, view: editMode ? "edit" : "preview" },
+        reports: Object.assign({}, context.surface_state.reports, {
+          active_id: activeId,
+          view: editMode ? "edit" : "preview",
+        }),
       },
     }).catch(() => undefined);
   }, [activeId, editMode, isReference, issuerId, live.runId, patchReportsContext, reportsContext]);
 
   const toggleSec = (i: number) => {
-    if (!rep || !canEditComposition) return;
+    // This callback is only passed to ComposePanel when both invariants hold.
+    const editableRep = rep!;
     setOmit((o) => {
-      const cur = { ...o[rep.id] };
+      const cur = { ...o[editableRep.id] };
       if (cur[i]) delete cur[i];
       else cur[i] = true;
-      return { ...o, [rep.id]: cur };
+      return { ...o, [editableRep.id]: cur };
     });
   };
 
   const applyEdit = (path: string, text: string) => {
-    if (!rep || !canEditComposition) return;
+    // ReportDoc receives this callback only for an editable composition.
+    const editableRep = rep!;
     const sectionMatch = /^s(\d+)(?:\.|$)/.exec(path);
     if (
       isFrozenPreview
@@ -452,18 +457,19 @@ function ReportStudio() {
       && Number(sectionMatch[1]) >= frozenReviewedSectionCount
     ) return;
     setEdits((e) => {
-      const cur = { ...e[rep.id] };
+      const cur = { ...e[editableRep.id] };
       if (text == null) delete cur[path]; else cur[path] = text;
-      return { ...e, [rep.id]: cur };
+      return { ...e, [editableRep.id]: cur };
     });
   };
   const resetEdits = () => {
-    if (!rep) return;
+    // The reset control exists only when a selected report has edits.
+    const editableRep = rep!;
     const plural = editCount === 1 ? "" : "s";
     if (!window.confirm(`Discard ${editCount} analyst edit${plural} on this deliverable? This can't be undone.`)) return;
     setEdits((e) => {
       const next = { ...e };
-      delete next[rep.id];
+      delete next[editableRep.id];
       return next;
     });
   };
@@ -615,6 +621,16 @@ function ReportStudio() {
     } : {}),
   };
 
+  // buildLiveReports never sets a per-report watermark (that only exists on
+  // the seeded IC Credit Memo fixture) — without this, every live deliverable
+  // read as an unconditional "clean export" regardless of the run's actual
+  // committee status. Only meaningful for a live-backed, non-reference,
+  // non-frozen/published report; frozen previews and published versions are
+  // already gated by their own review/publish ladder.
+  const liveHeldReason = !isReference && live.runId && !isFrozenPreview && !selectedPublishedVersion && live.committeeStatus && live.committeeStatus !== "Committee Ready"
+    ? `COMMITTEE: ${live.committeeStatus}`
+    : null;
+
   const narrowContract: NarrowContract = {
     essentialControls: (
       <span className="flex items-center gap-2">
@@ -730,11 +746,12 @@ function ReportStudio() {
               title="Could not load this analyst's saved Model Builder overrides. The deliverable is showing base fixture figures."
             >
               <span aria-hidden="true">⚠</span>
-              saved model unavailable — base figures shown
+              <span className="md:hidden">model unavailable</span>
+              <span className="hidden md:inline">saved model unavailable — base figures shown</span>
               <button
                 type="button"
                 onClick={() => setModelReloadKey((k) => k + 1)}
-                className="focus-ring underline underline-offset-2 hover:no-underline"
+                className="hidden md:inline focus-ring underline underline-offset-2 hover:no-underline"
                 style={{ color: "var(--caos-warning)" }}
               >
                 retry
@@ -762,6 +779,15 @@ function ReportStudio() {
       utilityLabel="Report utilities"
       utilityControls={
         <div className="grid gap-3 min-w-[17rem]">
+          {modelLoadError ? (
+            <button
+              type="button"
+              onClick={() => setModelReloadKey((k) => k + 1)}
+              className="md:hidden caos-action-secondary focus-ring w-full justify-start"
+            >
+              Retry saved model
+            </button>
+          ) : null}
           <fieldset className="grid gap-1.5">
             <legend className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Document display</legend>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -873,7 +899,7 @@ function ReportStudio() {
       {/* workspace */}
       <div className="caos-persona-route reports-workbench flex-1 min-h-0">
       <PersonaWorkbench surface="reports" primary={<div className="report-studio-layout h-full min-h-0 flex gap-2 p-2">
-        {rep && leftOpen ? <div className="report-studio-deliverables"><ReportList reports={reports} active={rep.id} onSel={setActiveId} onCollapse={() => setLeftOpen(false)} /></div> : rep ? <ReportRail label="Deliverables" onExpand={() => setLeftOpen(true)} /> : null}
+        {rep && leftOpen ? <div className="report-studio-deliverables"><ReportList reports={reports} active={rep.id} onSel={setActiveId} onCollapse={() => setLeftOpen(false)} liveHeldReason={liveHeldReason} /></div> : rep ? <ReportRail label="Deliverables" onExpand={() => setLeftOpen(true)} /> : null}
 
         <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="report-studio-preview flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex py-7 px-6" style={{ justifyContent: "safe center" }}>
@@ -888,7 +914,7 @@ function ReportStudio() {
                 showSources={showSources}
                 edits={repEdits}
                 onEdit={editMode && canEditComposition ? applyEdit : undefined}
-                editableSectionCount={isFrozenPreview ? frozenReviewedSectionCount ?? undefined : undefined}
+                editableSectionCount={isFrozenPreview ? frozenReviewedSectionCount as number : undefined}
                 onOpenEvidence={setEvModal}
                 hideAddbacks={hideAddbacks && rep.id === "model"}
                 authority={authority}
@@ -921,7 +947,7 @@ function ReportStudio() {
             </button>
           ) : null}
           {canEditComposition && composeRep ? <ComposePanel rep={composeRep} omit={repOmit} onToggle={toggleSec} /> : null}
-          <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} runId={live.runId ?? undefined} />
+          <ExportPanel rep={rep} omitCount={omitCount} editCount={editCount} runId={live.runId ?? undefined} liveHeldReason={liveHeldReason} />
         </div> : rep ? <ReportRail label="Panels" onExpand={() => setRightOpen(true)} /> : null}
       </div>} />
       </div>

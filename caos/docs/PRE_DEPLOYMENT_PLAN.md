@@ -363,7 +363,7 @@ current status or release decision.**
 | Auth: Caddy → oauth2-proxy → edge-secret fail-closed → in-app analyst profiles; fails closed in every shipped-artifact config | LAUNCH_PHASE1 §5 W1; confirmed by direct read of 4 boot guards in `main.py:47-87` |
 | Optional multi-team tenancy mechanism (config-gated, default off) | `tenancy.py`, migration `0037_team_tenancy`, `test_tenancy.py` — orthogonal to E2 roles-lite (see trunk-state note) |
 | LLM fault isolation (timeout/5xx never aborts a run; no LLM lane has tools/writes) | per-module Blocked gate / council `return_exceptions` / deterministic fallback |
-| Deploy stack: single container + Postgres + vault volume + daily backups **+ opt-in off-host sync hook** | `caos/deploy/backup.sh:56-58` (`BACKUP_SYNC_CMD`), `.env.example` |
+| Deploy stack: app + Postgres + vault + hardened daily backup producer + isolated rclone off-host sync/remote-restore service | `caos/deploy/{Dockerfile.backup,Dockerfile.backup-sync,backup.sh,backup_sync.sh,restore_drill.sh,docker-compose.yml}` |
 | Migration discipline: single head, `alembic check`, full up/downgrade round-trip tested on both py legs | `caos/tests/server/test_migrations.py` |
 | Stress harness built (mock-Anthropic 429/529/hang, locust) | `caos/tests/stress/` — **never run at scale this program** (E1) |
 | E2E (Playwright, storageState auth), a11y (axe), perf smoke (p95 gate) | `caos/tests/frontend/e2e/` (10 specs), `caos/frontend/scripts/a11y-axe.mjs`, `caos/tests/perf/smoke.py` |
@@ -1076,15 +1076,16 @@ phase is marked passed.
   documented ceiling, p95 targets met or exception filed.
 - [x] **G4 (S) — DONE on main.** `docs/reference/DR_RUNBOOK.md` records the
   fresh-host recovery procedure and an isolated-host rehearsal that restored
-  a real issuer from the off-host copy in 88 seconds. RPO/RTO and the
-  total-loss risk when `BACKUP_SYNC_CMD` is unset are stated explicitly.
+  a real issuer from the off-host copy in 88 seconds. RPO/RTO and the risk of
+  invalid remote credentials are stated explicitly.
 - [x] **G5 (S)** ~~Migration safety~~ **DONE** — `test_migrations.py` already
   covers single-head, `alembic check`, and a full up/downgrade round-trip on
   both py3.11 and py3.14 CI legs.
-- [x] **G6 (S)** ~~Off-host backup mechanism~~ **DONE** — opt-in
-  `BACKUP_SYNC_CMD` hook landed 2026-07-11 (`backup.sh:56-58`, `.env.example`).
-  This credits the mechanism only. Deployment configuration, freshness,
-  encryption, alerting, and recovery from the remote copy remain open in G8.
+- [x] **G6 (S)** ~~Off-host backup mechanism~~ **DONE** — the isolated
+  `backup-sync` service mounts local artifacts read-only, transfers through a
+  required rclone secret/config, verifies the upload, downloads the remote
+  copy, and runs the real restore drill against it. Provider-side encryption,
+  retention, external alert routing, and realistic-volume timing remain G8.
 - [ ] **G7 (M) — independent service/host monitoring (PG-03).** From outside
   the CAOS host, probe public ingress and a deliberately minimal liveness
   signal; monitor certificate expiry and DNS. From the host/management plane,
@@ -1104,8 +1105,9 @@ phase is marked passed.
   restore from the off-host copy at realistic pilot data volume. Record the
   measured RPO/RTO and have the Data Owner accept them. **Verify:** simulate
   loss of the local `backups` volume and recover only from the remote copy.
-  **Exit:** `BACKUP_SYNC_CMD` is non-empty on the target, latest sync is green,
-  remote restore passes, and no operator needs undocumented credentials.
+  **Exit:** `BACKUP_REMOTE` and the protected rclone config are valid on the
+  target, latest sync is green, remote restore passes, and no operator needs
+  undocumented credentials.
 - [ ] **G9 (M) — target-host readiness (PG-05).** File a dated host baseline:
   supported OS/Docker/Compose versions and patch level; firewall exposes only
   80/443 publicly; SSH/admin access and Docker-group membership are

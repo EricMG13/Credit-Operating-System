@@ -19,5 +19,10 @@ docs/
 tests/
 mcp/
 scripts/
-deploy/
+# The app image does not need deployment assets, but the dedicated backup
+# Dockerfiles share this context and embed only their reviewed scripts.
+deploy/*
+!deploy/backup.sh
+!deploy/backup_sync.sh
+!deploy/restore_drill.sh
 *.md

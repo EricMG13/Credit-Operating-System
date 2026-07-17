@@ -140,7 +140,7 @@ describe("SwimlaneView", () => {
     expect(screen.getAllByText("queued").length).toBeGreaterThan(0);
   });
 
-  it("labels out-of-scope modules as skipped", () => {
+  it("pipeline-44 labels out-of-scope modules as skipped", () => {
     render(<SwimlaneView sim={emptySim} selected={null} onSelect={() => {}} scope={new Set()} />);
     expect(screen.getAllByText("skip").length).toBeGreaterThan(0);
   });

@@ -10,8 +10,10 @@
 import { useState } from "react";
 import axios from "axios";
 import { login, recoverLogin, register } from "@/lib/api";
+import { useRovingTabs } from "@/lib/useRovingTabs";
 
 type Mode = "signin" | "signup" | "recover";
+const MODES: Mode[] = ["signin", "signup", "recover"];
 
 const inputCls =
   "rounded border border-caos-border bg-caos-elevated px-3 py-2 text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos placeholder:text-caos-muted";
@@ -86,6 +88,8 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
     setError(null);
   };
 
+  const { getItemProps } = useRovingTabs(MODES.length, MODES.indexOf(mode), (i) => swap(MODES[i]));
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-caos-bg px-4">
       <form
@@ -114,13 +118,14 @@ export function LoginLanding({ onSuccess }: { onSuccess: () => void | Promise<vo
           aria-label="Sign in or create account"
           className="grid grid-cols-3 gap-1 rounded border border-caos-border p-1"
         >
-          {(["signin", "signup", "recover"] as Mode[]).map((m) => (
+          {MODES.map((m, i) => (
             <button
               key={m}
               type="button"
               role="tab"
               aria-selected={mode === m}
               onClick={() => swap(m)}
+              {...getItemProps(i)}
               className={`rounded px-3 py-1.5 text-caos-sm uppercase tracking-wider transition-caos focus-ring ${
                 mode === m ? "bg-caos-elevated text-caos-text" : "text-caos-muted hover:text-caos-text"
               }`}

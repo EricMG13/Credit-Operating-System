@@ -12,6 +12,7 @@ const getAutonomyDraft = vi.fn();
 const getAlertStates = vi.fn();
 const getPortfolio = vi.fn();
 const getDigest = vi.fn();
+const analysisState = vi.hoisted(() => ({ patch: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/monitor",
@@ -20,6 +21,19 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
+  useAnalysisContext: () => ({
+    context: null,
+    setContext: vi.fn(),
+    patch: analysisState.patch,
+    loading: false,
+    error: null,
+    mutationState: "idle",
+    mutationError: null,
+    retryLastPatch: vi.fn(),
+  }),
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),

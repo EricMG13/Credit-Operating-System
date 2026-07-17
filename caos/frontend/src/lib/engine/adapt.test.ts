@@ -149,6 +149,42 @@ describe("adaptModule — LIVE-shaped payloads (mock↔live seam)", () => {
   });
 });
 
+describe("adaptModule — CP-5B live driver register", () => {
+  it("keeps the disclosed selection basis and evidence chips on each persisted driver", () => {
+    const live = { ...base, module_id: "CP-5B", runtime_output: {
+      claims_traced: 17,
+      weak_lineage_flags: 1,
+      orphan_claims: 0,
+      auditability: "QUALIFIED",
+      selection_basis: "Decision-proximity plus module diversity; not a market-materiality score.",
+      driver_register: [{
+        rank: 1,
+        driver: "Incremental capacity is open.",
+        module_id: "CP-4C",
+        claim_id: "C-4C",
+        lineage: "Credit Agreement §4.09 → CP-4C · C-4C",
+        confidence: 0.75,
+        status: "open",
+        evidence_ids: ["E-4C"],
+        qa_findings: ["QA-CAP"],
+      }],
+    } } as unknown as ModuleDetailDTO;
+
+    const out = adaptModule(live);
+    expect(out.kpis.find((k) => k.l === "Decision drivers")?.v).toBe("1");
+    expect(out.sections.find((s) => s.title.includes("Selection basis"))).toMatchObject({
+      type: "text",
+      body: expect.stringContaining("not a market-materiality score"),
+    });
+    const register = out.sections.find((s) => s.title.includes("Decision-relevant driver lineage"));
+    expect(register?.type).toBe("flags");
+    if (register?.type === "flags") {
+      expect(register.items[0]).toMatchObject({ sev: "warning", ev: ["E-4C"] });
+      expect(register.items[0].text).toContain("QA QA-CAP");
+    }
+  });
+});
+
 describe("adaptModule", () => {
   it("surfaces net leverage as a KPI for CP-1", () => {
     const out = adaptModule(CP1);

@@ -1378,10 +1378,16 @@ export interface AutonomyDraft {
   refreshing: boolean;
   error?: string;
 }
-// force=true skips the staleness check server-side and enqueues a fresh cycle
-// (explicit "refresh" affordance — never fired automatically on an interval).
-export const getAutonomyDraft = (force = false): Promise<AutonomyDraft> =>
-  api.get("/api/autonomy/draft", { params: force ? { force: true } : {} }).then((r) => r.data);
+// Preserve the existing exported call shape while separating reads from writes:
+// refresh=true is an explicit analyst action (POST + anti-prefetch header), while
+// settled/polling reads remain side-effect-free GETs.
+export const getAutonomyDraft = (refresh = false): Promise<AutonomyDraft> =>
+  (refresh
+    ? api.post("/api/autonomy/draft", undefined, {
+        headers: { "X-CAOS-Action": "autonomy-refresh" },
+      })
+    : api.get("/api/autonomy/draft")
+  ).then((r) => r.data);
 
 // ─── Alert states (Watchtower ack/assign — Command + Monitor share these) ──
 export interface AlertStateDTO {

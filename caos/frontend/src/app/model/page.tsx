@@ -699,7 +699,8 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
               className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
               style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
             >
-              ⚠ SAVED MODEL UNAVAILABLE · RETRY
+              <span className="md:hidden">⚠ MODEL · RETRY</span>
+              <span className="hidden md:inline">⚠ SAVED MODEL UNAVAILABLE · RETRY</span>
             </button>
           ) : !isReference && eng.phase === "error" ? (
             // M-5: eng (useModelEngine) collapsed a genuine backend error into the
@@ -723,7 +724,8 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
               className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
               style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 40%, transparent)" }}
             >
-              ✗ SAVED ELSEWHERE · RELOAD
+              <span className="md:hidden">✗ CONFLICT · RELOAD</span>
+              <span className="hidden md:inline">✗ SAVED ELSEWHERE · RELOAD</span>
             </button>
           ) : saveError ? (
             <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
@@ -761,7 +763,14 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
             onClick={() => { if (hasIssuerModel && !exporting) handleExport(); }}
             aria-disabled={(!hasIssuerModel || exporting) || undefined}
             title={!hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : "Export the committee pack (.xlsx — model grid, scenarios, assumptions, headline facts, overrides)"}
-            className="hidden md:inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring disabled:opacity-40"
+            // `disabled:` is a Tailwind alias for the native :disabled pseudo-class,
+            // which never matches aria-disabled — this button used the native
+            // `disabled` attribute's CSS on an element that (deliberately, so it
+            // stays focusable/announced per the desk's disabled-with-reason
+            // convention) never carries `disabled`, so it rendered fully opaque
+            // and clickable-looking regardless of state. aria-disabled: is
+            // Tailwind's variant for the actual attribute in use here.
+            className="hidden md:inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring aria-disabled:opacity-40 aria-disabled:saturate-[0.35] aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent aria-disabled:hover:text-caos-accent"
           >
             {exporting ? "EXPORTING..." : "▦ EXPORT MODEL"}
           </button>
@@ -793,8 +802,6 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
       utilityLabel="Model tools"
       utilityControls={
         <>
-          {/* Lower-frequency editors live in the drawer to keep the top bar at
-              the <=5 visible-actions contract (Save, Export, undo, redo, Checkpoints). */}
           {restoreError ? (
             <button type="button" onClick={retryRestore} className="md:hidden caos-action-secondary focus-ring w-full justify-start">
               Retry saved model
@@ -808,6 +815,8 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
           <button type="button" onClick={() => { if (hasIssuerModel && !exporting) handleExport(); }} aria-disabled={(!hasIssuerModel || exporting) || undefined} title={!hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : undefined} className="md:hidden caos-action-secondary focus-ring w-full justify-start">
             {exporting ? "Exporting model…" : "Export model"}
           </button>
+          {/* Lower-frequency editors live in the drawer to keep the top bar at
+              the <=5 visible-actions contract (Save, Export, undo, redo, Checkpoints). */}
           <button type="button" onClick={() => setShowAssumptions(true)} className="caos-action-secondary focus-ring w-full justify-start">Open assumptions</button>
           <button type="button" onClick={() => setShowScenarios(true)} className="caos-action-secondary focus-ring w-full justify-start">Open scenarios</button>
           {serverCheckpointsIssuerId === issuerId && serverCheckpoints.length ? (

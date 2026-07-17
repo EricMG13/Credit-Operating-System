@@ -127,3 +127,75 @@ def test_logout_clears_identity(client):
     assert client.post("/api/auth/logout").status_code == 204
     client.cookies.clear()  # mirror the browser dropping the cleared cookie
     assert client.get("/api/auth/me").json()["source"] != "profile"
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/api/auth/profile", {"code": "131113", "name": "Throttle Profile"}),
+        (
+            "/api/auth/register",
+            {
+                "code": "131113",
+                "name": "Throttle Register",
+                "email": "throttle-register@example.com",
+                "passcode": "longenough1",
+                "recovery_words": ["alpha", "bravo", "charlie"],
+            },
+        ),
+        (
+            "/api/auth/login",
+            {"email": "throttle-login@example.com", "passcode": "longenough1"},
+        ),
+        (
+            "/api/auth/recover",
+            {
+                "email": "throttle-recover@example.com",
+                "recovery_words": ["alpha", "bravo", "charlie"],
+            },
+        ),
+    ],
+)
+@pytest.mark.parametrize("blocked_bucket", ["source", "global"])
+def test_auth_02_performance_throttle_covers_every_credential_endpoint(
+    client, monkeypatch, path, payload, blocked_bucket
+):
+    """auth-02: every credential lane must share both bounded throttle buckets."""
+    from routes import auth
+
+    calls: list[str] = []
+
+    def fake_hit(key: str, *, max_attempts: int, window_seconds: int) -> bool:
+        calls.append(key)
+        assert max_attempts > 0
+        assert window_seconds == 60
+        return key != ("login:*" if blocked_bucket == "global" else "login:testclient")
+
+    monkeypatch.setattr(auth.rate_limit, "hit", fake_hit)
+    response = client.post(path, json=payload)
+
+    assert response.status_code == 429, (path, blocked_bucket, response.text)
+    assert response.json()["detail"] == "Too many attempts — wait a minute."
+    if blocked_bucket == "source":
+        assert calls == ["login:testclient"]  # short-circuit preserves global budget
+    else:
+        assert calls == ["login:testclient", "login:*"]
+
+
+def test_auth_02_boundary_condition_allows_ten_then_blocks_eleventh(client):
+    """auth-02: the implemented per-source fixed-window boundary is exactly 10."""
+    import rate_limit
+
+    rate_limit.reset()
+    headers = {"X-Forwarded-For": "203.0.113.9"}
+    payload = {"code": "wrong-code", "name": "Boundary Probe"}
+
+    first_ten = [
+        client.post("/api/auth/profile", json=payload, headers=headers).status_code
+        for _ in range(10)
+    ]
+    eleventh = client.post("/api/auth/profile", json=payload, headers=headers)
+
+    assert first_ten == [401] * 10
+    assert eleventh.status_code == 429
+    assert eleventh.json()["detail"] == "Too many attempts — wait a minute."

@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { useRovingTabs } from "@/lib/useRovingTabs";
 import { headStat } from "@/components/shared/headStat";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { Panel as PanelShell } from "@/components/shared/Panel";
@@ -25,7 +26,10 @@ import {
 } from "@/components/command/CommandPortfolio";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
-import { RankedChanges } from "@/components/command/RankedChanges";
+import { RankedChangesView } from "@/components/command/RankedChanges";
+import { ActionReason } from "@/components/shared/ActionReason";
+import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
+import { draftToAlertRows } from "@/lib/alerts/inbox";
 import { GovernancePanel } from "@/components/command/GovernancePanel";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import type { DecisionContextState } from "@/lib/decision-state";
@@ -41,6 +45,12 @@ import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSav
 
 const COMMAND_URL_KEYS = ["dataset", "selected", "portfolio"] as const;
 type CommandDataset = "changes" | "positions" | "coverage" | "governance";
+const DATASET_TABS: readonly [string, CommandDataset][] = [
+  ["Changes", "changes"],
+  ["Positions", "positions"],
+  ["Live coverage", "coverage"],
+  ["Governance", "governance"],
+];
 
 export default function CommandPage() {
   return (
@@ -60,6 +70,11 @@ function CommandCenter() {
   const dataset: CommandDataset = requestedDataset && ["changes", "positions", "coverage", "governance"].includes(requestedDataset)
     ? requestedDataset
     : roleView === "qa" ? "governance" : roleView === "pm" ? "changes" : "coverage";
+  const { getItemProps: getDatasetTabProps } = useRovingTabs(
+    DATASET_TABS.length,
+    DATASET_TABS.findIndex(([, mode]) => mode === dataset),
+    (i) => updateUrlState({ dataset: DATASET_TABS[i][1], selected: null }),
+  );
   const [insight, setInsight] = useState<InsightArtifact | null>(null);
   const [insightMessage, setInsightMessage] = useState<string | null>(null);
   const [portfolioDirectory, setPortfolioDirectory] = useState<PortfolioSummary[]>([]);
@@ -138,8 +153,13 @@ function CommandCenter() {
   }, [portfolioDirectoryLoading, requestedPortfolioId, selectedPortfolioId, updateUrlState]);
   // Shared CP-5/CP-0 governance queues and central freshness digest. When the
   // portfolio is offline, consumers retain their explicit seeded fallbacks.
-  const { digest, live: digestLive, loading: digestLoading, error: digestError, liveQa, liveFailed, liveGapsItems, liveMixed } = useGovernanceSources(portfolio);
+  const { digest, live: digestLive, loading: digestLoading, error: digestError, liveQa, liveFailed, liveGapsItems, liveMixed, qaFindingsLoading, qaFindingsError } = useGovernanceSources(portfolio);
+  // Fetched once here (not inside RankedChangesView) so the OPEN TOP CHANGE
+  // primary can gate on the same state the panel renders from.
+  const autonomy = useAutonomyDraft();
+  const rankedRowCount = autonomy.draft ? draftToAlertRows(autonomy.draft).length : 0;
   const qaStatus = portfolio.loading ? "loading" : portfolio.error ? "error" : "ready";
+  const findingStatus = portfolio.loading || qaFindingsLoading ? "loading" : portfolio.error || qaFindingsError ? "error" : "ready";
   const digestStatus = digestLoading ? "loading" : digestError ? "error" : "ready";
 
   // Stable IDs keep duplicate/reused tickers from selecting the wrong issuer.
@@ -166,6 +186,9 @@ function CommandCenter() {
     },
     approval: "UNRATIFIED" as const,
   } : undefined;
+  // Observed-empty cells carry the same provenance but no approval chip —
+  // there is no conclusion to be unratified on an empty observation.
+  const emptyAuthority = digestAuthority ? { ...digestAuthority, approval: null } : undefined;
   const commandDecision: DecisionContextState = {
     whatChanged: digestLoading
       ? { kind: "loading", message: "Checking 24-hour engine activity…" }
@@ -177,12 +200,14 @@ function CommandCenter() {
               asOf: digestAsOf,
               authority: digestAuthority,
             }
-          : { kind: "observed-empty", message: "No engine activity observed in 24h", asOf: digestAsOf, authority: digestAuthority })
+          : { kind: "observed-empty", message: "No engine activity observed in 24h — first run populates this", asOf: digestAsOf, authority: emptyAuthority })
         : { kind: "unavailable", message: "Live activity unavailable" },
     whyItMatters: digestLoading
       ? { kind: "loading", message: "Calculating portfolio impact…" }
-      : digestLive && digest && digestAsOf && digest.warf != null
-        ? { kind: "ready", value: `WARF ${digest.warf}${digest.warf_band ? ` (${digest.warf_band})` : ""} · CCC watch ${digest.ccc_watch.length}`, asOf: digestAsOf, authority: digestAuthority }
+      : digestLive && digest && digestAsOf
+        ? (digest.warf != null
+          ? { kind: "ready", value: `WARF ${digest.warf}${digest.warf_band ? ` (${digest.warf_band})` : ""} · CCC watch ${digest.ccc_watch.length}`, asOf: digestAsOf, authority: digestAuthority }
+          : { kind: "observed-empty", message: "No rated names yet — WARF forms once ratings ingest", asOf: digestAsOf, authority: emptyAuthority })
         : { kind: "unavailable", message: "Portfolio impact unavailable" },
     requiredAction: portfolio.loading
       ? { kind: "loading", message: "Checking governance queues…" }
@@ -211,7 +236,10 @@ function CommandCenter() {
   const patchCommandContext = analysis.patch;
   useEffect(() => {
     const context = commandContext;
-    if (!context) return;
+    // Do not clear a persisted portfolio scope while the directory is still
+    // resolving. Once it settles, selectedPortfolioId is authoritative and the
+    // effect writes the requested/context/default portfolio exactly once.
+    if (!context || portfolioDirectoryLoading) return;
     const current = context.surface_state.command;
     if (
       current?.active_id === selected
@@ -232,7 +260,7 @@ function CommandCenter() {
         },
       },
     }).catch(() => undefined);
-  }, [commandContext, dataset, patchCommandContext, roleView, selected, selectedPortfolioId]);
+  }, [commandContext, dataset, patchCommandContext, portfolioDirectoryLoading, roleView, selected, selectedPortfolioId]);
 
   useEffect(() => {
     if (!analysis.context?.id) return;
@@ -305,9 +333,16 @@ function CommandCenter() {
         />
       }
       primaryAction={
-        <button
-          type="button"
-          className="caos-primary-action focus-ring"
+        <ActionReason
+          reason={autonomy.loading
+            ? "Checking the autonomy draft…"
+            : autonomy.offline
+            ? "Autonomy engine unreachable — no changes to open"
+            : rankedRowCount === 0
+            ? (autonomy.draft?.refreshing ? "Cycle running — no changes yet" : "No ranked changes yet — the first cycle populates this")
+            : null}
+          reasonDisplay="hidden"
+          className="caos-action-primary focus-ring"
           onClick={() => {
             updateUrlState({ dataset: "changes", selected: null });
             requestAnimationFrame(() => {
@@ -316,7 +351,7 @@ function CommandCenter() {
               (el as HTMLElement | null)?.focus();
             });
           }}
-        >Open top change</button>
+        >Open top change</ActionReason>
       }
       status={<><span className="tabular text-caos-2xs text-caos-muted">{commandSnapshot?.as_of ? `Holdings as of ${commandSnapshot.as_of}` : digestAsOf ? `Observed ${digestAsOf}` : "Holdings date unavailable"}</span><AnalysisContextSaveState analysis={analysis} /></>}
       contextualControls={
@@ -377,10 +412,10 @@ function CommandCenter() {
                 title={dataset === "changes" ? "Ranked Changes · autonomy draft" : dataset === "positions" ? "Persisted portfolio · positions" : dataset === "coverage" ? "Live Coverage" : "Governance · CP-5 / CP-0 / Staleness"}
                 className="h-full min-h-0"
                 right={<div role="tablist" aria-label="Command dataset" className="flex items-center gap-1 overflow-x-auto">
-                  {([ ["Changes", "changes"], ["Positions", "positions"], ["Live coverage", "coverage"], ["Governance", "governance"] ] as const).map(([label, mode]) => <button key={mode} type="button" role="tab" aria-selected={dataset === mode} onClick={() => updateUrlState({ dataset: mode, selected: null })} className="caos-action-secondary focus-ring whitespace-nowrap">{label}</button>)}
+                  {DATASET_TABS.map(([label, mode], i) => <button key={mode} type="button" role="tab" aria-selected={dataset === mode} onClick={() => updateUrlState({ dataset: mode, selected: null })} {...getDatasetTabProps(i)} className="caos-action-secondary focus-ring whitespace-nowrap">{label}</button>)}
                 </div>}
               >
-                {dataset === "changes" ? <RankedChanges /> : dataset === "governance" ? <GovernancePanel qaStatus={qaStatus} digestStatus={digestStatus} liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : (
+                {dataset === "changes" ? <RankedChangesView state={autonomy} /> : dataset === "governance" ? <GovernancePanel findingStatus={findingStatus} qaStatus={qaStatus} digestStatus={digestStatus} liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : (
                   <DominantTableRegion ownerId="command-worklist" label={dataset === "positions" ? "Persisted portfolio positions" : "Live coverage worklist"} className="h-full min-h-0">
                     {dataset === "positions" ? positionsContent : portfolio.loading ? <SurfaceState kind="loading" title="Loading live coverage" className="m-auto max-w-md" /> : portfolio.error && portfolio.rows.length === 0 ? <SurfaceState kind="offline" title="Live coverage unavailable" detail="Latest-run coverage could not be loaded." className="m-auto max-w-md" /> : portfolio.rows.length === 0 ? <SurfaceState kind="empty" title="No live coverage" detail="No completed analytical runs are available." className="m-auto max-w-md" primaryAction={<Link href="/upload" className="caos-action-primary no-underline focus-ring">Start document intake</Link>} /> : <div className="overflow-x-auto h-full flex flex-col"><LiveCoverage rows={portfolio.rows} selected={selected} onSelect={(value) => updateUrlState({ selected: value }, "replace")} /></div>}
                   </DominantTableRegion>
@@ -389,7 +424,7 @@ function CommandCenter() {
             }
             context={<CommandContext digest={digestLive ? digest : null} />}
             inspector={<div className="grid gap-2">
-              <CommandGovernanceSummary qa={liveQa?.length} failed={liveFailed?.length} gaps={liveGapsItems?.length} mixed={liveMixed?.length} stale={digestLive ? digest?.stale?.length ?? 0 : undefined} onOpen={() => updateUrlState({ dataset: "governance" })} />
+              <CommandGovernanceSummary coldStart={!portfolio.live && !portfolio.error && !portfolio.loading} qa={liveQa?.length} failed={liveFailed?.length} gaps={liveGapsItems?.length} mixed={liveMixed?.length} stale={digestLive ? digest?.stale?.length ?? 0 : undefined} onOpen={() => updateUrlState({ dataset: "governance" })} />
               <PanelShell title="Cited decision brief">
                 <button type="button" onClick={() => void generateInsight()} className="caos-action-secondary focus-ring m-2">{insight ? "Refresh cited brief" : "Generate cited brief"}</button>
                 {insight ? <article className="p-2 pt-0 grid gap-2"><p className="text-caos-sm text-caos-text">{insight.summary}</p><ul className="grid gap-1">{insight.claims.map((claim) => <li key={claim.id} className="text-caos-xs text-caos-muted">{claim.statement} · sources {claim.evidence_ids.join(", ") || "missing"}</li>)}</ul></article> : <p role="status" className="p-2 pt-0 text-caos-xs text-caos-muted">{insightMessage ?? "No cited brief generated."}</p>}
@@ -405,9 +440,9 @@ function CommandCenter() {
   );
 }
 
-function CommandGovernanceSummary({ qa, failed, gaps, mixed, stale, onOpen }: { qa?: number; failed?: number; gaps?: number; mixed?: number; stale?: number; onOpen: () => void }) {
+function CommandGovernanceSummary({ qa, failed, gaps, mixed, stale, coldStart = false, onOpen }: { qa?: number; failed?: number; gaps?: number; mixed?: number; stale?: number; coldStart?: boolean; onOpen: () => void }) {
   const rows = [["CP-5 findings", qa], ["Failed gates", failed], ["Source gaps", gaps], ["Mixed origin", mixed], ["Stale sources", stale]] as const;
-  return <PanelShell title="Governance summary"><dl className="grid gap-1 p-2">{rows.map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">{label}</dt><dd className="tabular text-caos-sm text-caos-text">{value ?? "Unavailable"}</dd></div>)}</dl><button type="button" onClick={onOpen} className="caos-action-secondary focus-ring m-2">Open governance queue</button></PanelShell>;
+  return <PanelShell title="Governance summary"><dl className="grid gap-1 p-2">{rows.map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">{label}</dt><dd className="tabular text-caos-sm text-caos-text">{value ?? "Unavailable"}</dd></div>)}</dl>{coldStart ? <p className="px-2 pb-1 text-caos-2xs leading-snug text-caos-muted">Queues are observed-empty — the first completed run populates them.</p> : null}<button type="button" onClick={onOpen} className="caos-action-secondary focus-ring m-2">Open governance queue</button></PanelShell>;
 }
 
 function CommandContext({ digest }: { digest: ReturnType<typeof useDigest>["digest"] | null }) {

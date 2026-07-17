@@ -62,6 +62,19 @@ describe("ControlPlanePanel", () => {
     expect(screen.getByText("NATIVE")).toBeTruthy();
     expect(screen.getByText(/a\.lee · 2 docs/)).toBeTruthy();
   });
+
+  it("labels truncated coverage and falls back to an unassigned owner", async () => {
+    mockGetIngestionGaps.mockResolvedValue({
+      as_of: "2026-07-17T00:00:00Z", truncated: true, zero_chunk: [], ocr_lane: [],
+      coverage: [{
+        issuer_id: "i1", issuer_name: "Ownerless Co", analyst_owner: null,
+        origins: [], document_count: 1,
+      }],
+    });
+    render(<ControlPlanePanel />);
+    expect(await screen.findByText("PARTIAL · newest 2,000 documents only")).toBeTruthy();
+    expect(screen.getByText("UNASSIGNED · 1 docs")).toBeTruthy();
+  });
 });
 
 // Regression lock for the 2026-07-16 critique P1: a col-span-N class on any

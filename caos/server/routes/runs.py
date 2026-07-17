@@ -129,6 +129,7 @@ class RunSummary(BaseModel):
     qa_status: str
     committee_status: str
     as_of_date: Optional[str]
+    completed_at: Optional[datetime] = None
     analyst_id: Optional[str] = None
     model_id: Optional[str]
     prompt_version: Optional[str]
@@ -149,10 +150,11 @@ class RunListItem(BaseModel):
     as_of_date: Optional[str]
     analyst_id: Optional[str] = None
     created_at: Optional[datetime]
+    completed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
-    @field_validator("created_at", mode="after")
+    @field_validator("created_at", "completed_at", mode="after")
     @classmethod
     def _utc_aware(cls, v: Optional[datetime]) -> Optional[datetime]:
         # SQLite hands back naive datetimes (stored UTC); serialize with an
@@ -282,7 +284,8 @@ async def _summary(db: AsyncSession, run: Run) -> RunSummary:
     return RunSummary(
         id=run.id, issuer_id=run.issuer_id, status=run.status,
         qa_status=run.qa_status, committee_status=run.committee_status,
-        as_of_date=run.as_of_date, analyst_id=run.analyst_id,
+        as_of_date=run.as_of_date, completed_at=run.completed_at,
+        analyst_id=run.analyst_id,
         model_id=run.model_id, prompt_version=run.prompt_version,
         error=run.error, tokens_used=run.tokens_used,
         input_manifest_ids=run.input_manifest_ids,
@@ -469,7 +472,7 @@ async def list_runs(
     """Runs newest-first, optionally filtered to one issuer (read-only)."""
     stmt = select(
         Run.id, Run.issuer_id, Run.status, Run.qa_status, Run.committee_status,
-        Run.as_of_date, Run.analyst_id, Run.created_at
+        Run.as_of_date, Run.analyst_id, Run.created_at, Run.completed_at
     ).order_by(Run.created_at.desc())
     if issuer_id:
         stmt = stmt.where(Run.issuer_id == issuer_id)

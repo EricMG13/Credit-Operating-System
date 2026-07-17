@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
@@ -58,6 +59,11 @@ function Monitor() {
   const analysis = useAnalysisContext({ name: "Alert oversight" });
   const { roleView } = useRoleView();
   const { values: urlState, update: updateUrlState } = useTypedUrlState(MONITOR_URL_KEYS);
+  // The static shell is visible before hydration and before the asynchronous
+  // analysis-context bootstrap merges its id into the URL. Keep URL-owning
+  // controls inert until that bootstrap settles so an early click cannot be
+  // accepted by the browser and then silently lost.
+  const datasetControlsReady = !analysis.loading;
   const dataset = urlState.dataset === "email" || urlState.dataset === "governance"
     ? urlState.dataset
     : roleView === "qa" ? "governance" : "alerts";
@@ -73,8 +79,9 @@ function Monitor() {
   // Governance's shared queue (Command shows the identical categories from the
   // same live sources — QA queues visible from both, per the handoff).
   const portfolio = usePortfolio();
-  const { digest, live: digestLive, loading: digestLoading, error: digestError, liveQa, liveFailed, liveGapsItems, liveMixed } = useGovernanceSources(portfolio);
+  const { digest, live: digestLive, loading: digestLoading, error: digestError, liveQa, liveFailed, liveGapsItems, liveMixed, qaFindingsLoading, qaFindingsError } = useGovernanceSources(portfolio);
   const qaStatus = portfolio.loading ? "loading" : portfolio.error ? "error" : "ready";
+  const findingStatus = portfolio.loading || qaFindingsLoading ? "loading" : portfolio.error || qaFindingsError ? "error" : "ready";
   const digestStatus = digestLoading ? "loading" : digestError ? "error" : "ready";
   // Default: demo disclosure open when there's nothing live to show, closed
   // once live rows exist. `null` = follow that default; a click overrides for
@@ -199,13 +206,16 @@ function Monitor() {
         <ShellIdentity
           tag="CP-MON"
           badges={
-            /* Honesty marker in the shared grammar: this whole surface replays
-               a seeded simulation, not a live feed. `badges` renders before
-               the title so the title truncates first and this never clips. */
+            /* Honesty marker in the shared grammar. Only the alert-routing
+               tape inside the inbox (labeled SEEDED REPLAY in its own
+               panel) is a seeded simulation — the worklist, governance
+               summary, and control plane are live-fed. A page-level DEMO
+               chip used to claim the whole surface was replay, which taught
+               analysts to discount real governance numbers alongside it. */
             <ProvenanceChip
               prov={{
-                origin: "DEMO",
-                detail: "Illustrative sample — this whole surface replays a seeded simulation, not a live feed.",
+                origin: "LIVE",
+                detail: "Alert worklist, governance, and control plane are live. The routing tape inside the inbox is a seeded replay, labeled where it appears.",
               }}
             />
           }
@@ -213,33 +223,18 @@ function Monitor() {
         />
       }
       primaryAction={
-        <button
-          type="button"
-          aria-disabled={selectedAlertCount === 0}
-          title={
-            selectedAlertCount > 0
-              ? undefined
-              : hasLiveAlerts
-                ? "Select live alerts in the worklist first."
-                : "No live alerts to acknowledge — the demo tape below is a read-only replay."
-          }
-          onClick={() => { if (selectedAlertCount > 0) window.dispatchEvent(new Event("caos:monitor-ack-selected")); }}
-          className="caos-primary-action focus-ring"
+        <ActionReason
+          reason={selectedAlertCount > 0
+            ? null
+            : hasLiveAlerts
+              ? "Select live alerts in the worklist first."
+              : "No live alerts to acknowledge — the demo tape below is a read-only replay."}
+          reasonDisplay="hidden"
+          onClick={() => window.dispatchEvent(new Event("caos:monitor-ack-selected"))}
+          className="caos-action-primary focus-ring"
         >
           Acknowledge selected{selectedAlertCount ? ` (${selectedAlertCount})` : ""}
-        </button>
-      }
-      contextualControls={
-        <>
-          {/* Msgs-today and Unresolved are NOT repeated here — the EmailIntel
-              tiles directly below carry both ("Showing N of M today", the
-              UNRESOLVED tile), and the freed width keeps the identity row's
-              honesty chip un-clipped at 1440px. */}
-          {criticalFilterButton}
-          <span title="Seeded demo replay count for the simulated day — the live routed-alert count is in the worklist below.">
-            {headStat("Replay today", String(alertsToday), "var(--caos-accent)", true)}
-          </span>
-        </>
+        </ActionReason>
       }
       status={
         <>
@@ -249,15 +244,13 @@ function Monitor() {
       }
       utilityLabel="Replay controls"
       utilityControls={<div className="grid gap-3"><SimControls run={run} /><span className="tabular text-caos-xs text-caos-muted">{simState} · {run.clock} ET</span>{analysis.context ? <Link href={contextHref("/command", analysis.context.id)} className="caos-action-secondary no-underline focus-ring">Open Command</Link> : null}</div>}
-      narrowContract={{
-        essentialControls: (
-          <>
-            {criticalFilterButton}
-            <SimControls run={run} />
-          </>
-        ),
-      }}
+      narrowContract={{ essentialControls: <SimControls run={run} /> }}
     >
+      {/* The seeded replay stats live INSIDE the demo-tape section below —
+          keeping them in the global header put a red seeded "2" beside the
+          live "No critical alert" and taught the analyst to distrust the
+          chrome (2026-07-16 critique P2). The header now carries live
+          figures only. */}
       <WorkbenchToolbar
         title="Alert worklist"
         description="Acknowledge, assign and hand off routed events; phone remains triage-only."
@@ -272,14 +265,22 @@ function Monitor() {
             <PanelShell
               title={dataset === "email" ? "Email Intelligence · CP-MON intake" : dataset === "governance" ? "Governance queue · CP-5 / CP-0 / Staleness" : isPhone ? "Alert triage · autonomy routing" : "Alert inbox · autonomy routing"}
               className="min-h-0 h-full"
-              right={<div role="tablist" aria-label="Monitor dataset" className="flex items-center gap-1"><button type="button" role="tab" aria-selected={dataset === "alerts"} onClick={() => updateUrlState({ dataset: "alerts" })} className="caos-action-secondary focus-ring">Alerts</button><button type="button" role="tab" aria-selected={dataset === "email"} onClick={() => updateUrlState({ dataset: "email" })} className="caos-action-secondary focus-ring">Email intake</button><button type="button" role="tab" aria-selected={dataset === "governance"} onClick={() => updateUrlState({ dataset: "governance" })} className="caos-action-secondary focus-ring">Governance</button></div>}
+              right={<div role="tablist" aria-label="Monitor dataset" aria-busy={!datasetControlsReady} className="flex items-center gap-1"><button type="button" role="tab" aria-selected={dataset === "alerts"} disabled={!datasetControlsReady} onClick={() => updateUrlState({ dataset: "alerts" })} className="caos-action-secondary focus-ring disabled:cursor-wait disabled:opacity-50">Alerts</button><button type="button" role="tab" aria-selected={dataset === "email"} disabled={!datasetControlsReady} onClick={() => updateUrlState({ dataset: "email" })} className="caos-action-secondary focus-ring disabled:cursor-wait disabled:opacity-50">Email intake</button><button type="button" role="tab" aria-selected={dataset === "governance"} disabled={!datasetControlsReady} onClick={() => updateUrlState({ dataset: "governance" })} className="caos-action-secondary focus-ring disabled:cursor-wait disabled:opacity-50">Governance</button></div>}
             >
               <DominantTableRegion ownerId="monitor-alert-inbox" label={dataset === "email" ? "Email intelligence worklist" : dataset === "governance" ? "Governance worklist" : "Alert inbox worklist"} className="h-full">
-                {dataset === "email" ? <EmailIntel /> : dataset === "governance" ? <GovernancePanel qaStatus={qaStatus} digestStatus={digestStatus} liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : isPhone ? <PhoneTriage /> : <>
+                {dataset === "email" ? <EmailIntel /> : dataset === "governance" ? <GovernancePanel findingStatus={findingStatus} qaStatus={qaStatus} digestStatus={digestStatus} liveQa={liveQa} liveFailedGates={liveFailed} liveGaps={liveGapsItems} liveMixedOrigin={liveMixed} staleRows={digestLive ? digest?.stale ?? [] : []} /> : isPhone ? <PhoneTriage /> : <>
                   <AlertInbox />
-                  <button type="button" onClick={() => setDemoOverride(!showDemo)} aria-expanded={showDemo} className="w-full flex items-center gap-2 px-3 min-h-8 tabular text-caos-2xs uppercase tracking-widest text-caos-muted hover:text-caos-text transition-caos focus-ring border-t border-caos-border/50 caos-target">
-                    {showDemo ? "− " : "+ "}Demo replay · CP-MON-H seeded tape
-                  </button>
+                  <div className="flex items-center gap-2 border-t-2 border-caos-border px-3 min-h-8">
+                    <button type="button" onClick={() => setDemoOverride(!showDemo)} aria-expanded={showDemo} className="flex items-center gap-2 tabular text-caos-2xs uppercase tracking-widest text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">
+                      {showDemo ? "− " : "+ "}Seeded replay · CP-MON-H demo tape
+                    </button>
+                    <span className="ml-auto flex items-center gap-3">
+                      {criticalFilterButton}
+                      <span title="Seeded demo replay count for the simulated day — live routed-alert counts are in the worklist above.">
+                        {headStat("Replay today", String(alertsToday), "var(--caos-accent)", true)}
+                      </span>
+                    </span>
+                  </div>
                   {showDemo ? <AlertFeed tick={tick} running={running} done={done} sevFilter={criticalOnly ? "critical" : null} /> : null}
                 </>}
               </DominantTableRegion>
@@ -287,7 +288,7 @@ function Monitor() {
           }
           context={<MonitorContext rows={liveRows} asOf={draftAsOf} simState={simState} running={running} done={done} />}
           inspector={<div className="grid gap-2">
-            <MonitorGovernanceSummary qa={liveQa?.length} failed={liveFailed?.length} gaps={liveGapsItems?.length} mixed={liveMixed?.length} stale={digestLive ? digest?.stale?.length ?? 0 : undefined} onOpen={() => updateUrlState({ dataset: "governance" })} />
+            <MonitorGovernanceSummary coldStart={!portfolio.live && !portfolio.error && !portfolio.loading} qa={liveQa?.length} failed={liveFailed?.length} gaps={liveGapsItems?.length} mixed={liveMixed?.length} stale={digestLive ? digest?.stale?.length ?? 0 : undefined} onOpen={() => updateUrlState({ dataset: "governance" })} />
             <PanelShell title="Coverage Control Plane · ingestion"><ControlPlanePanel /></PanelShell>
             <PanelShell title="Cited alert brief"><button type="button" onClick={() => void generateInsight()} className="caos-action-secondary focus-ring">{insight ? "Refresh cited brief" : "Generate cited brief"}</button>{insight ? <article className="p-2 grid gap-2"><p className="text-caos-sm text-caos-text">{insight.summary}</p><ul className="grid gap-1">{insight.claims.map((claim) => <li key={claim.id} className="text-caos-xs text-caos-muted">{claim.statement} · sources {claim.evidence_ids.join(", ") || "missing"}</li>)}</ul></article> : <p role="status" className="p-2 text-caos-xs text-caos-muted">{insightMessage ?? "No cited brief generated."}</p>}</PanelShell>
           </div>}
@@ -297,9 +298,9 @@ function Monitor() {
   );
 }
 
-function MonitorGovernanceSummary({ qa, failed, gaps, mixed, stale, onOpen }: { qa?: number; failed?: number; gaps?: number; mixed?: number; stale?: number; onOpen: () => void }) {
+function MonitorGovernanceSummary({ qa, failed, gaps, mixed, stale, coldStart = false, onOpen }: { qa?: number; failed?: number; gaps?: number; mixed?: number; stale?: number; coldStart?: boolean; onOpen: () => void }) {
   const rows = [["CP-5 findings", qa], ["Failed gates", failed], ["Source gaps", gaps], ["Mixed origin", mixed], ["Stale sources", stale]] as const;
-  return <PanelShell title="Governance summary"><dl className="grid gap-1 p-2">{rows.map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">{label}</dt><dd className="tabular text-caos-sm text-caos-text">{value ?? "Unavailable"}</dd></div>)}</dl><button type="button" onClick={onOpen} className="caos-action-secondary focus-ring m-2">Open governance queue</button></PanelShell>;
+  return <PanelShell title="Governance summary"><dl className="grid gap-1 p-2">{rows.map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">{label}</dt><dd className="tabular text-caos-sm text-caos-text">{value ?? "Unavailable"}</dd></div>)}</dl>{coldStart ? <p className="px-2 pb-1 text-caos-2xs leading-snug text-caos-muted">Queues are observed-empty — the first completed run populates them.</p> : null}<button type="button" onClick={onOpen} className="caos-action-secondary focus-ring m-2">Open governance queue</button></PanelShell>;
 }
 
 function MonitorContext({ rows, asOf, simState, running, done }: { rows: ReturnType<typeof draftToAlertRows>; asOf: string | null; simState: string; running: boolean; done: boolean }) {

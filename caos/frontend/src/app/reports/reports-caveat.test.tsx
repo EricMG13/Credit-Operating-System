@@ -10,6 +10,7 @@ import ReportsPage from "./page";
 
 let mockRunId: string | null = null;
 let mockPhase: string | null = null; // overrides the derived phase when set
+let mockLoading = false;
 let mockIssuer: string | null = null; // ?issuer= param; null -> ATLF reference page
 // Module-level, not inline in the mock factory: the real hook's anchor is
 // reference-stable across renders, and page.tsx's useMemo (line 98) depends on
@@ -32,7 +33,7 @@ vi.mock("@/lib/engine/useLiveRun", () => ({
 vi.mock("@/lib/engine/useModelEngine", () => ({
   useModelEngine: () => ({
     anchor: mockRunId ? LIVE_ANCHOR : null, downside: null, downsideState: "unavailable", runId: mockRunId,
-    committeeStatus: mockRunId ? "Draft Only" : null, live: !!mockRunId, loading: false,
+    committeeStatus: mockRunId ? "Draft Only" : null, live: !!mockRunId, loading: mockLoading,
     phase: mockPhase ?? (mockRunId ? "complete" : "none"),
   }),
 }));
@@ -48,7 +49,8 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mockRunId = null;
-  mockPhase = null;
+    mockPhase = null;
+    mockLoading = false;
   mockIssuer = null;
 });
 
@@ -77,6 +79,15 @@ describe("Report Studio · reference caveat (FE-5)", () => {
     render(<ReportsPage />);
     expect(await screen.findByText(/could not load live run/)).toBeTruthy();
     expect(screen.queryByText(/no run for this issuer/)).toBeNull();
+  });
+
+  it("shows a checking state while a real issuer run is loading", async () => {
+    mockIssuer = "ISSX";
+    mockRunId = null;
+    mockPhase = "loading";
+    mockLoading = true;
+    render(<ReportsPage />);
+    expect(await screen.findByText(/checking for live run/)).toBeTruthy();
   });
 
   it("a real issuer with genuinely no run still gets the honest no-run message (control)", async () => {

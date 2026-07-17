@@ -11,10 +11,8 @@ name: caos
 
 services:
   db:
-    # pgvector-enabled Postgres 18 (Debian-based; the stock postgres:18-alpine
-    # lacks the `vector` extension that mig 0030's embeddings table needs). The
-    # `backup` service below stays on postgres:18-alpine — pg_dump is a client and
-    # does not need the extension installed.
+    # pgvector-enabled Postgres 18 (Debian-based; stock Postgres lacks the
+    # `vector` extension that migration 0030's embeddings table needs).
     image: pgvector/pgvector:pg18
     restart: unless-stopped
     # Hardening: block privilege escalation + cap memory. Caps are NOT dropped and
@@ -50,6 +48,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      clamav:
+        condition: service_healthy
     # Hardening: non-root already (Dockerfile USER caos). Drop all caps (the app
     # needs none), block priv-escalation, run an immutable rootfs. It writes only
     # to /vault (volume) and /tmp (upload tempfiles → tmpfs); PYTHONDONTWRITEBYTECODE
@@ -57,8 +57,8 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
     read_only: true
-    tmpfs: ["/tmp"]
-    mem_limit: 2g
+    tmpfs: ["/tmp:size=1g,mode=1777"]
+    mem_limit: 4g
     environment:
       ENVIRONMENT: production
       HOST: 0.0.0.0
@@ -67,6 +67,9 @@ services:
       # Postgres-only — run.py refuses >1 against SQLite. Size against Postgres's
       # max_connections and load-test before raising (.env.example has the guidance).
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+      # One 250 MiB upload/parser lane per process. At the supported maximum of
+      # two workers this bounds live upload bodies to 500 MiB before parser copies.
+      CAOS_UPLOAD_CONCURRENCY: ${CAOS_UPLOAD_CONCURRENCY:-1}
       # Durable Postgres + vault; demo seed OFF (registry starts empty).
       CAOS_DEMO_SEED: "false"
       DATABASE_URL: postgresql+asyncpg://caos:${POSTGRES_PASSWORD}@db:5432/caos
@@ -75,11 +78,13 @@ services:
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-4-8}
       EDGAR_USER_AGENT: ${EDGAR_USER_AGENT:-}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-250}
-      # Optional ClamAV upload scan (SECURITY.md §4). Empty = off. Set CLAMAV_HOST=clamav
-      # after starting the `av` profile (below). A set-but-unreachable scanner fails
-      # closed (uploads → 503), so only set it once the clamav service is running.
-      CLAMAV_HOST: ${CLAMAV_HOST:-}
+      # Mandatory production malware scanner. The app's production guard also
+      # refuses to boot without this host; depends_on waits for signatures/clamd.
+      CLAMAV_HOST: clamav
       CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+      # Total EDGAR throttle partitions across all replicas/processes. Must be at
+      # least replica_count × WEB_CONCURRENCY; server also floors it at local W.
+      CAOS_SEC_RATE_PARTITIONS: ${CAOS_SEC_RATE_PARTITIONS:-1}
       # Structure-preserving extraction via the markitdown CLI baked into the image
       # (Dockerfile). Empty = built-in pypdf/openpyxl fallback. Set in .env.
       CAOS_MARKITDOWN_CMD: ${CAOS_MARKITDOWN_CMD:-}
@@ -156,46 +161,92 @@ services:
 
   backup:
     # P7-1: daily pg_dump of Postgres + a tarball of the document vault, with
-    # rotation, to the `backups` volume. On-host only unless BACKUP_SYNC_CMD is
-    # set (off-host copy hook, e.g. rsync / rclone / aws s3 sync — runs after
-    # each cycle). Override cadence/retention via BACKUP_INTERVAL_SECONDS /
-    # BACKUP_KEEP in .env.
-    image: postgres:18-alpine
+    # rotation, to the `backups` volume. A local scratch restore runs on schedule;
+    # the isolated backup-sync service owns remote transfer and remote restores.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backup
+    image: caos-backup:pg18
+    user: "10001:10001"
+    init: true
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
-    # Hardening: block priv-escalation + cap memory. Caps kept (pg_dump/tar) and
-    # writable rootfs (writes /backups).
+    # Credential-free artifact producer. Only /backups is writable; remote
+    # credentials live in the separate backup-sync service.
     security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=0700,uid=10001,gid=10001"]
     mem_limit: 512m
+    pids_limit: 128
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       BACKUP_KEEP: ${BACKUP_KEEP:-7}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
-      # Optional off-host copy hook, runs after each backup cycle (empty = off).
-      BACKUP_SYNC_CMD: ${BACKUP_SYNC_CMD:-}
-    entrypoint: ["/bin/sh", "/backup.sh"]
+      BACKUP_RESTORE_DRILL_EVERY: ${BACKUP_RESTORE_DRILL_EVERY:-7}
     volumes:
-      - ./backup.sh:/backup.sh:ro
-      # Mounted alongside backup.sh so `docker compose exec backup sh
-      # /restore_drill.sh` (G1) can run the drill against this same
-      # container's /backups + Postgres access — not run automatically.
-      - ./restore_drill.sh:/restore_drill.sh:ro
       - vault-data:/vault:ro
       - backups:/backups
     networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /backups/.caos-backup-ok && test ! -f /backups/.caos-backup-failed"]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
 
-  # Optional malware scanner for uploads (SECURITY.md §4). OPT-IN — only starts with
-  #   docker compose --profile av up -d --build
-  # then set CLAMAV_HOST=clamav in .env and `up -d` the app. Needs ~2 GB RAM and
+  backup-sync:
+    # Remote credentials and tooling are isolated from artifact creation. The
+    # local recovery set is read-only here; remote downloads land on a separate
+    # scratch volume and are restored into a scratch database before health turns green.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backup-sync
+    image: caos-backup-sync:pg18-rclone
+    user: "10002:10002"
+    # Shared recovery GID grants traversal/read of the producer-owned 0750
+    # backup volume; the mount itself remains read-only and UIDs stay distinct.
+    group_add: ["10000"]
+    init: true
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      backup:
+        condition: service_healthy
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=0700,uid=10002,gid=10002"]
+    mem_limit: 512m
+    pids_limit: 128
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      BACKUP_REMOTE: ${BACKUP_REMOTE:?set the rclone remote path in .env}
+      BACKUP_SYNC_INTERVAL_SECONDS: ${BACKUP_SYNC_INTERVAL_SECONDS:-86400}
+      BACKUP_REMOTE_RESTORE_DRILL_EVERY: ${BACKUP_REMOTE_RESTORE_DRILL_EVERY:-7}
+      RCLONE_CONFIG: /run/secrets/backup_rclone_config
+    secrets: [backup_rclone_config]
+    volumes:
+      - backups:/backups:ro
+      - backup-restore-cache:/restore
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /restore/.caos-backup-sync-ok && test ! -f /restore/.caos-backup-sync-failed"]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
+
+  # Mandatory malware scanner for production uploads. Needs ~2 GB RAM and
   # downloads the virus DB on first boot (egress to database.clamav.net). The mounted
   # clamd.conf raises StreamMaxLength/MaxScanSize/MaxFileSize to 300M (above
   # MAX_UPLOAD_MB=250) so large credit agreements / 10-Ks scan instead of failing
   # closed (503) on clamd's 25 MB default. Verify clamd starts on the first av deploy.
   clamav:
     image: clamav/clamav:1.5
-    profiles: ["av"]
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
     mem_limit: 2g
@@ -216,7 +267,12 @@ volumes:
   caddy-data:
   caddy-config:
   backups:
+  backup-restore-cache:
   clamav-data:
+
+secrets:
+  backup_rclone_config:
+    file: ${BACKUP_RCLONE_CONFIG_FILE:?set the path to a secret rclone config}
 
 networks:
   internal:

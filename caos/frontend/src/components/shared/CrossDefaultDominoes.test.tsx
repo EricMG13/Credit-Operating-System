@@ -44,6 +44,30 @@ describe("CrossDefaultDominoes", () => {
     await waitFor(() => expect(screen.getByText("No material-indebtedness threshold extracted for this run.")).toBeTruthy());
   });
 
+  it("uses the generic empty-map note when the server supplied none", async () => {
+    mockGetCrossDefaultMap.mockResolvedValue({
+      issuer_id: "i1", run_id: "r1", threshold_musd: null, dominoes: [], note: null,
+    });
+    render(<CrossDefaultDominoes issuerId="i1" hasRun />);
+    expect(await screen.findByText("No domino map for this run.")).toBeTruthy();
+  });
+
+  it("formats billion-scale values and singular pulled-in tranche labels", async () => {
+    mockGetCrossDefaultMap.mockResolvedValue({
+      issuer_id: "i1", run_id: "r1", threshold_musd: 1500,
+      dominoes: [{
+        code: "TLB", tranche: "Term Loan B", amount_musd: 2100,
+        trips_cross_default: true, pulls_in: ["RCF"],
+      }],
+      note: null,
+    });
+    render(<CrossDefaultDominoes issuerId="i1" hasRun />);
+
+    expect(await screen.findByText("trips ≥ $1.5bn")).toBeTruthy();
+    expect(screen.getByText("$2.1bn")).toBeTruthy();
+    expect(screen.getByText("⚠ pulls in 1 tranche")).toBeTruthy();
+  });
+
   it("renders a computable map: threshold header, tripped tranches with the pulled-in list, untripped and non-computable rows distinct from tripped ones", async () => {
     mockGetCrossDefaultMap.mockResolvedValue({
       issuer_id: "i1", run_id: "r1", threshold_musd: 50,

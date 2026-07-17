@@ -52,6 +52,17 @@ describe("CitationViewer", () => {
     expect(screen.queryByText("Loading source…")).toBeNull();
   });
 
+  it.each([
+    [new Error("transport failed"), "transport failed"],
+    [{}, "could not load source"],
+  ])("falls back through the supported error shapes", async (reason, expected) => {
+    mockGetChunk.mockRejectedValue(reason);
+    render(<CitationViewer chunkId="missing" label="E-17" onClose={() => {}} />);
+
+    expect(await screen.findByText(expected)).toBeTruthy();
+    expect(screen.getByText("E-17")).toBeTruthy();
+  });
+
   it("calls onClose on backdrop click", async () => {
     mockGetChunk.mockResolvedValue(CHUNK);
     const onClose = vi.fn();

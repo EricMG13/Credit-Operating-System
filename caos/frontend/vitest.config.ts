@@ -38,6 +38,12 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text-summary", "json"],
       reportsDirectory: "./coverage",
+      // Measure first-party application source only. Without an explicit
+      // include, a prior Next build makes generated `out/_next` chunks and
+      // browser/validation scripts part of the denominator, so identical
+      // source + tests report different coverage depending on local artifacts.
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.test.{ts,tsx}", "src/**/*.d.ts"],
     },
   },
 });

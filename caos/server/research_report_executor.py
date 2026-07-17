@@ -383,6 +383,7 @@ class ReportQueueWorker:
         self._inflight_tasks: dict[str, asyncio.Task] = {}
         self._loop_task: asyncio.Task | None = None
         self._stop = asyncio.Event()
+        self._consecutive_failures = 0
 
     async def start(self) -> None:
         self._stop.clear()
@@ -404,6 +405,16 @@ class ReportQueueWorker:
         # ResearchReportExecutor.enqueue's sync signature — the two are
         # interchangeable behind get_report_executor()'s dialect switch).
         return None
+
+    def health(self) -> dict[str, object]:
+        loop_live = self._loop_task is not None and not self._loop_task.done()
+        healthy = loop_live and self._consecutive_failures < 3
+        return {
+            "status": "ok" if healthy else "degraded",
+            "loop_live": loop_live,
+            "consecutive_failures": self._consecutive_failures,
+            "inflight": len(self._inflight_tasks),
+        }
 
     async def _reap_orphans(self) -> None:
         async with AsyncSessionLocal() as s:
@@ -500,7 +511,6 @@ class ReportQueueWorker:
     async def _run_loop(self) -> None:
         poll = self._settings.caos_report_poll_seconds
         cap = self._settings.caos_research_concurrency
-        fails = 0
         while not self._stop.is_set():
             try:
                 await self._heartbeat()
@@ -524,13 +534,13 @@ class ReportQueueWorker:
                         self._inflight_tasks.pop(rid, None)
 
                     task.add_done_callback(_discard)
-                fails = 0
+                self._consecutive_failures = 0
             except Exception:  # noqa: BLE001 — never let the loop die
-                fails += 1
-                if fails >= 3:
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= 3:
                     logger.error(
                         "report worker loop failing repeatedly (%d consecutive ticks) — queue stalled",
-                        fails,
+                        self._consecutive_failures,
                     )
                 else:
                     logger.exception("report worker loop tick failed")

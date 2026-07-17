@@ -80,6 +80,7 @@ function Research() {
   const [criteria, setCriteria] = useState(DEFAULT_CRITERIA);
   const [aiMode, setAiMode] = useState<AiMode>("standard");
   const [adv, setAdv] = useState(false); // advanced-brief disclosure (persisted post-mount)
+  const advInteracted = useRef(false);
 
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +123,7 @@ function Research() {
     setCriteria(p.criteria);
     setAiMode(p.ai_mode);
     try {
-      setAdv(localStorage.getItem(_ADV_KEY) === "1");
+      if (!advInteracted.current) setAdv(localStorage.getItem(_ADV_KEY) === "1");
     } catch {
       /* private mode — disclosure just starts collapsed */
     }
@@ -238,7 +239,8 @@ function Research() {
         : null;
   const criteriaList = criteria.split("\n").map((c) => c.trim()).filter(Boolean);
 
-  const toggleAdv = () =>
+  const toggleAdv = () => {
+    advInteracted.current = true;
     setAdv((v) => {
       const next = !v;
       try {
@@ -248,6 +250,7 @@ function Research() {
       }
       return next;
     });
+  };
 
   // Watch a durable job (fresh or reattached) to terminal, driving the running →
   // result/error dispatch. `prevResult` is retained so a *failed rerun* doesn't

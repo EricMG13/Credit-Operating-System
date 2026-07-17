@@ -4,7 +4,7 @@
 // surfaced with the card intact.
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { FindingsTray } from "./AnalysisWorkbench";
+import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "./AnalysisWorkbench";
 import { analysisApi, type Finding } from "@/lib/analysis-workbench";
 
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
@@ -37,6 +37,22 @@ const finding = (over: Partial<Finding>): Finding => ({
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("FindingsTray", () => {
+  it("renders all state glyph families and optional authority metadata", () => {
+    render(<>
+      {['ready', 'error', 'running', 'queued', 'stale'].map((state) => <AnalysisStateBadge key={state} state={state} />)}
+      <AuthorityLine authority={{
+        origin: "live", method: "metric_facts", freshness: "current", approval_state: "draft",
+        source_ids: [], as_of: "2026-07-17T00:00:00Z", run_id: "1234567890",
+      } as never} />
+      <AuthorityLine authority={{
+        origin: "reference", method: "seeded", freshness: "unknown", approval_state: "unratified",
+        source_ids: [], as_of: null, run_id: null,
+      } as never} />
+    </>);
+    expect(screen.getByText("12345678", { exact: false })).toBeTruthy();
+    expect(screen.getByText("reference")).toBeTruthy();
+  });
+
   it("filters archived findings out of the tray and the count", async () => {
     vi.mocked(analysisApi.listFindings).mockResolvedValue([
       finding({ id: "f-1", title: "Active one" }),
@@ -65,5 +81,11 @@ describe("FindingsTray", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Unpin finding: Sticky card" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Unpin failed"));
     expect(screen.getByText("Sticky card")).toBeTruthy();
+  });
+
+  it("renders an optional finding body", async () => {
+    vi.mocked(analysisApi.listFindings).mockResolvedValue([finding({ body: "Supporting detail" })]);
+    render(<FindingsTray contextId="ctx-1" />);
+    expect(await screen.findByText("Supporting detail")).toBeTruthy();
   });
 });

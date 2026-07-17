@@ -174,6 +174,7 @@ class ResearchQueueWorker:
         self._inflight_ids: set[str] = set()
         self._loop_task: asyncio.Task | None = None
         self._stop = asyncio.Event()
+        self._consecutive_failures = 0
 
     async def start(self) -> None:
         self._stop.clear()
@@ -195,6 +196,16 @@ class ResearchQueueWorker:
         # ResearchExecutor.enqueue's sync signature — the two are interchangeable
         # behind get_research_executor()'s dialect switch).
         return None
+
+    def health(self) -> dict[str, object]:
+        loop_live = self._loop_task is not None and not self._loop_task.done()
+        healthy = loop_live and self._consecutive_failures < 3
+        return {
+            "status": "ok" if healthy else "degraded",
+            "loop_live": loop_live,
+            "consecutive_failures": self._consecutive_failures,
+            "inflight": len(self._inflight),
+        }
 
     async def _reap_orphans(self) -> None:
         async with AsyncSessionLocal() as s:
@@ -264,7 +275,6 @@ class ResearchQueueWorker:
     async def _run_loop(self) -> None:
         poll = self._settings.caos_research_poll_seconds
         cap = self._settings.caos_research_concurrency
-        fails = 0
         while not self._stop.is_set():
             try:
                 await self._heartbeat()
@@ -280,13 +290,13 @@ class ResearchQueueWorker:
                     task.add_done_callback(
                         lambda _t, jid=job_id: self._inflight_ids.discard(jid)
                     )
-                fails = 0
+                self._consecutive_failures = 0
             except Exception:  # noqa: BLE001 — never let the loop die
-                fails += 1
-                if fails >= 3:
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= 3:
                     logger.error(
                         "research worker loop failing repeatedly (%d consecutive ticks) — queue stalled",
-                        fails,
+                        self._consecutive_failures,
                     )
                 else:
                     logger.exception("research worker loop tick failed")

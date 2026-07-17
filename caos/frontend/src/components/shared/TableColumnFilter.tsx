@@ -241,7 +241,7 @@ export function FilterHeader<T>({
         openAt(e.currentTarget);
       }}
       className={
-        "inline-flex h-4 w-4 items-center justify-center rounded border transition-caos focus-ring " +
+        "inline-flex h-6 min-h-6 w-6 min-w-6 shrink-0 items-center justify-center rounded border transition-caos focus-ring " +
         (active
           ? "border-caos-accent text-caos-accent bg-caos-elevated"
           : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
@@ -354,7 +354,7 @@ export function FilterHeader<T>({
             openAt(e.currentTarget);
           }}
           className={
-            "inline-flex h-4 w-4 items-center justify-center rounded border transition-caos focus-ring relative after:absolute after:-inset-3.5 after:content-[''] " +
+            "inline-flex h-6 min-h-6 w-6 min-w-6 shrink-0 items-center justify-center rounded border transition-caos focus-ring " +
             (active
               ? "border-caos-accent text-caos-accent bg-caos-elevated"
               : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")

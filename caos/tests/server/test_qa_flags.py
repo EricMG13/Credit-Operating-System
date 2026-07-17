@@ -18,7 +18,7 @@ sys.path.insert(0, str(SERVER_DIR))
 ATLF = "a71f0000-0000-0000-0000-000000000001"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def client():
     from main import app
 

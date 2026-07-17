@@ -18,9 +18,17 @@ forward.
 import subprocess
 import sqlite3
 import sys
+import importlib
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
+MIGRATION_MODULES = tuple(
+    f"migrations.versions.{path.stem}"
+    for path in sorted((SERVER_DIR / "migrations" / "versions").glob("[0-9]*.py"))
+)
 
 
 def _alembic(*args: str, db_url: str) -> subprocess.CompletedProcess:
@@ -71,6 +79,67 @@ def test_upgrade_downgrade_roundtrip(tmp_path: Path) -> None:
     for step in (("upgrade", "head"), ("downgrade", "base"), ("upgrade", "head")):
         r = _alembic(*step, db_url=db)
         assert r.returncode == 0, f"{step} failed:\n{r.stderr}"
+
+
+@pytest.mark.parametrize("module_name", MIGRATION_MODULES)
+def test_downgrade_contract_on_empty_schema(module_name: str, monkeypatch) -> None:
+    """Every revision's rollback path is callable before evidence exists.
+
+    The subprocess round-trip above proves the DDL against SQLite. This focused
+    contract test keeps rollback code visible to in-process coverage and also
+    exercises the fail-closed migrations' empty-evidence path without mutating
+    the shared test database.
+    """
+    migration = importlib.import_module(module_name)
+    operation = MagicMock(name=f"op:{module_name}")
+    connection = operation.get_bind.return_value
+    connection.dialect.name = "sqlite"
+    result = connection.execute.return_value
+    result.scalar_one.return_value = 0
+    result.fetchmany.return_value = []
+    operation.get_context.return_value.as_sql = False
+    monkeypatch.setattr(migration, "op", operation)
+
+    if hasattr(migration, "context"):
+        context = MagicMock(name=f"context:{module_name}")
+        context.is_offline_mode.return_value = False
+        context.get_context.return_value.dialect.name = "sqlite"
+        monkeypatch.setattr(migration, "context", context)
+
+    migration.downgrade()
+
+
+@pytest.mark.parametrize("revision", ("0029_fts_and_ledgers", "0030_vector_embeddings", "0040_alert_states_created_at_tz"))
+def test_postgres_specific_migration_contracts(revision: str, monkeypatch) -> None:
+    migration = importlib.import_module(f"migrations.versions.{revision}")
+    operation = MagicMock(name=f"postgres-op:{revision}")
+    operation.get_bind.return_value.dialect.name = "postgresql"
+    monkeypatch.setattr(migration, "op", operation)
+
+    migration.upgrade()
+    if revision == "0040_alert_states_created_at_tz":
+        migration.downgrade()
+
+    if revision == "0029_fts_and_ledgers":
+        assert operation.add_column.called
+    else:
+        assert operation.execute.called
+
+
+@pytest.mark.parametrize(
+    "revision",
+    ("0055_market_xlsx_v2", "0056_model_engine_v2_persistence", "0058_notification_events"),
+)
+def test_evidence_preserving_downgrades_refuse_destructive_rollback(
+    revision: str, monkeypatch,
+) -> None:
+    migration = importlib.import_module(f"migrations.versions.{revision}")
+    operation = MagicMock(name=f"evidence-op:{revision}")
+    operation.get_bind.return_value.execute.return_value.scalar_one.return_value = 1
+    monkeypatch.setattr(migration, "op", operation)
+
+    with pytest.raises(RuntimeError, match="downgrade refused"):
+        migration.downgrade()
 
 
 def test_issuer_uniqueness_migration_is_team_aware_and_refuses_existing_duplicates(

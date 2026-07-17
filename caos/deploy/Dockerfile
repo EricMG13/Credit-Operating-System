@@ -40,12 +40,12 @@ RUN apt-get update \
 #
 # Fully-pinned, hashed lockfile — the single integrity fix the old two-install
 # layout called out (#24). requirements.lock is pip-compiled from
-# server/requirements.txt + markitdown[pdf]==0.1.6 with --generate-hashes, so the
+# server/requirements-lock.in with --generate-hashes, so the
 # whole transitive tree (incl. markitdown's) is exact and hash-verified, and
 # --require-hashes makes pip reject any artifact whose hash doesn't match.
 # Regenerate after editing requirements.txt:
-#   pip-compile --generate-hashes --strip-extras --output-file=server/requirements.lock \
-#     <(cat server/requirements.txt; echo 'markitdown[pdf]==0.1.6')
+#   pip-compile --generate-hashes --strip-extras \
+#     --output-file=server/requirements.lock server/requirements-lock.in
 # The app shells out to markitdown via CAOS_MARKITDOWN_CMD; this 3.14 runtime
 # installs the CLI straight onto PATH (/usr/local/bin/markitdown). [pdf] not
 # [all] — PDF pilot; xlsx falls back to the built-in openpyxl path.

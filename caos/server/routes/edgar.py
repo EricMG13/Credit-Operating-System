@@ -25,7 +25,14 @@ import edgar
 import ingest
 import rate_limit
 from config import get_settings
-from database import Document, DocumentChunk, Issuer, get_db, AsyncSessionLocal
+from database import (
+    AsyncSessionLocal,
+    Document,
+    DocumentChunk,
+    Issuer,
+    get_db,
+    register_rollback_cleanup,
+)
 from identity import CallerIdentity, get_identity, get_write_identity
 from tenancy import require_issuer
 
@@ -200,6 +207,9 @@ async def vault_exhibit(
     # loop stalls every other request, same reason the extract above is offloaded
     # and matching the upload path (routes/ingestion.py).
     key = await run_in_threadpool(ingest.store, content, file_name)
+    register_rollback_cleanup(
+        db, lambda stored_key=key: ingest.remove_uncommitted(stored_key)
+    )
     chunks = ingest.chunk_text(text)
 
     doc = Document(

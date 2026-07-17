@@ -13,7 +13,7 @@ SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
 sys.path.insert(0, str(SERVER_DIR))
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def client():
     from main import app
 

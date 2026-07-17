@@ -588,6 +588,7 @@ async def test_postgres_independent_transaction_contention_commit_and_rollback()
         }
         async with sessions() as winner, sessions() as contender:
             first = await write_lineage_edge(winner, **kwargs)
+            first_id = first.id if first is not None else None
             blocked = asyncio.create_task(write_lineage_edge(contender, **kwargs))
             await asyncio.sleep(0.15)
             assert not blocked.done(), "contender should wait on the uncommitted unique key"
@@ -598,9 +599,9 @@ async def test_postgres_independent_transaction_contention_commit_and_rollback()
             second = await asyncio.wait_for(blocked, timeout=10)
             await contender.commit()
             if commit_winner:
-                assert first is not None and second is not None and first.id == second.id
+                assert first_id is not None and second is not None and first_id == second.id
             else:
-                assert first is not None and second is not None and first.id != second.id
+                assert first_id is not None and second is not None and first_id != second.id
 
         async with sessions() as verify:
             assert (await verify.execute(

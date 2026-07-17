@@ -18,7 +18,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { IssuerLink } from "@/components/shared/IssuerLink";
-import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, requiredActionFor, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
@@ -94,23 +94,17 @@ export function PhoneTriage() {
   }, [currentKey]);
 
   if (loading) {
-    return <div className="px-3 py-4 tabular text-caos-xs text-caos-muted">loading…</div>;
+    return <SurfaceState kind="loading" title="Loading alert triage" compact className="m-2" />;
   }
   if (offline) {
-    return (
-      <div className="px-3 py-4 flex items-center gap-2">
-        <ProvenanceChip prov={{ origin: "DEMO", detail: "Autonomy engine unreachable — no draft data to show." }} />
-        <span className="tabular text-caos-xs text-caos-muted">Autonomy engine unreachable</span>
-      </div>
-    );
+    // Was labeled origin: "DEMO" — DEMO means seeded/illustrative, and this
+    // is the opposite fact (a live service is genuinely unreachable). The
+    // same conflation Monitor's page-level chip made; SurfaceState's
+    // "offline" kind exists precisely for this.
+    return <SurfaceState kind="offline" title="Autonomy engine unreachable" detail="No draft data to show." compact className="m-2" />;
   }
   if (ordered.length === 0) {
-    return (
-      <div className="px-3 py-4 flex items-center gap-2">
-        <ConclusionAuthority prov={{ origin: "LIVE", method: "MODELLED", detail: draft?.marking }} />
-        <span className="tabular text-caos-xs text-caos-muted">no alerts to triage</span>
-      </div>
-    );
+    return <SurfaceState kind="empty" title="No alerts to triage" detail={draft?.marking ?? undefined} compact className="m-2" />;
   }
 
   const idx = Math.max(0, ordered.findIndex((r) => r.key === currentKey));

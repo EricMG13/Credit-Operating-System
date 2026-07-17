@@ -30,6 +30,14 @@ SourceVersionState: TypeAlias = Literal["match", "changed", "unknown"]
 POLICY_VERSION = "caos-freshness-v1"
 _REPORTING_MONTHS = {"quarterly": 3, "semiannual": 6, "annual": 12}
 _REPORTING_LAG_DAYS = {"quarterly": 45, "semiannual": 75, "annual": 90}
+_SOURCE_KINDS = {
+    "reported_financials",
+    "price",
+    "rating",
+    "legal_document",
+    "run",
+    "derived_artifact",
+}
 
 
 class FreshnessEvaluation(BaseModel):
@@ -103,6 +111,12 @@ def evaluate_freshness(
     ``source_version_state`` is load-bearing for derived and event-driven
     artifacts: a proven mismatch is stale; insufficient lineage is unknown.
     """
+
+    # Runtime callers are not constrained by the Literal annotation. Reject an
+    # unsupported kind at this boundary so callers receive the documented
+    # domain error instead of an implementation-specific Pydantic error later.
+    if source_kind not in _SOURCE_KINDS:
+        raise ValueError(f"unsupported source_kind: {source_kind!r}")
 
     now_utc = _utc(now)
     observed = _utc(observed_at)

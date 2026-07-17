@@ -327,6 +327,14 @@ export function ReportDoc({
   const ctx: EditCtx = { edits: boundedEdits, onEdit, hideAddbacks };
   const immutableCtx: EditCtx = { hideAddbacks };
   const isModelAppendix = rep.id === "model";
+  // The running masthead used to print a literal "RUN #2641 · JUN 10, 2026"
+  // on every page regardless of what actually backs the deliverable — a live
+  // Restricted run's own printed sheet claimed a different run's id and a
+  // date months in the past. Derive the identity from the real caveat state
+  // instead; the full authority stamp (freshness/QA/origin) is AuthorityBlock
+  // below, so this strip only needs a short, honest identity — never a
+  // fabricated one.
+  const mastRunLabel = authority?.runId ? `RUN ${authority.runId.slice(0, 8).toUpperCase()}` : "REFERENCE";
   const overrideN = boundedEdits ? Object.keys(boundedEdits).length : 0;
   const colophonText = [
     overrideN > 0 ? overrideN + " analyst override" + (overrideN === 1 ? "" : "s") + " applied" : null,
@@ -390,7 +398,7 @@ export function ReportDoc({
                 <span className="rd-mark">C</span>
                 <span>CAOS · IC CREDIT MEMO · {pg.name.toUpperCase()}</span>
               </span>
-              <span className="rd-mast-meta">RUN #2641 · JUN 10, 2026 · PAGE {pi + 1} of {pages.length}</span>
+              <span className="rd-mast-meta">{mastRunLabel} · PAGE {pi + 1} of {pages.length}</span>
             </div>
 
             {pi === 0 && (
@@ -443,7 +451,7 @@ export function ReportDoc({
             <span className="rd-mark">C</span>
             <span>CAOS · CREDIT RESEARCH</span>
           </span>
-          <span className="rd-mast-meta">RUN #2641 · JUN 10, 2026 · INTERNAL USE</span>
+          <span className="rd-mast-meta">{mastRunLabel} · INTERNAL USE</span>
         </div>
       )}
       {/* Authority block — origin/method/QA derived from the real caveat state,
@@ -472,7 +480,7 @@ export function ReportDoc({
             <span className="rd-mark">C</span>
             <span>CAOS · MODEL APPENDIX · REFERENCE FIXTURE</span>
           </span>
-          <span className="rd-mast-meta">RUN #2641 · JUN 10, 2026 · NOT A LIVE ISSUER RUN</span>
+          <span className="rd-mast-meta">{mastRunLabel} · {authority?.liveRunBacked ? "LIVE ISSUER RUN" : "NOT A LIVE ISSUER RUN"}</span>
         </div>
       ) : null}
       <h1 className="rd-title"><E p="title" v={rep.title} ctx={ctx} /></h1>

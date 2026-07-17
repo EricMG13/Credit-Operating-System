@@ -594,3 +594,40 @@ and the `power` input-cost rule. Fixed volume to follow the same upside-context 
 as demand and excluded `pricing power` from utility/input-cost matching. Regression:
 `test_volume_recovery_with_pricing_power_is_upside`; benchmark corpus includes the
 phrase.
+
+Resumed on 2026-07-17 with a fresh five-case corpus. Case 1 immediately found
+**BUG-014 — growth slowdown mapped as revenue upside**:
+`revenue growth slows as customer churn rises` produced
+`rev_growth_delta=+0.03` because the deterministic mapper treated the bare token
+`growth` as positive regardless of its directional context. The streak reset to
+**0/5**. Fixed the polarity classifier to use explicit recovery/acceleration phrases
+for upside and explicit slowdown/contraction/churn-deterioration phrases for downside;
+the generic weak-demand effect now handles the latter. Regression:
+`test_growth_slowdown_is_not_treated_as_upside`. The realistic performance corpus now
+includes the failing phrase.
+
+The restarted corpus then passed four consecutive cases before case 5 found
+**BUG-015 — easing inflation mapped as an input-cost spike**:
+`inflation eases and raw material costs normalize` produced
+`margin_delta=-0.03` and `rate_delta=+0.005` because the generic `inflation` token
+overrode the phrase's explicit relief direction. The streak reset again to **0/5**.
+Fixed the classifier so explicit deflation/disinflation/easing/normalization language
+takes precedence over the generic inflation shock, without moving unrelated drivers.
+Regression: `test_easing_inflation_is_not_treated_as_cost_spike`. The failing phrase
+is also part of the bounded realistic benchmark corpus.
+
+### Final restarted streak — 5/5 consecutive successes
+
+After BUG-015 was repaired, the corpus restarted from case 1 and all five cases
+passed consecutively with exact driver-delta assertions:
+
+1. Growth slowdown plus worsening churn → revenue `-5pp`, margin `-2pp`.
+2. EBITDA margin expansion of `125bps` → margin `+125bps` only.
+3. Maintenance-capex reduction of `100bps` → capex `-100bps` only.
+4. Customer-volume decline / contract roll-off → revenue `-5pp`, margin `-2pp`.
+5. Inflation easing / raw-material cost normalization → margin `+2pp` only.
+
+Final verification: the complete Scenario Builder regression file plus realistic
+benchmark passed **16/16**; the benchmark call remained **0.01s** and Ruff passed on
+the translator, regression file, and benchmark file. The only warning was the known
+Starlette `TestClient`/httpx deprecation notice.

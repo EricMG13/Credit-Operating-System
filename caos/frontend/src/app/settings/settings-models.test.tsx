@@ -7,17 +7,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SettingsPage from "./page";
-import { getAnalystSettings, patchAnalystSettings } from "@/lib/api";
+import { getAnalystSettings, getSettings, patchAnalystSettings } from "@/lib/api";
 
 let currentTab = "models";
+const { replace } = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/settings",
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace, prefetch: vi.fn() }),
   useSearchParams: () => new URLSearchParams(currentTab ? `tab=${currentTab}` : ""),
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
+vi.mock("@/components/settings/PortfoliosPanel", () => ({ PortfoliosPanel: () => <div>portfolio settings</div> }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getSettings: vi.fn().mockResolvedValue({
@@ -169,5 +171,95 @@ describe("Settings · Models tab", () => {
     expect(patchAnalystSettings).toHaveBeenNthCalledWith(2, 11, {
       workspace: { model_builder: { warn_on_unsaved_leave: false } },
     });
+  });
+
+  it("supports tab clicks and the complete roving-tab keyboard contract", async () => {
+    render(<SettingsPage />);
+    const models = await screen.findByRole("tab", { name: "Models" });
+    fireEvent.click(screen.getByRole("tab", { name: "Research" }));
+    expect(replace).toHaveBeenCalledWith("?tab=research", { scroll: false });
+    for (const [key, expected] of [["ArrowRight", "research"], ["ArrowDown", "research"], ["ArrowLeft", "workspace"], ["ArrowUp", "workspace"], ["Home", "models"], ["End", "workspace"]]) {
+      fireEvent.keyDown(models, { key });
+      expect(replace).toHaveBeenLastCalledWith(`?tab=${expected}`, { scroll: false });
+    }
+    const priorCalls = replace.mock.calls.length;
+    fireEvent.keyDown(models, { key: "Tab" });
+    expect(replace).toHaveBeenCalledTimes(priorCalls);
+  });
+
+  it("edits, saves, and resets the browser-local research defaults", async () => {
+    currentTab = "research";
+    render(<SettingsPage />);
+    const audience = await screen.findByLabelText("Audience");
+    fireEvent.change(audience, { target: { value: "Credit committee" } });
+    fireEvent.change(screen.getByLabelText("Decision to inform"), { target: { value: "Sizing" } });
+    fireEvent.change(screen.getByLabelText("Timeframe"), { target: { value: "Next year" } });
+    fireEvent.change(screen.getByLabelText(/Investigation criteria/), { target: { value: "Liquidity" } });
+    fireEvent.click(screen.getByRole("button", { name: /max/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+    expect((screen.getByLabelText("Audience") as HTMLInputElement).value).not.toBe("Credit committee");
+  });
+
+  it("renders connected email state and persists a normalized sender list", async () => {
+    currentTab = "email";
+    vi.mocked(getAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { outlook_connected: true, approved_senders: ["old@desk.test"] }, revision: 3,
+    });
+    vi.mocked(patchAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { outlook_connected: true, approved_senders: ["one@test", "two@test"] }, revision: 4,
+    });
+    render(<SettingsPage />);
+    expect(await screen.findByText("Connected")).toBeTruthy();
+    const senders = screen.getByLabelText(/Approved sender/);
+    fireEvent.change(senders, { target: { value: " one@test, two@test\n " } });
+    fireEvent.blur(senders);
+    await waitFor(() => expect(patchAnalystSettings).toHaveBeenCalledWith(3, {
+      email_intelligence: { outlook_connected: true, approved_senders: ["one@test", "two@test"] },
+    }));
+  });
+
+  it("renders every workspace configuration value and recovers from an offline read", async () => {
+    currentTab = "workspace";
+    const cfg = {
+      model: "opus", llm_configured: false, gemini_configured: true, openrouter_configured: false,
+      governance: { council_enabled: true, council_seats: 4, council_peer_round: false, council_cross_model: true, debate_enabled: false },
+      model_tiers: { cheap: "cheap", fast: "fast", strong: "strong", top: "top" },
+      engine_cost: { run_token_budget: 0, advisor_enabled: true, synth_executor_model: "synth", advisor_model: "advisor" },
+      deep_research: { effort: "high", max_searches: 12, max_tokens: 4000 },
+      retrieval: { edgar_enabled: true, markitdown_enabled: false },
+      workspace: { environment: "test", demo_seed: false, max_upload_mb: 20, run_concurrency: 3 },
+      features: { lineage_v2_enabled: true, market_xlsx_v2_enabled: true, model_engine_v2_enabled: true },
+    };
+    vi.mocked(getSettings).mockResolvedValueOnce(cfg);
+    render(<SettingsPage />);
+    expect(await screen.findByText("Workspace configuration")).toBeTruthy();
+    expect(screen.getByText("Governance & QA")).toBeTruthy();
+    expect(screen.getAllByText("On").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Off").length).toBeGreaterThan(0);
+    cleanup();
+
+    vi.mocked(getSettings).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(cfg);
+    render(<SettingsPage />);
+    expect(await screen.findByText("Workspace configuration unavailable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Governance & QA")).toBeTruthy();
+  });
+
+  it("renders the portfolio tab and retries an analyst profile that initially fails", async () => {
+    currentTab = "portfolios";
+    render(<SettingsPage />);
+    expect(await screen.findByText("portfolio settings")).toBeTruthy();
+    cleanup();
+
+    currentTab = "models";
+    vi.mocked(getAnalystSettings).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { approved_senders: [] }, revision: 1,
+    });
+    render(<SettingsPage />);
+    const [retry] = await screen.findAllByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await waitFor(() => expect((screen.getByRole("switch", { name: "Warn before leaving unsaved model edits" }) as HTMLInputElement).disabled).toBe(false));
   });
 });

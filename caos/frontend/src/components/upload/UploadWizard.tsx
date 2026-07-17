@@ -14,6 +14,7 @@ import type { Issuer } from "@/types/issuers";
 import type { RunSummaryDTO } from "@/lib/engine/types";
 import { Dot } from "@/components/pipeline/atoms";
 import { FirstRunHint } from "@/components/shared/FirstRunHint";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { EdgarImport } from "@/components/upload/EdgarImport";
 import {
   FileStep, IssuerStep, ResultStep, RUN_MODES, StepStrip, isSpreadsheet,
@@ -401,17 +402,19 @@ export function UploadWizard({ initialIssuers = [] }: UploadWizardProps) {
       ) : null}
 
       {step === "issuer" && issuerLoadState === "loading" ? (
-        <p role="status" className="rounded border border-caos-border px-3 py-2 text-caos-sm text-caos-muted">
-          Loading issuer directory…
-        </p>
+        <SurfaceState kind="loading" title="Loading issuer directory…" compact />
       ) : null}
       {step === "issuer" && issuerLoadState === "error" ? (
-        <div role="alert" className="rounded border border-caos-critical/50 px-3 py-2 flex items-center gap-3">
-          <span className="flex-1 text-caos-sm text-caos-critical">{issuerLoadError}</span>
-          <button type="button" className="caos-action-secondary focus-ring" onClick={() => void loadIssuerDirectory()}>
-            Retry issuer load
-          </button>
-        </div>
+        <SurfaceState
+          kind="error"
+          title={issuerLoadError}
+          compact
+          primaryAction={
+            <button type="button" className="caos-action-secondary focus-ring" onClick={() => void loadIssuerDirectory()}>
+              Retry issuer load
+            </button>
+          }
+        />
       ) : null}
 
       {/* Dropzone-rejected files — surfaced so intake never silently drops a

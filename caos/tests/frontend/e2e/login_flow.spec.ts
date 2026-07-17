@@ -17,7 +17,9 @@
 import { test, expect } from "@playwright/test";
 
 // Fresh context — no profile cookie from global-setup's storageState.
-test.use({ storageState: { cookies: [], origins: [] } });
+test.use({ storageState: { cookies: [], origins: [] }, bypassCSP: true });
+
+const axePath = require.resolve("axe-core/axe.min.js");
 
 const unauthMe = { status: 401, contentType: "application/json", body: JSON.stringify({ detail: "no identity" }) };
 
@@ -30,13 +32,15 @@ async function fillSignup(page: import("@playwright/test").Page, code: string) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   await page.getByRole("tab", { name: "Create" }).click();
   await page.getByLabel("Analyst name").fill(`E2E Login ${stamp}`);
-  await page.getByLabel("Email").fill(`e2e-login-${stamp}@firm.test`);
+  const email = `e2e-login-${stamp}@firm.test`;
+  await page.getByLabel("Email").fill(email);
   await page.getByLabel("Login passcode").fill("testpass123");
   await page.getByLabel("Confirm passcode").fill("testpass123");
   await page.getByLabel("Invite code").fill(code);
   await page.getByLabel("Recovery word 1").fill("alpha");
   await page.getByLabel("Recovery word 2").fill("bravo");
   await page.getByLabel("Recovery word 3").fill("charlie");
+  return email;
 }
 
 test.describe("Login (LoginLanding)", () => {
@@ -44,7 +48,15 @@ test.describe("Login (LoginLanding)", () => {
     await page.route("**/api/auth/me", (route) => route.fulfill(unauthMe));
 
     await page.goto("/issuers/");
-    await fillSignup(page, process.env.E2E_ACCESS_CODE || "131113");
+    const email = await fillSignup(page, process.env.E2E_ACCESS_CODE || "131113");
+    if (process.env.E2E_EDGE_PROXY_SECRET) {
+      await page.setExtraHTTPHeaders({
+        "X-Edge-Authorization": process.env.E2E_EDGE_PROXY_SECRET,
+        "X-Forwarded-Email": email,
+        "X-Forwarded-User": email,
+        "X-Forwarded-Preferred-Username": `E2E Login ${email}`,
+      });
+    }
 
     const [resp] = await Promise.all([
       page.waitForResponse((r) => r.url().includes("/api/auth/register") && r.request().method() === "POST"),
@@ -80,5 +92,77 @@ test.describe("Login (LoginLanding)", () => {
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await expect(page.locator(loginError)).toBeVisible({ timeout: 10000 });
+  });
+
+  test("auth login mobile responsive states remain accessible and unclipped", async ({ page }) => {
+    const featureIds = ["auth-01", "auth-10", "auth-16", "auth-17", "auth-18"];
+    expect(featureIds).toHaveLength(5); // Stable tracker evidence tags for this state matrix.
+
+    await page.route("**/api/auth/me", (route) => route.fulfill(unauthMe));
+    await page.route("**/api/auth/login", (route) => route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "Invalid email or passcode." }),
+    }));
+
+    const assertCurrentState = async () => {
+      const layout = await page.evaluate(() => {
+        const rootWidth = document.documentElement.clientWidth;
+        const visible = (element: Element) => {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden"
+            && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
+        };
+        const clippedControls = [...document.querySelectorAll(
+          'a[href], button, input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])',
+        )]
+          .filter(visible)
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.left < -1 || rect.right > rootWidth + 1;
+          })
+          .map((element) => (element.getAttribute("aria-label") || element.textContent || element.tagName).trim());
+        return {
+          pageOverflowPx: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - rootWidth,
+          clippedControls,
+        };
+      });
+      expect(layout.pageOverflowPx).toBeLessThanOrEqual(1);
+      expect(layout.clippedControls).toEqual([]);
+
+      const violations = await page.evaluate(async () => {
+        const axe = (window as typeof window & {
+          axe: { run: (root: Document, options: unknown) => Promise<{ violations: Array<{ id: string; nodes: unknown[] }> }> };
+        }).axe;
+        const result = await axe.run(document, {
+          runOnly: {
+            type: "tag",
+            values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"],
+          },
+        });
+        return result.violations.map((violation) => ({ id: violation.id, nodes: violation.nodes.length }));
+      });
+      expect(violations).toEqual([]);
+    };
+
+    for (const viewport of [{ width: 390, height: 844 }, { width: 900, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      await page.goto("/issuers/");
+      await page.addScriptTag({ path: axePath });
+
+      for (const mode of ["Sign in", "Create", "Recover"] as const) {
+        await page.getByRole("tab", { name: mode, exact: true }).click();
+        await expect(page.getByRole("tab", { name: mode, exact: true })).toHaveAttribute("aria-selected", "true");
+        await assertCurrentState();
+      }
+
+      await page.getByRole("tab", { name: "Sign in", exact: true }).click();
+      await page.getByLabel("Email").fill("responsive-login@firm.test");
+      await page.getByLabel("Login passcode").fill("wrongpasscode");
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await expect(page.locator(loginError)).toContainText("Invalid email or passcode.");
+      await assertCurrentState();
+    }
   });
 });

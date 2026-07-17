@@ -26,6 +26,21 @@ def test_http_get_requires_user_agent(monkeypatch):
         edgar._http_get("https://efts.sec.gov/LATEST/search-index?q=x")
 
 
+def test_process_throttle_partitions_aggregate_rate(monkeypatch):
+    monkeypatch.setenv("WEB_CONCURRENCY", "2")
+    monkeypatch.delenv("CAOS_SEC_RATE_PARTITIONS", raising=False)
+    assert edgar._rate_partitions() == 2
+    assert edgar._process_min_interval_s() == pytest.approx(0.30)
+
+    # Explicit partitioning covers multiple replicas and may never reduce the
+    # automatically detected local worker count.
+    monkeypatch.setenv("CAOS_SEC_RATE_PARTITIONS", "4")
+    assert edgar._rate_partitions() == 4
+    assert edgar._process_min_interval_s() == pytest.approx(0.60)
+    monkeypatch.setenv("CAOS_SEC_RATE_PARTITIONS", "1")
+    assert edgar._rate_partitions() == 2
+
+
 def test_normalize_cik():
     assert edgar.normalize_cik("320193") == "0000320193"
     assert edgar.normalize_cik("CIK0000320193") == "0000320193"
@@ -34,6 +49,7 @@ def test_normalize_cik():
 
 
 def test_search_parses_hits_and_flags_pointer(monkeypatch):
+    # research-23 research-24: the free EDGAR discovery lane returns unverified pointers.
     payload = {
         "hits": {
             "hits": [
@@ -63,6 +79,7 @@ def test_search_parses_hits_and_flags_pointer(monkeypatch):
 
 
 def test_list_exhibits_classifies_and_orders(monkeypatch):
+    # research-23 research-25: filing exhibits are classified and authority-ranked.
     payload = {
         "directory": {
             "item": [
@@ -153,10 +170,22 @@ def test_fetch_exhibit_accepts_legit_archive_url(monkeypatch):
     assert edgar.fetch_exhibit("https://WWW.SEC.GOV/Archives/x.htm") == b"ok2"
 
 
+def test_vault_exhibit_registers_object_cleanup_before_db_flush():
+    """A pre-commit DB failure must remove the uniquely stored EDGAR object."""
+    import inspect
+    from routes import edgar as route
+
+    source = inspect.getsource(route.vault_exhibit)
+    stored_at = source.index("ingest.store")
+    cleanup_at = source.index("register_rollback_cleanup")
+    flush_at = source.index("await db.flush()")
+    assert stored_at < cleanup_at < flush_at
+
+
 # ─── route tests ─────────────────────────────────────────────────────────────
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def client():
     from main import app
 
@@ -172,6 +201,7 @@ def test_search_route_503_without_ua(client, monkeypatch):
 
 
 def test_search_route_returns_pointers(client, monkeypatch):
+    # research-24: the authenticated HTTP endpoint forwards search and provenance.
     from config import get_settings
 
     monkeypatch.setattr(get_settings(), "edgar_user_agent", "Test UA t@e.st")
@@ -198,6 +228,8 @@ def test_search_route_returns_pointers(client, monkeypatch):
 
 
 def test_vault_exhibit_creates_primary_source(client, monkeypatch):
+    # research-23 research-26: a selected SEC exhibit becomes a vaulted, chunked
+    # primary source attached to the requested issuer.
     from config import get_settings
 
     monkeypatch.setattr(get_settings(), "edgar_user_agent", "Test UA t@e.st")
@@ -220,6 +252,40 @@ def test_vault_exhibit_creates_primary_source(client, monkeypatch):
 
     docs = client.get(f"/api/issuers/{issuer_id}/documents").json()
     assert any(d["doc_type"] == "EDGAR Exhibit" and d["run_mode"] == "legal" for d in docs)
+
+
+def test_exhibits_route_returns_classified_documents(client, monkeypatch):
+    # research-25: the HTTP exhibits endpoint returns the classified browse contract.
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "edgar_user_agent", "Test UA t@e.st")
+    monkeypatch.setattr(
+        edgar,
+        "list_exhibits",
+        lambda cik, accession: [
+            edgar.Exhibit(
+                name="dex101.htm",
+                url="https://www.sec.gov/Archives/edgar/data/320193/dex101.htm",
+                doc_label="Credit Agreement",
+                authority_rank=1,
+                size=23456,
+            )
+        ],
+    )
+
+    response = client.get(
+        "/api/edgar/exhibits",
+        params={"cik": "0000320193", "accession": "0001193125-22-000123"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == [{
+        "name": "dex101.htm",
+        "url": "https://www.sec.gov/Archives/edgar/data/320193/dex101.htm",
+        "doc_label": "Credit Agreement",
+        "authority_rank": 1,
+        "size": 23456,
+    }]
 
 
 def test_filings_route_503_without_ua(client, monkeypatch):

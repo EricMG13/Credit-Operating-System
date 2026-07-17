@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Seed sanitized, production-scale issuers for QA.
 
-Inserts ~30 clearly-fictional high-yield issuers across HY sectors, each with a
+Inserts a configurable number of clearly-fictional high-yield issuers across HY
+sectors, each with a
 couple of source chunks and headline metric_facts, so every read-only view
 (directory, search, command, cross-issuer query) has realistic volume to render.
 Run-derived views (pipeline/deep-dive/report/monitor) get authentic data by
@@ -11,16 +12,18 @@ Deterministic (fixed RNG) and idempotent (skips issuers already present by name)
 Honors DATABASE_URL / CAOS_STORAGE_DIR — point it at the QA database, e.g.
 
     DATABASE_URL=sqlite+aiosqlite:///$PWD/server/data/caos_qa.db \\
-      server/.venv/bin/python scripts/seed_qa_scale.py
+      server/.venv/bin/python scripts/seed_qa_scale.py --issuers 300
 
 All names are invented for QA. No real company is represented.
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import random
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 SERVER_DIR = Path(__file__).resolve().parents[1] / "server"
@@ -28,12 +31,16 @@ sys.path.insert(0, str(SERVER_DIR))
 
 from sqlalchemy import func, select  # noqa: E402
 
+from config import get_settings  # noqa: E402
 from database import (  # noqa: E402
+    Analyst,
     AsyncSessionLocal,
     Document,
     DocumentChunk,
     Issuer,
     MetricFact,
+    ModuleOutput,
+    Run,
     init_db,
 )
 
@@ -76,11 +83,56 @@ _METRIC_KEYS = ["revenue", "adj_ebitda", "ebitda_margin", "gross_margin",
 _UNIT = {"revenue": "$M", "adj_ebitda": "$M", "ebitda_margin": "%", "gross_margin": "%",
          "net_leverage": "x", "interest_coverage": "x", "fcf_conversion": "%", "energy_cost_pct": "%"}
 
+QA_WORKFLOW_RUN_ID = "qa-scale-model-run-000000000001"
+QA_WORKFLOW_CP1_ID = "qa-scale-cp1-000000000000000001"
+QA_WORKFLOW_ANALYST_EMAIL = "e2e-model@firm.test"
+QA_WORKFLOW_ANALYST_NAME = "E2E Model Analyst"
+
+
+def _workflow_cp1_payload() -> dict:
+    """A finite, explicitly synthetic CP-1 anchor for mutation workflows.
+
+    This is opt-in because it represents a completed analytical state without
+    executing an LLM-backed run. It is production-shaped test data, never
+    production evidence; the limitation flag remains attached to the module.
+    """
+    return {
+        "currency": "USD",
+        "reporting_unit": "$M",
+        "normalized_financials": {
+            "revenue": {"2025-12-31": 1_180.0, "LTM-2026-03-31": 1_225.0},
+            "adj_ebitda": {"2025-12-31": 147.0, "LTM-2026-03-31": 155.0},
+            "net_debt_ltm": 790.5,
+            "net_leverage_adj_ltm": 5.10,
+            "interest_coverage_ltm": 2.35,
+        },
+    }
+
 
 def _figi(i: int) -> str:
     # Synthetic but well-formed (12-char BBG... ). Deterministic per index.
     base = f"{i:07d}"
     return f"BBG00{base[:4]}{base[4:]}"[:12].ljust(12, "0")
+
+
+def _issuer_for_index(index: int) -> tuple[str, str, str, str, float]:
+    """Return a deterministic fictional issuer, expanding the 30-name base cohort.
+
+    Cohort one keeps the original readable names. Larger pilot/stress books add a
+    conspicuous ``QA NN`` suffix and a synthetic ticker so no generated row can be
+    mistaken for a real issuer or collide with another cohort.
+    """
+    name, ticker, sector, country, energy = ISSUERS[index % len(ISSUERS)]
+    cohort = index // len(ISSUERS)
+    if cohort == 0:
+        return name, ticker, sector, country, energy
+    return (
+        f"{name} QA {cohort + 1:02d}",
+        f"Q{index + 1:05d}",
+        sector,
+        country,
+        energy,
+    )
 
 
 def _metrics_for(rng: random.Random, energy: float) -> list[float]:
@@ -116,12 +168,30 @@ def _docs_for(name: str, sector: str, energy: float) -> list[tuple[str, str, str
     ]
 
 
-async def seed() -> None:
+async def seed(
+    target_count: int = len(ISSUERS), *, allow_non_qa_database: bool = False,
+    with_workflow_fixture: bool = False,
+) -> None:
+    if not 1 <= target_count <= 10_000:
+        raise ValueError("--issuers must be between 1 and 10,000")
+    database_url = get_settings().database_url
+    if (
+        target_count > len(ISSUERS)
+        and "qa" not in database_url.casefold()
+        and not allow_non_qa_database
+    ):
+        raise RuntimeError(
+            "Refusing a scale seed into a database whose URL is not visibly QA-scoped. "
+            "Use an isolated URL containing 'qa', or pass --allow-non-qa-database "
+            "only after verifying the target is disposable."
+        )
     await init_db()
     rng = random.Random(42)
     created = 0
+    target_names = [_issuer_for_index(index)[0] for index in range(target_count)]
     async with AsyncSessionLocal() as session:
-        for i, (name, ticker, sector, country, energy) in enumerate(ISSUERS):
+        for i in range(target_count):
+            name, ticker, sector, country, energy = _issuer_for_index(i)
             exists = (await session.execute(
                 select(func.count()).select_from(Issuer).where(Issuer.name == name)
             )).scalar()
@@ -157,9 +227,126 @@ async def seed() -> None:
                     fact.provenance = "derived"
                 session.add(fact)
             created += 1
+
+        if with_workflow_fixture:
+            workflow_issuer = (await session.execute(
+                select(Issuer).where(Issuer.name == target_names[0])
+            )).scalar_one()
+            workflow_analyst = (await session.execute(
+                select(Analyst).where(
+                    func.lower(Analyst.email) == QA_WORKFLOW_ANALYST_EMAIL.casefold()
+                )
+            )).scalar_one_or_none()
+            if workflow_analyst is None:
+                workflow_analyst = Analyst(
+                    name=QA_WORKFLOW_ANALYST_NAME,
+                    email=QA_WORKFLOW_ANALYST_EMAIL,
+                )
+                session.add(workflow_analyst)
+                await session.flush()
+            elif workflow_analyst.name != QA_WORKFLOW_ANALYST_NAME:
+                workflow_analyst.name = QA_WORKFLOW_ANALYST_NAME
+            workflow_run = await session.get(Run, QA_WORKFLOW_RUN_ID)
+            if workflow_run is None:
+                now = datetime.now(timezone.utc)
+                session.add(Run(
+                    id=QA_WORKFLOW_RUN_ID,
+                    issuer_id=workflow_issuer.id,
+                    status="complete",
+                    analyst_id=workflow_analyst.id,
+                    as_of_date="2026-03-31",
+                    model_id="qa-sanitized-workflow-fixture",
+                    prompt_version="qa-fixture-v1",
+                    qa_status="Restricted",
+                    committee_status="Restricted",
+                    completed_at=now,
+                    created_at=now,
+                ))
+                await session.flush()
+            elif workflow_run.issuer_id != workflow_issuer.id:
+                raise RuntimeError("QA workflow run id is already bound to another issuer")
+            else:
+                workflow_run.analyst_id = workflow_analyst.id
+
+            workflow_cp1 = await session.get(ModuleOutput, QA_WORKFLOW_CP1_ID)
+            if workflow_cp1 is None:
+                workflow_cp1 = ModuleOutput(
+                    id=QA_WORKFLOW_CP1_ID,
+                    run_id=QA_WORKFLOW_RUN_ID,
+                    module_id="CP-1",
+                    module_name="Sanitized QA financial foundation",
+                    owned_object="normalized_financials",
+                    runtime_output=_workflow_cp1_payload(),
+                    confidence="High",
+                    qa_status="Restricted",
+                    committee_status="Restricted",
+                    validation_status="Passed",
+                    limitation_flags=["Sanitized QA fixture; not production evidence."],
+                    downstream_consumers=["Model Builder", "Report Studio"],
+                )
+                session.add(workflow_cp1)
+            elif workflow_cp1.run_id != QA_WORKFLOW_RUN_ID:
+                raise RuntimeError("QA workflow CP-1 id is already bound to another run")
+            else:
+                workflow_cp1.runtime_output = _workflow_cp1_payload()
+                workflow_cp1.limitation_flags = [
+                    "Sanitized QA fixture; not production evidence."
+                ]
         await session.commit()
-    print(f"seed_qa_scale: created {created} issuer(s); {len(ISSUERS) - created} already present.")
+        issuer_count = (await session.execute(
+            select(func.count()).select_from(Issuer).where(Issuer.name.in_(target_names))
+        )).scalar_one()
+        document_count = (await session.execute(
+            select(func.count()).select_from(Document)
+            .join(Issuer, Document.issuer_id == Issuer.id)
+            .where(Issuer.name.in_(target_names))
+        )).scalar_one()
+        metric_count = (await session.execute(
+            select(func.count()).select_from(MetricFact)
+            .join(Issuer, MetricFact.issuer_id == Issuer.id)
+            .where(Issuer.name.in_(target_names))
+        )).scalar_one()
+        workflow_run_count = int(
+            with_workflow_fixture
+            and await session.get(Run, QA_WORKFLOW_RUN_ID) is not None
+        )
+    print(
+        "seed_qa_scale: "
+        f"created={created}; already_present={target_count - created}; "
+        f"qa_issuers={issuer_count}; qa_documents={document_count}; "
+        f"qa_metric_facts={metric_count}; qa_workflow_runs={workflow_run_count}; "
+        "sanitized=true"
+    )
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--issuers",
+        type=int,
+        default=len(ISSUERS),
+        help="Number of fictional issuers to ensure (default: 30; pilot/stress target: 300).",
+    )
+    parser.add_argument(
+        "--with-workflow-fixture",
+        action="store_true",
+        help=(
+            "Add one clearly-labelled completed CP-1 fixture for live Model Builder "
+            "save/reload testing; never treat it as production evidence."
+        ),
+    )
+    parser.add_argument(
+        "--allow-non-qa-database",
+        action="store_true",
+        help="Override the URL safety check after independently verifying the target is disposable.",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    args = _parse_args()
+    asyncio.run(seed(
+        args.issuers,
+        allow_non_qa_database=args.allow_non_qa_database,
+        with_workflow_fixture=args.with_workflow_fixture,
+    ))

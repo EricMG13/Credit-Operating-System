@@ -3,14 +3,11 @@
 **Audit date:** 2026-06-16 (full re-audit after the EDGAR engine stack (#13),
 the DM/loans re-model (#14), and the retention / N+1 / async / budgeting work;
 supersedes the 2026-06-14 pass).
-**Last reconciled:** 2026-07-11 — health snapshot + the S-4 / PERF-1 / PERF-2 /
-F-1 / F-2 / A-1 rows refreshed against shipped code through the pre-production
-security-audit + P4-2 BM25-index + Command-governance-boards merges (NaN
-guards, run dedup, durable research, opt-in tenancy, the CP-5 completeness lane).
-**Re-reconciled 2026-07-11 (same day, later pass):** TypeScript bumped to 7.0.2
-(#141) and 8 dependabot PRs merged (alembic, fastapi, uvicorn-adjacent tooling,
-mypy, anthropic SDK, tailwindcss, playwright, actions/checkout, node docker
-digest) — see "Known frontend toolchain break" below for what TS7 changed.
+**Last reconciled:** 2026-07-16 — health snapshot and A-1 refreshed against
+the current tree after the per-finding CP-5 queue, live Deep-Dive runtime
+register, and persisted CP-5B decision-driver lineage landed. The superseded
+TypeScript 7 toolchain note was removed: the current lockfile is back on the
+supported TypeScript 5.6 / Next 16.2 line and lint/build are green.
 **Scope:** `caos/` — FastAPI server (~6.8k LOC Python, 51 files), Next.js frontend
 (~14.7k LOC TS/TSX, 87 files), config, CI, tests. The `Modular OS/` corpus is
 analytical-methodology prose, not code, and is out of scope.
@@ -22,30 +19,12 @@ analytical-methodology prose, not code, and is out of scope.
 
 ## Health snapshot
 
-> ⚠️ **Known frontend toolchain break (since #141, 2026-07-11):** TypeScript
-> 7.0.2 breaks two independent things this stack currently has no fix for —
-> (1) `eslint-config-next`'s bundled `@typescript-eslint` crashes outright
-> (`Cannot read properties of undefined (reading 'Cjs')`); confirmed no newer
-> `@typescript-eslint` exists yet that supports TS7 (latest published, 8.63.0,
-> still declares `typescript: '>=4.8.4 <6.1.0'`). (2) Next's build-time `@/*`
-> path-alias resolution fails under TS7 (`Module not found` on every aliased
-> import), breaking `npm run build`, the E2E job, and the Docker image build.
-> `tsc --noEmit` itself and `vitest run` are unaffected — only lint and any
-> step that runs a production `next build` are down. This was a deliberate,
-> informed merge (the alternative — TS 5.9 — has its own unresolved gaps);
-> revisit once `eslint-config-next`/Next ship TS7 support.
-
-Frontend: eslint **✗ broken** (see above) · `tsc --noEmit` (strict) ✓ ·
-production static export **✗ broken** (see above — was ✓ prior to #141). The
-full Vitest run reaches every displayed test file without a reported failure
-but the process itself has an open-handle hang after completion (documented,
-unresolved harness gap — not a code defect; every individual test file passes
-deterministically in isolation). Server: **1393 pytest ✓ / 2 skipped** (2
-Postgres-only worker/reaper/claim tests skipped on the SQLite default suite,
-run green against `pgvector/pgvector:pg18` in the CI Postgres step) — up from
-1378 after today's dependabot batch; migration-chain guards (single-head,
-schema-match, upgrade/downgrade round-trip) re-verified green against the
-bumped alembic (1.18.5).
+Frontend: eslint ✓ · `tsc --noEmit` (strict) ✓ · production static export ✓ ·
+**949 Vitest tests ✓** with a clean process exit. Server: **1910 pytest ✓ / 15
+skipped** on the SQLite default lane; skips are environment/integration lanes,
+including Postgres-specific concurrency coverage. The feature tracker contains
+**355/355 Pass** stories. Counts and build status were re-verified on
+2026-07-16; CI remains the authoritative Postgres and container lane.
 CI ([.github/workflows/ci.yml](../../.github/workflows/ci.yml)) runs lint + tsc +
 vitest + build on the frontend job, pytest on the server job, and a Docker image
 build — so the tests and the deploy image are gated. No committed secrets/DB/vault
@@ -56,24 +35,25 @@ list-form), Alembic chain linear, `tsconfig` strict.
 **Verdict:** a well-built, deploy-ready codebase — **no P0/P1**. Since the last
 audit the engine grew materially and is no longer a 3-module slice.
 
-> **Status (as of the shipped engine):** the engine now wires **19 implemented
+> **Status (as of the shipped engine):** the engine now wires **21 implemented
 > modules** (+ 4 spec-only) per [`registry.py`](../server/engine/registry.py) — the
 > "7-module DAG" below was an earlier snapshot. The full implemented set is CP-0,
-> CP-1/1A/1B/1C, CP-2/2B/2C/2D/2E/2F, CP-3/3B/3C/3D, CP-4/4C, CP-6A/6E.
+> CP-1/1A/1B/1C, CP-2/2B/2C/2D/2E/2F/2G, CP-3/3B/3C/3D,
+> CP-4/4C/4D, CP-6A/6E.
 
 It runs a multi-module analytical DAG — CP-0 SourceReadiness, CP-1 (with the EDGAR
 XBRL→CP-1 deterministic lane), **CP-1A BusinessTransactionFactPack**, **CP-1B
 EarningsDelta**, **CP-1C PeerBenchmark**, **CP-2 FundamentalCreditSynthesizer**
 (*its canonical name and analytical role — the 9-dimension fundamental synthesis;
 `CostStructure` is only the degraded offline-fixture output, not the module's
-purpose*), **CP-4C covenant capacity**, and the rest of the registry — gated by
+purpose*), **CP-2G**, **CP-4D**, **CP-4C covenant capacity**, and the rest of the registry — gated by
 **CP-5B** lineage, the opt-in **CP-5C** adversarial council, and the **CP-5** gate
 (the LLM never sets its own committee status). Plus: async run execution + per-run
 token budgeting, a `metric_facts` store with retention, cross-issuer NL query
 (structured + semantic + hybrid), a Scenario Builder, and an Altman-Z distress
 score — all identity-gated, typed, lint-clean, tested. No unresolved Phase-1
-code defect remains in this register; `S-4` and `A-1` are explicit Phase-2/data
-roadmap constraints.
+code defect remains in this register; `S-4` entitlement activation and CP-SR /
+CP-MON are explicit Phase-2 roadmap constraints.
 
 ## Findings register
 
@@ -89,7 +69,7 @@ roadmap constraints.
 | DOC-1 | P3 | Docs/Deploy | **Stale "Databricks" references** survive the self-hosted-Docker pivot ([LAUNCH_PHASE1](LAUNCH_PHASE1.md)): [retrieval.py](../server/retrieval.py) docstring (Databricks Vector Search), [routes/auth.py](../server/routes/auth.py) + [identity.py](../server/identity.py) + SECURITY.md §1 (Databricks-Apps auth model). **Functionally sound** — `ENVIRONMENT=production` is fixed in the stack so the identity gate still fails closed, and Caddy strips client `X-Forwarded-*` (both verified in LAUNCH_PHASE1 §5) — but `DATABRICKS_APP_PORT` was still read as a vestigial no-op trigger. | **Resolved** — retrieval/auth docstrings + SECURITY §1 refreshed; the vestigial `DATABRICKS_APP_PORT` branch removed — `config.is_deployed` / identity.py now key on `ENVIRONMENT != development` only. |
 | S-4 | P3 | Authz | No per-issuer / row-level authz — any authenticated analyst can read any issuer; `/query/*` + `/scenario` widen this cross-issuer surface. | **Enforcement scaffold shipped (opt-in, default off)** — [tenancy.py](../server/tenancy.py) adds `require_issuer` / `scope_issuers` / `require_run_access` / `block_if_tenancy_unscoped` wired across the issuer-derived spine; `CAOS_TENANCY_ENABLED` (default **off**) gates it, so default behaviour is unchanged single-team. Cross-issuer aggregate lanes fail closed (501) under tenancy; `team_id` on issuers/analysts (migration 0037). `test_tenancy` pins the isolation. Documented [SECURITY.md](SECURITY.md) §2; flip on when multi-user, entitlement-restricted (Bloomberg/MNPI) data lands (Phase-2 entry criterion). |
 | F-2 | P3 | Types | Localized `any` was confined to [reports/model.ts](../frontend/src/lib/reports/model.ts) + whole-file `eslint-disable` on the large mock-data files. | **Resolved** — model finalizers use narrow `ModelCol` structural types; blanket disables were removed from the four Deep-Dive fixture files (verified: no `eslint-disable` remains in either file). Strict TypeScript, full eslint, and 40 focused model/scenario tests pass. |
-| A-1 | — | Architecture | **Mock-vs-engine gap — narrowing further.** Now engine-derived: CP-1/1A/1B/1C, CP-2, CP-4C, peers, distress, `metric_facts`, NL query, citation viewer, live coverage, and the two **Command governance boards**: the **QA queue** ([qa.ts](../frontend/src/lib/command/qa.ts), real CP-5 gate roll-ups) and the **Source-Gaps board** ([gaps.ts](../frontend/src/lib/command/gaps.ts), real CP-0 source-readiness gap logs surfaced on `PortfolioRow.gaps`) — both derive from the live portfolio with the seeded lists as the offline fallback (QA is per-issuer today; per-finding needs an aggregated findings endpoint). **Still seeded mock:** much of Deep-Dive ([step-outputs.ts](../frontend/src/lib/deepdive/step-outputs.ts)), Pipeline sim, Monitor, and the CP-3 RV / CP-3B recovery / CP-6A surfaces; the Scenario Builder drives the **panel only**, not the model grid's BASE/DOWN columns. CP-3 RV is **market-data-gated (Phase 2)**. *(The Command "Sample Sleeve" table is a deliberate demo book toggled against the live `LiveCoverage` view — intentional, not an un-migrated mock.)* | Known — smaller but real; tracked as the mock→engine epic. |
+| A-1 | — | Architecture | **Phase-1 live seams closed.** The Command governance queue now reads exact findings from the bounded, analyst/tenancy-scoped [`GET /api/qa/findings`](../server/routes/qa.py), retaining issuer gate roll-up only when the accessible latest run emitted no finding rows. Live Deep-Dive renders adapted persisted sections in a provenance-labelled runtime register and never substitutes seeded workflow steps/charts. CP-5B persists a bounded decision-driver register from real claims/evidence/QA findings; Pipeline renders its evidence chips and discloses that ordering is decision-proximity + module diversity, not a measured market-materiality score. Seeded Pipeline/Deep-Dive content remains only in the labelled ATLF/offline demo; a missing live register fails explicitly. CP-SR, CP-MON and market-data-gated CP-3 RV remain Phase-2 by design. | **Resolved for Phase 1** — remaining seed surfaces are explicit demo or Phase-2 scope, not hidden live fallbacks. |
 | S-1/2/3, B-1/2 | P2/P3 | Security/Seed/Ingest | Fail-closed auth gate (S-1), security-headers middleware (S-2), forwarded-identity trust model (S-3), demo-seed flag (B-1), untrusted-doc parsing surface (B-2). | **Fixed / documented** (see below). B-2 now also covers **EDGAR exhibits** on the document→LLM path; mitigated by [llm_safety](../server/engine/llm_safety.py) `wrap_untrusted` + `UNTRUSTED_RULE`. |
 
 ## Fixed / addressed
@@ -115,21 +95,17 @@ SYNTH-1, DOC-1, F-1, F-2, PERF-1, PERF-2, and the CP-1A naming item above are
 all **Resolved** (reconciled against code, not the tracker). What genuinely
 remains:
 
-1. **A-1 (mock→engine epic)** — the live spine keeps growing (latest: both Command
-   governance boards — QA queue off CP-5 gate roll-ups, Source-Gaps off CP-0 gap
-   logs). Next slices: a per-finding QA queue behind an aggregated findings
-   endpoint; the Scenario Builder's model-grid BASE/DOWN columns; and the Deep-Dive
-   `step-outputs` register. (The "Sample Sleeve" portfolio table stays a deliberate
-   demo — its live counterpart is `LiveCoverage`.) Do not label seeded panels
-   live; CP-3 RV remains market-data-gated (Phase 2).
-2. **S-4 follow-through** — the tenancy enforcement scaffold ships opt-in
+1. **S-4 follow-through** — the tenancy enforcement scaffold ships opt-in
    (`CAOS_TENANCY_ENABLED`, default off); flip it on and add the entitlement model
    when multi-user MNPI/Bloomberg-restricted data lands (Phase-2 entry criterion) —
    policy and entitlement source must be defined first.
-3. **D-1** — track upstream Next/esbuild bumps to clear the accepted-risk dev-chain npm advisories (none ship in the static export).
-4. **Sector Review (CP-SR)** — the 9 `Pending Verification` stories in the feature
-   tracker are seed/demo until live signal persistence + CP-SR synthesis exist
-   (`registry.implemented=false`, Phase-2); not defects.
+2. **Phase-2 analytical modules** — CP-SR and CP-MON remain deliberately
+   `implemented=false`; CP-3 RV still requires licensed/current market data.
+   Their nine Sector Review tracker stories are now verified **Pass** for the
+   labelled seed/demo contract, not claims that CP-SR runtime persistence exists.
+3. **Demo discipline** — keep the Sample Sleeve and ATLF reference workflow
+   labelled and isolated from live-run states. Any future mock→engine slice must
+   preserve the current fail-unavailable behavior rather than silently backfill.
 
 ## Notably well done
 - Identity on every route via `Depends(get_identity)`; only `/health` open. Rate limits on all mutating/LLM endpoints.

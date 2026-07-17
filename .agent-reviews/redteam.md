@@ -1089,3 +1089,210 @@ reliable, semantic deep-link to the persisted cross-coverage Query workbench.
 Reopen if the link is conditional on a loaded analysis context, hidden behind a
 persona-only panel, duplicated on the page, implemented as a non-link control,
 or loses the active context when one is available.
+
+## 2026-07-16 — Intentional auth failure handling
+
+Decision under review: keep global mid-session 401 teardown while allowing the
+login, registration, profile-creation, and recovery forms to render their own
+expected credential errors.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-16-314 | Authentication reviewer | Dispatching `auth-lost` for a wrong invite code, password, or recovery phrase remounts the form and erases the server error before the analyst can read it. | High | Resolved in interceptor | Exclude only exact unauthenticated POST entry endpoints from the global 401 event; their local form handlers retain and announce the backend detail. |
+| RT-2026-07-16-315 | Session-safety reviewer | Excluding all `/api/auth/*` requests would hide a genuinely revoked session during authenticated profile deletion or future auth mutations. | High | Resolved in scope | Match method plus exact path. `GET /me` remains provider-owned, the four credential-entry POSTs remain form-owned, and every other API 401 still tears down the stale workspace. |
+
+### Critic reopen conditions (intentional auth failures)
+
+Reopen if a credential-entry 401 clears or remounts the form, a non-entry API
+401 fails to dispatch `auth-lost`, or the exclusion broadens to an auth-prefix
+match that suppresses authenticated session-loss signals.
+
+## 2026-07-16 — Agentic Infrastructure and Memory Hub design
+
+Decision under review: consolidate existing CAOS model calls, MCP tools, semantic
+telemetry, pgvector embeddings, and the human-edited vault behind the in-process
+gateway specified in `caos/docs/AGENTIC_INFRA_MEMORY_HUB_SPEC.md`, without adding
+awaited or blocking instrumentation to a primary request.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-16-316 | Latency reviewer | Capturing semantic telemetry can quietly replace the current awaited DB tail with masking, serialization, logging, or OTel work on the caller coroutine; making delivery lossless would also block when the queue is full. | Critical | Resolved in specification | H1/H2 and Z1–Z4 permit only the existing budget arithmetic, owned outer-container snapshot, event construction, and `put_nowait`; all semantic work begins after dequeue. Queue overflow increments memory only, explicitly accepting telemetry loss to preserve the request contract. |
+| RT-2026-07-16-317 | Router reviewer | Current OpenRouter normalization drops tool-call ids and flattens non-text history, so a nominal MCP router could execute one call but could not perform the second provider turn; deployed EDGAR calls would also fail the edge proof. | Critical | Resolved in specification | Define canonical `ToolCall`/`ToolRunResult`, exact Anthropic/OpenRouter round-trip mappings, five executed tool rounds plus terminal status, two-round golden tests, qualified allowlists, and `EDGE_PROXY_SECRET` → `X-Edge-Authorization`. Gemini dynamic tools fail before network. |
+| RT-2026-07-16-318 | Telemetry reviewer | Provider-routed OpenRouter prices are not recoverable from a model-tier label, and arbitrary SDK response objects can either defeat JSON encoding or invoke unsafe `str`/`repr` paths before masking. | High | Resolved in specification | Provider `usage.cost` is authoritative; a routed OpenRouter request without it is NULL rather than matrix-priced. A bounded, cycle-safe background normalizer handles Pydantic/dataclass/known DTO shapes, poisons unsupported events without stringification, then masks before any log, DB, or OTel operation. |
+| RT-2026-07-16-319 | Tenancy reviewer | A manually created or edited memo could become a NULL-owned institutional Document, and the current unscoped `AnalystLink` query could expose one analyst's note to another. | Critical | Resolved in specification | Upload tasks carry the caller id; recovery resolves `uploaded_by` to exactly one analyst; unresolved or mixed ownership quarantines without mutation. Add owner-tagged AnalystLinks, hide legacy NULL links, pass caller id through both Query graph paths, and copy original ownership to OKF projections. |
+| RT-2026-07-16-320 | Durability reviewer | A bounded watcher queue, five finite retries, rename ordering, a crash after a memo response, or an unmounted empty vault can leave the projection stale or erase it incorrectly. | High | Resolved in specification | Queue overflow triggers direct full reconcile, present paths precede missing paths, rename takes ordered old/new locks, targeted upload sync is only acceleration, and the elected leader runs startup plus 300-second reconciliation. A hidden marker distinguishes a healthy deliberate final deletion from an absent mount, so jobs remain reconstructable without a job table. |
+| RT-2026-07-16-321 | Lineage reviewer | A citation can be inserted after the watcher checks references but before it deletes a chunk; JSON lineage alone does not cover direct `EvidenceItem` and `MetricFact` foreign-key writers. | Critical | Resolved in specification | One sorted per-chunk transaction-lock helper is mandatory for JSON/lineage, EvidenceItem, MetricFact, and watcher deletion. Deletion rechecks every citation family after locking and shadows any cited chunk; registry and three-family Postgres race tests enforce adoption. |
+| RT-2026-07-16-322 | Vector reviewer | Gemini Embedding 2 aggregates multi-input requests, legacy NULL chunk hashes can make cutover coverage falsely pass, and a global “all live chunks atomic” claim contradicts current ordinary uploads. | Critical | Resolved in specification | Require one request per text with four-way background concurrency and all-or-zero validation; backfill every NULL hash and make it non-null before EXCEPT readiness; scope atomic generation to watched projections while explicitly retaining ordinary upload's temporary BM25-only state. |
+| RT-2026-07-16-323 | Migration reviewer | A fixed revision number can collide with parallel work, and applying only a “portion” of one Alembic revision is impossible. | High | Resolved in specification | A live `alembic heads` check returned `0062`; the complete additive hub migration is `0063` over `0062`, applied once before Phase B. The implementer must re-run heads and adjust only revision metadata if the workspace advances again. |
+
+### Critic reopen conditions (Agentic Infrastructure and Memory Hub)
+
+Reopen if any payload normalization, masking, cost, logger, DB, or OTel operation
+runs before telemetry dequeue; a provider tool id is synthesized or lost; an
+OpenRouter request without provider cost is tier-priced; a NULL/unresolved memo
+owner becomes query-visible; reconciliation requires a new filesystem event after
+recovery; a citation writer bypasses the shared chunk lock; an Embedding 2 request
+contains more than one text; readiness ignores NULL hashes; ordinary uploads are
+claimed atomic; a zero-file reconcile deletes without the valid vault marker; or the
+migration is created without a fresh `alembic heads` check.
+
+## 2026-07-16 — Phase-1 live-surface closure
+
+Decision under review: replace the remaining coarse or seeded Phase-1 UI
+surfaces with bounded, access-controlled runtime data while keeping Phase-2
+Sector Review and Monitor modules explicitly out of scope.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-16-324 | Authorization reviewer | A cross-coverage QA feed can expose another analyst's finding text even when issuer rows are visible institutionally. | Critical | Resolved in interface | The bulk findings endpoint applies both issuer tenancy scope and the existing cross-analyst run-sharing rule before joining findings. It is bounded and returns findings only from the latest accessible completed run per issuer. |
+| RT-2026-07-16-325 | Performance reviewer | Fetching QA detail run-by-run turns the Command Center into an N+1 fan-out and can make governance state lag the portfolio. | High | Resolved in interface | Use one windowed database query and one frontend request for the latest accessible findings; retain the coarse issuer gate only as an explicit fallback when an accessible run has no detailed findings. |
+| RT-2026-07-16-326 | Product-truth reviewer | Calling seeded step names or charts “live detail” would manufacture runtime structure that the engine did not emit. | Critical | Resolved in interface | Live Deep-Dive renders only adapted runtime sections in a provenance-labelled register. Seeded charts and workflow steps remain demo-only and are never substituted into a live run. |
+| RT-2026-07-16-327 | Credit-methodology reviewer | A deterministic top-five algorithm can masquerade as a market-materiality ranking without a defensible score. | Critical | Resolved in methodology | CP-5B selects persisted claims by disclosed decision-proximity and module-diversity rules, carries source evidence and QA status, and labels the result “decision-relevant,” not a ranked materiality score. |
+| RT-2026-07-16-328 | Failure-state reviewer | Falling back to a seeded lineage register when a live CP-5B output is absent makes an incomplete run appear assessed. | High | Resolved in interface | Live Pipeline fails explicitly to an unavailable state. Seed lineage is shown only in demo mode; live evidence chips come solely from persisted CP-5B evidence identifiers. |
+
+### Critic reopen conditions (Phase-1 live-surface closure)
+
+Reopen if a QA description crosses an unauthorized analyst boundary; Command
+issues one QA request per issuer or run; a live Deep-Dive panel renders seeded
+steps or charts; CP-5B describes deterministic ordering as measured market
+materiality; or a live missing output silently falls back to demo lineage.
+
+## 2026-07-16 — Canonical continuous-quality register
+
+Decision under review: publish one workbook as the quality source of truth by
+combining the curated feature catalogue with code-discovered screens, FastAPI
+handlers, runtime settings, business journeys, generated scenarios, current
+execution evidence, and iteration defects.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-16-329 | QA-evidence reviewer | Copying a suite-level green result onto every generated scenario would falsely claim that thousands of boundary, permission, performance, and responsive cases were individually executed. | Critical | Resolved in schema | Use `Pass` only for directly observed evidence. Aggregate regression coverage is labelled `Suite evidence`; every generated but unexecuted scenario remains `Designed`, and skips remain visible gaps. |
+| RT-2026-07-16-330 | Discovery reviewer | One generated row per route or setting proves inventory coverage, not that every branch has been behaviorally understood. | High | Resolved in status model | Preserve detailed curated rows, add exact source/handler/config provenance, and mark generated inventory rows `Documented — direct execution pending`; discovery completeness and execution completeness are reported separately. |
+| RT-2026-07-16-331 | Product-truth reviewer | A stale CSV seed or old workbook date could masquerade as current implementation truth after routes, endpoints, and UI workflows change. | Critical | Resolved in builder | Re-scan physical `page.tsx` routes, `main.py` router prefixes, route decorators, and `Settings` fields on every build; publish the workbook dated to the current validation run and retain the seed source only as traceable input. |
+| RT-2026-07-16-332 | Release reviewer | A confidence score can conceal open skipped journeys or a fixed high-severity release blocker. | High | Resolved in summary | Confidence is conservative and accompanied by formulas for open critical/high/other defects, direct-pass counts, designed cases, skips, and explicit remaining-risk notes. Completion is prohibited while gaps remain. |
+
+### Critic reopen conditions (continuous-quality register)
+
+Reopen if generated cases are marked executed without direct evidence; a new
+screen, API handler, or `Settings` field is absent from the workbook; skipped
+tests disappear from the defect/risk view; the workbook reports completion with
+open gaps; or a derived coverage count is manually hard-coded instead of linked
+to its source sheet.
+
+## 2026-07-16 — Isolated production-like full-inventory QA lane
+
+Decision under review: exercise the complete user-facing inventory against an
+isolated local PostgreSQL database containing a deterministic 300-issuer
+fictional credit book, with production boot/auth guards enabled, no external
+model keys, and no production or developer database access.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-16-333 | Data-governance reviewer | A “production-scale” seed can accidentally import real issuer names, source documents, credentials, or a developer database, and a cleanup step could destroy unrelated local data. | Critical | Resolved in lane design | Generate only deterministic invented issuers/documents/metrics into a uniquely named disposable PostgreSQL container and workspace vault. Clear every external provider key. Record database identity and fixture counts before testing; never point the lane at an existing database and do not remove user-owned state. |
+| RT-2026-07-16-334 | Scale reviewer | Calling the existing 30-issuer fixture “production scale” is an unbounded claim, while creating full run history for every issuer would add cost and time without matching the repository’s own stress contract. | High | Resolved in acceptance contract | Pin the finite target to the stress plan’s 300 issuers, at least two documents and eight headline facts per issuer, plus a bounded representative set of offline terminal runs. Publish exact counts and latency observations; describe the result as the 300-issuer pilot/stress envelope, not universal production capacity. |
+| RT-2026-07-16-335 | Deployment reviewer | Running FastAPI directly with production environment variables proves application guards but bypasses Caddy, oauth2-proxy, TLS, and the real ClamAV signature service; labelling it a production deployment pass would be false. | Critical | Resolved in evidence labels | Call this a production-like application lane. Require PostgreSQL, production boot guards, demo seed off, private local secrets, and valid edge identity headers on every request. Keep proxy/TLS/real-ClamAV verification separate; use the existing fake clamd protocol only for deterministic upload behavior and never claim a full deployment-stack pass from this lane. |
+| RT-2026-07-16-336 | Inventory reviewer | Base-route DOM scans omit conditional buttons, modal contents, error states, and presentation-role variants; static source scans alone include dead or unreachable controls. | High | Resolved in inventory method | Reconcile three sources: current TSX control discovery with file/line provenance, curated feature/state contracts, and authenticated browser evidence across Analyst/PM/QA views. Mark source-only controls as documented rather than executed until a journey opens them; do not infer a clean interaction pass from route-load evidence. |
+| RT-2026-07-16-337 | Authorization reviewer | The Analyst/PM/QA switch is presentation-only and must not be confused with server authorization roles; testing only the default analyst can miss read-only write bypasses. | Critical | Resolved in role model | Inventory presentation views separately from authenticated capabilities. Exercise analyst write behavior and viewer/read-only mutation denial through the server boundary; record that PM/QA alter information priority, not authorization. |
+| RT-2026-07-16-338 | Test-isolation reviewer | Broad Playwright globs can miss a queryless or query-string request and silently fall through to the seeded server, corrupting deterministic evidence or consuming real provider quota. | High | Resolved in harness contract | Match fixture routes by URL pathname and method, assert fixture identity/source before accepting results, clear all external provider keys, and treat any unexpected network/provider request as a defect. Production-like runs that intentionally use the local server are separately labelled and bound to the unique QA database. |
+
+### Critic reopen conditions (production-like QA lane)
+
+Reopen if any real/sensitive input enters the seed; the database or vault is not
+uniquely isolated; “production scale” lacks exact counts; a direct-app run is
+presented as proxy/TLS/real-AV proof; a source-only control is marked executed;
+presentation views are treated as authorization roles; or a browser fixture can
+fall through without an explicit local-server or fixture-identity assertion.
+
+---
+
+## 2026-07-16 — Critique-score plan (29 → ≥35), red-team pass
+
+Plan: `~/.claude/plans/construct-plan-to-resolve-elegant-brook.md` (W0-W6). Critic objections and dispositions:
+
+1. **Consistency 2→4 is a two-point claim.** An adversarial director need find only one un-swept casing/control drift to hold it at 3. *Mitigation:* the W1 long tail (segmented controls ×3 grammars, ic-book buttons, row-action grammar documented as a two-tier system, alias-class collapse) plus the score-path buffer math tolerates Consistency landing at 3 (34 + any one buffer = 35). Accepted residual.
+2. **ActionReason retrofit can break name-based test queries.** *Mitigation (hard rule):* the reason text never enters the button's accessible name; `settings_flow.spec.ts` asserts `title="No unsaved changes"` verbatim — kept byte-identical. `research-recovery.test.tsx:59` `.disabled` assertion is updated in the same commit as the conversion.
+3. **Cold-board RankedChanges is a moving target** — the first draft GET enqueues a cycle that may populate mid-critique, hiding the OPEN TOP CHANGE gate and UNRATIFIED suppression. *Disposition:* accepted; the gate is correct in both states and H5/H8 don't rely on it alone.
+4. **Parallel-WIP collision risk is the top execution hazard**, not design: `command/page.tsx` and 3 pipeline files are user-dirty right now; the branch moved twice during planning. *Mitigation:* re-fetch + `git status` before every commit; stage only fully-mine files; mixed files ride the working tree until clean (established session pattern).
+5. **ReportDoc div→h2/h3 conversion** could change CSS specificity or print layout if any selector is element-qualified. *Gate:* grep `rd-h`/`rd-subhead` selectors before editing; class-based only → safe.
+6. **usePortfolio empty-vs-unavailable seam** must not re-grammar the error branch: `monitor-governance.test.tsx:38-52` and `command_flow.spec.ts:347-366` assert "unavailable" wording on all-rejected backends. The seam splits *reachable-but-zero* out; fetch-fail wording is unchanged.
+7. **Help overlay lists only working bindings** (verified: ⌘M exists but is route-scoped to Deep-Dive/Model; no bare-C binding). A documented-but-dead key would cost the point it buys.
+
+## 2026-07-16 — Actual-code audit remediation
+
+Decision under review: close every evidence-backed weakness from the 2026-07-16
+actual-code/configuration audit without weakening production fail-closed controls,
+breaking analyst workflows, or overwriting the parallel dirty working tree.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-16-339 | Deployment reviewer | Making malware scanning “optional” to restore boot would remove the production upload gate instead of fixing the contradictory Compose defaults. | Critical | Resolved in design | Keep the production guard and make ClamAV a mandatory healthy dependency with `CLAMAV_HOST=clamav`; development remains explicitly scanner-optional. |
+| RT-2026-07-16-340 | Authorization reviewer | Merely adding a write-role dependency to the existing GET still leaves a state-changing, prefetchable endpoint and an unbounded `force` spend bypass. | Critical | Resolved in interface | Make GET read-only, move enqueue to POST with write-role plus a non-simple action header, remove public force bypass, and preserve the stale/single-flight spend bound. |
+| RT-2026-07-16-341 | Concurrency reviewer | A boot-only lease sweep or an unfenced retry can either strand work forever or let a stale worker overwrite a reclaimed attempt. | Critical | Resolved in architecture | Keep the existing schema, enqueue `queued`, continuously claim queued/expired rows, heartbeat live claims, exclude local inflight ids, and verify worker ownership again before terminal commit. |
+| RT-2026-07-16-342 | Performance reviewer | Moving parsers to a generic process pool does not guarantee a timed-out running task stops, while scaling workers multiplies the whole-file buffer and DB pool. | Critical | Resolved in architecture | Run each bounded parser in its own spawn process and terminate it on timeout; cap supported web workers at two, reduce upload fan-out to one per process, and raise the documented container memory envelope to 4 GiB. Preserve `read_capped`'s bytes contract because GitNexus reports a critical shared blast radius. |
+| RT-2026-07-16-343 | External-compliance reviewer | A per-process EDGAR sleep still violates the SEC aggregate ceiling when web workers or replicas increase. | High | Resolved in configuration | Scale the per-process interval by the configured total process partitions, never below local `WEB_CONCURRENCY`, and fail deployment documentation closed on replica-count configuration. |
+| RT-2026-07-16-344 | Supply-chain reviewer | Auditing loose requirements can remain green while the hashed production lock ships vulnerable transitive packages. | High | Resolved in gate | Upgrade the exact lock, audit that lock with `--require-hashes` in CI, and keep the existing loose-spec/lock-sync contract as a separate check. Force the patched UUID transitive version through the npm lock and re-audit it. |
+| RT-2026-07-16-345 | Recovery reviewer | Requiring an arbitrary sync hook can still silently fail, and local restore scripts that are never scheduled do not prove recoverability. | High | Resolved in operations | Require a non-empty off-host sync command for the shipped production stack, persist failure sentinels surfaced by container health, and run the scratch restore drill on a bounded automatic cadence after successful backups. |
+| RT-2026-07-16-346 | Test-platform reviewer | Enabling three Playwright projects without isolating shared state can turn browser coverage into nondeterministic SQLite writer contention. | High | Resolved in test architecture | Retain one Playwright worker and shared authenticated setup, run Chromium/Firefox/WebKit as explicit serial projects, and install all three engines in CI. |
+
+### Critic reopen conditions (audit remediation)
+
+Reopen if production can boot without a live scanner; any GET starts or mutates an
+autonomy cycle; a viewer can enqueue one; an expired pipeline claim is not
+revisited after startup; a stale claimant can commit; a parser process survives
+its timeout; supported worker counts can exceed the documented memory/connection
+envelope; aggregate EDGAR throughput can exceed the configured partition budget;
+CI audits a dependency graph other than the production lock; off-host sync or a
+scheduled restore failure remains health-invisible; or CI runs only Chromium.
+
+## 2026-07-17 — Remote backup round-trip closure
+
+Decision under review: replace the backup container's arbitrary off-host shell
+hook with one supported, credential-isolated transport and prove recovery from
+the downloaded remote copy rather than from the same host volume.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-17-347 | Recovery reviewer | `BACKUP_SYNC_CMD` is required but the shipped image has no documented rsync, rclone, scp, or cloud client, so the fail-closed configuration can still be operationally unusable. | Critical | Resolved in design | Keep artifact creation credential-free and add a separate rclone/Postgres-client sync service with `/backups` read-only, a structured `BACKUP_REMOTE`, and provider-neutral configuration mounted as a Docker secret. |
+| RT-2026-07-17-348 | Disaster-recovery reviewer | Restoring the local `/backups` copy proves only pg_dump/tar integrity; it does not prove upload, remote durability, credentials, or the download path. | Critical | Resolved in design | After every configured cadence, download the remote artifact set into a fresh scratch directory and run the existing DB/vault restore assertions exclusively against that downloaded copy. Any upload, download, or restore failure keeps the service unhealthy. |
+| RT-2026-07-17-349 | Security reviewer | An operator-supplied `sh -c` hook is command-injection by design and can read both database and remote credentials. | High | Resolved in interface | Remove shell-command execution. The script accepts only an rclone remote path, invokes rclone with argument boundaries, and reads credentials from a read-only Compose secret. |
+| RT-2026-07-17-350 | Privilege reviewer | Overriding the official Postgres entrypoint leaves the backup loop running as root with a writable root filesystem. | High | Resolved in container design | Build minimal client-only images, run backup and sync as fixed non-root UIDs with all capabilities dropped, mount only their recovery volumes writable, and make each root filesystem read-only with bounded `/tmp`. A dedicated recovery GID grants the sync UID read/traverse access to the producer-owned `0750` volume while `/backups` remains mounted read-only. Existing backup volumes require the documented one-time ownership migration before cutover. |
+
+### Critic reopen conditions (remote backup closure)
+
+Reopen if a production backup can start without a remote target and readable
+secret; sync executes operator shell text; the scheduled drill reads the local
+backup volume instead of a newly downloaded copy; a failed remote round trip can
+leave the health sentinel green; the sync UID cannot read the producer-owned
+artifacts; or either long-running process remains root.
+
+## 2026-07-17 — Scenario growth-polarity repair
+
+Decision under review: correct the offline Scenario Builder after a realistic
+growth-slowdown case was translated as revenue upside.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-17-351 | Credit-methodology reviewer | Simply adding `slows` to the downside list while retaining bare `growth` as upside leaves contradictory matches and lets “growth capex” manufacture revenue acceleration. | High | Resolved in classifier | Remove bare growth/expansion polarity. Require explicit recovery, improvement, rebound, or acceleration phrasing for upside and explicit slowdown, contraction, decline, or worsening churn phrasing for downside. |
+| RT-2026-07-17-352 | Regression reviewer | Broad slowdown matching can flip genuine demand-recovery cases or alter unrelated rates/capex drivers. | High | Resolved in coverage | Pin the exact slowdown failure, retain the existing recovery and pricing-power regressions, assert unrelated driver deltas remain zero, and add the phrase to the bounded realistic benchmark corpus. |
+
+### Critic reopen conditions (scenario growth polarity)
+
+Reopen if bare `growth` or `expansion` changes revenue without directional context;
+slowdown/churn deterioration maps positive; a recovery case maps negative; or the
+repair moves rate/capex drivers for a growth-only phrase.
+
+## 2026-07-17 — Scenario input-cost direction repair
+
+Decision under review: correct the offline Scenario Builder after easing inflation
+was translated as margin pressure and higher rates.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-17-353 | Credit-methodology reviewer | Matching the bare token `inflation` before its qualifier inverts disinflation and cost normalization into a downside, a directionally wrong credit read. | High | Resolved in classifier | Give explicit deflation, disinflation, inflation-easing, and input-cost-normalization phrases precedence; apply the generic cost-inflation shock only when no relief phrase matched. |
+| RT-2026-07-17-354 | Scope reviewer | Treating every `ease` or `normalize` token as cost relief could misclassify monetary easing or unrelated operational normalization. | High | Resolved in vocabulary | Match only cost/inflation-qualified phrases, assert growth/rates/capex remain unchanged, and retain the oil/energy stress regression alongside the new failure case and benchmark entry. |
+
+### Critic reopen conditions (scenario input-cost direction)
+
+Reopen if inflation easing or normalized input costs map to margin pressure; an oil,
+fuel, commodity, or unqualified inflation shock maps to relief; or cost-only language
+moves growth, capex, or rates without an explicit rate phrase.

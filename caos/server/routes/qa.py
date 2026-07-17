@@ -12,17 +12,112 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import AnalystQaFlag, get_db
+from config import get_settings
+from database import AnalystQaFlag, Issuer, QAFinding, Run, get_db
 from identity import CallerIdentity, get_identity, get_write_identity
+from tenancy import scope_issuers, tenancy_enabled
 
 router = APIRouter()
 
 _FLAGS_MAX_PER_MINUTE = 30
 _LIST_CAP = 200
+_FINDINGS_MAX_PER_MINUTE = 120
+_FINDINGS_LIST_CAP = 1000
+
+
+class LatestQaFindingOut(BaseModel):
+    id: str
+    finding_id: str
+    run_id: str
+    issuer_id: str
+    issuer: str
+    ticker: Optional[str]
+    module_id: Optional[str]
+    severity: str
+    lane: Optional[int]
+    description: str
+    affected_claim_id: Optional[str]
+    required_remediation: Optional[str]
+    as_of: Optional[str]
+
+
+@router.get("/findings", response_model=List[LatestQaFindingOut])
+async def list_latest_findings(
+    limit: int = Query(500, ge=1, le=_FINDINGS_LIST_CAP),
+    db: AsyncSession = Depends(get_db, scope="function"),
+    caller: CallerIdentity = Depends(get_identity),
+):
+    """Open CP-5 findings from each issuer's latest accessible complete run.
+
+    Rank only after applying analyst ownership and issuer tenancy. This keeps a
+    newer foreign run from hiding the caller's own latest run and prevents the
+    cross-coverage queue from becoming a finding-text exfiltration surface.
+    One windowed query replaces a per-run frontend fan-out.
+    """
+    if not rate_limit.hit(
+        f"qa-findings:{caller.id}",
+        max_attempts=_FINDINGS_MAX_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "QA findings rate limit reached — try again in a minute.",
+        )
+
+    accessible_runs = select(
+        Run.id.label("run_id"),
+        Run.issuer_id.label("issuer_id"),
+        Run.as_of_date.label("as_of"),
+        func.row_number().over(
+            partition_by=Run.issuer_id,
+            order_by=(Run.completed_at.desc(), Run.created_at.desc()),
+        ).label("run_rank"),
+    ).where(Run.status == "complete")
+    if tenancy_enabled():
+        accessible_runs = accessible_runs.where(
+            Run.issuer_id.in_(scope_issuers(select(Issuer.id), caller))
+        )
+    if not get_settings().caos_cross_analyst_run_sharing_enabled:
+        accessible_runs = accessible_runs.where(Run.analyst_id == caller.id)
+
+    latest = accessible_runs.subquery()
+    statement = (
+        select(
+            QAFinding,
+            latest.c.issuer_id,
+            latest.c.as_of,
+            Issuer.name,
+            Issuer.ticker,
+        )
+        .join(latest, latest.c.run_id == QAFinding.run_id)
+        .join(Issuer, Issuer.id == latest.c.issuer_id)
+        .where(latest.c.run_rank == 1)
+        .order_by(QAFinding.severity, QAFinding.finding_id)
+        .limit(limit)
+    )
+    rows = (await db.execute(statement)).all()
+    return [
+        LatestQaFindingOut(
+            id=finding.id,
+            finding_id=finding.finding_id,
+            run_id=finding.run_id,
+            issuer_id=issuer_id,
+            issuer=name,
+            ticker=ticker,
+            module_id=finding.module_id,
+            severity=finding.severity,
+            lane=finding.lane,
+            description=finding.description,
+            affected_claim_id=finding.affected_claim_id,
+            required_remediation=finding.required_remediation,
+            as_of=as_of,
+        )
+        for finding, issuer_id, as_of, name, ticker in rows
+    ]
 
 
 class QaFlagCreate(BaseModel):

@@ -1,5 +1,5 @@
 """Tests for the autonomous-cycle orchestrator (engine/autonomy.py) + the
-``GET /api/autonomy/draft`` route. Unit tests mock the DAG stages to assert the
+``GET/POST /api/autonomy/draft`` routes. Unit tests mock the DAG stages to assert the
 chaining, the keyless skip, the no-change skip, and the per-stage fault isolation;
 the API test runs the real cycle against the seeded DB (keyless) and asserts the
 draft envelope.
@@ -146,9 +146,8 @@ def client():
 
 
 def test_autonomy_draft_route_returns_draft_envelope(client):
-    # Reset the route's module-level prior so the test is deterministic.
-    import routes.autonomy as r
-    r._LAST_FINGERPRINTS = {}
+    # GET is read-only and always returns a safe envelope, even before the first
+    # analyst-requested cycle.
     resp = client.get("/api/autonomy/draft")
     assert resp.status_code == 200, resp.text
     draft = resp.json()
@@ -159,3 +158,13 @@ def test_autonomy_draft_route_returns_draft_envelope(client):
     assert draft["export_allowed"] is False
     assert draft["marking"] == "AI-GENERATED, UNRATIFIED"
     assert "sections" in draft and "summary" in draft
+
+
+def test_autonomy_refresh_requires_explicit_action_header(client):
+    assert client.post("/api/autonomy/draft").status_code == 403
+    resp = client.post(
+        "/api/autonomy/draft",
+        headers={"X-CAOS-Action": "autonomy-refresh"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["refreshing"] is True

@@ -56,16 +56,17 @@ const EMPTY_DRAFT = {
 };
 
 describe("PhoneTriage", () => {
-  it("shows an honest offline state, never a fabricated card", async () => {
+  it("shows an honest offline state, never a fabricated card, and never mislabels a real outage as DEMO content", async () => {
     getAutonomyDraft.mockRejectedValue(new Error("network error"));
     render(<PhoneTriage />);
     await waitFor(() => expect(screen.getByText("Autonomy engine unreachable")).toBeTruthy());
+    expect(screen.queryByText(/^DEMO$/)).toBeNull();
   });
 
   it("shows an honest empty state on a settled empty draft", async () => {
     getAutonomyDraft.mockResolvedValue(EMPTY_DRAFT);
     render(<PhoneTriage />);
-    await waitFor(() => expect(screen.getByText("no alerts to triage")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("No alerts to triage")).toBeTruthy());
   });
 
   it("shows one alert at a time, ranked by severity, with a real impact figure and a desktop handoff", async () => {

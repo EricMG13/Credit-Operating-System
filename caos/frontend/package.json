@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "NODE_PATH=node_modules playwright test",
+    "test:e2e:prodlike": "node scripts/run-prodlike-e2e.mjs",
     "verify:ic-book": "node scripts/validate-ic-book-workflow.mjs",
     "verify:monitor": "node scripts/validate-monitor-workbench.mjs",
     "verify:profile": "node scripts/validate-profile-workbench.mjs",
@@ -58,6 +59,7 @@
     "undici": "^7.28.0",
     "form-data": "^4.0.6",
     "postcss": "$postcss",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "uuid": "^11.1.1"
   }
 }

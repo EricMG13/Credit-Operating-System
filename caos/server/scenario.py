@@ -69,10 +69,22 @@ def _demo_translate(text: str) -> ScenarioSpec:  # noqa: C901  # pre-existing ke
     t = text.lower()
     s = ScenarioSpec(label=text.strip()[:60] or "Custom scenario")
     parts: list[str] = []
-    upside = any(w in t for w in (
-        "growth", "expansion", "upside", "recovery", "demand surge",
-        "demand recovery", "demand improves", "volume recovery", "accelerates",
+    growth_downside = any(w in t for w in (
+        "growth slows", "growth slowing", "growth decelerates",
+        "growth deceleration", "growth declines", "growth decline",
+        "growth contracts", "growth contraction", "negative growth",
+        "revenue declines", "revenue decline", "revenue contracts",
+        "revenue contraction", "churn rises", "churn increases",
+        "higher churn",
     ))
+    upside = any(w in t for w in (
+        "upside", "growth accelerates", "growth acceleration",
+        "growth improves", "growth recovers", "growth rebounds",
+        "growth expansion", "revenue accelerates", "revenue improves",
+        "revenue recovery", "revenue rebound", "demand surge",
+        "demand recovery", "demand improves", "demand accelerates",
+        "volume recovery", "volume improves", "volume rebound",
+    )) and not growth_downside
     capex_bps = False
     margin_bps = False
 
@@ -103,19 +115,25 @@ def _demo_translate(text: str) -> ScenarioSpec:  # noqa: C901  # pre-existing ke
         s.rate_delta -= 0.01
         parts.append("rates -100bps")
 
-    if any(w in t for w in ("deflation", "cost relief", "lower input cost", "raw material relief")):
+    input_cost_relief = any(w in t for w in (
+        "deflation", "disinflation", "cost relief", "lower input cost",
+        "lower input costs", "raw material relief", "inflation eases",
+        "inflation easing", "costs normalize", "cost normalization",
+    ))
+    if input_cost_relief:
         s.margin_delta += 0.02
         parts.append("margin +2pp on input-cost relief")
 
-    if any(w in t for w in ("energy", "fuel", "gas", "oil", "commodit", "input cost", "inflation")) or (
-        "power" in t and "pricing power" not in t
+    if not input_cost_relief and (
+        any(w in t for w in ("energy", "fuel", "gas", "oil", "commodit", "input cost", "inflation"))
+        or ("power" in t and "pricing power" not in t)
     ):
         s.margin_delta -= 0.03
         if "bps" not in t:
             s.rate_delta += 0.005
         parts.append("margin -3pp on input-cost inflation")
 
-    if any(w in t for w in ("recession", "downturn", "slowdown", "destock")) or (
+    if growth_downside or any(w in t for w in ("recession", "downturn", "slowdown", "destock")) or (
         any(w in t for w in ("demand", "volume")) and not upside
     ):
         s.rev_growth_delta -= 0.05

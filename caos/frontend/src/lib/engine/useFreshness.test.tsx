@@ -148,3 +148,37 @@ describe("useIssuerFreshness", () => {
     expect(derivedFreshness(result.current, "checkpoint-new")).toBeNull();
   });
 });
+
+describe("derivedFreshness fallbacks", () => {
+  const evaluation = (source_kind: "derived_artifact" | "run") => ({
+    state: "current" as const,
+    source_kind,
+    observed_at: "2026-07-14T00:00:00Z",
+    effective_period_end: null,
+    expected_next_at: null,
+    due_at: null,
+    age_days: 0,
+    reason: "within_policy_window",
+    policy_version: "caos-freshness-v1",
+  });
+  const base = {
+    issuer: null, context: null, run: null,
+    issuerStatus: "idle", contextStatus: "idle", runStatus: "idle",
+    contextRequested: false, loading: false,
+    compatibilityUnavailable: false, error: false, unavailable: false,
+  } as const;
+
+  it("prefers run, then derived issuer, then issuer run, then null", () => {
+    const directRun = evaluation("run");
+    expect(derivedFreshness({ ...base, run: { run_id: "r", evaluated_at: "now", evaluation: directRun } } as never))
+      .toBe(directRun);
+    const derived = evaluation("derived_artifact");
+    expect(derivedFreshness({ ...base, issuer: { issuer_id: "i", evaluated_at: "now", evaluations: [derived] } } as never))
+      .toBe(derived);
+    const issuerRun = evaluation("run");
+    expect(derivedFreshness({ ...base, issuer: { issuer_id: "i", evaluated_at: "now", evaluations: [issuerRun] } } as never))
+      .toBe(issuerRun);
+    expect(derivedFreshness(base as never)).toBeNull();
+    expect(derivedFreshness({ ...base, contextRequested: true, contextStatus: "ready" } as never)).toBeNull();
+  });
+});

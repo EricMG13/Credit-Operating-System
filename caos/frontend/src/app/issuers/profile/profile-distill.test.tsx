@@ -3,9 +3,10 @@
 // (header OPEN DEEP-DIVE), issuer-scoped jumps in the static bottom bar,
 // ratings shown once (header), no layout switcher / hidden shortcuts.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { Profile } from "./ProfileContent";
-import type { IssuerProfile } from "@/lib/api";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import IssuerProfilePage, { Profile } from "./ProfileContent";
+import { getIssuerProfile, type IssuerProfile, type ProfileMetric, type ProfileRun } from "@/lib/api";
+import { useSearchParams } from "next/navigation";
 
 const freshnessState = vi.hoisted(() => ({
   checkpointId: null as string | null,
@@ -19,6 +20,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 vi.mock("@/components/charts/G2Chart", () => ({ G2Chart: () => null }));
+vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
   useAnalysisContext: () => ({
@@ -110,6 +112,66 @@ const data: IssuerProfile = {
   earnings: {
     latest_period: null, prior_period: null, revenue_growth_pct: null,
     ebitda_growth_pct: null, margin_change_pp: null, monitoring_signals: [],
+  },
+};
+
+const metric = (
+  metric_key: string,
+  period: string,
+  value: number,
+  unit: string,
+  headline = false,
+  provenance = "run",
+): ProfileMetric => ({
+  run_id: "run-1", metric_key, period, value, unit, basis: null, provenance, headline,
+  qa_status: "Passed", source_claim_id: "claim-1", source_evidence_id: "E-1",
+  document_chunk_id: headline ? "chunk-1" : null, source_run_as_of: "2026-06-30",
+});
+
+const historyRuns: ProfileRun[] = [
+  { ...data.latest_run!, id: "run-complete", status: "complete", committee_status: "Committee Ready" },
+  { ...data.latest_run!, id: "run-running", status: "running", qa_status: "Not Reviewed", committee_status: "Draft Only", created_at: null },
+  { ...data.latest_run!, id: "run-failed", status: "failed", qa_status: "Blocked", committee_status: "Blocked" },
+];
+
+const richData: IssuerProfile = {
+  ...data,
+  latest_run: { ...data.latest_run!, committee_status: "Blocked", qa_status: "Blocked" },
+  runs: historyRuns,
+  metrics: [
+    metric("revenue", "FY2023", 900, "$M"), metric("revenue", "FY2024", 1100, "$M"), metric("revenue", "Q1 2025", 270, "$M"), metric("revenue", "Q2 2025", 280, "$M"), metric("revenue", "LTM", 1200, "$M", true),
+    metric("adj_ebitda", "FY2023", 150, "$M"), metric("adj_ebitda", "FY2024", 180, "$M"), metric("adj_ebitda", "Q1 2025", 45, "$M"), metric("adj_ebitda", "Q2 2025", 50, "$M"), metric("adj_ebitda", "LTM", 200, "$M", true, "derived"),
+    metric("ebitda_margin", "FY2023", 18, "%"), metric("ebitda_margin", "FY2024", 18, "%"), metric("ebitda_margin", "Q1 2025", 17, "%"), metric("ebitda_margin", "Q2 2025", 19, "%"), metric("ebitda_margin", "LTM", 20, "%", true, "fixture"),
+    metric("net_leverage", "FY2023", 4.2, "x"), metric("net_leverage", "FY2024", 5.0, "x"), metric("net_leverage", "Q1 2025", 5.8, "x"), metric("net_leverage", "Q2 2025", 6.0, "x"), metric("net_leverage", "LTM", 6.2, "x", true),
+    metric("interest_coverage", "FY2023", 3.0, "x"), metric("interest_coverage", "FY2024", 2.0, "x"), metric("interest_coverage", "Q1 2025", 1.8, "x"), metric("interest_coverage", "Q2 2025", 1.4, "x"), metric("interest_coverage", "LTM", 1.2, "x", true),
+    metric("fcf", "LTM", -12, "$M", true, "demo_fixture"),
+    metric("fcf_conversion", "LTM", -4, "%", true),
+    metric("altman_z", "LTM", 0.9, "score", true),
+  ],
+  signals: {
+    recommendation: "OVERWEIGHT", composite_percentile: 92,
+    fragility: "HIGH", shock_to_breach_pct: 12,
+    lme_band: "MODERATE", lme_score: 7,
+    covenant_headroom_turns: 0.8, covenant_structure: "springing 1L", runway_months: 14,
+    rp_basket_musd: 125, cross_default_musd: 50,
+    addback_cap_pct: 0.25, addback_utilization_pct: 95, addback_breach: true,
+    revenue_growth_pct: 4.5, ebitda_growth_pct: -2.5, margin_change_pp: 0,
+  },
+  coverage: { readiness_score: 0.72, documents: 1, categories_missing: ["Covenants", "Sponsor"] },
+  findings: { CRITICAL: 1, MATERIAL: 2, MINOR: 3 },
+  business: [
+    { fact_area: "profile", code: "transaction", statement: "Take-private financing", chunk_id: "b1" },
+    { fact_area: "profile", code: "history", statement: "Founded in 1998", chunk_id: null },
+    { fact_area: "profile", code: "operating_model", statement: "Subscription revenue", chunk_id: "b2" },
+    { fact_area: "profile", code: "ownership", statement: "Sponsor controlled", chunk_id: "b3" },
+  ],
+  sponsor: { governance_risk_score: 8, ledger: [{ flag: "Aggressive dividends", chunk_id: "s1" }, { flag: "Board control" }] },
+  strengths: ["Recurring revenue", "Scale"],
+  weaknesses: ["Leverage elevated", "Refinancing wall"],
+  earnings: {
+    latest_period: "Q2 2026", prior_period: "Q2 2025",
+    revenue_growth_pct: 4.5, ebitda_growth_pct: -2.5, margin_change_pp: 0,
+    monitoring_signals: ["Margin compression", " ", 7 as unknown as string],
   },
 };
 
@@ -210,5 +272,131 @@ describe("Profile (distilled)", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Evidence / QA" }));
     expect(screen.getByRole("heading", { name: "Evidence Atlas" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "QA findings" })).toBeTruthy();
+  });
+
+  it("renders and interacts with the full live issuer read-model", async () => {
+    render(<Profile id="iss-1" data={richData} />);
+    expect(screen.getAllByText("OVERWEIGHT · GATED").length).toBeGreaterThan(0);
+    expect(screen.getByText("fabricated")).toBeTruthy();
+    expect(screen.getAllByRole("img", { name: /Critical|Warning/ }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "See Net leverage source in Deep-Dive" })).toBeTruthy();
+
+    const snapshot = screen.getByRole("tab", { name: "Snapshot" });
+    snapshot.focus();
+    fireEvent.keyDown(snapshot.closest('[role="tablist"]')!, { key: "ArrowLeft" });
+    expect(screen.getByRole("tab", { name: "Evidence / QA" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Evidence / QA" }).closest('[role="tablist"]')!, { key: "ArrowRight" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Financials" }));
+    expect(screen.getByText("Margin compression")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Quarters" }));
+    fireEvent.click(screen.getByRole("button", { name: "Full year" }));
+    const sparkline = screen.getAllByRole("img", { name: /Metric trend sparkline/ })[0];
+    vi.spyOn(sparkline, "getBoundingClientRect").mockReturnValue({ left: 0, width: 240 } as DOMRect);
+    fireEvent.focus(sparkline);
+    fireEvent.keyDown(sparkline, { key: "ArrowLeft" });
+    fireEvent.keyDown(sparkline, { key: "ArrowRight" });
+    fireEvent.keyDown(sparkline, { key: "Escape" });
+    fireEvent.pointerMove(sparkline, { clientX: 120 });
+    fireEvent.pointerLeave(sparkline);
+    fireEvent.blur(sparkline);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Structure & Covenant" }));
+    expect(screen.getByText("25% of EBITDA · 95% used · BREACH")).toBeTruthy();
+    expect(screen.getByText("Aggressive dividends")).toBeTruthy();
+    expect(screen.getByText("72% · 1 doc")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Events" }));
+    expect(screen.getByText("Q2 2025 → Q2 2026 · YoY")).toBeTruthy();
+    expect(screen.getByText("Run history · 3")).toBeTruthy();
+    expect(screen.getByText("running")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Evidence / QA" }));
+    expect(screen.getAllByText(/Covenants/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("3", { selector: "span" }).length).toBeGreaterThan(0);
+  });
+
+  it("degrades every profile section when no run or read-model facts exist", () => {
+    const empty: IssuerProfile = {
+      ...data,
+      issuer: { ...data.issuer, ticker: null, sector: null, country: null, rating_sp: null, rating_moody: null, rating_fitch: null },
+      latest_run: null,
+      runs: [], metrics: [], signals: {}, coverage: {}, findings: {}, business: [], sponsor: {}, strengths: [], weaknesses: [],
+      earnings: undefined as unknown as IssuerProfile["earnings"],
+    };
+    render(<Profile id="issuer empty" data={empty} />);
+    expect(screen.getByText("no run")).toBeTruthy();
+    expect(screen.getByText(/No headline metrics yet/)).toBeTruthy();
+    expect(screen.getAllByText(/No completed run yet/).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Financials" }));
+    expect(screen.getByText(/Time series needs/)).toBeTruthy();
+    expect(screen.getAllByText(/No completed run yet/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Structure & Covenant" }));
+    expect(screen.getByText("No business disclosure ingested.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Events" }));
+    expect(screen.getByText("No earnings delta yet.")).toBeTruthy();
+    expect(screen.getByText("No runs yet.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Evidence / QA" }));
+    expect(screen.getByText("Unavailable — no completed run")).toBeTruthy();
+  });
+
+  it("exposes overlay close controls without taking ownership of the page title", () => {
+    const onClose = vi.fn();
+    document.title = "Host title";
+    render(<Profile id="iss-1" data={data} isOverlay onClose={onClose} />);
+    expect(document.title).toBe("Host title");
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe("Issuer profile route states", () => {
+  const search = (id: string | null) => vi.mocked(useSearchParams).mockReturnValue({ get: () => id } as unknown as ReturnType<typeof useSearchParams>);
+
+  it("rejects a profile URL without an issuer id", async () => {
+    search(null);
+    render(<IssuerProfilePage />);
+    expect(await screen.findByText(/profile link is missing its issuer/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "OPEN DEEP-DIVE" })).toBeNull();
+    expect(getIssuerProfile).not.toHaveBeenCalled();
+  });
+
+  it("loads a profile and replaces the splash with the read-model", async () => {
+    search("iss-1");
+    let resolve!: (value: IssuerProfile) => void;
+    vi.mocked(getIssuerProfile).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    render(<IssuerProfilePage />);
+    expect(screen.getByText("Loading profile…")).toBeTruthy();
+    resolve(data);
+    expect(await screen.findByRole("heading", { name: "VMO2" })).toBeTruthy();
+    expect(getIssuerProfile).toHaveBeenCalledWith("iss-1");
+  });
+
+  it.each([
+    [{ response: { status: 404 } }, "Issuer not found."],
+    [{ response: { status: 500, data: { detail: "profile store unavailable" } } }, "profile store unavailable"],
+    [new Error("offline"), "Couldn’t load this profile."],
+  ])("renders an actionable load failure %#", async (failure, message) => {
+    search("issuer / one");
+    vi.mocked(getIssuerProfile).mockRejectedValueOnce(failure);
+    render(<IssuerProfilePage />);
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "OPEN DEEP-DIVE" }).getAttribute("href")).toBe("/deepdive?issuer=issuer%20%2F%20one");
+  });
+
+  it("renders the no-data guard and ignores a response after unmount", async () => {
+    search("empty");
+    vi.mocked(getIssuerProfile).mockResolvedValueOnce(null as unknown as IssuerProfile);
+    const first = render(<IssuerProfilePage />);
+    expect(await screen.findByText("No data.")).toBeTruthy();
+    first.unmount();
+
+    let resolve!: (value: IssuerProfile) => void;
+    vi.mocked(getIssuerProfile).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const second = render(<IssuerProfilePage />);
+    second.unmount();
+    resolve(data);
+    await waitFor(() => expect(document.body.textContent).not.toContain("VMO2"));
   });
 });

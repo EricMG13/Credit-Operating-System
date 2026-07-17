@@ -226,12 +226,16 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
   exceptions log with method/path/caller (`main.py` `log_unhandled`).
 - [ ] **Performance smoke.** `python caos/tests/perf/smoke.py --url $APP/api/health`
   passes (p95 under threshold, no errors) at the expected concurrency.
-- [ ] **Backup restore drill (not just backup).** A dump that never restores is
-  not a backup. After the `backup` service has written at least one artifact,
-  run the scripted drill (G1) — restores into **scratch** targets (never the
-  live DB/vault), asserts real content came back, cleans up after itself:
+- [ ] **Backup restore drill (not just backup).** Compose requires an rclone
+  remote and secret config. `backup` drills the local copy every
+  `BACKUP_RESTORE_DRILL_EVERY` successful cycles; `backup-sync` independently
+  downloads and drills the remote copy every
+  `BACKUP_REMOTE_RESTORE_DRILL_EVERY` successful syncs (both default seven).
+  After the first artifact, run the local drill once during launch as well — it restores into
+  **scratch** targets (never the live DB/vault), asserts real content came back,
+  and cleans up after itself:
   ```bash
-  docker compose exec backup sh /restore_drill.sh
+  docker compose exec backup /usr/local/bin/restore_drill.sh
   ```
   Exit 0 = both legs verified. Manual equivalent (troubleshooting only):
   ```bash
@@ -243,8 +247,9 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
   # vault: tar -xzf into a scratch dir and confirm files extract
   docker compose exec backup sh -c 'mkdir -p /tmp/vrt && tar -xzf /backups/caos-vault-<ts>.tar.gz -C /tmp/vrt && ls /tmp/vrt | head'
   ```
-  Re-run this drill quarterly. A real recovery (`pg_restore -d caos --clean`)
-  overwrites the live DB — only during an actual incident.
+  Confirm both `docker compose ps backup backup-sync` entries stay healthy and
+  that the sync log reports `remote-copy restore drill ok`. A real recovery
+  (`pg_restore -d caos --clean`) overwrites the live DB — only during an incident.
 
 ---
 
@@ -309,7 +314,7 @@ Run every check. All must pass before the URL goes to analysts. `$APP` =
 | FB-1 | User feedback loop | Pilot feedback via the team channel + GitHub issues, triaged weekly into the backlog. |
 | AB-1 | A/B testing | **N/A** for a single-team pilot — no traffic to split, no cohort metric. Add cohort flags only if a multi-cohort rollout becomes real. |
 | SCALE-1 | Scale-out | Single process by design. The Postgres `SKIP LOCKED` run worker (`test_async_runs.py`) and the advisory-locked boot migration are replica-safe, **but two components are NOT yet** (audit 2026-07-10 DEP-5): the Deep-Research executor's boot sweep marks *other* replicas' running jobs failed (no worker scoping), and rate limits are per-process (multiply by replica count). Give research jobs the QueueWorker's claim/lease treatment before scaling past one app replica. |
-| — | On-host backups only | The `backup` service runs daily `pg_dump` + vault tarball with rotation (P7-1). **Copy `/backups` off-host** (rsync / object storage) for host-loss protection. |
+| — | Automated off-host recovery | `backup` creates and locally drills daily DB/vault artifacts; isolated `backup-sync` uploads via rclone and periodically restores a freshly downloaded remote copy. Both expose health failures. |
 
 ---
 
