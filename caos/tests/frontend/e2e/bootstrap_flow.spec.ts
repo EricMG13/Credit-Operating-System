@@ -186,10 +186,16 @@ test.describe("Bootstrap journey — create → run → output", () => {
       timeout: 15000,
     });
 
-    // The default (CP-1) module tab renders genuinely-live output → the per-
-    // module ● LIVE provenance badge. This is the assertion that the run's
-    // OUTPUT (not just its existence) is on screen.
-    await expect(page.getByText("● LIVE", { exact: false }).first()).toBeVisible({
+    // The default (CP-1) module tab renders genuinely-live output → a per-
+    // module provenance badge. This is the assertion that the run's OUTPUT
+    // (not just its existence) is on screen. A fresh issuer with no vaulted
+    // documents clears CP-1 to qa_status "Restricted" (insufficient source
+    // data), which now renders "△ RESTRICTED" rather than unqualified
+    // "● LIVE" (deep-dive no longer folds Restricted into a clean pass) — both
+    // are the live-output badge family, so accept either.
+    await expect(
+      page.getByText("● LIVE", { exact: false }).or(page.getByText("△ RESTRICTED", { exact: false })).first()
+    ).toBeVisible({
       timeout: 15000,
     });
 

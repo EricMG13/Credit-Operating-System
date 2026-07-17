@@ -160,9 +160,14 @@ jobs:
         run: npx playwright install --with-deps chromium firefox webkit
       # No DATABASE_URL → SQLite; no model key → /api/chat uses demo fallback
       # (the research run test stubs /api/research, so a key isn't needed).
+      # Model Engine v2 is feature-flagged off by default (config.py) — the
+      # server pytest suite flips it in-process via the shared settings
+      # singleton, but this job spawns a real subprocess that only reads env,
+      # so model_flow.spec.ts's v2-authority test 404s without these.
       - name: Start app server
         run: |
-          nohup python caos/server/run.py > server.log 2>&1 &
+          nohup env CAOS_LINEAGE_V2_ENABLED=true CAOS_MODEL_ENGINE_V2_ENABLED=true \
+            python caos/server/run.py > server.log 2>&1 &
           for i in $(seq 1 30); do
             curl -sf http://localhost:8000/api/health && exit 0
             sleep 1
