@@ -269,51 +269,29 @@ function LoadingTable() {
   return <div className="portfolio-lab__empty" role="status">Loading portfolio data…</div>;
 }
 
-export function PortfolioLabWorkbench() {
-  const { roleView } = useRoleView();
-  const analysis = useAnalysisContext({ name: "Portfolio Lab" });
-  const { values, update } = useTypedUrlState(URL_KEYS);
+function resolveDataset(value: string | null): DatasetMode {
+  return value === "constraints" ? "constraints" : "positions";
+}
+
+function resolveChart(value: string | null): ChartMode {
+  return ["ratings", "maturity", "risk", "stress"].includes(value ?? "") ? value as ChartMode : "concentration";
+}
+
+function resolveSort(value: string | null): PortfolioPositionSort {
+  return PORTFOLIO_SORTS.includes(value as PortfolioPositionSort) ? value as PortfolioPositionSort : "borrower_name";
+}
+
+function resolvePortfolioSelection(values: PortfolioUrlValues, portfolios: PortfolioSummary[], loaded: boolean) {
+  const requestedId = values.portfolio;
+  const requestedIsMissing = Boolean(requestedId && loaded && portfolios.length > 0 && !portfolios.some((row) => row.id === requestedId));
+  const id = requestedIsMissing || (loaded && portfolios.length === 0) ? null : requestedId ?? portfolios[0]?.id ?? null;
+  return { requestedId, requestedIsMissing, id };
+}
+
+function usePortfolioDirectory(update: PortfolioUrlUpdater, setError: NullableErrorSetter) {
   const [portfolios, setPortfolios] = useState<PortfolioSummary[]>([]);
-  const [positions, setPositions] = useState<PortfolioPositionPage | null>(null);
-  const [analytics, setAnalytics] = useState<PortfolioAnalytics | null>(null);
-  const [stressRuns, setStressRuns] = useState<StressRun[]>([]);
-  const [insight, setInsight] = useState<InsightArtifact | null>(null);
-  const [refreshInsight, setRefreshInsight] = useState<InsightArtifact | null>(null);
-  const [portfolioListLoaded, setPortfolioListLoaded] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [portfolioListError, setPortfolioListError] = useState<string | null>(null);
-  const [supportError, setSupportError] = useState<string | null>(null);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
-  const [stressError, setStressError] = useState<string | null>(null);
-  const [insightError, setInsightError] = useState<string | null>(null);
-  const [stressPreview, setStressPreview] = useState(false);
-  const [stressPending, setStressPending] = useState(false);
-  const [filterDraft, setFilterDraft] = useState(() => ({
-    text: values.text ?? "",
-    sector: values.sector ?? "",
-    rating: values.rating ?? "",
-  }));
-
-  const requestedPortfolioId = values.portfolio;
-  const requestedPortfolioIsMissing = Boolean(requestedPortfolioId && portfolioListLoaded && portfolios.length > 0 && !portfolios.some((row) => row.id === requestedPortfolioId));
-  const portfolioId = requestedPortfolioIsMissing || (portfolioListLoaded && portfolios.length === 0)
-    ? null
-    : requestedPortfolioId ?? portfolios[0]?.id ?? null;
-  const dataset: DatasetMode = values.dataset === "constraints" ? "constraints" : "positions";
-  const chart: ChartMode = ["ratings", "maturity", "risk", "stress"].includes(values.chart ?? "")
-    ? values.chart as ChartMode
-    : "concentration";
-  const selectedPosition = positions?.items.find((row) => row.id === values.selected) ?? null;
-  const sort: PortfolioPositionSort = PORTFOLIO_SORTS.includes(values.sort as PortfolioPositionSort)
-    ? values.sort as PortfolioPositionSort
-    : "borrower_name";
-  const selectedStress = stressRuns.find((run) => run.id === values.stress) ?? stressRuns[0] ?? null;
-
-  useEffect(() => {
-    setFilterDraft({ text: values.text ?? "", sector: values.sector ?? "", rating: values.rating ?? "" });
-  }, [values.rating, values.sector, values.text]);
-
+  const [loaded, setLoaded] = useState(false);
+  const [error, setDirectoryError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     getPortfolios().then((rows) => {
@@ -322,78 +300,117 @@ export function PortfolioLabWorkbench() {
       if (!new URL(window.location.href).searchParams.get("portfolio") && rows[0]) {
         update({ portfolio: rows[0].id }, "replace");
       }
-      if (rows.length === 0) setLoading(false);
     }).catch((reason) => {
       if (!alive) return;
       const message = toErrorMessage(reason, "Portfolio list unavailable.");
-      setPortfolioListError(message);
+      setDirectoryError(message);
       setError(message);
-      setLoading(false);
-    }).finally(() => alive && setPortfolioListLoaded(true));
+    }).finally(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
-  }, [update]);
+  }, [setError, update]);
+  return { portfolios, loaded, error };
+}
 
+function usePortfolioFilters(values: PortfolioUrlValues) {
+  const [draft, setDraft] = useState(() => ({
+    text: values.text ?? "",
+    sector: values.sector ?? "",
+    rating: values.rating ?? "",
+  }));
   useEffect(() => {
-    if (!portfolioListLoaded || !portfolioId) {
-      if (portfolioListLoaded) setLoading(false);
+    setDraft({ text: values.text ?? "", sector: values.sector ?? "", rating: values.rating ?? "" });
+  }, [values.rating, values.sector, values.text]);
+  return { draft, setDraft };
+}
+
+function positionRequest(
+  values: Pick<PortfolioUrlValues, "cursor" | "direction" | "ranking" | "rating" | "sector" | "text">,
+  sort: PortfolioPositionSort,
+) {
+  return {
+    cursor: values.cursor ?? undefined,
+    sort,
+    direction: values.direction === "desc" ? "desc" as const : "asc" as const,
+    text: values.text ?? undefined,
+    sector: values.sector ?? undefined,
+    rating: values.rating ?? undefined,
+    ranking: values.ranking ?? undefined,
+    limit: 100,
+  };
+}
+
+function usePortfolioPositions(id: string | null, loaded: boolean, values: PortfolioUrlValues, sort: PortfolioPositionSort, setError: NullableErrorSetter) {
+  const [positions, setPositions] = useState<PortfolioPositionPage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { cursor, direction, ranking, rating, sector, text } = values;
+  useEffect(() => {
+    if (!loaded || !id) {
+      if (loaded) setLoading(false);
       return;
     }
     let alive = true;
     setLoading(true);
     setError(null);
     setPositions(null);
-    portfolioLabApi.getPositions(portfolioId, {
-      cursor: values.cursor ?? undefined,
-      sort,
-      direction: values.direction === "desc" ? "desc" : "asc",
-      text: values.text ?? undefined,
-      sector: values.sector ?? undefined,
-      rating: values.rating ?? undefined,
-      ranking: values.ranking ?? undefined,
-      limit: 100,
-    }).then((positionPage) => {
-      if (alive) setPositions(positionPage);
-    }).catch((reason) => {
-      if (alive) setError(toErrorMessage(reason, "Portfolio positions unavailable."));
-    }).finally(() => {
-      if (alive) setLoading(false);
-    });
+    portfolioLabApi.getPositions(id, positionRequest({ cursor, direction, ranking, rating, sector, text }, sort))
+      .then((page) => { if (alive) setPositions(page); })
+      .catch((reason) => { if (alive) setError(toErrorMessage(reason, "Portfolio positions unavailable.")); })
+      .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [portfolioId, portfolioListLoaded, sort, values.cursor, values.direction, values.ranking, values.rating, values.sector, values.text]);
+  }, [cursor, direction, id, loaded, ranking, rating, sector, setError, sort, text]);
+  return { positions, loading };
+}
 
+function applySupportResult<T>(
+  result: PromiseSettledResult<T>,
+  onSuccess: (value: T) => void,
+  onFailure: NullableErrorSetter,
+  fallback: string,
+) {
+  if (result.status === "fulfilled") {
+    onSuccess(result.value);
+    return null;
+  }
+  const message = toErrorMessage(result.reason, fallback);
+  onFailure(message);
+  return message;
+}
+
+function usePortfolioSupport(contextId: string | null | undefined, id: string | null, loaded: boolean) {
+  const [analytics, setAnalytics] = useState<PortfolioAnalytics | null>(null);
+  const [stressRuns, setStressRuns] = useState<StressRun[]>([]);
+  const [insight, setInsight] = useState<InsightArtifact | null>(null);
+  const [refreshInsight, setRefreshInsight] = useState<InsightArtifact | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [stressError, setStressError] = useState<string | null>(null);
+  const [insightError, setInsightError] = useState<string | null>(null);
   useEffect(() => {
-    if (!portfolioListLoaded || !portfolioId) return;
+    if (!loaded || !id) return;
     let alive = true;
-    setSupportError(null);
-    setAnalyticsError(null);
-    setStressError(null);
-    setInsightError(null);
-    setAnalytics(null);
-    setStressRuns([]);
-    setInsight(null);
-    setRefreshInsight(null);
-    Promise.allSettled([
-      portfolioLabApi.getAnalytics(portfolioId),
-      portfolioLabApi.listStressRuns(portfolioId),
-      analysis.context?.id
-        ? analysisApi.listInsights(analysis.context.id, { surface: "portfolio-lab", kind: "portfolio-brief", limit: 20 })
-        : Promise.resolve({ items: [], current: null, next_cursor: null }),
-    ]).then(([analyticsResult, stressResult, insightResult]) => {
-      if (!alive) return;
-      const failures: string[] = [];
-      if (analyticsResult.status === "fulfilled") setAnalytics(analyticsResult.value);
-      else { const message = toErrorMessage(analyticsResult.reason, "Analytics unavailable."); setAnalyticsError(message); failures.push(message); }
-      if (stressResult.status === "fulfilled") setStressRuns(stressResult.value.items);
-      else { const message = toErrorMessage(stressResult.reason, "Stress history unavailable."); setStressError(message); failures.push(message); }
-      if (insightResult.status === "fulfilled") setInsight(insightResult.value.current);
-      else { const message = toErrorMessage(insightResult.reason, "Cited brief unavailable."); setInsightError(message); failures.push(message); }
-      setSupportError(failures.length ? failures.join(" ") : null);
-    });
+    setError(null); setAnalyticsError(null); setStressError(null); setInsightError(null);
+    setAnalytics(null); setStressRuns([]); setInsight(null); setRefreshInsight(null);
+    const insightRequest = contextId
+      ? analysisApi.listInsights(contextId, { surface: "portfolio-lab", kind: "portfolio-brief", limit: 20 })
+      : Promise.resolve({ items: [], current: null, next_cursor: null });
+    Promise.allSettled([portfolioLabApi.getAnalytics(id), portfolioLabApi.listStressRuns(id), insightRequest])
+      .then(([analyticsResult, stressResult, insightResult]) => {
+        if (!alive) return;
+        const failures = [
+          applySupportResult(analyticsResult, setAnalytics, setAnalyticsError, "Analytics unavailable."),
+          applySupportResult(stressResult, (page) => setStressRuns(page.items), setStressError, "Stress history unavailable."),
+          applySupportResult(insightResult, (page) => setInsight(page.current), setInsightError, "Cited brief unavailable."),
+        ].filter((message): message is string => message !== null);
+        setError(failures.length ? failures.join(" ") : null);
+      });
     return () => { alive = false; };
-  }, [analysis.context?.id, portfolioId, portfolioListLoaded]);
+  }, [contextId, id, loaded]);
+  return { analytics, stressRuns, setStressRuns, insight, setInsight, refreshInsight, setRefreshInsight, error, analyticsError, stressError, insightError };
+}
 
-  const portfolio = portfolios.find((row) => row.id === portfolioId) ?? null;
-  const visualizationAnalytics = useMemo(() => analytics ? {
+function buildVisualizationAnalytics(analytics: PortfolioAnalytics | null, stressRuns: StressRun[]) {
+  if (!analytics) return null;
+  return {
     ...analytics,
     latest_stress_runs: stressRuns.map((run) => ({
       id: run.id,
@@ -406,132 +423,282 @@ export function PortfolioLabWorkbench() {
       loss_percent: run.output.loss_percent,
       created_at: run.created_at,
     })),
-  } : null, [analytics, stressRuns]);
-  const chartSpec = useMemo(() => visualizationAnalytics ? createPortfolioVisualizationSpec(chart, visualizationAnalytics) : null, [chart, visualizationAnalytics]);
-  const displayedInsight = insight ?? refreshInsight;
+  };
+}
 
-  const persistStress = async () => {
-    if (!portfolioId) return;
-    setStressPending(true);
+function usePortfolioStress(id: string | null, update: PortfolioUrlUpdater, setStressRuns: Dispatch<SetStateAction<StressRun[]>>, setError: NullableErrorSetter) {
+  const [preview, setPreview] = useState(false);
+  const [pending, setPending] = useState(false);
+  const persist = async () => {
+    if (!id) return;
+    setPending(true);
     try {
-      const created = await portfolioLabApi.createStressRun(portfolioId, {
-        label: "Base downside",
-        book_price_shock_pct: -8,
-        sector_shock_pcts: {},
-      });
+      const created = await portfolioLabApi.createStressRun(id, { label: "Base downside", book_price_shock_pct: -8, sector_shock_pcts: {} });
       setStressRuns((current) => [created, ...current]);
       update({ stress: created.id, chart: "stress" });
-      setStressPreview(false);
+      setPreview(false);
     } catch (reason) {
       setError(toErrorMessage(reason, "Stress run failed."));
     } finally {
-      setStressPending(false);
+      setPending(false);
     }
   };
+  return { preview, setPreview, pending, persist };
+}
 
-  const generateInsight = async () => {
-    if (!analysis.context?.id || !portfolioId) return;
+function readyInsight(insight: InsightArtifact) {
+  return insight.status === "ready" || insight.status === "ratified";
+}
+
+function usePortfolioInsightActions(
+  contextId: string | null | undefined,
+  id: string | null,
+  support: ReturnType<typeof usePortfolioSupport>,
+  setError: NullableErrorSetter,
+) {
+  const generate = async () => {
+    if (!contextId || !id) return;
     try {
-      const created = await analysisApi.createInsight(analysis.context.id, {
-        surface: "portfolio-lab",
-        kind: "portfolio-brief",
-        subject_refs: { portfolio_id: portfolioId },
-        force: Boolean(insight),
+      const created = await analysisApi.createInsight(contextId, {
+        surface: "portfolio-lab", kind: "portfolio-brief", subject_refs: { portfolio_id: id }, force: Boolean(support.insight),
       });
-      if (created.status === "ready" || created.status === "ratified") {
-        setInsight(created);
-        setRefreshInsight(null);
+      if (readyInsight(created)) {
+        support.setInsight(created);
+        support.setRefreshInsight(null);
       } else {
-        setRefreshInsight(created);
+        support.setRefreshInsight(created);
       }
     } catch (reason) {
       setError(toErrorMessage(reason, "Portfolio insight unavailable."));
     }
   };
+  const ratify = (candidate: InsightArtifact) => {
+    void analysisApi.ratifyInsight(candidate.id)
+      .then((ratified) => { support.setInsight(ratified); support.setRefreshInsight(null); })
+      .catch((reason) => setError(toErrorMessage(reason, "Insight ratification failed.")));
+  };
+  return { generate, ratify };
+}
 
-  const decision = (
+function usePortfolioLabView() {
+  const { roleView } = useRoleView();
+  const analysis = useAnalysisContext({ name: "Portfolio Lab" });
+  const { values, update } = useTypedUrlState(URL_KEYS);
+  const [error, setError] = useState<string | null>(null);
+  const directory = usePortfolioDirectory(update, setError);
+  const selection = resolvePortfolioSelection(values, directory.portfolios, directory.loaded);
+  const dataset = resolveDataset(values.dataset);
+  const chart = resolveChart(values.chart);
+  const sort = resolveSort(values.sort);
+  const filters = usePortfolioFilters(values);
+  const positionLane = usePortfolioPositions(selection.id, directory.loaded, values, sort, setError);
+  const support = usePortfolioSupport(analysis.context?.id, selection.id, directory.loaded);
+  const portfolio = directory.portfolios.find((row) => row.id === selection.id) ?? null;
+  const selectedPosition = positionLane.positions?.items.find((row) => row.id === values.selected) ?? null;
+  const selectedStress = support.stressRuns.find((run) => run.id === values.stress) ?? support.stressRuns[0] ?? null;
+  const visualizationAnalytics = useMemo(() => buildVisualizationAnalytics(support.analytics, support.stressRuns), [support.analytics, support.stressRuns]);
+  const chartSpec = useMemo(() => visualizationAnalytics ? createPortfolioVisualizationSpec(chart, visualizationAnalytics) : null, [chart, visualizationAnalytics]);
+  const stress = usePortfolioStress(selection.id, update, support.setStressRuns, setError);
+  const insightActions = usePortfolioInsightActions(analysis.context?.id, selection.id, support, setError);
+  return {
+    roleView, analysis, values, update, error, directory, selection, dataset, chart, sort, filters,
+    positions: { ...positionLane, selected: selectedPosition },
+    support: { ...support, selectedStress, displayedInsight: support.insight ?? support.refreshInsight, chartSpec },
+    portfolio, stress, insightActions,
+  };
+}
+
+type PortfolioLabViewModel = ReturnType<typeof usePortfolioLabView>;
+
+function PortfolioDecision({ view }: { view: PortfolioLabViewModel }) {
+  const label = view.roleView === "pm" ? "Portfolio posture" : view.roleView === "qa" ? "Evidence & compliance" : "Sizing workbench";
+  const authority = !view.selection.id ? "No portfolio" : view.support.analytics?.authority.approval_state ?? (view.support.analyticsError ? "Unavailable" : "Loading");
+  return (
     <header className="portfolio-lab__decision-header">
-      <div><span className="portfolio-lab__eyebrow">{roleView === "pm" ? "Portfolio posture" : roleView === "qa" ? "Evidence & compliance" : "Sizing workbench"}</span><h1>{portfolio?.name ?? "Portfolio Lab"}</h1></div>
-      <dl><div><dt>As of</dt><dd>{analytics?.as_of ?? portfolio?.as_of_date ?? "Unavailable"}</dd></div><div><dt>Positions</dt><dd>{loading ? "—" : positions?.total ?? portfolio?.n_positions ?? "—"}</dd></div><div><dt>Authority</dt><dd>{!portfolioId ? "No portfolio" : analytics?.authority.approval_state ?? (analyticsError ? "Unavailable" : "Loading")}</dd></div></dl>
+      <div><span className="portfolio-lab__eyebrow">{label}</span><h1>{view.portfolio?.name ?? "Portfolio Lab"}</h1></div>
+      <dl><div><dt>As of</dt><dd>{view.support.analytics?.as_of ?? view.portfolio?.as_of_date ?? "Unavailable"}</dd></div><div><dt>Positions</dt><dd>{view.positions.loading ? "—" : view.positions.positions?.total ?? view.portfolio?.n_positions ?? "—"}</dd></div><div><dt>Authority</dt><dd>{authority}</dd></div></dl>
     </header>
   );
+}
 
-  const primary = (
+function PortfolioDatasetTabs({ view }: { view: PortfolioLabViewModel }) {
+  const selectDataset = (dataset: DatasetMode) => view.update({ dataset, cursor: null });
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const next = view.dataset === "positions" ? "constraints" : "positions";
+    selectDataset(next);
+    requestAnimationFrame(() => document.getElementById(`portfolio-tab-${next}`)?.focus());
+  };
+  return (
+    <div role="tablist" aria-label="Portfolio datasets" onKeyDown={handleKeyDown}>
+      <button id="portfolio-tab-positions" type="button" role="tab" aria-controls="portfolio-dataset-panel" aria-selected={view.dataset === "positions"} tabIndex={view.dataset === "positions" ? 0 : -1} onClick={() => selectDataset("positions")}>Positions</button>
+      <button id="portfolio-tab-constraints" type="button" role="tab" aria-controls="portfolio-dataset-panel" aria-selected={view.dataset === "constraints"} tabIndex={view.dataset === "constraints" ? 0 : -1} onClick={() => selectDataset("constraints")}>Constraints</button>
+    </div>
+  );
+}
+
+function PortfolioFilters({ view }: { view: PortfolioLabViewModel }) {
+  const { draft, setDraft } = view.filters;
+  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    view.update({ text: draft.text || null, sector: draft.sector || null, rating: draft.rating || null, cursor: null });
+  };
+  const descending = view.values.direction === "desc";
+  return (
+    <form className="portfolio-lab__filters" onSubmit={submit}>
+      <label>Search<input value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} /></label>
+      <label>Sector<input value={draft.sector} onChange={(event) => setDraft((current) => ({ ...current, sector: event.target.value }))} /></label>
+      <label>Rating<input value={draft.rating} onChange={(event) => setDraft((current) => ({ ...current, rating: event.target.value }))} /></label>
+      <label>Sort<select value={view.sort} onChange={(event) => view.update({ sort: event.target.value, cursor: null })}><option value="borrower_name">Borrower</option><option value="par_usd">Par</option><option value="price">Price</option><option value="maturity">Maturity</option><option value="rating_moody">Moody&apos;s</option></select></label>
+      <button type="button" aria-label={`Sort ${descending ? "ascending" : "descending"}`} onClick={() => view.update({ direction: descending ? "asc" : "desc", cursor: null })}>{descending ? "DESC ↓" : "ASC ↑"}</button>
+      <button type="submit">APPLY</button>
+    </form>
+  );
+}
+
+function PortfolioToolbar({ view }: { view: PortfolioLabViewModel }) {
+  return (
+    <div className="portfolio-lab__toolbar">
+      <PortfolioDatasetTabs view={view} />
+      <label>Portfolio<select value={view.selection.id ?? ""} onChange={(event) => view.update({ portfolio: event.target.value, cursor: null, selected: null })}>{view.directory.portfolios.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+      {view.dataset === "positions" ? <PortfolioFilters view={view} /> : null}
+      {view.values.ranking ? <div className="portfolio-lab__active-filter" role="status">Ranking: {view.values.ranking}<button type="button" className="focus-ring" onClick={() => view.update({ ranking: null, cursor: null })}>Clear ranking</button></div> : null}
+    </div>
+  );
+}
+
+function PortfolioDatasetContent({ view }: { view: PortfolioLabViewModel }) {
+  if (view.selection.requestedIsMissing) return <SurfaceState kind="unavailable" headingLevel={2} title="Portfolio not found" detail={`The requested portfolio (${view.selection.requestedId}) is not available. Choose a portfolio from the picker.`} compact />;
+  if (!view.selection.id && view.directory.error) return <SurfaceState kind="offline" headingLevel={2} title="Portfolio register unavailable" detail={view.directory.error} compact />;
+  if (!view.selection.id && view.directory.loaded) return <SurfaceState kind="empty" headingLevel={2} title="No portfolios are configured" detail="Create or import a portfolio in Settings before opening the lab." primaryAction={<Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Open Settings</Link>} compact />;
+  if (view.positions.loading && !view.positions.positions) return <LoadingTable />;
+  if (view.error && !view.positions.positions) return <SurfaceState kind="unavailable" headingLevel={2} title="Portfolio positions unavailable" detail={view.error} compact />;
+  if (view.dataset === "positions" && view.positions.positions?.items.length) return <PositionsTable page={view.positions.positions} selectedId={view.values.selected} onSelect={(row) => view.update({ selected: row.id })} />;
+  if (view.dataset === "positions" && view.positions.positions) return <SurfaceState kind="empty" headingLevel={2} title="No positions match the active filters" detail="Clear or adjust the visible filters to broaden the result." compact />;
+  if (view.support.analytics?.compliance.length) return <ConstraintsTable rows={view.support.analytics.compliance} />;
+  if (view.support.analytics) return <SurfaceState kind="empty" headingLevel={2} title="No portfolio constraints are configured" compact />;
+  if (view.support.error) return <SurfaceState kind="unavailable" headingLevel={2} title="Constraint analytics unavailable" detail="Positions remain accessible." compact />;
+  return <LoadingTable />;
+}
+
+function PortfolioPrimary({ view }: { view: PortfolioLabViewModel }) {
+  const totalRows = view.dataset === "positions" ? view.positions.positions?.total : view.support.analytics?.compliance.length;
+  return (
     <section className="portfolio-lab__primary" aria-label="Portfolio working set">
-      <div className="portfolio-lab__toolbar">
-        <div role="tablist" aria-label="Portfolio datasets" onKeyDown={(event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-          event.preventDefault();
-          const next = dataset === "positions" ? "constraints" : "positions";
-          update({ dataset: next, cursor: null });
-          requestAnimationFrame(() => document.getElementById(`portfolio-tab-${next}`)?.focus());
-        }}>
-          <button id="portfolio-tab-positions" type="button" role="tab" aria-controls="portfolio-dataset-panel" aria-selected={dataset === "positions"} tabIndex={dataset === "positions" ? 0 : -1} onClick={() => update({ dataset: "positions", cursor: null })}>Positions</button>
-          <button id="portfolio-tab-constraints" type="button" role="tab" aria-controls="portfolio-dataset-panel" aria-selected={dataset === "constraints"} tabIndex={dataset === "constraints" ? 0 : -1} onClick={() => update({ dataset: "constraints", cursor: null })}>Constraints</button>
-        </div>
-        <label>Portfolio<select value={portfolioId ?? ""} onChange={(event) => update({ portfolio: event.target.value, cursor: null, selected: null })}>{portfolios.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
-        {dataset === "positions" ? <form className="portfolio-lab__filters" onSubmit={(event) => {
-          event.preventDefault();
-          update({ text: filterDraft.text || null, sector: filterDraft.sector || null, rating: filterDraft.rating || null, cursor: null });
-        }}>
-          <label>Search<input value={filterDraft.text} onChange={(event) => setFilterDraft((current) => ({ ...current, text: event.target.value }))} /></label>
-          <label>Sector<input value={filterDraft.sector} onChange={(event) => setFilterDraft((current) => ({ ...current, sector: event.target.value }))} /></label>
-          <label>Rating<input value={filterDraft.rating} onChange={(event) => setFilterDraft((current) => ({ ...current, rating: event.target.value }))} /></label>
-          <label>Sort<select value={sort} onChange={(event) => update({ sort: event.target.value, cursor: null })}><option value="borrower_name">Borrower</option><option value="par_usd">Par</option><option value="price">Price</option><option value="maturity">Maturity</option><option value="rating_moody">Moody&apos;s</option></select></label>
-          <button type="button" aria-label={`Sort ${values.direction === "desc" ? "ascending" : "descending"}`} onClick={() => update({ direction: values.direction === "desc" ? "asc" : "desc", cursor: null })}>{values.direction === "desc" ? "DESC ↓" : "ASC ↑"}</button>
-          <button type="submit">APPLY</button>
-        </form> : null}
-        {values.ranking ? <div className="portfolio-lab__active-filter" role="status">Ranking: {values.ranking}<button type="button" className="focus-ring" onClick={() => update({ ranking: null, cursor: null })}>Clear ranking</button></div> : null}
-      </div>
-      <div id="portfolio-dataset-panel" role="tabpanel" aria-labelledby={`portfolio-tab-${dataset}`}>
-        <DominantTableRegion ownerId="portfolio-lab-main" label={`${dataset === "positions" ? "Portfolio positions" : "Portfolio constraints"} table`} data-total-rows={dataset === "positions" ? positions?.total : analytics?.compliance.length}>
-          {requestedPortfolioIsMissing ? <SurfaceState kind="unavailable" headingLevel={2} title="Portfolio not found" detail={`The requested portfolio (${requestedPortfolioId}) is not available. Choose a portfolio from the picker.`} compact /> : !portfolioId && portfolioListError ? <SurfaceState kind="offline" headingLevel={2} title="Portfolio register unavailable" detail={portfolioListError} compact /> : !portfolioId && portfolioListLoaded ? <SurfaceState kind="empty" headingLevel={2} title="No portfolios are configured" detail="Create or import a portfolio in Settings before opening the lab." primaryAction={<Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Open Settings</Link>} compact /> : loading && !positions ? <LoadingTable /> : error && !positions ? <SurfaceState kind="unavailable" headingLevel={2} title="Portfolio positions unavailable" detail={error} compact /> : dataset === "positions" && positions?.items.length ? <PositionsTable page={positions} selectedId={values.selected} onSelect={(row) => update({ selected: row.id })} /> : dataset === "positions" && positions ? <SurfaceState kind="empty" headingLevel={2} title="No positions match the active filters" detail="Clear or adjust the visible filters to broaden the result." compact /> : analytics?.compliance.length ? <ConstraintsTable rows={analytics.compliance} /> : analytics ? <SurfaceState kind="empty" headingLevel={2} title="No portfolio constraints are configured" compact /> : supportError ? <SurfaceState kind="unavailable" headingLevel={2} title="Constraint analytics unavailable" detail="Positions remain accessible." compact /> : <LoadingTable />}
+      <PortfolioToolbar view={view} />
+      <div id="portfolio-dataset-panel" role="tabpanel" aria-labelledby={`portfolio-tab-${view.dataset}`}>
+        <DominantTableRegion ownerId="portfolio-lab-main" label={`${view.dataset === "positions" ? "Portfolio positions" : "Portfolio constraints"} table`} data-total-rows={totalRows}>
+          <PortfolioDatasetContent view={view} />
         </DominantTableRegion>
       </div>
-      {dataset === "positions" && positions?.next_cursor ? <button type="button" className="portfolio-lab__next" onClick={() => update({ cursor: positions.next_cursor, selected: null })}>Next positions</button> : null}
+      {view.dataset === "positions" && view.positions.positions?.next_cursor ? <button type="button" className="portfolio-lab__next" onClick={() => view.update({ cursor: view.positions.positions?.next_cursor, selected: null })}>Next positions</button> : null}
     </section>
   );
+}
 
-  const context = (
+function PortfolioContextPane({ view }: { view: PortfolioLabViewModel }) {
+  let content = <p role="status">Loading portfolio analytics…</p>;
+  if (!view.selection.id) content = <p role="status">No portfolio selected — analytics unavailable.</p>;
+  else if (view.support.chartSpec) content = <SemanticVisualization spec={view.support.chartSpec} headingLevel={2} />;
+  else if (view.support.analyticsError) content = <p role="status">{view.support.analyticsError} The positions workflow remains live.</p>;
+  return (
     <section className="portfolio-lab__context" aria-label="Portfolio visualization">
-      <label>View<select value={chart} onChange={(event) => update({ chart: event.target.value as ChartMode })}><option value="concentration">Concentration</option><option value="ratings">Ratings</option><option value="maturity">Maturity wall</option><option value="risk">Risk budget</option><option value="stress">Stress history</option></select></label>
-      {!portfolioId ? <p role="status">No portfolio selected — analytics unavailable.</p> : chartSpec ? <SemanticVisualization spec={chartSpec} headingLevel={2} /> : analyticsError ? <p role="status">{analyticsError} The positions workflow remains live.</p> : <p role="status">Loading portfolio analytics…</p>}
+      <label>View<select value={view.chart} onChange={(event) => view.update({ chart: event.target.value as ChartMode })}><option value="concentration">Concentration</option><option value="ratings">Ratings</option><option value="maturity">Maturity wall</option><option value="risk">Risk budget</option><option value="stress">Stress history</option></select></label>
+      {content}
     </section>
   );
+}
 
-  const inspector = (
+function PositionSources({ ids }: { ids: string[] | undefined }) {
+  if (!ids?.length) return <SourceRef source={{ state: "unavailable", reason: "No persisted source identifier for this position." }} />;
+  return <>{ids.map((id) => <SourceRef key={id} source={{ state: "unavailable", reason: `Source ${id} has no persisted action.` }} />)}</>;
+}
+
+function PositionDetails({ view }: { view: PortfolioLabViewModel }) {
+  const position = view.positions.selected;
+  if (!position) return <p>Select a position to inspect its sizing and source lineage.</p>;
+  return (
+    <>
+      <dl><div><dt>Instrument</dt><dd>{position.loan_name ?? position.ticker ?? "—"}</dd></div><div><dt>Market value</dt><dd>{position.market_value == null ? "—" : money.format(position.market_value)}</dd></div><div><dt>Source</dt><dd className="grid gap-1"><PositionSources ids={view.positions.positions?.authority.source_ids} /></dd></div></dl>
+      {position.issuer_id ? <Link href={`/issuers/profile?id=${encodeURIComponent(position.issuer_id)}&context=${encodeURIComponent(view.analysis.context?.id ?? "")}`}>Open issuer profile</Link> : null}
+    </>
+  );
+}
+
+function PortfolioInsight({ view }: { view: PortfolioLabViewModel }) {
+  const displayed = view.support.displayedInsight;
+  if (displayed) return <PortfolioInsightCard insight={displayed} onRatify={displayed.status === "ready" ? () => view.insightActions.ratify(displayed) : undefined} />;
+  if (view.support.insightError) return <p role="status">{view.support.insightError}</p>;
+  return <p>No cited advisory brief has been generated.</p>;
+}
+
+function PortfolioInspectorPane({ view }: { view: PortfolioLabViewModel }) {
+  const missing = view.support.analytics?.missing_dependencies ?? [];
+  return (
     <aside className="portfolio-lab__inspector" aria-label="Portfolio evidence inspector">
-      <h2>{selectedPosition?.borrower_name ?? "Evidence Atlas"}</h2>
-      {selectedPosition ? <dl><div><dt>Instrument</dt><dd>{selectedPosition.loan_name ?? selectedPosition.ticker ?? "—"}</dd></div><div><dt>Market value</dt><dd>{selectedPosition.market_value == null ? "—" : money.format(selectedPosition.market_value)}</dd></div><div><dt>Source</dt><dd className="grid gap-1">{positions?.authority.source_ids.length ? positions.authority.source_ids.map((id) => <SourceRef key={id} source={{ state: "unavailable", reason: `Source ${id} has no persisted action.` }} />) : <SourceRef source={{ state: "unavailable", reason: "No persisted source identifier for this position." }} />}</dd></div></dl> : <p>Select a position to inspect its sizing and source lineage.</p>}
-      {selectedPosition?.issuer_id ? <Link href={`/issuers/profile?id=${encodeURIComponent(selectedPosition.issuer_id)}&context=${encodeURIComponent(analysis.context?.id ?? "")}`}>Open issuer profile</Link> : null}
-      {analytics?.missing_dependencies.length ? <><h3>Missing dependencies</h3><ul>{analytics.missing_dependencies.map((item) => <li key={item}>{item}</li>)}</ul></> : null}
-      <div className="portfolio-lab__insight-actions"><ActionReason reason={portfolioId ? null : "Create or open a portfolio first"} onClick={() => void generateInsight()}>{insight ? "Refresh cited brief" : "Generate cited brief"}</ActionReason></div>
-      {refreshInsight && insight ? <p role="status">Latest refresh is {refreshInsight.status}; the last ready or ratified brief remains effective.</p> : null}
-      {displayedInsight ? <PortfolioInsightCard insight={displayedInsight} onRatify={displayedInsight.status === "ready" ? () => {
-        const candidate = displayedInsight;
-        void analysisApi.ratifyInsight(candidate.id).then((ratified) => { setInsight(ratified); setRefreshInsight(null); }).catch((reason) => setError(toErrorMessage(reason, "Insight ratification failed.")));
-      } : undefined} /> : insightError ? <p role="status">{insightError}</p> : <p>No cited advisory brief has been generated.</p>}
+      <h2>{view.positions.selected?.borrower_name ?? "Evidence Atlas"}</h2>
+      <PositionDetails view={view} />
+      {missing.length ? <><h3>Missing dependencies</h3><ul>{missing.map((item) => <li key={item}>{item}</li>)}</ul></> : null}
+      <div className="portfolio-lab__insight-actions"><ActionReason reason={view.selection.id ? null : "Create or open a portfolio first"} onClick={() => void view.insightActions.generate()}>{view.support.insight ? "Refresh cited brief" : "Generate cited brief"}</ActionReason></div>
+      {view.support.refreshInsight && view.support.insight ? <p role="status">Latest refresh is {view.support.refreshInsight.status}; the last ready or ratified brief remains effective.</p> : null}
+      <PortfolioInsight view={view} />
     </aside>
   );
+}
 
-  const utility = (
+function StressPreview({ view }: { view: PortfolioLabViewModel }) {
+  if (!view.stress.preview) return null;
+  return <div className="portfolio-lab__stress-preview"><strong>Preview only</strong><p>Apply an 8% book price decline. Holdings and limits will not be changed.</p><ActionReason reason={view.stress.pending ? "Stress run in progress" : null} onClick={() => void view.stress.persist()}>{view.stress.pending ? "Persisting…" : "Confirm and persist"}</ActionReason></div>;
+}
+
+function StressTimeline({ view }: { view: PortfolioLabViewModel }) {
+  if (view.support.stressRuns.length) {
+    return <ol className="portfolio-lab__timeline" aria-label="Persisted stress history">{view.support.stressRuns.map((run) => <li key={run.id} data-selected={view.support.selectedStress?.id === run.id}><button type="button" aria-pressed={view.support.selectedStress?.id === run.id} onClick={() => view.update({ stress: run.id, chart: "stress" })}>{run.label}</button><span>{numberText(run.output.loss_percent, "% loss")}</span><code>{run.source_fingerprint}</code></li>)}</ol>;
+  }
+  return view.support.stressError ? <p role="status">{view.support.stressError}</p> : <p>No persisted stress snapshots.</p>;
+}
+
+function StressResult({ run }: { run: StressRun | null }) {
+  if (!run) return null;
+  return (
+    <article className="portfolio-lab__stress-result" aria-label="Selected stress result">
+      <h3>{run.label} result</h3>
+      <dl><div><dt>Base NAV</dt><dd>{run.output.base_nav == null ? "—" : money.format(run.output.base_nav)}</dd></div><div><dt>Stressed NAV</dt><dd>{run.output.stressed_nav == null ? "—" : money.format(run.output.stressed_nav)}</dd></div><div><dt>Loss</dt><dd>{numberText(run.output.loss_percent, "%")}</dd></div><div><dt>Authority</dt><dd>{run.authority.approval_state} · {run.authority.method}</dd></div></dl>
+      {run.output.missing_dependencies.length ? <><h4>Missing dependencies</h4><ul>{run.output.missing_dependencies.map((item) => <li key={item}>{item}</li>)}</ul></> : null}
+    </article>
+  );
+}
+
+function PortfolioStressPane({ view }: { view: PortfolioLabViewModel }) {
+  return (
     <section className="portfolio-lab__stress" aria-label="Deterministic stress controls">
-      <header><div><span className="portfolio-lab__eyebrow">Deterministic scenario</span><h2>Base downside</h2></div><ActionReason reason={portfolioId ? null : "Create or open a portfolio first"} reasonDisplay="hidden" onClick={() => setStressPreview(true)}>Preview stress</ActionReason></header>
-      {stressPreview ? <div className="portfolio-lab__stress-preview"><strong>Preview only</strong><p>Apply an 8% book price decline. Holdings and limits will not be changed.</p><ActionReason reason={stressPending ? "Stress run in progress" : null} onClick={() => void persistStress()}>{stressPending ? "Persisting…" : "Confirm and persist"}</ActionReason></div> : null}
-      {stressRuns.length ? <ol className="portfolio-lab__timeline" aria-label="Persisted stress history">{stressRuns.map((run) => <li key={run.id} data-selected={selectedStress?.id === run.id}><button type="button" aria-pressed={selectedStress?.id === run.id} onClick={() => update({ stress: run.id, chart: "stress" })}>{run.label}</button><span>{numberText(run.output.loss_percent, "% loss")}</span><code>{run.source_fingerprint}</code></li>)}</ol> : stressError ? <p role="status">{stressError}</p> : <p>No persisted stress snapshots.</p>}
-      {selectedStress ? <article className="portfolio-lab__stress-result" aria-label="Selected stress result"><h3>{selectedStress.label} result</h3><dl><div><dt>Base NAV</dt><dd>{selectedStress.output.base_nav == null ? "—" : money.format(selectedStress.output.base_nav)}</dd></div><div><dt>Stressed NAV</dt><dd>{selectedStress.output.stressed_nav == null ? "—" : money.format(selectedStress.output.stressed_nav)}</dd></div><div><dt>Loss</dt><dd>{numberText(selectedStress.output.loss_percent, "%")}</dd></div><div><dt>Authority</dt><dd>{selectedStress.authority.approval_state} · {selectedStress.authority.method}</dd></div></dl>{selectedStress.output.missing_dependencies.length ? <><h4>Missing dependencies</h4><ul>{selectedStress.output.missing_dependencies.map((item) => <li key={item}>{item}</li>)}</ul></> : null}</article> : null}
+      <header><div><span className="portfolio-lab__eyebrow">Deterministic scenario</span><h2>Base downside</h2></div><ActionReason reason={view.selection.id ? null : "Create or open a portfolio first"} reasonDisplay="hidden" onClick={() => view.stress.setPreview(true)}>Preview stress</ActionReason></header>
+      <StressPreview view={view} />
+      <StressTimeline view={view} />
+      <StressResult run={view.support.selectedStress} />
     </section>
   );
+}
 
+function PortfolioLabView({ view }: { view: PortfolioLabViewModel }) {
+  const status = view.error
+    ? <span role="alert">{view.error}</span>
+    : <span>{view.portfolio ? view.portfolio.kind : <span className="text-caos-muted">No portfolio selected</span>}</span>;
   return (
     <EnterprisePage
       kind="analytical"
       identity={<ShellIdentity tag="CP-PORT" title="Portfolio Lab" />}
-      status={error ? <span role="alert">{error}</span> : <span>{portfolio ? portfolio.kind : <span className="text-caos-muted">No portfolio selected</span>}</span>}
-      primaryAction={<ActionReason className="caos-action-primary focus-ring" reason={portfolioId ? null : "Create or open a portfolio first"} reasonDisplay="hidden" onClick={() => setStressPreview(true)}>Run portfolio stress</ActionReason>}
-      narrowContract={{ essentialControls: <span>{loading ? "—" : positions?.total ?? 0} positions</span> }}
+      status={status}
+      primaryAction={<ActionReason className="caos-action-primary focus-ring" reason={view.selection.id ? null : "Create or open a portfolio first"} reasonDisplay="hidden" onClick={() => view.stress.setPreview(true)}>Run portfolio stress</ActionReason>}
+      narrowContract={{ essentialControls: <span>{view.positions.loading ? "—" : view.positions.positions?.total ?? 0} positions</span> }}
     >
-      <PersonaWorkbench surface="portfolio-lab" decision={decision} primary={primary} context={context} inspector={inspector} utility={utility} />
+      <PersonaWorkbench surface="portfolio-lab" decision={<PortfolioDecision view={view} />} primary={<PortfolioPrimary view={view} />} context={<PortfolioContextPane view={view} />} inspector={<PortfolioInspectorPane view={view} />} utility={<PortfolioStressPane view={view} />} />
     </EnterprisePage>
   );
+}
+
+export function PortfolioLabWorkbench() {
+  const view = usePortfolioLabView();
+  return <PortfolioLabView view={view} />;
 }
