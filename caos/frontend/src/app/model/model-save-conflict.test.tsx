@@ -40,7 +40,7 @@ describe("Model Builder · save conflict (409)", () => {
     await waitFor(() => expect(save.getAttribute("aria-disabled")).toBeNull()); // the ready action omits its disabled state
     fireEvent.click(save);
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
+      const alert = screen.getByRole("alert", { name: /SAVED ELSEWHERE/i });
       expect(alert.textContent).toContain("SAVED ELSEWHERE");
     });
     expect(screen.queryByText(/SAVE FAILED/)).toBeNull();
@@ -51,7 +51,7 @@ describe("Model Builder · save conflict (409)", () => {
     const save = await screen.findByRole("button", { name: /SAVE MODEL/i });
     await waitFor(() => expect(save.getAttribute("aria-disabled")).toBeNull()); // the ready action omits its disabled state
     fireEvent.click(save);
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", { name: /SAVED ELSEWHERE/i });
     expect(alert.textContent).toContain("SAVED ELSEWHERE");
     fireEvent.click(alert);
     await waitFor(() => {

@@ -72,7 +72,7 @@ export function SurfaceState({
       role={role}
       aria-live={isLive ? "polite" : undefined}
       className={
-        "rounded-md border border-caos-border bg-caos-bg/45 " +
+        "min-w-0 rounded-md border border-caos-border bg-caos-bg/45 " +
         (compact ? "px-2.5 py-2" : "px-3 py-3.5") +
         (className ? ` ${className}` : "")
       }
@@ -82,8 +82,8 @@ export function SurfaceState({
         <StatusGlyph kind={presentation.glyph} size={10} className={isLive ? "caos-running" : ""} />
         <span>{presentation.label}</span>
       </div>
-      <h3 className={(compact ? "mt-1 text-caos-md" : "mt-1.5 text-caos-lg") + " font-semibold text-caos-text"}>{title}</h3>
-      {detail ? <p className={(compact ? "mt-0.5 text-caos-xs" : "mt-1 text-caos-md") + " leading-relaxed text-caos-muted"}>{detail}</p> : null}
+      <h3 className={(compact ? "mt-1 text-caos-xl" : "mt-1.5 text-caos-metric") + " font-semibold leading-tight text-caos-text text-balance [overflow-wrap:anywhere]"}>{title}</h3>
+      {detail ? <p className={(compact ? "mt-0.5" : "mt-1") + " max-w-[70ch] text-caos-md leading-relaxed text-caos-muted text-pretty [overflow-wrap:anywhere]"}>{detail}</p> : null}
       {supporting ? <div className="mt-2">{supporting}</div> : null}
       {primaryAction || secondaryAction ? (
         <div className="mt-2.5 flex flex-wrap items-center gap-2">

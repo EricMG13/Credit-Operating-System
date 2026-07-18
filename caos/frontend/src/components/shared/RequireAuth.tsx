@@ -18,7 +18,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-caos-bg px-4">
-        <SurfaceState kind="loading" title="Loading…" compact className="max-w-sm w-full" />
+        <SurfaceState kind="loading" title="Checking analyst access" detail="Verifying your CAOS session." compact className="max-w-sm w-full" />
       </div>
     );
   }
@@ -32,14 +32,15 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       <div className="min-h-screen flex items-center justify-center bg-caos-bg px-4">
         <SurfaceState
           kind="error"
-          title="Can't reach the CAOS API"
-          detail="Identity could not be resolved. If you are running locally, start the server (python caos/server/run.py) and retry."
+          title="Analyst access could not be verified"
+          detail="The CAOS service did not respond. Check your connection, then retry. If it persists, contact your CAOS administrator."
           primaryAction={
             <button
               onClick={() => refresh()}
-              className="tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
+              type="button"
+              className="caos-action-primary focus-ring"
             >
-              RETRY
+              Retry access check
             </button>
           }
           compact

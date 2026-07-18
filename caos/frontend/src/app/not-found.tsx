@@ -13,16 +13,16 @@ export default function NotFound() {
           <span className="font-mono text-caos-sm uppercase tracking-[0.2em] text-caos-accent">
             404
           </span>
-          <h1 className="text-caos-text text-lg font-semibold">No such view</h1>
+          <h1 className="text-caos-text text-lg font-semibold">View not found</h1>
           <p className="text-caos-muted text-xs">
-            That route doesn&apos;t exist. It may have been moved, or the link is stale.
+            This CAOS route does not exist. The view may have moved, or the link may be stale.
           </p>
         </div>
         <Link
           href="/"
           className="self-start rounded border border-caos-accent bg-caos-accent px-3 py-2 text-sm font-semibold text-caos-bg transition-caos hover:opacity-90 focus-ring"
         >
-          Back to Directory
+          Open issuer directory
         </Link>
       </div>
     </div>

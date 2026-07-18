@@ -18,7 +18,7 @@ export function WorkflowRail() {
   return (
     <aside className="caos-workflow-rail" aria-label="Workspace navigation">
       <div className="h-14 px-5 flex items-center border-b border-caos-border">
-        <Link href="/command" className="no-underline focus-ring rounded-sm" aria-label="CAOS Command Center">
+        <Link href="/command" prefetch={false} className="no-underline focus-ring rounded-sm" aria-label="CAOS Command Center">
           <span className="block text-caos-xl font-semibold tracking-[0.24em] text-caos-text">CAOS</span>
           <span className="block mt-0.5 tabular text-caos-2xs tracking-[0.12em] text-caos-muted">CREDIT AGENT OS</span>
         </Link>
@@ -45,6 +45,7 @@ export function WorkflowRail() {
                   <Link
                     key={item.href}
                     href={item.href}
+                    prefetch={false}
                     aria-current={active ? "page" : undefined}
                     className={`caos-rail-link focus-ring ${active ? "caos-rail-link-active" : ""}`}
                   >
@@ -60,6 +61,7 @@ export function WorkflowRail() {
       <div className="border-t border-caos-border p-2.5 space-y-2">
         <Link
           href="/settings"
+          prefetch={false}
           aria-current={pathname.startsWith("/settings") ? "page" : undefined}
           className={`caos-rail-link focus-ring ${pathname.startsWith("/settings") ? "caos-rail-link-active" : ""}`}
         >

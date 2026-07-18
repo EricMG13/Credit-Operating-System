@@ -1,4 +1,12 @@
-fix all# Performance Review Matrix
+# Performance Review Matrix
+
+> **2026-07-18 release note:** this code-review matrix remains a finding input;
+> the new 15-user passes do not automatically close its N+1, unbounded-read, or
+> synchronous-vault hypotheses because the mixed harness may not saturate those
+> exact paths. Re-adjudicate surviving rows against current code and prove them
+> in the immutable-candidate L25 profile. Current capacity evidence and limits
+> are in
+> [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
 
 Verified-findings audit across the CAOS FastAPI server routes and analytical engine. Each audited item was reviewed against the performance lenses and live code; findings below survived adversarial verification.
 

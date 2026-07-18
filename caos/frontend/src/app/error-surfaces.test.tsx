@@ -23,7 +23,7 @@ describe("error surfaces", () => {
     const html = renderToStaticMarkup(<RouteError error={err} reset={noop} />);
     expect(html).toContain('role="alert"');
     expect(html).toContain("Retry");
-    expect(html).toContain("Something broke");
+    expect(html).toContain("This view could not load");
     expect(html).toContain("abc123"); // digest surfaced when present
   });
 
@@ -41,7 +41,7 @@ describe("error surfaces", () => {
     const html = renderToStaticMarkup(<Component error={err} reset={noop} />);
     expect(html).toContain('role="alert"');
     expect(html).toContain("Retry");
-    expect(html).toContain("Something broke");
+    expect(html).toContain("This view could not load");
     expect(html).toContain("abc123");
   });
 
@@ -57,7 +57,7 @@ describe("error surfaces", () => {
   it("custom 404: back-to-command-center link to root", () => {
     const html = renderToStaticMarkup(<NotFound />);
     expect(html).toContain("404");
-    expect(html).toContain("No such view");
+    expect(html).toContain("View not found");
     expect(html).toContain('href="/"');
   });
 });

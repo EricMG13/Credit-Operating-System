@@ -3,13 +3,13 @@
 **Audit date:** 2026-06-16 (full re-audit after the EDGAR engine stack (#13),
 the DM/loans re-model (#14), and the retention / N+1 / async / budgeting work;
 supersedes the 2026-06-14 pass).
-**Last reconciled:** 2026-07-16 — health snapshot and A-1 refreshed against
-the current tree after the per-finding CP-5 queue, live Deep-Dive runtime
-register, and persisted CP-5B decision-driver lineage landed. The superseded
-TypeScript 7 toolchain note was removed: the current lockfile is back on the
-supported TypeScript 5.6 / Next 16.2 line and lint/build are green.
-**Scope:** `caos/` — FastAPI server (~6.8k LOC Python, 51 files), Next.js frontend
-(~14.7k LOC TS/TSX, 87 files), config, CI, tests. The `Modular OS/` corpus is
+**Last reconciled:** 2026-07-18 — final pre-deployment closure audit across
+the routed UI, API/platform services, feature/control wiring, code
+reachability, audit loops, 15-user throughput, persistence, vault, backup,
+and security posture. See
+[PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](qa/reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
+**Scope:** `caos/` — FastAPI server, Next.js frontend, config, CI, deploy/backup,
+and tests. The `Modular OS/` corpus is
 analytical-methodology prose, not code, and is out of scope.
 
 > Companion to [REMEDIATION_PLAN.md](REMEDIATION_PLAN.md), [TIER1_ENGINE_PLAN.md](TIER1_ENGINE_PLAN.md),
@@ -19,12 +19,23 @@ analytical-methodology prose, not code, and is out of scope.
 
 ## Health snapshot
 
-Frontend: eslint ✓ · `tsc --noEmit` (strict) ✓ · production static export ✓ ·
-**949 Vitest tests ✓** with a clean process exit. Server: **1910 pytest ✓ / 15
-skipped** on the SQLite default lane; skips are environment/integration lanes,
-including Postgres-specific concurrency coverage. The feature tracker contains
-**355/355 Pass** stories. Counts and build status were re-verified on
-2026-07-16; CI remains the authoritative Postgres and container lane.
+Frontend: eslint ✓ · `tsc --noEmit` (strict) ✓ · production static export of
+**18 page endpoints** ✓ · **1,438 Vitest tests / 234 files ✓**. Server:
+**2,405 pytest passed / 15 skipped** in the restricted lane; the seven
+socket-denied ClamAV cases passed on an unrestricted rerun, yielding an
+effective **2,412 passed / 15 skipped**. Rendered axe/layout: **36
+route/viewport scans, zero findings**. Fresh 15-user local load: **2,913
+requests, zero failures, p95 7 ms**; the dated production-like Postgres/
+two-worker run remains **2,584 requests, zero failures, p95 89 ms**.
+
+The feature tracker still contains **355/355 historical Pass** rows, but it
+covers 14 concepts and is not a whole-application release manifest: newer
+Portfolio Lab, Decisions/IC Book, Sponsors, and several current RV/context
+flows need dedicated rows. The 2026-07-18 three-browser inventory is
+**125 passed / 15 failed / 1 flaky**, so dynamic control wiring is not green.
+The current checkout is also dirty and cannot be treated as an immutable RC.
+Parallel frontend WIP changed during this audit, so the command results are
+diagnostic snapshots rather than evidence from one stable candidate.
 CI ([.github/workflows/ci.yml](../../.github/workflows/ci.yml)) runs lint + tsc +
 vitest + build on the frontend job, pytest on the server job, and a Docker image
 build — so the tests and the deploy image are gated. No committed secrets/DB/vault
@@ -32,8 +43,12 @@ build — so the tests and the deploy image are gated. No committed secrets/DB/v
 no `eval`/`exec`, no `shell=True` (except the operator-configured markitdown spike,
 list-form), Alembic chain linear, `tsconfig` strict.
 
-**Verdict:** a well-built, deploy-ready codebase — **no P0/P1**. Since the last
-audit the engine grew materially and is no longer a 3-module slice.
+**Verdict:** a well-built codebase with no newly confirmed P0/P1 defect in the
+historical findings register, but **NO-GO for pre-deployment release today**.
+PD-01…PD-09 in [PRE_DEPLOYMENT_PLAN.md](PRE_DEPLOYMENT_PLAN.md) block an
+immutable candidate: current E2E contracts, surface/tracker parity, dead-code
+disposition, recovery boundaries, live/reference seams, target capacity,
+encryption/off-host recovery, and evidence-to-artifact integrity.
 
 > **Status (as of the shipped engine):** the engine now wires **21 implemented
 > modules** (+ 4 spec-only) per [`registry.py`](../server/engine/registry.py) — the

@@ -31,11 +31,11 @@
 
   /* Restrained semantic surfaces: hue communicates current selection and
      operational state; labels/glyphs remain, so color never works alone. */
-  --caos-info-surface: oklch(0.225 0.035 255);
+  --caos-info-surface: oklch(0.205 0.024 255);
   --caos-info-border: oklch(0.56 0.12 255);
-  --caos-success-surface: oklch(0.205 0.035 150);
-  --caos-warning-surface: oklch(0.22 0.04 75);
-  --caos-critical-surface: oklch(0.205 0.04 25);
+  --caos-success-surface: oklch(0.19 0.022 150);
+  --caos-warning-surface: oklch(0.2 0.026 75);
+  --caos-critical-surface: oklch(0.19 0.026 25);
 
   /* Elevation — drop shadows consolidated from repeated inline values. */
   --shadow-modal: 0 24px 80px -24px rgba(0, 0, 0, 0.9);
@@ -44,6 +44,11 @@
   --caos-rail-width: 216px;
   --radius-sm: 2px;
   --radius-md: 6px;
+  --space-micro: 4px;
+  --space-related: 8px;
+  --space-pane: 12px;
+  --space-section: 16px;
+  --space-output: 24px;
   --paper-shadow: 0 24px 70px -24px rgba(0, 0, 0, 0.85);
 
   /* Seniority ramp — categorical hues, no lightness banding (Blueprint §5.3) */
@@ -95,6 +100,11 @@
 body {
   background: var(--caos-bg);
   color: var(--caos-text);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  font-kerning: normal;
+  font-optical-sizing: auto;
 }
 
 .caos-workspace {
@@ -173,24 +183,24 @@ body :is(button, a, input, select, textarea):focus-visible {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: var(--space-related);
+  padding: var(--space-related) var(--space-pane);
   border-top: 1px solid var(--caos-border);
   background: color-mix(in srgb, var(--caos-panel) 94%, var(--caos-bg));
 }
 
 .caos-workbench-toolbar {
-  min-height: 56px;
+  min-height: 52px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: var(--space-pane);
+  padding: var(--space-related) var(--space-pane);
   border-bottom: 1px solid var(--caos-border);
   background: color-mix(in srgb, var(--caos-panel) 86%, var(--caos-bg));
 }
 .caos-workbench-heading { flex: 1 1 260px; }
-.caos-workbench-description { max-width: 72ch; text-wrap: pretty; }
+.caos-workbench-description { max-width: 70ch; text-wrap: pretty; }
 .caos-workbench-controls {
   min-width: 0;
   margin-left: auto;
@@ -224,25 +234,31 @@ body :is(button, a, input, select, textarea):focus-visible {
 .caos-decision-state[data-kind="error"] { color: var(--caos-critical-bright); }
 
 .caos-decision-cell { transition: background-color 160ms ease-out; }
-.caos-decision-cell[data-kind="observed-empty"] { background: var(--caos-success-surface); }
+.caos-decision-cell[data-kind="observed-empty"] { background: color-mix(in srgb, var(--caos-success-surface) 58%, var(--caos-bg)); }
 .caos-decision-cell[data-kind="stale"],
 .caos-decision-cell[data-kind="partial"],
-.caos-decision-cell[data-kind="offline"] { background: var(--caos-warning-surface); }
-.caos-decision-cell[data-kind="error"] { background: var(--caos-critical-surface); }
+.caos-decision-cell[data-kind="offline"] { background: color-mix(in srgb, var(--caos-warning-surface) 58%, var(--caos-bg)); }
+.caos-decision-cell[data-kind="error"] { background: color-mix(in srgb, var(--caos-critical-surface) 62%, var(--caos-bg)); }
 .caos-decision-cell[data-kind="observed-empty"] .caos-decision-label { color: var(--caos-success-bright); }
 .caos-decision-cell[data-kind="stale"] .caos-decision-label,
 .caos-decision-cell[data-kind="partial"] .caos-decision-label,
 .caos-decision-cell[data-kind="offline"] .caos-decision-label { color: var(--caos-warning-bright); }
 .caos-decision-cell[data-kind="error"] .caos-decision-label { color: var(--caos-critical-bright); }
 
-.caos-decision-observation[data-origin="LIVE"] { background: var(--caos-success-surface); }
-.caos-decision-observation[data-origin="REFERENCE"] { background: var(--caos-info-surface); }
+.caos-decision-observation[data-origin="LIVE"] { background: color-mix(in srgb, var(--caos-success-surface) 54%, var(--caos-bg)); }
+.caos-decision-observation[data-origin="REFERENCE"] { background: color-mix(in srgb, var(--caos-info-surface) 54%, var(--caos-bg)); }
 .caos-decision-observation[data-origin="DEMO"] { background: var(--caos-elevated); }
 .caos-decision-observation[data-origin="LIVE"] .caos-observation-label { color: var(--caos-success-bright); }
 .caos-decision-observation[data-origin="REFERENCE"] .caos-observation-label { color: var(--caos-accent); }
 .caos-decision-observation :is(.caos-observation-time, .caos-observation-label) { opacity: 0.96; }
 .caos-decision-observation[data-origin="LIVE"] .caos-observation-time,
 .caos-decision-observation[data-origin="REFERENCE"] .caos-observation-time { color: var(--caos-text); opacity: 0.8; }
+
+@media (min-width: 1024px) {
+  .caos-decision-grid:not(:has(> :only-child)) {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 0.95fr);
+  }
+}
 
 @media (max-width: 767px) {
   .caos-workbench-toolbar {
@@ -359,7 +375,7 @@ body :is(button, a, input, select, textarea):focus-visible {
 .caos-secondary-action,
 .caos-action-secondary {
   border: 1px solid color-mix(in srgb, var(--caos-border) 76%, var(--caos-text));
-  background: color-mix(in srgb, var(--caos-elevated) 52%, transparent);
+  background: color-mix(in srgb, var(--caos-elevated) 30%, transparent);
   color: var(--caos-text);
 }
 .caos-secondary-action:hover,
@@ -459,17 +475,18 @@ main#main-content {
   box-shadow: 0 0 0 1px var(--caos-accent), inset 0 0 0 1px var(--caos-accent);
 }
 
-/* Bolder product chrome: more decisive panel boundaries and active state, no glow. */
+/* Quiet product chrome: hierarchy comes from type and proximity; borders carry
+   structure without turning every panel header into a competing band. */
 .bg-caos-panel.border-caos-border {
-  border-color: color-mix(in srgb, var(--caos-border) 82%, var(--caos-text));
+  border-color: color-mix(in srgb, var(--caos-border) 88%, var(--caos-bg));
 }
 .bg-caos-panel.border-caos-border > .border-b.border-caos-border:first-child {
-  background: color-mix(in srgb, var(--caos-elevated) 70%, var(--caos-bg));
-  border-bottom-color: color-mix(in srgb, var(--caos-border) 78%, var(--caos-text));
+  background: color-mix(in srgb, var(--caos-elevated) 42%, var(--caos-bg));
+  border-bottom-color: var(--caos-border);
 }
 .bg-caos-panel.border-caos-border > .border-b.border-caos-border:first-child :is(h2, h3) {
   color: var(--caos-text);
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
 }
 .bg-caos-accent.text-caos-bg {
   box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--caos-bg) 35%, transparent);
@@ -553,13 +570,13 @@ main table:not(.rd-table):not(.rv-table):not(.caos-data-table) thead th {
 @media (max-width: 767px) {
   body { font-size: 14px; }
   button, a, input, select, textarea { min-height: 44px; }
-  .tabular.text-caos-2xs, .tabular.text-caos-xs { font-size: 12px; }
+  :is(.text-caos-3xs, .text-caos-2xs, .text-caos-xs, .text-caos-sm, .text-caos-md, .text-caos-lg) { font-size: 0.75rem; }
 }
 .rd-mast { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #16161e; padding-bottom: 7px; }
 .rd-mast-brand { display: flex; align-items: center; gap: 7px; font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.18em; }
 .rd-mark { width: 14px; height: 14px; background: #16161e; color: #f6f4ec; display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono), monospace; font-size: 8px; font-weight: 700; letter-spacing: 0; border-radius: 2px; }
 .rd-mast-meta { font-family: var(--font-mono), monospace; font-size: 8.5px; font-weight: 600; letter-spacing: 0.12em; color: var(--paper-meta); }
-.rd-title { font-size: 21px; font-weight: 650; letter-spacing: -0.01em; margin: 14px 0 4px; }
+.rd-title { font-size: 21px; font-weight: 650; line-height: 1.2; letter-spacing: -0.01em; margin: 14px 0 4px; }
 .rd-subtitle { font-family: var(--font-mono), monospace; font-size: 9.5px; font-weight: 600; color: var(--paper-meta); margin-bottom: 16px; }
 .rd-secs { display: flex; flex-direction: column; gap: 14px; position: relative; z-index: 2; }
 .rd-h { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #16161e; padding-bottom: 3px; margin-bottom: 5px; font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
@@ -720,7 +737,7 @@ button.rd-cite:focus-visible { outline: 2px solid var(--paper-link); outline-off
 .research-doc h2 { font-size: 14px; font-weight: 650; letter-spacing: 0.01em; margin: 26px 0 10px; padding-bottom: 5px; border-bottom: 1px solid #16161e; }
 .research-doc h3 { font-size: 12px; font-weight: 650; letter-spacing: 0.02em; margin: 18px 0 7px; }
 .research-doc h4 { font-family: var(--font-mono), monospace; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--paper-meta); margin: 14px 0 6px; }
-.research-doc p { margin: 0 0 11px; text-wrap: pretty; }
+.research-doc p { margin: 0 0 11px; max-width: 72ch; text-wrap: pretty; }
 .research-doc strong { color: #16161e; font-weight: 650; }
 .research-doc em { color: #16161e; }
 .research-doc a { color: #16161e; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: rgba(22,22,30,0.35); }
@@ -1007,7 +1024,7 @@ button.rd-revert-dot:focus-visible {
 .semantic-visualization__status[data-tone="success"] { color: var(--caos-success-bright); }
 .semantic-visualization__status[data-tone="warning"] { color: var(--caos-warning-bright); }
 .semantic-visualization__status[data-tone="critical"] { color: var(--caos-critical-bright); }
-.semantic-visualization__summary { margin: 8px 0; max-width: 80ch; font-size: 12px; line-height: 1.5; color: var(--caos-text); }
+.semantic-visualization__summary { margin: 8px 0; max-width: 72ch; font-size: 12px; line-height: 1.5; color: var(--caos-text); }
 .semantic-visualization__chart { min-width: 0; }
 .semantic-visualization__note { margin-top: 6px; font-family: var(--font-mono), monospace; font-size: 10.5px; font-weight: 500; line-height: 1.45; color: var(--caos-muted); }
 .semantic-visualization__sources { margin-top: 6px; }
@@ -1086,12 +1103,9 @@ button.rd-revert-dot:focus-visible {
   .caos-persona-route .persona-workbench__composition { overflow-y: auto; }
   .caos-persona-route .persona-workbench__slot--decision { flex: none; }
   .caos-persona-route .persona-workbench__slot--primary { min-height: 420px; flex: none; }
-}
-@media (max-width: 699px) {
-  /* Report Studio keeps every desktop capability on narrow screens, but the
-     document is the first full-width task. Supporting deliverables and compose
-     controls follow in the same vertical workflow instead of forcing the
-     desktop three-column canvas beyond the viewport. */
+
+  /* Below this width the two fixed rails leave the filed document as a sliver.
+     Keep every capability, but sequence it behind the paper preview. */
   .report-studio-layout {
     height: auto;
     min-height: 100%;
@@ -1118,7 +1132,8 @@ button.rd-revert-dot:focus-visible {
     overflow: visible;
     padding-bottom: 48px;
   }
-
+}
+@media (max-width: 699px) {
   /* The DAG remains the leading task on mobile. Inspector and lineage stack
      below it, avoiding the former zero-width graph caused by a fixed rail. */
   .pipeline-workspace {

@@ -30,11 +30,11 @@ export default function RouteErrorBoundary({
       >
         <div className="flex flex-col gap-1">
           <span className="font-mono text-caos-sm uppercase tracking-[0.2em] text-caos-critical">
-            Error
+            View error
           </span>
-          <h1 className="text-caos-text text-lg font-semibold">Something broke on this view</h1>
+          <h1 className="text-caos-text text-lg font-semibold">This view could not load</h1>
           <p className="text-caos-muted text-xs">
-            The rest of the workspace is unaffected. Retry, or reload the page if it persists.
+            Work on other CAOS surfaces is unchanged. Reload this view; if it fails again, refresh the workspace and quote the reference below.
           </p>
           {error.digest && (
             <p className="mt-1 font-mono text-caos-sm text-caos-muted">ref {error.digest}</p>
@@ -45,7 +45,7 @@ export default function RouteErrorBoundary({
           onClick={reset}
           className="rounded border border-caos-accent bg-caos-accent px-3 py-2 text-sm font-semibold text-caos-bg transition-caos hover:opacity-90 focus-ring"
         >
-          Retry
+          Retry view load
         </button>
       </div>
     </div>

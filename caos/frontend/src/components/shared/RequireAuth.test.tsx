@@ -22,7 +22,7 @@ describe("RequireAuth", () => {
   it("shows the loading gate", () => {
     state.auth = { loading: true };
     render(<RequireAuth>workspace</RequireAuth>);
-    expect(screen.getByText("Loading…")).toBeTruthy();
+    expect(screen.getByText("Checking analyst access")).toBeTruthy();
   });
 
   it("shows login and forwards successful authentication to refresh", () => {
@@ -40,8 +40,8 @@ describe("RequireAuth", () => {
     const refresh = vi.fn();
     state.auth = { loading: false, needsLogin: false, error, user, refresh };
     render(<RequireAuth>workspace</RequireAuth>);
-    expect(screen.getByText("Can't reach the CAOS API")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "RETRY" }));
+    expect(screen.getByText("Analyst access could not be verified")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry access check" }));
     expect(refresh).toHaveBeenCalled();
   });
 

@@ -1,5 +1,13 @@
 # Seams Review Matrix
 
+> **2026-07-18 release note:** this remains the pickup input for integration
+> work, not proof that the seams are closed. The final audit retains C3
+> Monitor/email, C5 licensed market data, C13 CP-SR/CP-RENDER equivalence, and
+> live-issuer QA flag scoping as explicit blockers. Re-run this matrix against
+> the immutable candidate and archive the promise-to-runtime/activation map.
+> See
+> [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
+
 Verified-findings audit across the CAOS cross-stack boundaries (mock-vs-live honesty and API contracts). Each audited item was reviewed against the seams lenses and live code; findings below survived adversarial verification.
 
 ## 1. Audit status

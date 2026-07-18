@@ -1,5 +1,31 @@
 # Mock Ledger — seeded/sample/sim data burndown (C1)
 
+> **2026-07-18 reconciliation:** the original 2026-07-12 table is retained as
+> history, but several ownership rows have moved. The current main Command
+> datasets use live portfolio/context APIs; the old `SectorRV`/
+> `ActionableDislocations` stack is a reachability candidate and `/sector-rv`
+> now renders the API-backed `RVScreenerWorkbench` with explicit
+> LIVE/DEMO/REFERENCE authority. Monitor remains intentionally hybrid: live
+> alert/governance rows lead, while CP-MON email/replay content is an explicitly
+> disclosed illustrative sample. Deep-Dive, Pipeline, Issuers, and Reports still
+> retain reference/demo paths with visible authority labels. No confirmed silent
+> mock was found in the 2026-07-18 import/route sweep, but this is **not release
+> closure**: C3/C5/C13, L9, L23, and L27 must prove the immutable production
+> build, current route journeys, and honest unavailable states. See
+> [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
+
+## 2026-07-18 delta register
+
+| Surface/module | Current disposition | Release consequence |
+|---|---|---|
+| Command portfolio/changes | Live `portfolioLabApi`, analysis context, digest, and governance sources; no Sample Sleeve import in the route | Old C2 sample-sleeve row is closed; current Command handoff E2E is red and blocks L27 |
+| `components/command/SectorRV.tsx` + `ActionableDislocations.tsx` + `lib/command/dislocations.ts` | Not reached from current runtime roots; superseded by `RVScreenerWorkbench` candidate | L24 owner disposition; do not count old labelled sample as a live surface |
+| Monitor email/replay | Still consumes `simAlertsToday`, `CRITICAL_ALERTS`, `EmailIntel`, and the shared sim behind an explicit demo disclosure; live alert inbox/governance is separate | Acceptable only as labelled sample until C3 enterprise email/CP-MON seam closes |
+| Sector RV current route | API-backed workbench; per-result authority emits LIVE/DEMO/REFERENCE | C5 still owns licensed/current market activation and target entitlements; add dedicated E2E |
+| Report Studio | Live run/model/report services coexist with explicit Atlas Forge bespoke-tab/template fixtures; CP-RENDER module is not issuer-specific | C13 must freeze the equivalent-service map and prove live issuer publish/export |
+| Deep-Dive rails | Non-reference issuers fail unavailable rather than receive ATLF CP-0/CP-5B rail fixtures | Honest behavior; runtime/equivalent-service gap remains visible and tracked |
+| Issuers | `DEMO_UNIVERSE` remains a labelled demo/search fallback | Production demo seed remains forbidden; L23 verifies empty real workspace behavior |
+
 Generated 2026-07-12 from an exhaustive import sweep of
 `caos/frontend/src` (agent sweep + hand-verified edge cases). Rubric per
 PRE_DEPLOYMENT_PLAN C1: **silent-mock = CRIT** (unlabeled fabricated data an

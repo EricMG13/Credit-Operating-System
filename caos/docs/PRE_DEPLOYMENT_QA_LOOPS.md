@@ -3,7 +3,7 @@
 > **Purpose:** this document owns **mechanism** — how each "tested regularly"
 > claim in [PRE_DEPLOYMENT_PLAN.md](PRE_DEPLOYMENT_PLAN.md) is actually
 > enforced. The master plan owns **status** (what's done/open) and cites loop
-> IDs (`L1`–`L22`) defined here; it never restates a cadence word without a
+> IDs (`L1`–`L27`) defined here; it never restates a cadence word without a
 > loop ID pointing here. If you're picking up a phase item and its exit gate
 > says "loop doc L6," this is where you find out exactly what that means and
 > whether it exists yet.
@@ -33,6 +33,15 @@ prior plan's aspirational cadence table.
 > unrestricted hosts (this session: 1821/9 with all 7 passing); a sandboxed
 > run reporting 1808/9 + 7 errors is an environment gate, not a regression.
 > `corpus_run` (L6) remains a work item — the marker still does not exist.
+
+> **2026-07-18 closure delta:** the final audit found that L1–L22 did not make
+> five release questions independently answerable: whole-app inventory parity,
+> whole-tree dead-code disposition, candidate-specific 15-user capacity,
+> record-by-record storage/recovery, and dynamic control/recovery wiring.
+> L23–L27 are added below with named artifacts and consuming gates. They are
+> **not green by documentation**; each remains MANUAL/WORK-ITEM until its dated
+> immutable-candidate evidence exists. Current diagnostic evidence is recorded
+> in [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](qa/reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
 
 ---
 
@@ -64,18 +73,18 @@ prior plan's aspirational cadence table.
 | **MANUAL** | A named skill/playbook run at a named trigger (a phase exit, a specific event) — no scheduler, a human or agent session runs it and files the dated artifact. |
 | **HANDOVER** | A calendar cadence that only makes sense post-transfer with a live operational owner; named in the H3 support model, not run during this program. |
 
-## 3. Recurring loops L1–L22
+## 3. Recurring loops L1–L27
 
 | ID | Loop | Mechanism (class) | Cadence | Notes |
 |---|---|---|---|---|
 | **L1** | CI gate | **LIVE** — `ci.yml`, 9 jobs (frontend lint/tsc/vitest/build; server matrix py3.11+py3.14 w/ pgvector service running ruff/C901-changed/vulture/engine-mypy/pytest server+stress+cohort/perf --selftest/PG worker tests; lock-sync; e2e; image build; shellcheck+compose config; fallow changed-only; corpus-consistency script; security pip-audit/bandit/npm-audit/gitleaks) | per PR + push to `main` | The backbone loop; everything else layers on top. |
 | **L2** | Code review | **MANUAL**-convention | per PR | `/code-review` on every PR; `adversarial-reviewer` skill on engine/LLM-lane diffs specifically (it exists — see shortlist doc). |
 | **L3** | Blast radius | **MANUAL**-convention (CLAUDE.md-mandated) | per change | GitNexus `impact` before edit, `detect_changes` before commit. Non-negotiable per repo CLAUDE.md. |
-| **L4** | Golden-master drift | **LIVE** — runs inside the normal `pytest caos/tests/server` collection in the CI server job (`caos/tests/server/golden/test_golden_cp1.py`) | per PR + push | No separate marker or schedule needed — it's just part of the suite. The word "nightly" from the prior plan version is dropped here: there is no nightly run of anything today: see L5/L6 for what a real nightly mechanism requires. |
+| **L4** | Golden-master drift | **LIVE** — runs inside the normal `pytest caos/tests/server` collection in the CI server job (`caos/tests/server/golden/test_golden_cp1.py`) | per PR + push | No separate marker or schedule needed — it is part of the suite. L5 is the distinct scheduled full-chain lane; L6 remains the unbuilt corpus-breadth lane. |
 | **L5** | Golden E2E (full-chain, both lanes) | **LIVE** — `.github/workflows/nightly.yml` has scheduled + on-demand triggers and runs `pytest -m golden_e2e` with external model keys blanked | nightly + on demand | Require two consecutive green scheduled cycles before citing it at a phase exit. |
 | **L6** | Corpus breadth run | **WORK-ITEM** — owned by master-plan **B5**. Requires: (a) capture fixtures (currently 0 captured against a 61-issuer MANIFEST), (b) register a `corpus_run` marker, (c) full run in `nightly.yml` + a 6-issuer smoke subset added to the existing per-PR server job | nightly (full) + per-PR (smoke subset), once landed | Same "does not run at all today" caveat as L5. |
 | **L7** | Concept-link suite (same-number-everywhere) | **WORK-ITEM** — owned by master-plan **C6**. Add the new Playwright spec to the existing per-PR `e2e` job in `ci.yml` (stronger than a nightly-only run — per-PR catches regressions before merge); also include in `nightly.yml`'s full sweep | per PR (+ nightly full via H2) | Spec doesn't exist yet — see C6. |
-| **L8** | E2E (Playwright page specs) | **LIVE** — `ci.yml` `e2e` job: static export → `run.py` (SQLite, demo-fallback LLM) → `playwright install chromium` → `npm run test:e2e` (9 specs, `global-setup.ts` auth) | per PR | Full sweep also re-runs inside H2's `workflow_dispatch`. |
+| **L8** | E2E (Playwright page specs) | **LIVE but currently red on the moving WIP** — `ci.yml` `e2e` job: static export → `run.py` (SQLite, demo-fallback LLM) → Playwright Chromium/Firefox/WebKit → `npm run test:e2e` (12 specs, `global-setup.ts` auth) | per PR | 2026-07-18 diagnostic: 125 passed / 15 failed / 1 flaky across the three browsers. Full sweep re-runs inside H2; no phase-exit credit until PD-02 is green without retries. |
 | **L9** | Mock regression (prod build greps clean of known mock imports) | **WORK-ITEM** — owned by master-plan **C1/C4**. Add a grep step to the `ci.yml` `frontend` job checking for `ALERTS`/`SIM_PLAN`/`simAlertsToday` etc. in app routes once `MOCK_LEDGER.md` names the exact import list to forbid | per PR, once landed | Grep list depends on C1's inventory output — can't be written before C1 runs. |
 | **L10** | Ingestion robustness matrix | **LIVE-partial** — existing D3 tests (0-chunk warning, upload concurrency) already run inside the per-PR server job; completes (same job, no new wiring needed) once D3's full adversarial matrix lands | per PR | |
 | **L11** | Accessibility (axe) | **MANUAL** — `design-a11y-ux` playbook (§3 below), `caos/frontend/scripts/a11y-axe.mjs` (real axe, never the regex scanner) against the isolated QA stack | per UI-touching phase exit (primarily C) + H1 | The prior plan's "+ monthly" is dropped — no actor/mechanism runs a monthly a11y sweep; if the owner wants one, it needs a named trigger, which currently doesn't exist. |
@@ -90,22 +99,26 @@ prior plan's aspirational cadence table.
 | **L20** | Gap-log triage | **MANUAL**, named owner (the analyst cohort session) | weekly, **during Phase F only** | The one legitimate calendar-style loop in this program — it's bounded to F's duration and has a real weekly actor (the beta cohort), unlike the dropped "monthly"/"quarterly" claims elsewhere. F's exit gate requires dated triage notes. |
 | **L21** | Independent availability and host alerting | **WORK-ITEM** — owned by master-plan **G7**. External ingress/liveness + certificate/DNS and management-plane container/DB/queue/resource probes; notification path must not depend on CAOS | continuous once configured; failure-injection at G/H exits | Store sanitized monitor configuration, alert-delivery evidence, thresholds, owner, and acknowledgement/escalation test in the H3 package. |
 | **L22** | Backup freshness and off-host recovery | **WORK-ITEM** — owned by master-plan **G8**. Observe local backup success, off-host sync success/age, retention, and failure delivery; pair with L19 restore | each backup cycle; remote-only restore at G/H exits | An optional hook or local artifact is not a green loop. The configured target must alert when stale and the H gate must restore after local-copy loss. |
+| **L23** | Application surface parity | **MANUAL now; WORK-ITEM for CI drift check** — reconcile Next page endpoints, nav registry, FastAPI route inventory, background/platform services, `FEATURE_TRACKER.csv`, E2E specs, and owner/status in `qa/APPLICATION_SURFACE_MATRIX_<date>.csv`; fail if an owned surface disappears from any required dimension | every phase exit and H0/H2 | Consumed by PD-03/H2. The 2026-07-18 matrix is the baseline, not closure: Portfolio Lab, Decisions, Sponsors and several RV/context journeys need current tracker/E2E rows. Automate route/nav/tracker key parity in CI after the schema is stable. |
+| **L24** | Whole-tree reachability and dead-code disposition | **MANUAL** full Vulture + framework-aware TS reachability/Fallow scan; every candidate receives `remove`, `runtime root`, or `retained support/test seam` from an owner; any removal reruns lint, typecheck, unit, build, and affected E2E | every phase exit and H0 | Consumed by PD-04/H0. Changed-only Fallow in L1 is necessary but insufficient. Store `qa/reports/code-health-<date>.md`; do not delete a Next framework entrypoint or dynamic import from a raw graph result. |
+| **L25** | Immutable-candidate concurrency and throughput | **MANUAL** target-shaped Postgres/two-worker run: 15 authenticated principals, target-size data, mixed reads plus simultaneous runs/research/reports/uploads, slow/429/529 provider faults, queue/memory/pool observation | G exit and H1; repeat after capacity/config changes | Consumed by PD-07/H1. Artifact `qa/perf/PRE_DEPLOYMENT_CAPACITY_<date>.md` includes image digest/config fingerprint, p50/p95/p99, 5xx, queue depth/rejections, memory, pool use, and degradation curve. The local SQLite smoke is diagnostic only. |
+| **L26** | Record storage, isolation, encryption and recoverability | **MANUAL + WORK-ITEM target controls** — enumerate every collected/derived record into vault, Postgres, browser, logs, backup, or external provider; test analyst/team isolation and principal switch; prove target DB/volume/backup encryption, paired DB+vault freshness, alerting, retention/legal hold, and remote-only restore after deleting local copies | E/G exits and H0/H1 | Consumed by PD-08/H0/H1. Artifact `qa/audits/data-custody-recovery-<date>.md`. “Stored in the vault” is never shorthand for Postgres or browser state. No target evidence, no credit. |
+| **L27** | Control wiring and failure recovery | **MANUAL now; expand L8 automation** — source screen all controls, then E2E every primary mutation/handoff at least success, validation, unavailable/offline, persistence/reload, stale-session/authz, and retry-without-duplication; verify deliberate route boundary/shared-equivalence and preservation of analyst context | per UI-touching phase exit and H2 | Consumed by PD-02/PD-05/H2. Artifact `qa/reports/control-wiring-recovery-<date>.md`. Must run Chromium, Firefox and WebKit without relying on retries. Static handler counts or axe rendering alone are not closure. |
 
 ## 4. Runner infrastructure tiers
 
 Every `MANUAL` and `WORK-ITEM` loop needs one of these environments. Sessions
-picking up a loop should check which tier they have before attempting it —
-this container (as of this grounding) has **no Docker daemon**, so the
-Docker-dependent tiers degrade to "attempt, and if it fails, cite the last
-dated artifact and mark the claim environment-limited," per the plan's own
-grounding doctrine.
+picking up a loop must check the tier at execution time. If a required tier is
+unavailable, record the attempt and environment limitation, but do not convert
+an older artifact into current-candidate credit.
 
 | Tier | What it needs | Playbooks/loops that need it |
 |---|---|---|
-| venv-only, offline | `caos/server/.venv311` built from hashed `requirements.lock` + `requirements-dev.txt`; conftest force-blanks `ANTHROPIC_API_KEY`/`GEMINI_API_KEY`/`OPENROUTER_API_KEY` | `engine-correctness`, `llm-safety-grounding`, `code-health-methodology` playbooks; L4, L15, L16, L17 |
+| venv-only, offline | `caos/server/.venv311` built from hashed `requirements.lock` + `requirements-dev.txt`; conftest force-blanks `ANTHROPIC_API_KEY`/`GEMINI_API_KEY`/`OPENROUTER_API_KEY` | `engine-correctness`, `llm-safety-grounding`, `code-health-methodology` playbooks; L4, L15, L16, L17, L23, L24 |
 | venv + Docker-pg leg | Above, plus a running `pgvector/pgvector:pg18` container for the Postgres-only worker/reaper/claim tests (2 tests skip without it — confirmed this session) | `backend-api-data` playbook; the CI `server` job's Postgres step |
-| QA stack (isolated ports :8010/:3010) + Playwright | Built frontend static export + `run.py` server + Chromium (present at `/opt/pw-browsers` in this container) | `performance` playbook legs B/C/D, `design-a11y-ux` playbook, `frontend-functional` playbook's e2e leg |
+| QA stack (isolated ports :8010/:3010) + Playwright | Built frontend static export + `run.py` server + Chromium, Firefox, and WebKit | `performance` playbook legs B/C/D, `design-a11y-ux` playbook, `frontend-functional` playbook's e2e leg; L27 |
 | Static export + server | `npm run build` (static export) + `run.py` serving it | `ci.yml`'s `e2e` job (L8); H2's full sweep |
+| Target-shaped candidate host | Exact image digest, Postgres, two workers, target vault/edge/backup settings, synthetic target-size data, provider fault mocks, host/container metrics, isolated recovery destination | L25, L26; H0/H1 |
 
 ## 5. Nightly automation — live shell, incremental jobs
 

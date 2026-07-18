@@ -46,7 +46,7 @@ export function ShellIdentity({
       {title && (
         <Title
           title={typeof title === "string" ? title : undefined}
-          className="text-caos-sm font-semibold text-caos-text whitespace-nowrap min-w-0 truncate m-0"
+          className="text-caos-md font-semibold leading-tight text-caos-text whitespace-nowrap min-w-0 truncate m-0"
         >{title}</Title>
       )}
       {children}

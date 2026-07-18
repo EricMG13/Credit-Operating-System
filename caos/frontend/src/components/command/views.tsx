@@ -317,7 +317,7 @@ export function PortfolioTable({
           <IssuerLink
             key="name"
             query={p.borrower || p.name}
-            className={`sticky left-[98px] z-20 inline-flex items-center gap-1.5 min-h-[18px] text-caos-text truncate hover:text-[#f2f2f7] transition-caos ${stickyBg} ${hoverBg}`}
+            className={`sticky left-[98px] z-20 inline-flex items-center gap-1.5 min-h-[18px] text-caos-text truncate transition-caos ${stickyBg} ${hoverBg}`}
             title={`Open ${p.borrower || p.name} profile — ${p.name}, ${p.size}`}
           >
             <span className="truncate">{p.borrower || p.name}</span>

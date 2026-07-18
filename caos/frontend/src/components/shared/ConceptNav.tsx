@@ -47,6 +47,7 @@ function ConceptsDrawer({
                 <Link
                   key={s.href}
                   href={preserveContext(s.href)}
+                  prefetch={false}
                   aria-current={active ? "page" : undefined}
                   onClick={() => setOpen(false)}
                   className={`caos-rail-link no-underline flex items-center gap-2 ${active ? "caos-rail-link-active" : ""}`}
@@ -61,6 +62,7 @@ function ConceptsDrawer({
         <section aria-label="Utility">
           <Link
             href={preserveContext("/settings")}
+            prefetch={false}
             aria-current={pathname.startsWith("/settings") ? "page" : undefined}
             onClick={() => setOpen(false)}
             className={`caos-rail-link no-underline flex items-center gap-2 ${pathname.startsWith("/settings") ? "caos-rail-link-active" : ""}`}
@@ -211,6 +213,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
                   <Link
                     key={s.href}
                     href={preserveContext(s.href)}
+                    prefetch={false}
                     title={s.label + " — " + g.label}
                     aria-label={s.label}
                     aria-current={active ? "page" : undefined}
@@ -237,6 +240,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
       <span className="h-4 w-px bg-caos-border mx-0.5" />
       <Link
         href={preserveContext("/settings")}
+        prefetch={false}
         title="Settings"
         aria-label="Settings"
         aria-current={settingsActive ? "page" : undefined}

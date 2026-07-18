@@ -17,7 +17,6 @@ import { AssumptionsPanel } from "@/components/model/AssumptionsPanel";
 import { ModelHistoryControls } from "@/components/model/ModelHistoryControls";
 import { useModelHistory } from "@/lib/model/useModelHistory";
 import { CollapseButton } from "@/components/shared/CollapseButton";
-import { exportModel } from "@/components/model/export";
 import { OV_SIGN, ovField, parseNum, type PasteResult } from "@/components/model/model-format";
 import { ROWS } from "@/components/model/rows";
 import type { Model, Overrides } from "@/lib/reports/model";
@@ -441,7 +440,10 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
   const handleExport = async () => {
     setExporting(true);
     try {
-      const profile = await getIssuerProfile(issuerId).catch(() => null);
+      const [{ exportModel }, profile] = await Promise.all([
+        import("@/components/model/export"),
+        getIssuerProfile(issuerId).catch(() => null),
+      ]);
       await exportModel(model, showQuarters, overrides, exportMeta, {
         prov: fromModelEngine(eng), runId: eng.runId, assumptions, metrics: profile?.metrics ?? [],
       });
@@ -910,10 +912,10 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         surface="model"
         decision={<DecisionHeader state={modelDecision} defaultOpen={false} />}
         primary={<div className="h-full min-h-0 flex flex-col">
-      <section className="sm:hidden flex-1 min-h-0 overflow-auto p-3" aria-label="Model phone triage">
+      <section className="lg:hidden flex-1 min-h-0 overflow-auto p-3" aria-label="Compact model review">
         <div className="rounded border border-caos-border bg-caos-panel">
           <div className="flex items-center justify-between gap-3 border-b border-caos-border px-3 py-2">
-            <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-accent">Phone triage · read only</span>
+            <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-accent">Compact review · read only</span>
             <span className="flex items-center gap-1 tabular text-caos-xs text-caos-muted">
               <StatusGlyph kind={hasIssuerModel ? "success" : "idle"} />
               {hasIssuerModel ? "Model available" : "Model unavailable"}
@@ -923,7 +925,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
             <div>
               <div className="text-caos-xl font-medium text-caos-text">{issuerName}</div>
               <div className="mt-1 text-caos-sm leading-relaxed text-caos-muted">
-                Review model authority and draft state here. Cell editing, formulas, multi-cell paste, assumptions, scenarios, undo/redo, checkpoint restore and export remain available on the desktop workstation.
+                Review model authority and draft state here. Cell editing, formulas, multi-cell paste, assumptions, scenarios, undo/redo, checkpoint restore and export require a desktop-width workspace.
               </div>
             </div>
             <dl className="grid grid-cols-2 gap-px overflow-hidden rounded border border-caos-border bg-caos-border tabular text-caos-xs">
@@ -950,7 +952,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         </div>
       </section>
       {/* workspace */}
-      <div className="hidden sm:flex flex-1 min-h-0 flex-col gap-2 p-2">
+      <div className="hidden lg:flex flex-1 min-h-0 flex-col gap-2 p-2">
         {hasIssuerModel ? (
           <>
             <Manifest hl={hl} setHl={setHl} isReference={isReference} />

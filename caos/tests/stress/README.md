@@ -1,9 +1,11 @@
 # CAOS Stress Harness
 
-The lazy-first runnable harness for [qa/STRESS_TEST_PLAN.md](../../docs/qa/STRESS_TEST_PLAN.md)
-(§9 "not built yet" — this is it). Covers ~80%: **load** (locust), **fault
-injection** (mock-Anthropic), and **fat data** (seed). Toxiproxy + Playwright
-render-traces are the remaining 20% — add when you need them.
+The runnable harness for
+[qa/STRESS_TEST_PLAN.md](../../docs/qa/STRESS_TEST_PLAN.md). It covers
+**load** (Locust), provider **fault injection** (mock Anthropic/OpenRouter),
+malware-scanner behavior (fake clamd), and synthetic data seeding. Target-host
+database/network fault injection, real ClamAV contention, and Playwright
+render/heap traces remain manual L25 work.
 
 ## Pieces
 
@@ -34,9 +36,16 @@ pip install -r caos/tests/stress/requirements.txt
 ### 1. Load (no LLM)
 ```bash
 # QA server on :8010 with ANTHROPIC_API_KEY unset, then:
-BASE_URL=http://127.0.0.1:8010 python caos/tests/stress/seed_stress.py --issuers 300 --runs 5
+BASE_URL=http://127.0.0.1:8010 python caos/tests/stress/seed_stress.py --issuers 30 --runs 5
 locust -f caos/tests/stress/locustfile.py --host http://127.0.0.1:8010
 ```
+
+`seed_stress.py` uses the public issuer-create route and therefore respects the
+per-principal create rate guard. It must print and assert the count you intend to
+test; a request for 300 may admit only 30 in one window. For a 300-issuer scale
+profile, use `caos/scripts/seed_qa_scale.py` against the isolated QA database or
+pace/partition the API seed deliberately. Never infer the dataset size from the
+CLI argument.
 
 ### 2. Fault injection (LLM lanes)
 ```bash
@@ -54,10 +63,13 @@ OPENROUTER_BASE_URL=http://127.0.0.1:8099 OPENROUTER_API_KEY=test  <start QA ser
 
 ## What to look for
 
-The CRIT/HIGH from STRESS_TEST_PLAN §7 — confirm or disprove each, ticket with a
-repro:
+Current controls are bounded, so focus on whether degradation stays explicit and
+safe: queue depth and rejections (20 global / three per analyst), per-worker run
+and upload caps, DB-pool pressure, memory, 5xx, cross-principal isolation, retry
+duplication, and provider timeout/429/529 recovery. `WEB_CONCURRENCY=2` requires
+Postgres and permits up to four analytical runs across the two process-local
+two-run executors.
 
-- **CRIT** single worker freezes all users · unbounded run queue (no backpressure).
-- **HIGH** no Anthropic timeout (→ `hang` mode holds a slot) · no 429 backoff (→ `429` mode silent-gates) · expensive endpoints with no rate limit · zero frontend virtualization.
-
-**Exit:** every CRIT/HIGH reproduced-and-ticketed or proven-not-a-problem.
+**Release exit:** produce the L25 artifact for the immutable candidate and target
+configuration; historical CRIT/HIGH rows in the stress plan are hypotheses until
+reconciled against current code and reproduced.

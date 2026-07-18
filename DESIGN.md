@@ -54,15 +54,21 @@ typography:
     lineHeight: 1.15
   body:
     fontFamily: "var(--font-sans), system-ui, sans-serif"
-    fontSize: "10.5px"
+    fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.5
   label:
     fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
-    fontSize: "9px"
+    fontSize: "11px"
     fontWeight: 500
     lineHeight: 1.5
     letterSpacing: "0.08em"
+  micro:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "10px"
+    fontWeight: 600
+    lineHeight: 1.35
+    letterSpacing: "0.06em"
   output-title:
     fontFamily: "var(--font-sans), system-ui, sans-serif"
     fontSize: "21px"
@@ -78,6 +84,26 @@ typography:
     fontSize: "13px"
     fontWeight: 400
     lineHeight: 1.6
+  output-subtitle:
+    fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
+    fontSize: "9.5px"
+    fontWeight: 600
+    lineHeight: 1.45
+  output-prose:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "9.4px"
+    fontWeight: 400
+    lineHeight: 1.62
+  output-table-body:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "9.3px"
+    fontWeight: 400
+    lineHeight: 1.45
+  output-list:
+    fontFamily: "var(--font-sans), system-ui, sans-serif"
+    fontSize: "9.2px"
+    fontWeight: 400
+    lineHeight: 1.5
   output-meta:
     fontFamily: "var(--font-mono), ui-monospace, SFMono-Regular, monospace"
     fontSize: "8.5px"
@@ -259,8 +285,8 @@ The palette is a restrained dark desk: black workspace, cool panels, hairline bo
 - **Display** (700, 30px, 1.04): Single focal answer on a surface, such as verdicts or anchor metrics. Never use for routine labels.
 - **Headline** (600, 22px, 1.1): Page-level or report title where the interface has room.
 - **Title** (600, 16px, 1.15): Major row, modal, or paper-section titles.
-- **Body** (400, 10.5px, 1.5): Dense workspace copy, cells, rail text, and tool bodies.
-- **Label** (500, 9px, uppercase, tracked): Captions, headers, ids, and metadata. Pair with tabular numerics.
+- **Body** (400, 12px, 1.5): Dense workspace copy, state detail, rail text, and tool bodies.
+- **Label** (500, 11px, uppercase, tracked): Captions, headers, ids, and metadata. Pair with tabular numerics. Micro metadata may use the explicit 10px floor on desktop.
 
 ### Filed Output Scale
 

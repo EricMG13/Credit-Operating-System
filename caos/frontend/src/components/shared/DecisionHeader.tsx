@@ -95,7 +95,7 @@ function Datum({ state, showObservation = true }: { state: DecisionDatumState; s
 
   return (
     <div
-      className="caos-decision-state flex-wrap tabular text-caos-md leading-snug"
+      className="caos-decision-state flex-wrap font-sans text-caos-md leading-relaxed"
       data-kind={state.kind}
       role={state.kind === "loading" ? "status" : undefined}
     >
@@ -109,12 +109,12 @@ function Datum({ state, showObservation = true }: { state: DecisionDatumState; s
       ) : null}
       {interactive && state.onRetry ? (
         <button type="button" onClick={state.onRetry} className="caos-action-secondary focus-ring">
-          {state.retryLabel ?? "Retry"}
+          {state.retryLabel ?? "Retry source"}
         </button>
       ) : null}
       {state.kind === "error" && state.onEscalate ? (
         <button type="button" onClick={state.onEscalate} className="caos-action-secondary focus-ring">
-          {state.escalationLabel ?? "Escalate"}
+          {state.escalationLabel ?? "Escalate issue"}
         </button>
       ) : null}
     </div>
@@ -192,7 +192,7 @@ export function DecisionHeader({
               <Cell label="Entire brief" state={sharedCause} showObservation={!commonObservation} />
             </div>
           ) : (
-            <div className="caos-decision-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+            <div className="caos-decision-grid grid grid-cols-1 md:grid-cols-2">
               <Cell label="What changed" state={resolved.whatChanged} showObservation={!commonObservation} />
               <Cell label="Why it matters" state={resolved.whyItMatters} showObservation={!commonObservation} />
               <Cell label="Required action" state={resolved.requiredAction} showObservation={!commonObservation} />

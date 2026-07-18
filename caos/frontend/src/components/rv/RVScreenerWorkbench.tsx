@@ -115,12 +115,13 @@ function VirtualCandidateGrid({
   }, [selectedId, start]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-caos-border bg-caos-panel flex flex-col" role="grid" aria-label="Ranked RV candidates" aria-rowcount={candidates.length + 1}>
+    <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden rounded-md border border-caos-border bg-caos-panel">
+    <div className="h-full min-h-0 min-w-[700px] flex flex-col" role="grid" aria-label="Ranked RV candidates" aria-rowcount={candidates.length + 1}>
       <div role="row" className="grid h-9 grid-cols-[40px_minmax(170px,1.5fr)_100px_90px_90px_100px_110px] items-center border-b border-caos-border bg-caos-panel px-2 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
         <span role="columnheader">#</span><span role="columnheader">Instrument</span><span role="columnheader">Class</span><span role="columnheader">DM</span><span role="columnheader">Pickup</span><span role="columnheader">Bid / Ask</span><span role="columnheader">Compare</span>
       </div>
-      <div ref={viewport} className="relative min-h-0 flex-1 overflow-auto" onScroll={(event) => setStart(Math.max(0, Math.floor(event.currentTarget.scrollTop / ROW_HEIGHT) - 4))}>
-        <div style={{ height: candidates.length * ROW_HEIGHT, position: "relative" }}>
+      <div ref={viewport} role="rowgroup" className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto" onScroll={(event) => setStart(Math.max(0, Math.floor(event.currentTarget.scrollTop / ROW_HEIGHT) - 4))}>
+        <div role="presentation" style={{ height: candidates.length * ROW_HEIGHT, position: "relative" }}>
           {visible.map((candidate, offset) => {
             const index = start + offset;
             const pickup = (candidate.pitch.market_relative_value as Record<string, unknown> | undefined)?.dm_pickup_bps;
@@ -160,6 +161,7 @@ function VirtualCandidateGrid({
           })}
         </div>
       </div>
+    </div>
     </div>
   );
 }

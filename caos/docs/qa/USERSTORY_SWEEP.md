@@ -1,6 +1,19 @@
 # CAOS — Feature → User-Story Sweep (2026-06-25)
 
-End-to-end pass over **every feature in the app**: each was turned into a user
+> **2026-07-18 reconciliation:** this is a historical sweep of the application
+> as it existed in June, not proof of every current feature. The canonical CSV
+> has since grown to 355 historical Pass rows, while the production export now
+> has 18 page endpoints and newer Portfolio Lab, Decisions/IC Book, Sponsors,
+> RV, analysis-context, and recovery flows that are not all represented by
+> dedicated current rows. Use
+> [APPLICATION_SURFACE_MATRIX_2026-07-18.csv](APPLICATION_SURFACE_MATRIX_2026-07-18.csv),
+> L23/L27, and
+> [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md)
+> for release coverage. The current three-browser inventory is 125 passed / 15
+> failed / 1 flaky, so the historical “every feature” language below is scoped
+> to that dated run only.
+
+End-to-end pass over **every feature then inventoried**: each was turned into a user
 story with code-derived expected behaviour, tracked in one canonical sheet,
 tested on a live isolated stack, and the UX defects found were fixed and
 re-tested.

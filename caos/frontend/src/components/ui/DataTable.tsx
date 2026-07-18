@@ -127,7 +127,7 @@ export function DataTable<T>({
       ) : null}
       <table
         aria-describedby={onRowActivate ? keyboardInstructionsId : undefined}
-        className={`caos-data-table w-full border-collapse tabular text-caos-xs${className ? ` ${className}` : ""}`}
+        className={`caos-data-table w-full border-collapse font-sans text-caos-xs${className ? ` ${className}` : ""}`}
       >
       {caption ? <caption className="sr-only">{caption}</caption> : null}
       <thead className="sticky top-0 z-raised bg-caos-elevated text-caos-muted">
@@ -144,7 +144,7 @@ export function DataTable<T>({
                 scope="col"
                 aria-sort={ariaSort}
                 style={col.width ? { width: col.width } : undefined}
-                className={`px-2 py-1 font-medium uppercase tracking-wider ${ALIGN_TH[align]}`}
+                className={`px-2 py-1 font-mono font-medium uppercase tracking-wider ${ALIGN_TH[align]}`}
               >
                 {canSort ? (
                   <button

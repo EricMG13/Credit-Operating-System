@@ -549,6 +549,7 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
       } catch (reason) {
         if (!cancelled && generation === loadGeneration.current) {
           setError(toErrorMessage(reason, "Analysis context unavailable."));
+          window.dispatchEvent(new Event("caos:analysis-context-error"));
         }
       } finally {
         if (!cancelled && generation === loadGeneration.current) setLoading(false);

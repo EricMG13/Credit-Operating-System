@@ -1,5 +1,13 @@
 # Backend Review Matrix — caos/server
 
+> **2026-07-18 release note:** this bootstrap matrix is historical audit input,
+> not a current readiness verdict. The effective current server suite is 2,412
+> passed / 15 skipped, but individual findings remain open until re-adjudicated
+> against current code and the target Postgres configuration. Route, queue,
+> authorization, storage, and recovery closure is governed by PD-03/PD-07/PD-08
+> and L23/L25/L26. See
+> [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
+
 Total backend review, bootstrap 2026-07-03 (branch `feat/query-route-fast-lane`).
 Report-only: findings are recorded here, fixes land as separate commits.
 

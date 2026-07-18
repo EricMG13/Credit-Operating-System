@@ -240,7 +240,7 @@ describe("RV Screener workbench", () => {
     const beta = within(grid).getByText(/Beta Fiber/).closest('[role="row"]') as HTMLElement;
     fireEvent.keyDown(beta, { key: "ArrowUp" });
 
-    const viewport = grid.querySelector(".overflow-auto") as HTMLDivElement;
+    const viewport = within(grid).getByRole("rowgroup") as HTMLDivElement;
     Object.defineProperty(viewport, "scrollTop", { configurable: true, writable: true, value: 460 });
     fireEvent.scroll(viewport);
     viewport.scrollTop = 0;

@@ -1,5 +1,14 @@
 # Frontend Review Matrix
 
+> **2026-07-18 release note:** this verified-finding matrix is an audit input,
+> not a current all-green/all-open register; line numbers and dispositions can
+> drift as fixes land. The final closure pass independently re-confirmed the
+> live-issuer QA-flag scoping defect, 16 reachability candidates, incomplete
+> route recovery, and red browser contracts. Close or explicitly disposition
+> every surviving HIGH through PD-02…PD-06, L23, L24, and L27, then archive a
+> fresh matrix against the immutable candidate. See
+> [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
+
 Adversarial-verified findings across the frontend audit lenses (mock-vs-live
 seam honesty, correctness, dead code, test-coverage gaps, design-token
 conformance, efficiency). Ten scope items (FE-1 → FE-10) covering Command

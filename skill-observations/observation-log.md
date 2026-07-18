@@ -97,3 +97,14 @@ wrapper around a stretched link still exposed the link as an illegal direct
 child of `role="row"`; only the real axe runner caught it. Add an ARIA-grid
 section with these ownership/keyboard/virtualization rules and require a
 rendered axe verification rather than treating static markup review as enough.
+
+## 2026-07-18 — audit — OPEN
+
+The audit guidance needs an explicit post-gate visual and capability pass for
+narrow interfaces. CAOS's document-overflow/clipped-control matrix passed every
+case while fixed-height panel headers visibly overlapped their tab lists, and a
+primary workflow replaced all authoring/evidence/QA/export capabilities with a
+read-only summary below its desktop breakpoint. Require representative
+screenshots, real coarse-pointer target measurements, and a desktop-vs-narrow
+capability inventory; structural overflow and axe results alone cannot verify
+responsive adaptation.

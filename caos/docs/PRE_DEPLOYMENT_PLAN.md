@@ -1,15 +1,14 @@
 # CAOS — Pre-Deployment Program Plan
 
-> **Latest status:** the **2026-07-15 reconciliation** below (A8 executed) is
-> the operative status source. The 2026-07-13 coverage review's PG-01…PG-12
-> rows remain the release-blocker ledger; the 2026-07-13 code reconciliation
-> and its UW/UF register are retained as history and are corrected by the
-> 2026-07-15 register-delta table.
+> **Latest status:** the **2026-07-18 final closure audit** below is the
+> operative status source. Its PD-01…PD-09 rows are the release-blocker ledger.
+> The PG, UW, and UF registers remain traceable history and feed those rows, but
+> do not override the current **NO-GO** verdict.
 
 > **For agentic workers:** this is the **master program plan** (current state
 > → enterprise transfer). It tracks **status** only — status verdicts,
 > checkboxes, exit gates. Every "tested regularly" / cadence claim resolves to
-> a loop ID (`L1`–`L22`) defined in
+> a loop ID (`L1`–`L27`) defined in
 > [PRE_DEPLOYMENT_QA_LOOPS.md](PRE_DEPLOYMENT_QA_LOOPS.md), which owns
 > **mechanism** — do not restate cadences here without a loop ID; if a claim
 > needs a new automation, the loop doc names the work item. Tooling/skills
@@ -21,14 +20,12 @@
 > pattern); do not implement them directly from this document. S/M items may
 > be executed directly. Checkboxes (`- [ ]`) are the tracking surface.
 
-**Goal:** take CAOS from the latest reconciled state below to
-**pre-deployment**: the final stage before
-transfer to enterprise, where the **only** outstanding items are
-(1) connecting the Monitor concept's alert seam to the enterprise email
-client, and (2) activating the Bloomberg market-data connector (built in
-Phase C, §5-C5) with enterprise entitlements (live credentials + parallel-run
-reconciliation). Everything else: functional, live, and re-tested on a
-defined, mechanism-backed cadence.
+**Goal:** take CAOS from the latest reconciled state below to a defensible
+**pre-deployment** release: one immutable candidate whose product scope,
+control wiring, capacity, security, and recovery claims all resolve to dated
+evidence. Enterprise email and licensed market-data activation remain planned
+transfer seams, but they are not the only current blockers; PD-01…PD-09 must be
+closed before the candidate can be called ready.
 
 **Architecture of the plan:** eight gated phases (A–H). Each phase has work
 items with file anchors, a verify command, and a hard **exit gate**
@@ -37,6 +34,49 @@ everything live re-verified after its phase lands. Supersedes the phase
 ordering in [DEVELOPMENT_PHASES.md](DEVELOPMENT_PHASES.md) where they
 conflict (DEVELOPMENT_PHASES "Phase 5 market-data cutover" happens *after*
 transfer — it is outstanding item #2 by design).
+
+### 2026-07-18 final closure audit — operative release status
+
+The canonical evidence report is
+[PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](qa/reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md),
+with the route/platform inventory in
+[APPLICATION_SURFACE_MATRIX_2026-07-18.csv](qa/APPLICATION_SURFACE_MATRIX_2026-07-18.csv).
+This pass reviewed the dirty `codex/112@040f298e44b0` checkout while parallel
+frontend WIP continued changing it. Results are diagnostic snapshots and
+**cannot** identify one internally consistent immutable release artifact.
+
+| Check | Current evidence | Status |
+|---|---|---|
+| Frontend compile/regression | eslint, strict TypeScript, production export of 18 page endpoints, **1,438 tests** | PASS on current WIP |
+| Server regression | **2,405 passed / 15 skipped** in sandbox; seven sandbox-denied AV socket cases passed on unrestricted rerun, effective **2,412 / 15** | PASS on current WIP |
+| Rendered accessibility/layout | 18 page endpoints × desktop/mobile, zero axe/layout/clipping findings | PASS for rendered offline/unavailable states |
+| Three-browser workflow inventory | **125 passed / 15 failed / 1 flaky** | **BLOCKED** — Command, registration, Model override, and Research contracts |
+| Static control wiring | 290 native production buttons; every node has an action/submit/spread or explicit unavailable state | Screen only; dynamic proof blocked above |
+| Code relevance | backend Vulture clean; **16 frontend reachability candidates** | Disposition required; do not delete automatically |
+| 15 active users | current SQLite smoke: 2,913 requests, 0 failures, p95 7 ms; dated Postgres/two-worker run: 2,584 requests, 0 failures, p95 89 ms | Baseline PASS; immutable target repeat required |
+| Data/vault | source bytes in vault; structured work product in Postgres; unsaved state in browser; local+remote backup mechanism exists | **BLOCKED** — target encryption, governance, freshness, and remote-only recovery proof absent |
+
+#### Final blocker ledger
+
+| ID | Blocking condition | Completion gate |
+|---|---|---|
+| **PD-01** | Mutable dirty candidate | H0 clean RC, commit/image digest/schema/config/flag manifest, final SBOM/scan |
+| **PD-02** | 15 E2E failures and one flake | L27 all affected journeys green in Chromium, Firefox, and WebKit without retry |
+| **PD-03** | 355-row tracker omits newer routed concepts and dedicated journeys | L23 route/nav/API/tracker/E2E parity for every matrix row |
+| **PD-04** | 16 frontend dead-code candidates have no owner disposition | L24 remove/restore/retain decision plus green build/tests |
+| **PD-05** | 12 of 18 page endpoints lack deliberate segment-recovery evidence | L27 boundary/equivalence decision and failure-preservation E2E |
+| **PD-06** | Reference/manual/enterprise seams remain in CP-RENDER, CP-SR/Monitor/email, market data, and QA issuer scoping | C3/C5/C13 promise-to-runtime and activation evidence; honest unavailable states |
+| **PD-07** | Capacity was not repeated on the immutable target candidate | L25 15-principal Postgres/two-worker target run plus heavy-job/upload/provider faults |
+| **PD-08** | At-rest encryption, record governance, and off-host recovery are not proven on the target | E8/G8/G9 and L22/L26: paired DB+vault backup, encrypted remote, alert, remote-only restore |
+| **PD-09** | Final audit evidence is not tied to released bytes | One archived H0/H1/H2 evidence bundle for the exact image digest |
+
+**Release order:** close PD-02/03/04/05/06 on the working branch; freeze and
+merge the intended code; create the clean H0 candidate; execute L23–L27 and
+the existing H1/H2 suite on the target-shaped stack; close PD-07/08 with host
+evidence; archive PD-09; then take the final go/no-go decision. PD-01, PD-02,
+PD-03, PD-06, PD-07, and PD-08 are non-waivable because they establish the
+artifact, actual behavior, product scope, live integration, capacity, and
+recoverability.
 
 ### 2026-07-13 coverage review — gaps added to the release ledger
 
@@ -344,8 +384,8 @@ read-model remain unbuilt; `MarketDataProvider`/`BloombergProvider`/
 Verified 2026-07-11 against `origin/main@313ebac` by direct code inspection
 and a live test run this session. Every row below is a re-derived fact, not
 inherited from a prior grounding. **This section is retained for program
-history only. Use the 2026-07-13 authoritative reconciliation above for every
-current status or release decision.**
+history only. Use the 2026-07-18 final closure audit above for every current
+status or release decision.**
 
 ### Working and tested in the 2026-07-11 snapshot
 
@@ -1473,6 +1513,7 @@ issuer walk, sponsor/counterparty graph — both live in `questions.ts`/
   merged stores (`market_snapshots`, `model_override_events`,
   `notification_events`) with explicit do-not-duplicate instructions; E2
   narrowed to its true residual (legacy routes, admin semantics, bootstrap).
-  Coverage verdict: the A–H + PG-01…12 + L1–L22 structure already covers the
+  Historical coverage verdict (superseded by the 2026-07-18 PD/L23–L27
+  expansion): the A–H + PG-01…12 + L1–L22 structure covered the then-known
   pre-deployment goal; the gaps were **stale facts and the unowned flag
-  wave**, both corrected here. Critic pass RT-2026-07-15-270…273.
+  wave**, both corrected there. Critic pass RT-2026-07-15-270…273.

@@ -121,6 +121,20 @@ const CONTEXT: AnalysisContext = {
 };
 
 describe("useAnalysisContext mutation ordering", () => {
+  it("publishes a presentation-only error event when initial context resolution fails", async () => {
+    window.history.replaceState({}, "", "/command");
+    post.mockRejectedValue(new Error("context service unavailable"));
+    const onContextError = vi.fn();
+    window.addEventListener("caos:analysis-context-error", onContextError);
+
+    const { result } = renderHook(() => useAnalysisContext({ name: "Desk" }));
+    await waitFor(() => expect(result.current.error).toBe("Analysis context unavailable."));
+
+    expect(onContextError).toHaveBeenCalledTimes(1);
+    expect(result.current.context).toBeNull();
+    window.removeEventListener("caos:analysis-context-error", onContextError);
+  });
+
   it("does not reuse or publish a pending create across a principal epoch", async () => {
     window.history.replaceState({}, "", "/command");
     let resolveExpired!: (value: { data: AnalysisContext }) => void;

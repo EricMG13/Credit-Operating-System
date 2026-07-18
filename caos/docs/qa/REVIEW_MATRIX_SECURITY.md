@@ -1,5 +1,14 @@
 # Security Review Matrix
 
+> **2026-07-18 release note:** this matrix is retained as a finding register,
+> not a current deployment verdict. Edge-origin enforcement, tenancy, roles,
+> and route coverage have evolved since some rows were written; each surviving
+> finding must be re-adjudicated against the immutable candidate. The release
+> security decision also requires target encryption, backup recovery, egress,
+> and isolation evidence that a source matrix cannot supply. See
+> [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md)
+> and L18/L26.
+
 Verified-findings audit across the CAOS FastAPI server route endpoints and security posture. Each audited item was reviewed against the lenses and live code; findings below survived adversarial verification.
 
 ## 1. Audit status

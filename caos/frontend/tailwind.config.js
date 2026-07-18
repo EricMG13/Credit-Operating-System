@@ -33,31 +33,30 @@ module.exports = {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
-      // Type scale. The dense workspace band is physically 8.5–12px: 3.5px can't
-      // hold 8 perceptible steps, so the legacy 0.5px-apart names snap to FOUR
-      // honest tiers — micro / label / body / row — that the eye can actually
-      // tell apart (~1px ≈ 11% per step). Names are kept as drop-in aliases so
+      // Type scale. The dense workspace band uses four honest rem-based tiers —
+      // micro / label / body / row — so browser text preferences and zoom remain
+      // authoritative. Names are kept as drop-in aliases so
       // the ~830 existing `text-caos-*` uses need no edit; the in-between names
       // (3xs/sm/lg/2xl) are deprecated duplicates — prefer 2xs/xs/md/xl in new
       // code. Headings keep a tight line-height; font-size otherwise inherits the
       // 1.5 base and the dense UI tunes leading per context.
       fontSize: {
-        "caos-3xs": "10px", // micro metadata floor
-        "caos-2xs": "10px", // micro metadata floor
-        "caos-xs": "10.5px", // label
-        "caos-sm": "10.5px", // label (alias of xs)
-        "caos-md": "11.5px", // body
-        "caos-lg": "11.5px", // body (alias of md)
-        "caos-xl": "13px", // row
-        "caos-2xl": "13px", // row (alias of xl)
-        "caos-metric": ["16px", { lineHeight: "1.15" }],
-        "caos-metric-lg": ["18px", { lineHeight: "1.12" }], // severity-ramp rung between metric and hero (email tiles)
-        "caos-hero": ["22px", { lineHeight: "1.1" }],
+        "caos-3xs": "0.625rem", // 10px micro metadata floor
+        "caos-2xs": "0.625rem", // micro metadata floor
+        "caos-xs": "0.6875rem", // 11px label
+        "caos-sm": "0.6875rem", // label (alias of xs)
+        "caos-md": "0.75rem", // 12px body
+        "caos-lg": "0.75rem", // body (alias of md)
+        "caos-xl": "0.8125rem", // 13px row
+        "caos-2xl": "0.8125rem", // row (alias of xl)
+        "caos-metric": ["1rem", { lineHeight: "1.15" }],
+        "caos-metric-lg": ["1.125rem", { lineHeight: "1.12" }], // severity-ramp rung between metric and hero (email tiles)
+        "caos-hero": ["1.375rem", { lineHeight: "1.1" }],
         // Display tier — the single focal "answer" on a surface (committee
         // verdict, anchor metric). ~3x body so one element genuinely commands
         // the eye; opt-in, never for dense fields. Pairs with a small mono label
         // above for scale+weight contrast.
-        "caos-display": ["30px", { lineHeight: "1.04", letterSpacing: "-0.01em" }],
+        "caos-display": ["1.875rem", { lineHeight: "1.04", letterSpacing: "-0.01em" }],
       },
       // Semantic z-index scale — named layers instead of magic numbers, so
       // stacking is intentional: sticky < raised < overlay < modal < toast.

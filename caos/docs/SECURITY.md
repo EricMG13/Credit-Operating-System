@@ -2,7 +2,8 @@
 
 How CAOS authenticates, authorizes, and protects data, and the boundaries of
 its current threat model. Companion to [AUDIT.md](AUDIT.md). Last reviewed
-2026-06-22.
+2026-07-18; the release-specific evidence and blockers are in
+[PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](qa/reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
 
 ## 1. Authentication & identity
 
@@ -63,18 +64,33 @@ section is the reference the Caddyfile / compose / config comments cite.
 
 ## 2. Authorization
 
-**Single-team model — by design (S-4).** Every authenticated analyst can read
-and write every issuer, run, and document. There is **no row-level / per-issuer
-authorization**. This is a deliberate fit for the intended use (one coverage
-team sharing one workspace), not an oversight.
+**Single shared coverage desk by default; optional team isolation.**
+`CAOS_TENANCY_ENABLED=false` keeps the original one-team workspace: issuers are
+shared inside the admitted SSO group. When enabled, `team_id` plus the helpers in
+[tenancy.py](../server/tenancy.py) scope the issuer-derived spine and make
+unsupported aggregate lanes fail closed rather than leak cross-team rows. Null-team
+issuers remain explicitly shared/global. This is tested, but target team assignment
+and the complete route matrix must be re-proved by L26 before multi-team release.
 
-**If the threat model expands to multiple tenants / least-privilege**, add:
-an ownership/ACL column on `issuers` (and cascade to runs/documents), a
-`Depends`-level check that the caller may access the requested `issuer_id` in
-each route ([issuers.py](../server/routes/issuers.py),
-[runs.py](../server/routes/runs.py), [ingestion.py](../server/routes/ingestion.py)),
-and tenant scoping on every query. Until that requirement is real, it is left
-unbuilt rather than guessed.
+**Runs are analyst-attributed.** Cross-analyst run sharing is a separate explicit
+deployment choice and defaults off (`CAOS_CROSS_ANALYST_RUN_SHARING_ENABLED=false`).
+Do not infer permission to read another analyst's work merely because both people
+belong to the same team.
+
+**Server roles are authoritative; UI role views are not.** `Analyst.role` is
+resolved into the signed-in server identity. Read-only/viewer variants are rejected
+by `require_write_role` on covered domain mutations. Committee requests require
+analyst/admin and approval requires QA/admin, with separation-of-duties rules in
+[committee.py](../server/routes/committee.py). The frontend `role_view` preference
+only changes presentation and never grants authority. The mutation-role rollout is
+substantial but must still be checked route-by-route at release; a legacy write route
+without the server guard is an authorization defect, not an accepted UI convention.
+
+**Remaining boundary:** CAOS does not yet implement arbitrary per-issuer ACLs or
+licensed-data entitlements within one team. Before Bloomberg, multi-team MNPI, or
+externally shared workspaces activate, define the entitlement source and either map
+it to the team/issuer checks or add a narrower ACL. Until then those integrations
+remain deployment-gated.
 
 ## 3. Transport & response headers
 
@@ -127,15 +143,40 @@ TLS is terminated at the edge proxy (Caddy on the self-hosted stack).
   `contentEditable` leaves sanitize paste to plain text and cap length; React
   escapes rendered text, so analyst edits cannot inject markup.
 
-## 5. Data & secrets
+## 5. Data custody, vault, backups & secrets
 
-- DB is SQLite by default (ephemeral) or Postgres via `DATABASE_URL` (the
-  self-hosted stack runs Postgres). Documents live in a local vault dir / Docker
-  volume (`CAOS_STORAGE_DIR`).
-- `ANTHROPIC_API_KEY` is read from the environment (injected from the deploy's
-  `.env`, never committed); absent,
-  chat and synthesis degrade to deterministic demo/fixture output. **No secrets,
-  databases, or vault contents are committed** (`.gitignore` covers them).
+The document vault is **not** the only application store and must never be
+described that way:
+
+| Record class | Canonical location | Security/durability contract |
+|---|---|---|
+| Original uploaded documents and committed source workbooks | `CAOS_STORAGE_DIR` vault volume | AV/format/path guards before durable use; target volume encryption, access control, backup |
+| Issuers, metadata, extracted chunks/lineage | Postgres in production | DB TLS/credentials/least privilege, encryption-at-rest proof, retention, backup |
+| Runs, claims/evidence, facts, QA, alerts, decisions, models, reports, research jobs | Postgres | Server authz/tenancy, retention/legal hold, paired backup and restore |
+| Session state | Secure signed cookie + analyst row | `Secure`/`HttpOnly`/`SameSite`, expiry and token-version revocation; secret rotation |
+| UI preferences and unsaved chat/model/report/research state | Browser local/session storage | Principal-change clearing is implemented; this state is not a durable vault record and may be lost with the tab/profile |
+| Access/application logs | Host/container log path | Operator-owned collection, redaction, access and retention |
+| Backup copies | Local artifacts + optional rclone remote | Postgres dump and vault archive are one recovery set; encrypt, alert on age/failure, and prove remote-only restore |
+
+SQLite is a local-development default; any deployed environment refuses it and
+requires Postgres. The application does not itself encrypt the host's Docker volume
+or Postgres data files. Full-disk/volume/database encryption and remote-backup
+encryption are deployment controls and remain release blockers until proven on the
+target host. Backup scripts and an rclone service demonstrate mechanism, not that a
+fresh encrypted off-host recovery point exists.
+
+Provider credentials are environment/Docker-secret inputs and are not committed.
+`ANTHROPIC_API_KEY`, OpenRouter/Gemini credentials, database passwords, edge secret,
+and backup credentials must be scoped and rotated operationally. Missing model keys
+degrade eligible lanes to deterministic fixture behavior. More importantly,
+`CAOS_DOCUMENT_EGRESS_ENABLED` defaults **false**: provider availability is not
+permission to transmit issuer documents, analyst notes, or derived work product.
+Activation requires data-classification, DPA/residency/retention, entitlement, and
+approved-use evidence.
+
+The 2026-07-18 scans found no confirmed committed credential; six archive findings
+were documentation/config-name false positives. That is useful hygiene, not proof of
+runtime secret safety. L18 and L26 own the release evidence.
 
 ## 6. Dependencies
 
@@ -154,12 +195,24 @@ app **refuses to boot** with the seed enabled ([main.py](../server/main.py)
 fail-closed guard — it no longer merely warns). The self-hosted stack fixes it
 **`false`**; leave it unset for any real (non-demo) deployment.
 
-## 8. Threat-model boundaries (explicit non-goals today)
+## 8. Threat-model boundaries and release limits
 
-- Multi-tenant isolation / per-issuer authorization (see §2).
-- Defense against a compromised edge proxy or a deployment that bypasses it
-  (see §1).
-- Rate limiting / abuse controls beyond the upload size cap.
+- A compromised Caddy/oauth2-proxy host or stolen production secret remains outside
+  the application's ability to contain; sole ingress, header stripping, secret
+  storage, patching, and monitoring are host controls.
+- Team tenancy exists, but arbitrary within-team per-issuer entitlements do not
+  (see §2). Licensed market data and multi-team MNPI cannot activate without a
+  policy-to-code entitlement map.
+- Rate limits, queue caps, parser/upload caps, and provider timeouts exist. Most are
+  process-local, so a two-worker deployment can multiply effective allowances;
+  target capacity and edge controls must be calibrated to process topology.
+- Browser storage is a non-authoritative convenience/recovery layer, not the vault.
+  Unsaved work can be lost and must not be represented as committee-durable.
+- Application-level encryption of Postgres/vault files is not provided. Target
+  at-rest and backup encryption must be evidenced operationally.
+- The indexed GitNexus PDG/taint layer was unavailable during the 2026-07-18 audit;
+  absence of a reported taint flow was not counted as a security pass.
 
-These are conscious boundaries for a single-team internal tool, recorded so a
-future multi-tenant or external-exposure requirement starts from a clear baseline.
+These boundaries are acceptable only for the approved internal deployment profile.
+L26, G8, and G9 are non-waivable before release because they prove the actual target
+configuration, storage custody, isolation, and recoverability.

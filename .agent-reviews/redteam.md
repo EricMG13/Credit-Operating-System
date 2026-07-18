@@ -1428,3 +1428,80 @@ Reopen if a paper, chart, or tranche semantic color is converted to a generic UI
 token; a transition loses reduced-motion behavior or changes live-state meaning;
 spreadsheet or SVG geometry changes from a typography sweep; or an automated
 enforcement rule forces specialized output into the ordinary table/button contract.
+
+## 2026-07-18 — All-surface quieting, typesetting, layout, hardening, and copy pass
+
+Decision under review: refine every routed frontend surface through shared type,
+spacing, state, responsive, recovery, and copy contracts without relaxing CAOS's
+dense institutional register or hiding specialist capability.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-393 | Credit-workflow reviewer | A generic "quieter" treatment could mute stale, Blocked, or unratified conclusions until a wrong read looks calm. | Critical | Resolved in design | Reduce only the area and chroma of semantic washes. Preserve the glyph, explicit status word, authority chips, and accessible contrast; never neutralize the status itself. |
+| RT-2026-07-18-394 | Typography reviewer | Removing monospace wholesale would destroy numeric scanability and decimal alignment in dense tables. | High | Resolved in component boundary | Split prose from numerics only in shared decision and table primitives. Numeric columns, timestamps, ids, labels, and authority metadata retain mono tabular styling; narrative cells and conclusions use the sans reading face. |
+| RT-2026-07-18-395 | Responsive-workflow reviewer | Hiding Model or Deep-Dive editors at tablet widths can strand an analyst who expected to edit from a smaller workstation. | High | Resolved in topology and copy | Use the existing compact read-only review below the desktop editor threshold, label the limitation and retained workstation capabilities explicitly, and keep navigation/handoff actions visible. Full editing remains available at desktop widths. |
+| RT-2026-07-18-396 | Report-output reviewer | Stacking Report Studio rails too early could turn a committee review into a long page and obscure composition controls. | High | Resolved in topology | Stack only below the width at which the paper preview plus both fixed rails becomes unusable. Keep the preview first, deliverables second, composition/export controls third, with all functions retained and independently scrollable. |
+| RT-2026-07-18-397 | Density reviewer | Raising every small label or optical offset mechanically would break spreadsheet, chart, appendix, and virtualized-row geometry. | High | Resolved in scope | Enforce the mobile 12px floor on product chrome and shared state copy. Preserve documented paper appendix, SVG/chart, spreadsheet, and row-fit literals as explicit specialist exceptions. |
+| RT-2026-07-18-398 | Layout reviewer | Normalizing every 5–7px row padding to the 4pt scale could reduce usable row count or create oversized worklists. | Medium | Accepted exception | Normalize shared shell/group spacing and ordinary page chrome. Retain specialist row-density and optical-fit literals where exact geometry is part of the renderer; track them as local exceptions, not reusable tokens. |
+| RT-2026-07-18-399 | Failure-recovery reviewer | Replacing terse retry labels with generic friendly prose can obscure the failed operation or imply work was lost. | High | Resolved in copy contract | Name the failed check/view/source in the action, state what remains preserved, avoid developer-only remediation in user-facing copy, and keep reference ids available for escalation. |
+| RT-2026-07-18-400 | Regression reviewer | Shared type and spacing edits touch every route and can create horizontal overflow that unit tests will miss. | High | Resolved in verification gate | Run the complete build/test suite, the repository's multi-viewport layout matrix, and the mandated axe route matrix with browser-only fixtures; review representative desktop, phone, and 200% zoom captures before handoff. |
+
+### Critic reopen conditions (all-surface refinement)
+
+Reopen if any adverse state loses a glyph or explicit label; prose remains forced
+into mono or numeric columns lose tabular alignment; a compact editor implies that
+editing is available when it is not; Report Studio drops or reorders a capability;
+the mobile chrome floor is still below 12px; specialist optical geometry is
+normalized without renderer-specific proof; recovery copy does not name the failed
+operation; or the route, layout, and accessibility matrices are not clean.
+
+## 2026-07-18 — Final pre-deployment consolidation critic pass
+
+Decision under review: consolidate the application, control-wiring, audit-loop,
+throughput, and data-protection evidence into a final pre-deployment gate without
+turning historical passes or configuration intent into a release claim.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-401 | Release-integrity reviewer | Results from a dirty working tree cannot identify the bytes being approved, even when every local command is green. | Critical | Resolved in gate design | The consolidated plan is a **NO-GO** until H0 produces a clean immutable candidate, image digest, schema/config fingerprint, and evidence bundle tied to those exact bytes. Current results are diagnostic evidence only. |
+| RT-2026-07-18-402 | Product-coverage reviewer | Treating `FEATURE_TRACKER.csv` as the whole application hides newer Portfolio Lab, Decisions/IC Book, Sponsors, Sector RV, and shared-context flows that have no dedicated rows. | Critical | Resolved in inventory design | A route/platform surface matrix becomes the companion inventory; L23 requires route, nav, API, tracker, and E2E parity before release. The 355 historical Pass rows no longer stand alone as whole-app proof. |
+| RT-2026-07-18-403 | Interaction reviewer | A source scan showing handlers on buttons proves only syntax, not that the action reaches the intended mutation, survives reload, or handles failure. | Critical | Confirmed blocker | Static wiring is retained as a completeness screen only. The current three-browser E2E failures block sign-off until each contract is fixed or the test is deliberately re-specified and rerun green. |
+| RT-2026-07-18-404 | Performance reviewer | A fast 15-user SQLite laptop run could be presented as proof of production capacity despite using one worker, 30 seeded issuers, fixture LLMs, and no live external dependencies. | High | Resolved in evidence wording | The run is labelled current-tree smoke only. Production-like evidence remains the dated Postgres/two-worker 15-user run; L25 requires a repeat on the immutable target candidate with target data, identity, storage, and queue settings. |
+| RT-2026-07-18-405 | Data-governance reviewer | “Everything is in the vault” is a dangerous false premise: structured work product is in Postgres and unsaved state can remain in browser storage. | Critical | Resolved in storage model | The security and closure documents now publish a record-by-record store matrix. Vault and Postgres must be backed up together; browser-only state is explicitly non-durable; any authoritative work product must cross a server persistence boundary. |
+| RT-2026-07-18-406 | Recovery reviewer | Local restore scripts and an optional rclone service do not prove an encrypted, fresh, off-host recovery point exists or that operators will be alerted when it stops. | Critical | Confirmed blocker | G8/G9 and L22/L26 require target-host evidence: encrypted destination, least-privilege access, age/failure alert, and a remote-only restore after local-copy loss. Configuration review earns no closure credit. |
+| RT-2026-07-18-407 | Maintainability reviewer | Reachability scans can call framework entrypoints dead and can miss dynamic imports; deleting all reported modules would be unsafe. | High | Resolved in disposition rule | The report labels 16 TypeScript paths as candidates, not confirmed deletion targets. L24 requires owner classification plus compiler/test/build proof before removal. Backend Vulture is clean; whole-tree Fallow remains a candidate-host gate because it could not be freshly installed in the restricted environment. |
+| RT-2026-07-18-408 | Reliability reviewer | Six route error boundaries across eighteen pages leave most concepts dependent on the root fallback, so one failed segment can discard more analyst context than intended. | High | Confirmed blocker | L27 requires deliberate per-route recovery coverage or a documented shared-boundary equivalence, with failed-operation copy and preserved context verified in E2E. |
+| RT-2026-07-18-409 | Integration reviewer | Route enumeration can still miss workers, queues, storage, provider egress, backups, and spec-only/equivalent-service seams. | Critical | Resolved in map design | The application map includes 18 page endpoints, 137 API routes, executors/background jobs, Postgres, vault, edge/auth, provider egress, market/email seams, and backup/restore. C3/C5/C13 remain explicit integration gates. |
+| RT-2026-07-18-410 | Security reviewer | No secret finding and no indexed taint result are not proof of secure data flow, especially when the GitNexus PDG layer is unavailable. | High | Resolved in evidence wording | Secret scanning is reported with false-positive adjudication, and the absent taint layer is a limitation. L18/L26 require target configuration, authorization/isolation tests, egress policy, and recovery evidence; no “secure by scan” claim is permitted. |
+| RT-2026-07-18-411 | Audit-governance reviewer | Adding more checklists without an owner, trigger, artifact, and consuming gate creates another unexecuted audit framework. | High | Resolved in loop contract | L23–L27 each name mechanism, trigger, artifact, and release gate. They are MANUAL/WORK-ITEM until evidence exists and cannot be cited as green merely because the rows exist. |
+
+### Critic reopen conditions (pre-deployment consolidation)
+
+Reopen if a dirty tree is called a release candidate; the 355-row tracker is
+called whole-app coverage without surface parity; static button handlers are called
+E2E proof; SQLite load is called production capacity; vault is described as the
+only authoritative store; backup configuration is credited without remote recovery;
+dead-code candidates are deleted without framework-aware confirmation; route failure
+recovery remains implicit; non-page platform services disappear from the map; an
+absent taint finding is called a security pass; or L23–L27 are cited without dated
+artifacts.
+
+## 2026-07-18 — Analysis-context layout stability critic pass
+
+Decision under review: reserve stable shell geometry while the shared analysis
+context resolves, and publish a presentation-only failure event from the existing
+context hook so the reserved state cannot remain misleadingly busy.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-412 | Density reviewer | Reserving space for a context that never appears wastes scarce vertical room on every analytical surface. | High | Resolved in lifecycle | Enterprise surfaces already create or load an analysis context on mount. Reserve exactly the compact summary geometry they will receive; do not add space outside `EnterprisePage` or to non-enterprise routes. |
+| RT-2026-07-18-413 | Reliability reviewer | If context creation fails before it dispatches a success event, a permanent loading label would misstate the system indefinitely. | High | Resolved in event contract | Emit a presentation-only `caos:analysis-context-error` event from the existing hook catch path. The strip replaces its loading copy in place with the current explicit unavailable state; authority and mutation state remain owned by the hook. |
+| RT-2026-07-18-414 | Accessibility reviewer | Forcing the summary to a fixed row could clip the active context name or hide evidence counts from keyboard and screen-reader users. | High | Resolved in layout | Keep the full text in the accessible DOM, truncate only visually, retain the expandable disclosure and focus ring, and expose the full summary as a title. |
+| RT-2026-07-18-415 | Security reviewer | Reusing the context object from a browser event would bypass the strip's independent ownership re-check. | Critical | Resolved in data flow | Keep the existing `getContext` and `listFindings` reload after every success event. The new error event carries no context data and grants no authority. |
+
+### Critic reopen conditions (analysis-context stability)
+
+Reopen if a non-enterprise route gains reserved chrome; a context failure leaves a
+permanent busy state; summary content becomes unavailable to keyboard or assistive
+technology; the event detail is trusted as owned context; or the cold-load route
+matrix still records context-strip CLS.

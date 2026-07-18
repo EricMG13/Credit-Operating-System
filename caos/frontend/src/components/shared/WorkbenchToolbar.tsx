@@ -47,11 +47,11 @@ export function WorkbenchToolbar({
     <section className="caos-workbench-toolbar" aria-label={`${title} controls`}>
       <div className="caos-workbench-heading min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <h2 className="tabular text-caos-md font-semibold uppercase tracking-[0.12em] text-caos-text">{title}</h2>
+          <h2 className="font-mono text-caos-xl font-semibold uppercase tracking-[0.1em] text-caos-text">{title}</h2>
           {viewLabel ? <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent">{viewLabel}</span> : null}
           {count ? <span className="tabular text-caos-xs text-caos-muted">{count}</span> : null}
         </div>
-        {description ? <p className="caos-workbench-description mt-1 text-caos-xs text-caos-muted">{description}</p> : null}
+        {description ? <p className="caos-workbench-description mt-1 text-caos-md leading-relaxed text-caos-muted">{description}</p> : null}
       </div>
       <div className="caos-workbench-controls">
         {search}

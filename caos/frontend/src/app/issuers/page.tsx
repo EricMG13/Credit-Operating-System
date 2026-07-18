@@ -622,7 +622,7 @@ function IssuersDirectory() {
                   <span role="gridcell" className="tabular text-caos-accent text-caos-lg">
                     {issuer.ticker?.slice(0, 5).toUpperCase() || "—"}
                   </span>
-                  <span role="rowheader" className="text-caos-text text-caos-xl font-semibold truncate group-hover:text-[#f2f2f7] transition-caos">
+                  <span role="rowheader" className="text-caos-text text-caos-xl font-semibold truncate transition-caos">
                     {/* The stretched mouse target lives inside the semantic row
                         header, so the ARIA row still owns exactly eight cells.
                         The row itself is the roving keyboard stop; the link stays

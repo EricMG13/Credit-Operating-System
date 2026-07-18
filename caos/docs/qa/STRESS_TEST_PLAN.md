@@ -1,5 +1,43 @@
 # CAOS Stress Test Plan
 
+> **2026-07-18 reconciliation — operative status:** §§1–8 below are the
+> original 2026-06-26 break-it hypothesis register. They are retained to show
+> what was suspected, but their present-tense “no cap/no timeout/single worker”
+> statements are **not current architecture claims**. The runnable harness now
+> exists under `caos/tests/stress/`; the deploy supports one or two uvicorn
+> workers (Postgres required for two); runs are capped at two per worker, 20
+> queued/running globally and three per analyst; uploads are capped at one
+> whole-file parse per process; document parsing and provider calls have hard
+> timeouts; and the weekly nightly lane drives 25 mixed users for 60 seconds.
+> The current release contract is L25 in
+> [PRE_DEPLOYMENT_QA_LOOPS.md](../PRE_DEPLOYMENT_QA_LOOPS.md), not the original
+> unverified severity list.
+
+## 2026-07-18 capacity evidence and remaining gate
+
+| Profile | Result | Interpretation |
+|---|---|---|
+| Current dirty-tree smoke — one worker, SQLite, 30 synthetic issuers, fixture LLMs, 15 users/60 s | **2,913 requests, 0 failures**, p50 4 ms, p95 7 ms, p99 11 ms | Current code handles the mixed browse/module/report/query shape; diagnostic only |
+| 2026-07-12 production-like baseline — Postgres 18, two workers, 15 users/60 s | **2,584 requests, 0 failures**, p50 27 ms, p95 89 ms, p99 130 ms | Valid two-worker baseline; repeat on immutable RC/target host |
+| Nightly scheduled profile | 25 mixed users/60 s, isolated and keyless | Recurring bounded regression; not a destructive capacity ceiling |
+
+**What 15 active users should experience:** ordinary reads and result navigation
+remain responsive under the measured mix. If many users start heavy work together,
+the work queues: a one-worker deploy executes two runs at a time; a two-worker
+deploy can execute four; the global queued/running cap is 20 and the per-analyst
+cap is three. Uploads admit one whole-file parse per process. Rejection/queue state
+must be explicit; the load pass is not a promise that 15 live LLM runs or 15 large
+uploads complete simultaneously.
+
+**Remaining release gate:** repeat on the immutable image and target-shaped
+Postgres/two-worker host with 15 separate principals, target-size data, simultaneous
+runs/research/reports/uploads, queue/pool/memory observation, and mocked slow/429/529
+providers. Archive p50/p95/p99, 5xx, rejections, queue depth, memory, pool use, and
+recovery. Zero failures in the read mix, bounded resource use, no cross-principal
+data exposure, and honest backpressure are required. See
+[PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md)
+§8 and PD-07.
+
 **Goal:** overload every surface — the 5 concepts, the API, the CP-X engine, the
 external lanes, and the deploy/auth layer — catalogue what breaks, and rank the
 patches. This is a *break-it-on-purpose* plan, not a perf-tuning plan: we want
@@ -138,10 +176,12 @@ world misbehaves" lives — the most under-tested area.
 
 ---
 
-## 7. Patch backlog — what the map already says will break
+## 7. Historical patch backlog — re-verify before reopening
 
-Ranked. These don't strictly need a test run to start fixing; the tests confirm
-+ regression-guard them.
+This is the original 2026-06-26 ranking. Several controls have since landed;
+do not open or prioritize work from this list without reconciling it against
+the 2026-07-18 status block and current code. The tests confirm or refute each
+hypothesis and prevent regression.
 
 **CRIT**
 1. **Single worker / single event loop** — any sync or threadpool-saturating work freezes every user. *Fix:* multiple uvicorn workers, hard threadpool caps + timeouts on parse, move heavy CPU off the request path. (S-INFRA-01, S-API-07, S-ENG-04)
@@ -183,9 +223,18 @@ Ranked. These don't strictly need a test run to start fixing; the tests confirm
 
 ---
 
-## 9. Harness — not built yet
+## 9. Harness — built; target-host breadth remains
 
-This is the plan only. The runnable harness (locust file, mock-Anthropic app,
-Toxiproxy config, seed script, Playwright render-trace specs) is the next step —
-say the word and I'll scaffold it under `caos/tests/stress/`, lazy version first
-(locust + mock + seed cover ~80% of the above).
+The repository now contains the Locust mixed-endpoint driver, API seeder,
+mock-provider fault service, fake ClamAV, and regression tests under
+`caos/tests/stress/`. CI collects the stress helper tests, the nightly workflow
+runs a bounded 25-user profile, and dated load results are stored under
+`docs/qa/perf/`.
+
+Remaining harness work is target-dependent: database/network fault injection,
+large-browser render/heap traces, real ClamAV contention, two-worker queue and
+pool telemetry, and the L25 15-principal heavy-operation profile. The API seeder
+must also assert its final issuer count: on 2026-07-18 the normal create-route
+rate guard admitted only 30 of 300 attempted rows. Use the bulk QA seeder for a
+300-row target or deliberately pace/partition the API seed; never label a run
+“300 issuers” from the requested argument alone.

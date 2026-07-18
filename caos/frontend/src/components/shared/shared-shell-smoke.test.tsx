@@ -7,7 +7,7 @@ const { pathname } = vi.hoisted(() => ({ pathname: { value: "/deepdive/name" } }
 
 vi.mock("next/navigation", () => ({ usePathname: () => pathname.value }));
 vi.mock("next/link", () => ({
-  default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => <a href={href} {...props}>{children}</a>,
+  default: ({ children, href, prefetch: _prefetch, ...props }: { children: React.ReactNode; href: string; prefetch?: boolean }) => <a href={href} {...props}>{children}</a>,
 }));
 vi.mock("./RoleViewSwitch", () => ({ RoleViewSwitch: () => <span>role switch</span> }));
 vi.mock("./AnalystBadge", () => ({ AnalystBadge: () => <span>analyst badge</span> }));

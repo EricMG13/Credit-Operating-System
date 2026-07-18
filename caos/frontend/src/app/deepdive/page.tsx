@@ -590,10 +590,10 @@ function DeepDive() {
         surface="deep-dive"
         decision={<DecisionHeader state={deepDecision} defaultOpen={false} />}
         primary={<div className="h-full min-h-0 flex flex-col">
-      <section className="sm:hidden flex-1 min-h-0 overflow-auto p-3" aria-label="Deep-Dive phone triage">
+      <section className="lg:hidden flex-1 min-h-0 overflow-auto p-3" aria-label="Compact Deep-Dive review">
         <div className="rounded border border-caos-border bg-caos-panel">
           <div className="flex items-center justify-between gap-3 border-b border-caos-border px-3 py-2">
-            <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-accent">Phone triage · read only</span>
+            <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-accent">Compact review · read only</span>
             <span className="flex items-center gap-1 tabular text-caos-xs text-caos-muted">
               <StatusGlyph kind={caveatKind === "live" ? "success" : caveatKind === "error" ? "blocked" : "idle"} />
               {caveatKind === "live" ? "Live run" : caveatKind === "error" ? "Run unavailable" : "Reference or incomplete"}
@@ -603,7 +603,7 @@ function DeepDive() {
             <div>
               <div className="text-caos-xl font-medium text-caos-text">{dealLabel}</div>
               <div className="mt-1 text-caos-sm leading-relaxed text-caos-muted">
-                Read posture, freshness and clearance here. Module authoring, evidence synchronization, layouts, simulation, issuer chat, QA actions and exports remain available on the desktop workstation.
+                Read posture, freshness and clearance here. Module authoring, evidence synchronization, layouts, simulation, issuer chat, QA actions and exports require a desktop-width workspace.
               </div>
             </div>
             <dl className="grid gap-px overflow-hidden rounded border border-caos-border bg-caos-border tabular text-caos-xs">
@@ -629,7 +629,7 @@ function DeepDive() {
           </div>
         </div>
       </section>
-      <div className="hidden sm:contents">
+      <div className="hidden lg:contents">
       {/* Decision header — evidence health mirrors the same caveat grammar the
           identity chip already states; the other three cells lean only on
           data this page already fetched (the sim clock, live module count,

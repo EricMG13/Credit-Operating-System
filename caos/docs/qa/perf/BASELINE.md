@@ -70,3 +70,27 @@ tighter precision than block rounding allows.
 
 See `PERF_AUDIT_2026-07-10.md` §LLM lanes — mechanism verified correct on
 both provider paths; harness coverage gap noted as a finding.
+
+## 2026-07-18 current-tree 15-user diagnostic
+
+**Environment:** dirty `codex/112@040f298e44b0` working tree; isolated temporary
+SQLite database/vault; one uvicorn worker; fixture/keyless LLM behavior; 30 issuers
+admitted by the public create-route rate guard; five completed offline runs. This is
+a current-code smoke, not a replacement for the target Postgres baseline.
+
+**Locust:** 15 users, ramp 5/s, 60 seconds, mixed issuer/run/module/report/NL profile.
+
+| Metric | Result |
+|---|---|
+| Requests | **2,913** |
+| Failures | **0 (0.00%)** |
+| Aggregate p50 / p95 / p99 | **4 ms / 7 ms / 11 ms** |
+| Maximum | 80 ms |
+| Throughput | 48.74 requests/s |
+
+The existing 2026-07-12 Postgres 18/two-worker result remains the production-like
+comparison: 2,584 requests, zero failures, p50/p95/p99 27/89/130 ms. L25 requires
+that profile to be rerun on the immutable image and target host with 15 distinct
+principals, heavy-job/upload contention, queue/pool/memory observation, and provider
+fault injection. Do not infer 15 simultaneous live runs or large uploads from the
+mixed read/report smoke.

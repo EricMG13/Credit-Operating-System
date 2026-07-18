@@ -240,8 +240,8 @@ describe("Deep-Dive reference interaction coverage", () => {
     expect(screen.getByText("scenario dynamic")).toBeTruthy();
     expect(screen.getByText(/Three panes:/)).toBeTruthy();
 
-    const phoneTriage = screen.getByRole("region", { name: "Deep-Dive phone triage" });
-    expect(phoneTriage.textContent).toContain("Phone triage · read only");
+    const phoneTriage = screen.getByRole("region", { name: "Compact Deep-Dive review" });
+    expect(phoneTriage.textContent).toContain("Compact review · read only");
     const queryHandoff = Array.from(phoneTriage.querySelectorAll("a")).find((link) => link.textContent?.includes("Investigate in Query"));
     const pipelineHandoff = Array.from(phoneTriage.querySelectorAll("a")).find((link) => link.textContent?.includes("Hand off to desk"));
     expect(queryHandoff?.getAttribute("href")).toBe("/query?issuer=a71f0000-0000-0000-0000-000000000001&context=context-deep");

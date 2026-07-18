@@ -114,7 +114,7 @@ export function SubHeader({
     <header
       ref={headerRef}
       aria-label={ariaLabel}
-      className={`h-12 shrink-0 border-b border-caos-border bg-caos-panel/75 flex items-center gap-3 px-3 md:px-4 ${className}`}
+      className={`h-11 shrink-0 border-b border-caos-border bg-caos-panel/75 flex items-center gap-3 px-3 md:px-4 ${className}`}
     >
       {/* Identity — always visible, truncates under squeeze. min-w-28 floors it
           so overflow is detectable (a 0-width identity would let the primary

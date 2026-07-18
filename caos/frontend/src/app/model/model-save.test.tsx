@@ -36,8 +36,9 @@ describe("Model Builder · save to DB", () => {
     await waitFor(() => expect(save.getAttribute("aria-disabled")).toBeNull()); // the ready action omits its disabled state
     fireEvent.click(save);
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert.textContent).toContain("SAVE FAILED");
+      const alert = screen.getAllByRole("alert").find((element) => element.textContent?.includes("SAVE FAILED"));
+      expect(alert).toBeDefined();
+      expect(alert?.textContent).toContain("SAVE FAILED");
     });
   });
 });

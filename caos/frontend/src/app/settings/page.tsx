@@ -354,7 +354,7 @@ function Settings() {
     return persistAnalystPatch(patch, next);
   };
   const analystStatusTag = analystLoadErr ? (
-    <span role="alert" className="flex items-center gap-2 tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>
+    <span role="alert" className="flex flex-wrap items-center gap-2 tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>
       ✗ Profile didn’t load — editing disabled
       <button
         type="button"
@@ -367,7 +367,7 @@ function Settings() {
   ) : !analystLoaded ? (
     <span className="tabular text-caos-xs text-caos-muted">Loading profile…</span>
   ) : analystErr ? (
-    <span role="alert" className="flex items-center gap-2 tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>
+    <span role="alert" className="flex flex-wrap items-center gap-2 tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>
       ✗ {analystErr}
       {analystRetry ? (
         <button
@@ -446,12 +446,12 @@ function Settings() {
       {/* body */}
       <div className="caos-persona-route settings-workbench flex-1 min-h-0 overflow-auto p-2">
       <PersonaWorkbench surface="settings" primary={<div>
-        <div className="max-w-3xl mx-auto flex flex-col gap-2">
+        <div className="max-w-3xl mx-auto flex flex-col gap-3">
           <div
             role="tablist"
             aria-label="Settings sections"
             aria-orientation="horizontal"
-            className="grid grid-cols-5 gap-1 rounded border border-caos-border bg-caos-panel p-1"
+            className="flex gap-1 overflow-x-auto rounded border border-caos-border bg-caos-panel p-1 sm:grid sm:grid-cols-5"
           >
             {TABS.map(([k, label], idx) => {
               const active = tab === k;
@@ -467,7 +467,7 @@ function Settings() {
                   onClick={() => selectTab(k)}
                   onKeyDown={(e) => onTabKeyDown(e, idx)}
                   className={
-                    "tabular text-caos-xs uppercase tracking-wider rounded border px-2 py-1.5 transition-caos focus-ring " +
+                    "min-w-max shrink-0 tabular text-caos-xs uppercase tracking-wider rounded border px-2 py-1.5 transition-caos focus-ring sm:min-w-0 " +
                     (active
                       ? "bg-caos-elevated text-caos-text border-caos-accent"
                       : "border-transparent text-caos-muted hover:text-caos-text hover:border-caos-border")
@@ -507,15 +507,11 @@ function Settings() {
 
           <Panel
             title="Model builder safeguards"
-            right={
-              <span className="flex items-center gap-2">
-                <ScopeLabel scope="profile" />
-                {analystStatusTag}
-              </span>
-            }
+            right={<ScopeLabel scope="profile" />}
           >
-            <div className="p-3">
-              <label className="flex items-start justify-between gap-4 rounded border border-caos-border bg-caos-bg/50 p-3">
+            <div className="flex flex-col gap-2 p-3">
+              {analystStatusTag}
+              <label className="flex items-start justify-between gap-4 py-1">
                 <span className="min-w-0">
                   <span className="block tabular text-caos-md font-semibold text-caos-text">Warn before leaving unsaved model edits</span>
                   <span className="mt-1 block text-caos-xs leading-relaxed text-caos-muted">
@@ -607,12 +603,7 @@ function Settings() {
 
           <Panel
               title="Custom model routing"
-              right={
-                <span className="flex items-center gap-2">
-                  <ScopeLabel scope="profile" />
-                  {analystStatusTag}
-                </span>
-              }
+              right={<ScopeLabel scope="profile" />}
             >
               <div className="p-3">
                 {/* Roadmap surface collapsed to a one-line planned note — dead

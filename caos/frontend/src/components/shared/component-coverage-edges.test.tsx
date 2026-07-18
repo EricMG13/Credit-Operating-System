@@ -106,7 +106,7 @@ describe("shared component coverage edges", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     render(<RouteErrorBoundary error={error} reset={reset} />);
     await waitFor(() => expect(consoleError).toHaveBeenCalledWith(error));
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry view load" }));
     expect(reset).toHaveBeenCalled();
   });
 

@@ -631,3 +631,67 @@ Final verification: the complete Scenario Builder regression file plus realistic
 benchmark passed **16/16**; the benchmark call remained **0.01s** and Ruff passed on
 the translator, regression file, and benchmark file. The only warning was the known
 Starlette `TestClient`/httpx deprecation notice.
+
+---
+
+## Session 9 (2026-07-18) — final pre-deployment closure audit
+
+Reconciled the entire release plan against diagnostic snapshots of the dirty
+`codex/112@040f298e44b0` working tree while parallel frontend WIP continued to
+change it: all 18 page endpoints, 137 FastAPI routes,
+navigation, background executors, storage, vault, backup, CI/nightly loops,
+feature tracker, native buttons, browser journeys, dead-code reachability, security,
+and 15-user throughput. No application source was changed in this session; existing
+parallel frontend WIP was preserved.
+
+### Evidence
+
+- Frontend: eslint clean; strict TypeScript clean; production build generated all
+  18 page endpoints; **1,438 Vitest tests across 234 files passed**.
+- Server: **2,405 passed / 15 skipped** in the restricted full suite. Seven
+  ClamAV fake-socket cases were denied localhost bind by the sandbox; the whole
+  nine-test AV file passed unrestricted, giving an effective **2,412 passed / 15
+  skipped** current-tree result.
+- Rendered accessibility/layout: the repository axe runner scanned all 18 endpoints
+  at 1440×900 and 390×844; **zero violations, scan errors, layout failures, or
+  clipped controls**. This used the production export with offline/unavailable API
+  states and does not substitute for functional E2E.
+- Native control screen: **290 production `<button>` nodes, zero unproven handler/
+  submit/unavailable candidates**. This is source completeness evidence only.
+- Three-browser E2E: **125 passed / 15 failed / 1 flaky**. Five recurring contracts
+  remain: Command top-change handoff; registration/recovery-word fixture; Model v2
+  preview/commit/reload; Research empty state; and one WebKit Research scope-toggle
+  flake. The failures repeat across Chromium, Firefox, and WebKit except the flake.
+- Load smoke: isolated one-worker SQLite, 30 admitted synthetic issuers, 15 users,
+  60 seconds, **2,913 requests / zero failures**, p50 4 ms, p95 7 ms, p99 11 ms.
+  The production-like 2026-07-12 Postgres/two-worker baseline remains 2,584/zero,
+  p50 27 ms, p95 89 ms, p99 130 ms.
+- Code relevance: backend Vulture clean; frontend reachability found **16 candidates**
+  after excluding the Next `global-error.tsx` framework false positive. They are
+  disposition candidates, not authorized deletions.
+- Security: current diff secret scan clean; six archive findings adjudicated as
+  documentation/config-name false positives. Target volume/DB/backup encryption and
+  remote-only recovery were not provable locally.
+
+### Coverage corrections
+
+The 355/355 feature tracker is a historical acceptance archive, not whole-app proof:
+it has no dedicated current concept rows for Portfolio Lab, Decisions/IC Book,
+Sponsors, and several current RV/context workflows. Only six `error.tsx` boundaries
+exist for 18 page endpoints. Static code also retains explicit reference/manual/
+enterprise seams in CP-RENDER, CP-SR/Monitor/email, market data, and QA issuer
+scoping. The stress API seeder requested 300 issuers but the route's real rate guard
+admitted 30, so future scale runs must assert the resulting dataset count.
+
+### Verdict and artifacts
+
+**NO-GO for an immutable pre-deployment candidate.** The consolidated PD-01…PD-09
+blocker ledger now lives in [PRE_DEPLOYMENT_PLAN.md](PRE_DEPLOYMENT_PLAN.md), with
+full reasoning in
+[PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](qa/reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md),
+the surface inventory in
+[APPLICATION_SURFACE_MATRIX_2026-07-18.csv](qa/APPLICATION_SURFACE_MATRIX_2026-07-18.csv),
+and new release loops L23–L27 in
+[PRE_DEPLOYMENT_QA_LOOPS.md](PRE_DEPLOYMENT_QA_LOOPS.md). The plan is finalized;
+the application is not released until the evidence tied to a clean image closes the
+ledger.

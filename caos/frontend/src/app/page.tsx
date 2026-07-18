@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { SurfaceState } from "@/components/shared/SurfaceState";
@@ -8,7 +8,7 @@ import { SurfaceState } from "@/components/shared/SurfaceState";
 // The root is the only unaffiliated entry point. Named routes and their query
 // contexts stay authoritative; this merely gives a cold root visit the existing
 // presentation preference's most useful starting surface.
-export default function Home() {
+function HomeRedirect() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { roleView, ready } = useRoleView();
@@ -25,5 +25,19 @@ export default function Home() {
     <div className="min-h-screen flex items-center justify-center bg-caos-bg px-4">
       <SurfaceState kind="loading" title="Opening workspace…" compact className="max-w-sm w-full" />
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-caos-bg px-4">
+          <SurfaceState kind="loading" title="Opening workspace…" compact className="max-w-sm w-full" />
+        </div>
+      }
+    >
+      <HomeRedirect />
+    </Suspense>
   );
 }
