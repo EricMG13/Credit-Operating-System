@@ -49,6 +49,7 @@
   --space-pane: 12px;
   --space-section: 16px;
   --space-output: 24px;
+  --space-frame: 32px;
   --paper-shadow: 0 24px 70px -24px rgba(0, 0, 0, 0.85);
 
   /* Seniority ramp — categorical hues, no lightness banding (Blueprint §5.3) */
@@ -117,12 +118,33 @@ body {
   min-height: 100vh;
 }
 
+/* Ask is global chrome, so it owns a real dock instead of covering whichever
+   route control happens to sit at the lower-right corner. The dock exists only
+   while the authenticated launcher is mounted. */
+body:has(.caos-ask-dock) {
+  --caos-ask-dock-height: calc(52px + env(safe-area-inset-bottom));
+}
+body:has(.caos-ask-dock) .caos-enterprise-page {
+  height: calc(100dvh - var(--caos-ask-dock-height));
+  overflow: hidden !important;
+}
+.caos-ask-launcher {
+  right: 8px !important;
+  bottom: calc(4px + env(safe-area-inset-bottom)) !important;
+  min-height: 44px;
+}
+
 .caos-workflow-rail { display: none; }
 
 .caos-enterprise-page {
   min-width: 0;
   isolation: isolate;
   background: var(--caos-bg);
+  /* Route-level rhythm: dense at laptop widths, with one extra 4pt step on
+     larger desks. Descendants consume these relationship tokens instead of
+     repeating route-local padding values. */
+  --caos-surface-gutter: clamp(var(--space-related), 0.72vw, var(--space-pane));
+  --caos-surface-gap: clamp(var(--space-related), 0.72vw, var(--space-pane));
 }
 
 /* Shared terminal framing. RV Screener and Sector Review established the
@@ -194,8 +216,8 @@ body :is(button, a, input, select, textarea):focus-visible {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-pane);
-  padding: var(--space-related) var(--space-pane);
+  gap: var(--caos-surface-gap, var(--space-pane));
+  padding: var(--space-related) var(--caos-surface-gutter, var(--space-pane));
   border-bottom: 1px solid var(--caos-border);
   background: color-mix(in srgb, var(--caos-panel) 86%, var(--caos-bg));
 }
@@ -866,7 +888,7 @@ button.rd-revert-dot:focus-visible {
   min-width: 0;
   min-height: 0;
   display: grid;
-  gap: 8px;
+  gap: var(--caos-surface-gap, var(--space-related));
 }
 .persona-workbench__composition--supports-0 {
   grid-template-columns: minmax(0, 1fr);
@@ -877,7 +899,9 @@ button.rd-revert-dot:focus-visible {
     "finalization";
 }
 .persona-workbench__composition--supports-1 {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.34fr);
+  /* Supporting context is intentionally subordinate to the analyst's primary
+     artifact. It remains fully reachable and independently scrollable. */
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.3fr);
   grid-template-areas:
     "decision decision"
     "primary support-a"
@@ -885,7 +909,7 @@ button.rd-revert-dot:focus-visible {
     "finalization finalization";
 }
 .persona-workbench__composition--supports-2 {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.34fr) minmax(240px, 0.38fr);
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.3fr) minmax(240px, 0.32fr);
   grid-template-areas:
     "decision decision decision"
     "primary support-a support-b"
@@ -900,8 +924,8 @@ button.rd-revert-dot:focus-visible {
 .persona-workbench__drawer-triggers {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
-  padding: 4px 0;
+  gap: var(--space-related);
+  padding: var(--space-related) 0 var(--space-micro);
 }
 .persona-workbench__drawer-trigger,
 .persona-workbench__drawer-close,
@@ -962,7 +986,7 @@ button.rd-revert-dot:focus-visible {
   text-transform: uppercase;
 }
 .persona-workbench__drawer-close { min-width: 32px; padding: 4px; }
-.persona-workbench__drawer-body { min-height: 0; flex: 1; overflow: auto; padding: 10px; }
+.persona-workbench__drawer-body { min-height: 0; flex: 1; overflow: auto; padding: var(--space-pane); }
 @keyframes persona-drawer-enter { from { transform: translateX(12px); } to { transform: none; } }
 
 .caos-dominant-table-region {
@@ -979,9 +1003,15 @@ button.rd-revert-dot:focus-visible {
   min-height: 0;
   flex-direction: column;
 }
+.caos-persona-route {
+  /* Every route gets one dependable workbench gutter. Existing p-2 utilities
+     remain the compact floor; this fluid token adds breathing room only when
+     the viewport can afford it. */
+  padding: var(--caos-surface-gutter, var(--space-related));
+}
 .caos-persona-route .persona-workbench__composition {
   flex: 1;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   overflow: hidden;
 }
 .caos-persona-route :is(.persona-workbench__slot--primary, [data-grid-area="support-a"], [data-grid-area="support-b"]) {
@@ -992,10 +1022,20 @@ button.rd-revert-dot:focus-visible {
   height: 100%;
 }
 
+/* Form-led surfaces need a longer working measure than narrative copy. The
+   original 48rem cap stranded both settings and intake in a narrow centered
+   card; 56rem keeps labels readable while making multi-option controls useful. */
+.settings-workbench .max-w-3xl,
+.upload-workbench .max-w-3xl { max-width: 56rem; }
+.settings-workbench .persona-workbench__slot--primary > div,
+.upload-workbench .persona-workbench__slot--primary > div {
+  padding-block: var(--space-micro) var(--space-output);
+}
+
 .semantic-visualization {
   min-width: 0;
   margin: 0;
-  padding: 10px;
+  padding: var(--space-pane);
   border: 1px solid var(--caos-border);
   border-radius: var(--radius-md);
   background: var(--caos-panel);
@@ -1055,7 +1095,7 @@ button.rd-revert-dot:focus-visible {
 .deepdive-step-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
-  gap: 8px;
+  gap: var(--caos-surface-gap, var(--space-related));
   min-width: 0;
 }
 .deepdive-step-card { overflow-wrap: anywhere; }
@@ -1099,10 +1139,54 @@ button.rd-revert-dot:focus-visible {
   .pipeline-workspace__inspector > * { min-height: 360px; }
 }
 @media (max-width: 1099px) {
+  .caos-enterprise-page {
+    --caos-surface-gutter: var(--space-related);
+    --caos-surface-gap: var(--space-related);
+  }
   .persona-workbench__composition { display: flex; flex-direction: column; }
+  .persona-workbench__drawer-triggers { padding-block: var(--space-micro); }
   .caos-persona-route .persona-workbench__composition { overflow-y: auto; }
   .caos-persona-route .persona-workbench__slot--decision { flex: none; }
-  .caos-persona-route .persona-workbench__slot--primary { min-height: 420px; flex: none; }
+  .caos-persona-route .persona-workbench__slot--primary { min-height: 420px; flex: none; overflow-x: hidden; }
+
+  /* Deep-Dive keeps the complete evidence → analysis → decision workflow on
+     narrow screens. Sequence the three panes vertically instead of replacing
+     them with a read-only summary. */
+  .deepdive-workbench .persona-workbench__slot--primary { min-height: auto; overflow-x: clip; }
+  .deepdive-workbench .persona-workbench__slot--primary > :first-child { height: auto; }
+  .deepdive-analysis-grid {
+    display: flex !important;
+    flex: none;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .deepdive-analysis-grid > .caos-rail-shell { flex: none; width: 100%; }
+  .deepdive-analysis-grid > .caos-rail-shell--collapsed {
+    min-height: 44px;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 6px 8px;
+  }
+  .deepdive-analysis-grid > .caos-rail-shell--collapsed [style*="writing-mode"] {
+    writing-mode: horizontal-tb !important;
+    transform: none !important;
+  }
+  .deepdive-analysis-primary { flex: none; min-height: 680px; }
+
+  /* Model Builder uses the same capability-preserving sequence. Side panels
+     become full-width sections and the spreadsheet remains its own horizontal
+     scroll region, which is the intentional data-table exception. */
+  .model-workbench .persona-workbench__slot--primary { min-height: auto; }
+  .model-workbench .persona-workbench__slot--primary > :first-child { height: auto; }
+  .model-editor-workspace { flex: none; overflow: visible; }
+  .model-editor-layout {
+    flex: none;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .model-editor-layout > :not(.model-collapsed-rail) { width: 100% !important; flex: none; }
+  .model-collapsed-rail { display: none; }
+  .model-sheet-region { min-height: 680px; overflow: auto; }
 
   /* Below this width the two fixed rails leave the filed document as a sliver.
      Keep every capability, but sequence it behind the paper preview. */
@@ -1134,6 +1218,21 @@ button.rd-revert-dot:focus-visible {
   }
 }
 @media (max-width: 699px) {
+  .caos-panel-header {
+    align-items: flex-start;
+    padding-block: 6px;
+  }
+  .caos-panel-title,
+  .caos-panel-actions {
+    width: 100%;
+    flex: none;
+    max-width: 100%;
+  }
+  .caos-panel-actions {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
   /* The DAG remains the leading task on mobile. Inspector and lineage stack
      below it, avoiding the former zero-width graph caused by a fixed rail. */
   .pipeline-workspace {

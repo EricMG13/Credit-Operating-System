@@ -118,7 +118,9 @@ function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string
                 data-column-group={groupStarts.get(i)?.key}
                 title={groupStarts.get(i) ? `${groupStarts.get(i)!.label} period group` : undefined}
               >
-                <E p={p + ".h" + i} v={c} ctx={ctx} />
+                {c
+                  ? <E p={p + ".h" + i} v={c} ctx={ctx} />
+                  : <span className="sr-only">{i === 0 ? "Line item" : `Column ${i + 1}`}</span>}
               </th>
             ))}
           </tr>
@@ -132,18 +134,19 @@ function RDTable({ s, p, ctx }: { s: Extract<Section, { t: "table" }>; p: string
                 (r.line ? "rd-line " : "") + (r.gap ? "rd-gapr" : "")
               }
             >
-              {r.cells.map((c, ci) => (
-                <td
-                  key={ci}
-                  className={(al[ci] ? "rd-r rd-num" : "") + (groupStarts.has(ci) ? " rd-group-start" : "")}
-                  data-column-group={groupStarts.get(ci)?.key}
-                  style={r.cellColors?.[ci] ? { color: r.cellColors[ci] } : undefined}
-                >
-                  {ci === 0 && !c && r.lbl0
-                    ? <E p={p + ".r" + ri + ".lbl0"} v={r.lbl0} ctx={ctx} className="rd-lbl0" />
-                    : <E p={p + ".r" + ri + ".c" + ci} v={c} ctx={ctx} />}
-                </td>
-              ))}
+              {r.cells.map((c, ci) => {
+                const content = ci === 0 && !c && r.lbl0
+                  ? <E p={p + ".r" + ri + ".lbl0"} v={r.lbl0} ctx={ctx} className="rd-lbl0" />
+                  : <E p={p + ".r" + ri + ".c" + ci} v={c} ctx={ctx} />;
+                const cellProps = {
+                  className: (al[ci] ? "rd-r rd-num" : "") + (groupStarts.has(ci) ? " rd-group-start" : ""),
+                  "data-column-group": groupStarts.get(ci)?.key,
+                  style: r.cellColors?.[ci] ? { color: r.cellColors[ci] } : undefined,
+                };
+                return ci === 0
+                  ? <th key={ci} scope="row" {...cellProps}>{content}</th>
+                  : <td key={ci} {...cellProps}>{content}</td>;
+              })}
             </tr>
           ))}
         </tbody>

@@ -51,6 +51,7 @@ export function SurfaceState({
   supporting,
   primaryAction,
   secondaryAction,
+  headingLevel = 3,
   compact = false,
   className = "",
 }: {
@@ -60,12 +61,14 @@ export function SurfaceState({
   supporting?: ReactNode;
   primaryAction?: ReactNode;
   secondaryAction?: ReactNode;
+  headingLevel?: 2 | 3 | 4;
   compact?: boolean;
   className?: string;
 }) {
   const presentation = PRESENTATION[kind];
   const isLive = kind === "loading" || kind === "checking";
   const role = isLive ? "status" : kind === "error" || kind === "offline" ? "alert" : undefined;
+  const Heading = headingLevel === 2 ? "h2" : headingLevel === 4 ? "h4" : "h3";
 
   return (
     <section
@@ -82,7 +85,7 @@ export function SurfaceState({
         <StatusGlyph kind={presentation.glyph} size={10} className={isLive ? "caos-running" : ""} />
         <span>{presentation.label}</span>
       </div>
-      <h3 className={(compact ? "mt-1 text-caos-xl" : "mt-1.5 text-caos-metric") + " font-semibold leading-tight text-caos-text text-balance [overflow-wrap:anywhere]"}>{title}</h3>
+      <Heading className={(compact ? "mt-1 text-caos-xl" : "mt-1.5 text-caos-metric") + " font-semibold leading-tight text-caos-text text-balance [overflow-wrap:anywhere]"}>{title}</Heading>
       {detail ? <p className={(compact ? "mt-0.5" : "mt-1") + " max-w-[70ch] text-caos-md leading-relaxed text-caos-muted text-pretty [overflow-wrap:anywhere]"}>{detail}</p> : null}
       {supporting ? <div className="mt-2">{supporting}</div> : null}
       {primaryAction || secondaryAction ? (

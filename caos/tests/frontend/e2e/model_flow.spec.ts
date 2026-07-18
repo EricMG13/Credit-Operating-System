@@ -14,7 +14,8 @@
  * do NOT add per-test login (per-test auth trips the 10/min login rate limit).
  *
  * The worksheet uses aria-label="Model worksheet" rather than role="grid".
- * A ≥1280px viewport keeps both flank panels expanded.
+ * A 1500px viewport keeps both flank panels expanded. Header overflow may still
+ * place contextual actions in the labeled Model v2 tools drawer.
  */
 
 import { test, expect } from "@playwright/test";
@@ -270,7 +271,11 @@ test.describe("Model Builder", () => {
         && response.status() === 200,
       { timeout: 15000 },
     );
-    await page.getByRole("button", { name: "Preview pending" }).click();
+    await page.getByRole("button", { name: "Open Model v2 tools" }).click();
+    await page
+      .getByRole("dialog", { name: "Model v2 tools" })
+      .getByRole("button", { name: "Preview pending" })
+      .click();
     await previewOk;
     await expect(page.getByText("Server preview refreshed. No mutation has been committed.", { exact: true })).toBeVisible();
 

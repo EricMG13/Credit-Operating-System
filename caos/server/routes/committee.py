@@ -422,6 +422,46 @@ async def _validate_analyst_opinion(
     return opinion
 
 
+def _report_readiness_failures(
+    item: CommitteeAgendaItem,
+    run: Run,
+    report: Optional[ReportVersion],
+) -> list[str]:
+    if report is None:
+        return ["missing_report_version"]
+    failures: list[str] = []
+    if report.analyst_id != item.owner_id:
+        failures.append("report_owner_mismatch")
+    if report.run_id != run.id:
+        failures.append("report_run_mismatch")
+    if report.status != "published":
+        failures.append("report_not_published")
+    if (report.authority or {}).get("origin") != "live":
+        failures.append("report_not_live")
+    return failures
+
+
+def _context_readiness_failures(
+    item: CommitteeAgendaItem,
+    report: Optional[ReportVersion],
+    context: Optional[AnalysisContextRecord],
+) -> list[str]:
+    if context is None:
+        return ["missing_context"]
+    failures: list[str] = []
+    if context.analyst_id != item.owner_id:
+        failures.append("context_owner_mismatch")
+    if context.issuer_ids and item.issuer_id not in context.issuer_ids:
+        failures.append("context_issuer_mismatch")
+    if report is not None and report.context_id != context.id:
+        failures.append("context_report_mismatch")
+    if item.portfolio_id and context.portfolio_scope and context.portfolio_scope != item.portfolio_id:
+        failures.append("context_portfolio_mismatch")
+    if (context.artifacts or {}).get("report_version_id") not in {None, item.report_version_id}:
+        failures.append("context_report_selection_mismatch")
+    return failures
+
+
 def _readiness_from_refs(
     item: CommitteeAgendaItem,
     run: Optional[Run],
@@ -452,31 +492,9 @@ def _readiness_from_refs(
         if run.portfolio_id != item.portfolio_id:
             failures.append("run_portfolio_mismatch")
     if item.report_version_id:
-        if report is None:
-            failures.append("missing_report_version")
-        else:
-            if report.analyst_id != item.owner_id:
-                failures.append("report_owner_mismatch")
-            if report.run_id != run.id:
-                failures.append("report_run_mismatch")
-            if report.status != "published":
-                failures.append("report_not_published")
-            if (report.authority or {}).get("origin") != "live":
-                failures.append("report_not_live")
+        failures.extend(_report_readiness_failures(item, run, report))
     if item.context_id:
-        if context is None:
-            failures.append("missing_context")
-        else:
-            if context.analyst_id != item.owner_id:
-                failures.append("context_owner_mismatch")
-            if context.issuer_ids and item.issuer_id not in context.issuer_ids:
-                failures.append("context_issuer_mismatch")
-            if report is not None and report.context_id != context.id:
-                failures.append("context_report_mismatch")
-            if item.portfolio_id and context.portfolio_scope and context.portfolio_scope != item.portfolio_id:
-                failures.append("context_portfolio_mismatch")
-            if (context.artifacts or {}).get("report_version_id") not in {None, item.report_version_id}:
-                failures.append("context_report_selection_mismatch")
+        failures.extend(_context_readiness_failures(item, report, context))
     return failures
 
 
@@ -1213,6 +1231,33 @@ def _decision_summary(row: Decision) -> FinalizedDecisionOut:
     )
 
 
+async def _existing_finalization_out(
+    db: AsyncSession,
+    caller: CallerIdentity,
+    row: CommitteeAgendaItem,
+    expected_revision: int,
+) -> Optional[AgendaFinalizeOut]:
+    if not row.finalized_decision_id:
+        return None
+    # The successful finalize advances the agenda revision once. Accepting that
+    # exact transition revision makes a lost-response retry idempotent without
+    # allowing an arbitrarily stale request to retrieve the finalized record.
+    if expected_revision not in {row.revision, row.revision - 1}:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "message": "Agenda item changed since review.",
+                "current_revision": row.revision,
+            },
+        )
+    decision = await db.get(Decision, row.finalized_decision_id)
+    if decision is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Agenda finalization link is inconsistent.")
+    return AgendaFinalizeOut(
+        agenda=await _agenda_out(db, caller, row), decision=_decision_summary(decision)
+    )
+
+
 @router.post("/agenda/{item_id}/finalize", response_model=AgendaFinalizeOut)
 async def finalize_agenda_item(
     item_id: str,
@@ -1223,25 +1268,9 @@ async def finalize_agenda_item(
     _require_committee_write(caller)
     row = await _accessible_item(db, caller, item_id, lock=True)
     _require_item_mutation(caller, row)
-    if row.finalized_decision_id:
-        # The successful finalize advances the agenda revision once. Accepting
-        # that exact transition revision makes a lost-response retry
-        # idempotent without allowing an arbitrarily stale request to retrieve
-        # the finalized record.
-        if body.expected_revision not in {row.revision, row.revision - 1}:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                {
-                    "message": "Agenda item changed since review.",
-                    "current_revision": row.revision,
-                },
-            )
-        decision = await db.get(Decision, row.finalized_decision_id)
-        if decision is None:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Agenda finalization link is inconsistent.")
-        return AgendaFinalizeOut(
-            agenda=await _agenda_out(db, caller, row), decision=_decision_summary(decision)
-        )
+    existing = await _existing_finalization_out(db, caller, row, body.expected_revision)
+    if existing is not None:
+        return existing
     if row.revision != body.expected_revision:
         raise HTTPException(
             status.HTTP_409_CONFLICT,

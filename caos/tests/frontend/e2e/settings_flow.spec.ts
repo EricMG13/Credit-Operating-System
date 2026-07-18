@@ -57,8 +57,15 @@ test.describe("Settings", () => {
     await expect(save).not.toHaveAttribute("title", "No unsaved changes");
 
     // Saving returns to pristine.
+    const saveResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/settings/analyst"
+      && response.request().method() === "PATCH",
+    );
     await save.click();
+    const response = await saveResponse;
+    expect(response.ok(), `settings save failed: ${response.status()} ${await response.text()}`).toBeTruthy();
     await expect(save).toHaveAttribute("aria-disabled", "true");
+    await expect(save).toHaveAttribute("title", "No unsaved changes");
   });
 
   test("saved defaults seed a new Research brief", async ({ page }) => {

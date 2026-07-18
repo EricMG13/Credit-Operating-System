@@ -40,6 +40,25 @@ const STARTERS = [
   "Show evidence linking refinancing risk to sector posture.",
 ];
 const QUERY_URL_KEYS = ["context", "lane", "run"] as const;
+const QUERY_DRAFT_PREFIX = "caos.query.draft.";
+
+function readQueryDraft(contextId: string): string {
+  try {
+    return sessionStorage.getItem(`${QUERY_DRAFT_PREFIX}${contextId}`) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeQueryDraft(contextId: string, value: string) {
+  try {
+    const key = `${QUERY_DRAFT_PREFIX}${contextId}`;
+    if (value) sessionStorage.setItem(key, value);
+    else sessionStorage.removeItem(key);
+  } catch {
+    // Private mode or a full storage quota must not block the live composer.
+  }
+}
 
 function inferLane(question: string): QueryRun["selected_lane"] {
   if (/\b(graph|link|connected|relationship|contagion|lineage)\b/i.test(question)) return "graph";
@@ -384,6 +403,7 @@ export function QueryInvestigationWorkbench() {
   const [capabilityError, setCapabilityError] = useState<string | null>(null);
   const [pinning, setPinning] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [draftContextId, setDraftContextId] = useState<string | null>(null);
   // Click-to-source for the citation register — every C-n identifier opens the
   // underlying document extract (or an explicit failure) instead of sitting as
   // inert text on the surface whose required action says "inspect citations".
@@ -407,6 +427,20 @@ export function QueryInvestigationWorkbench() {
     setLaneState(next);
     updateUrlState({ lane: next === "metric" ? null : next }, "replace");
   }, [updateUrlState]);
+  const setDraftQuestion = useCallback((value: string) => {
+    setQuestion(value);
+    if (activeContextId) writeQueryDraft(activeContextId, value);
+  }, [activeContextId]);
+
+  useEffect(() => {
+    if (!activeContextId) {
+      setQuestion("");
+      setDraftContextId(null);
+      return;
+    }
+    setQuestion(readQueryDraft(activeContextId));
+    setDraftContextId(activeContextId);
+  }, [activeContextId]);
 
   // Ask.tsx's openWith() redirects ⌘K "Ask CAOS: <text>" here on /query — it
   // used to dispatch a bare Event with no payload, so the composer was never
@@ -417,14 +451,14 @@ export function QueryInvestigationWorkbench() {
     const onFocus = (event: Event) => {
       const text = (event as CustomEvent<{ text?: string }>).detail?.text;
       if (text) {
-        setQuestion(text);
+        setDraftQuestion(text);
         if (!manualLane) setLane(inferLane(text));
       }
       composerRef.current?.focus();
     };
     window.addEventListener("caos:query-focus", onFocus);
     return () => window.removeEventListener("caos:query-focus", onFocus);
-  }, [manualLane, setLane]);
+  }, [manualLane, setDraftQuestion, setLane]);
 
   useEffect(() => {
     // A run belongs to the exact context that created it. Scope navigation
@@ -586,7 +620,8 @@ export function QueryInvestigationWorkbench() {
   // browser accept input that the pending history update can then overwrite.
   const contextReady = !!context
     && !contextState.loading
-    && urlState.context === context.id;
+    && urlState.context === context.id
+    && draftContextId === context.id;
   const contextReadyReason = contextReady ? null : "Waiting for the investigation context to load";
   // The RoleViewSwitch in the compact header already shows the active view —
   // repeating it here was the double "View:" the critique flagged.
@@ -600,8 +635,8 @@ export function QueryInvestigationWorkbench() {
         {(["metric", "graph", "grounded"] as const).map((value) => <Button key={value} variant="secondary" reason={contextReadyReason} aria-pressed={lane === value} onClick={() => { setLane(value); setManualLane(true); }} className={lane === value ? "border-caos-accent text-caos-text" : ""}>{value}</Button>)}
         {manualLane ? <ActionReason reason={contextReadyReason} className="tabular text-caos-2xs text-caos-accent focus-ring aria-disabled:opacity-40" onClick={() => { setManualLane(false); setLane(inferLane(question)); }}>Use suggested lane</ActionReason> : null}
       </div>
-      <textarea ref={composerRef} aria-label="Query coverage" disabled={!contextReady} value={question} onChange={(event) => { const value = event.target.value; setQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring disabled:opacity-40" />
-      {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <ActionReason key={starter} reason={contextReadyReason} aria-pressed={question === starter} onClick={() => { setQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring aria-disabled:opacity-40 " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</ActionReason>)}</div> : null}
+      <textarea ref={composerRef} aria-label="Query coverage" disabled={!contextReady} value={question} onChange={(event) => { const value = event.target.value; setDraftQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring disabled:opacity-40" />
+      {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <ActionReason key={starter} reason={contextReadyReason} aria-pressed={question === starter} onClick={() => { setDraftQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring aria-disabled:opacity-40 " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</ActionReason>)}</div> : null}
       {capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {capabilityError}</p> : null}
       {runError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{runError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void runQuery()}>Retry query</button></p> : null}
     </section>
@@ -611,13 +646,13 @@ export function QueryInvestigationWorkbench() {
       kind="analytical"
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text">Query</span>{context ? <span className="tabular text-caos-2xs text-caos-muted">{context.name}</span> : null}</>}
       status={contextState.loading ? <span className="tabular text-caos-2xs text-caos-muted">Loading context…</span> : contextState.error ? <span className="text-caos-xs text-caos-critical">{contextState.error}</span> : <span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>}
-      primaryAction={<Button variant="primary" onClick={() => void runQuery()} reason={!context ? "Waiting for the investigation context to load" : !question.trim() ? "Enter a question first" : running ? "Running…" : null}>{running ? "Running…" : "Run Query"}</Button>}
+      primaryAction={<Button variant="primary" onClick={() => void runQuery()} reason={contextReadyReason ?? (!question.trim() ? "Enter a question first" : running ? "Running…" : null)}>{running ? "Running…" : "Run Query"}</Button>}
       contextualControls={<>{headStat("Lane", lane)}{headStat("History", `${history.length} runs`)}</>}
       utilityLabel="Query utilities"
-      utilityControls={<div className="space-y-4 text-caos-xs"><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Saved investigations</h3>{historyError ? <p role="alert" className="mt-2 text-caos-critical">{historyError}</p> : null}<ol className="mt-2 space-y-1">{history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => { setRun(item); setQuestion(item.question); setLane(item.selected_lane); setManualLane(true); updateUrlState({ run: item.id }, "replace"); }}>{item.question}</button></li>)}</ol></div><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={capabilityId} onChange={(event) => setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>{context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}</div>}
+      utilityControls={<div className="space-y-4 text-caos-xs"><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Saved investigations</h3>{historyError ? <p role="alert" className="mt-2 text-caos-critical">{historyError}</p> : null}<ol className="mt-2 space-y-1">{history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => { setRun(item); setDraftQuestion(item.question); setLane(item.selected_lane); setManualLane(true); updateUrlState({ run: item.id }, "replace"); }}>{item.question}</button></li>)}</ol></div><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={capabilityId} onChange={(event) => setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>{context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}</div>}
       narrowContract={narrow}
     >
-      <main className="caos-persona-route query-workbench min-h-0 flex-1 overflow-hidden p-2">
+      <section aria-label="Query investigation workspace" className="caos-persona-route query-workbench min-h-0 flex-1 overflow-hidden p-2">
         <PersonaWorkbench
           surface="query"
           decision={<DecisionHeader state={decisionState} defaultOpen={!!run} />}
@@ -651,7 +686,7 @@ export function QueryInvestigationWorkbench() {
             {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={findingsKey} /></div> : null}
           </aside>}
         />
-      </main>
+      </section>
       {citation ? <CitationViewer chunkId={citation.id} label={citation.label} onClose={() => setCitation(null)} /> : null}
     </EnterprisePage>
   );

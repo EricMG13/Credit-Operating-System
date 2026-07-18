@@ -137,12 +137,16 @@ function VirtualCandidateGrid({
                 className={`grid grid-cols-[40px_minmax(170px,1.5fr)_100px_90px_90px_100px_110px] items-center border-b border-caos-border/70 px-2 tabular text-caos-xs focus-ring ${selectedId === candidate.id ? "bg-caos-info-surface" : "hover:bg-caos-elevated/30"}`}
                 onClick={() => onSelect(candidate)}
                 onKeyDown={(event) => {
+                  if (event.currentTarget !== event.target) return;
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                     event.preventDefault();
                     const next = Math.max(0, Math.min(candidates.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
                     pendingFocusId.current = candidates[next].id;
                     viewport.current?.scrollTo({ top: next * ROW_HEIGHT });
                     onSelect(candidates[next]);
+                  } else if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect(candidate);
                   }
                 }}
               >
@@ -154,7 +158,7 @@ function VirtualCandidateGrid({
                 <span role="gridcell" className="text-caos-muted">{display(candidate.market.bid)} / {display(candidate.market.ask)}</span>
                 <span role="gridcell">{(() => {
                   const atCap = !compareIds.has(candidate.id) && compareIds.size >= 5;
-                  return <button type="button" aria-pressed={compareIds.has(candidate.id)} aria-disabled={atCap || undefined} title={atCap ? "Compare holds at most 5 candidates — remove one first" : undefined} onClick={(event) => { event.stopPropagation(); if (!atCap) onCompare(candidate); }} className="caos-action-secondary focus-ring">{compareIds.has(candidate.id) ? "Remove" : "Compare"}</button>;
+                  return <button type="button" aria-pressed={compareIds.has(candidate.id)} aria-disabled={atCap || undefined} title={atCap ? "Compare holds at most 5 candidates — remove one first" : undefined} onClick={(event) => { event.stopPropagation(); if (!atCap) onCompare(candidate); }} onKeyDown={(event) => event.stopPropagation()} className="caos-action-secondary focus-ring">{compareIds.has(candidate.id) ? "Remove" : "Compare"}</button>;
                 })()}</span>
               </div>
             );
@@ -290,7 +294,7 @@ export function RVScreenerWorkbench() {
       utilityControls={<div className="space-y-4 text-caos-xs"><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section><ActionReason reason={!screen ? "Run the screen first — a saved screen references its snapshot" : null} onClick={() => void contextState.patch({ filters: { ...(context?.filters ?? {}), rv: screen?.filters ?? {} } })} className="caos-action-secondary focus-ring">Save current screen</ActionReason></div>}
       narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">{screen?.candidates.length ?? 0} instruments</span> }}
     >
-      <main className="caos-persona-route rv-workbench min-h-0 flex-1 overflow-hidden p-2">
+      <section aria-label="Relative value screening workspace" className="caos-persona-route rv-workbench min-h-0 flex-1 overflow-hidden p-2">
         <PersonaWorkbench
           surface="rv-screener"
           decision={<DecisionHeader state={decisionState} defaultOpen />}
@@ -303,6 +307,7 @@ export function RVScreenerWorkbench() {
           {contextState.error ? <div className="mb-2 rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">Analysis workspace unavailable — the screen cannot run without it. <button type="button" className="text-caos-accent focus-ring" onClick={() => window.location.reload()}>Reload to retry</button></div> : null}
           {!screen ? <SurfaceState
             kind={contextState.loading ? "loading" : "not-run"}
+            headingLevel={2}
             title={contextState.loading ? "Preparing workspace" : "Immutable snapshot required"}
             detail={contextState.loading ? "Resolving the analysis context — the screen unlocks in a moment." : "Run the screen to normalize the reference pricing sheet. Reference observations can surface candidates but can never produce an actionable recommendation."}
             className="m-auto max-w-xl"
@@ -326,7 +331,7 @@ export function RVScreenerWorkbench() {
             }} />
           </SlideOver>
         ) : null}
-      </main>
+      </section>
     </EnterprisePage>
   );
 }

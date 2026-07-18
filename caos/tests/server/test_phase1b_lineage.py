@@ -9,6 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
 
+from conftest import wait_for_run
+
 
 @pytest.fixture
 def client():
@@ -244,6 +246,7 @@ def test_ingestion_and_run_lineage_share_domain_transactions(client, monkeypatch
     })
     assert run.status_code == 201, run.text
     run_id = run.json()["id"]
+    assert wait_for_run(client, run_id)["status"] == "complete"
     linked = client.get(f"/api/analysis/contexts/{context['id']}").json()
     assert linked["artifacts"]["issuer_run_id"] == run_id
     assert any(
@@ -448,6 +451,7 @@ def test_flag_off_preserves_all_v1_producers_and_run_context_omission(client, mo
     })
     assert run.status_code == 201, run.text
     run_id = run.json()["id"]
+    assert wait_for_run(client, run_id)["status"] == "complete"
     before_checkpoint = client.get(f"/api/analysis/contexts/{context['id']}").json()
     assert before_checkpoint["artifacts"].get("issuer_run_id") is None
     assert not before_checkpoint["artifacts"].get("artifact_refs")
@@ -510,6 +514,7 @@ def test_flag_off_preserves_all_v1_producers_and_run_context_omission(client, mo
     }).json()
     omitted = client.post("/api/runs", json={"issuer_id": omitted_issuer["id"]})
     assert omitted.status_code == 201, omitted.text
+    assert wait_for_run(client, omitted.json()["id"])["status"] == "complete"
     async def omitted_edge_count():
         from database import AsyncSessionLocal, LineageEdge
 

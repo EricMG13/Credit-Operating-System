@@ -233,6 +233,7 @@ describe("Ask provider and launcher coverage", () => {
     window.addEventListener("caos:query-focus", () => { focusEvents += 1; });
     render(<AskProvider><AskControls /><AskLauncher /></AskProvider>);
     expect(screen.queryByRole("button", { name: /Ask CAOS/ })).toBeNull();
+    expect(document.querySelector(".caos-ask-dock")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "open plain" }));
     fireEvent(window, new Event("caos:ask-toggle"));
     expect(focusEvents).toBe(2);
@@ -262,8 +263,10 @@ describe("Ask provider and launcher coverage", () => {
   it("lets Deep-Dive own the open chat while the global launcher only owns its trigger", () => {
     state.pathname = "/deepdive";
     render(<AskProvider><AskControls /><AskLauncher /></AskProvider>);
+    expect(document.querySelector(".caos-ask-dock")).not.toBeNull();
     fireEvent.click(screen.getByTitle(/Ask CAOS/));
     expect(screen.getByTestId("ask-state").textContent).toContain("open");
+    expect(document.querySelector(".caos-ask-dock")).not.toBeNull();
     expect(screen.queryByTestId("issuer-chat")).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Ask with Query" })).toBeNull();
   });

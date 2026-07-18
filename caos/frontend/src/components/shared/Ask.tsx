@@ -269,7 +269,7 @@ export function AskLauncher() {
     <button
       onClick={toggle}
       title="Ask CAOS (Alt+K, or via the ⌘K palette) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
-      className={`fixed ${triggerPosition} z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos`}
+      className={`caos-ask-launcher fixed ${triggerPosition} z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring`}
       style={{ boxShadow: "var(--shadow-pop)" }}
     >
       <AskMark /> Ask
@@ -278,18 +278,18 @@ export function AskLauncher() {
   ) : null;
 
   // Deep-Dive renders its own chat from `open`; the launcher only supplies the trigger.
-  if (scope === "deepdive") return trigger;
-  if (!open) return trigger;
+  if (scope === "deepdive") return <div className="caos-ask-dock contents">{trigger}</div>;
+  if (!open) return <div className="caos-ask-dock contents">{trigger}</div>;
 
   // Model and other issuer-scoped concepts → the issuer Q&A slide-over, grounded in
   // the CURRENT issuer's live run (never the ATLF fixture, unless this IS the
   // reference deal). Only mounts when open, so useLiveRun fires only on demand. (F11)
   if (scope === "issuer") {
-    return <>{trigger}<IssuerScopedAsk onClose={() => setOpen(false)} /></>;
+    return <div className="caos-ask-dock contents">{trigger}<IssuerScopedAsk onClose={() => setOpen(false)} /></div>;
   }
 
   // Everywhere else → the cross-issuer NL query, as a centered modal.
-  return <AskModal pathname={pathname} onClose={() => setOpen(false)} />;
+  return <div className="caos-ask-dock contents"><AskModal pathname={pathname} onClose={() => setOpen(false)} /></div>;
 }
 
 // Cross-issuer NL query — a true modal (backdrop + centered panel), so it gets

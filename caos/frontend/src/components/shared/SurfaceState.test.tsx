@@ -53,6 +53,14 @@ describe("SurfaceState", () => {
     expect(container.querySelector(".caos-running")).toBeNull();
   });
 
+  it("supports a contextual heading level without changing the default", () => {
+    const { rerender } = render(<SurfaceState kind="empty" title="Route section" headingLevel={2} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Route section" })).toBeTruthy();
+
+    rerender(<SurfaceState kind="empty" title="Nested section" />);
+    expect(screen.getByRole("heading", { level: 3, name: "Nested section" })).toBeTruthy();
+  });
+
   it("renders caller-owned recovery actions without inventing authority", () => {
     render(
       <SurfaceState

@@ -1505,3 +1505,129 @@ Reopen if a non-enterprise route gains reserved chrome; a context failure leaves
 permanent busy state; summary content becomes unavailable to keyboard or assistive
 technology; the event detail is trusted as owned context; or the cold-load route
 matrix still records context-strip CLS.
+
+## 2026-07-18 — Whole-frontend Fallow remediation critic pass
+
+Decision under review: drive Fallow dead-code, security-candidate, duplication,
+and health findings to zero through traced removals, behaviour-preserving
+extraction, and narrowly justified suppressions for intentional static patterns.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-416 | Change-integrity reviewer | A bulk auto-fix can overwrite the large dirty worktree or delete dynamically imported code that the static graph cannot see. | Critical | Resolved in workflow | Preview every Fallow fix, trace every candidate, inspect exact repository references, and edit with explicit patches only. Treat pre-existing changes as user-owned and avoid overlapping files unless the edit is isolated and verified. |
+| RT-2026-07-18-417 | React reviewer | Splitting high-complexity components mechanically can change hook order, closure freshness, focus restoration, or async race handling while improving a score. | Critical | Resolved in extraction contract | Preserve hook order and state ownership. Extract pure calculations and leaf render components first, pass explicit values/callbacks, and rerun the owning tests plus the full suite after each file. Do not move hooks across component boundaries merely to lower a metric. |
+| RT-2026-07-18-418 | Domain-model reviewer | Similar-looking credit UI and report fragments can encode different authority or evidence semantics; consolidating every clone can create a misleading generic abstraction. | High | Resolved in duplication rule | Extract only clones with identical behavioural and authority contracts. For deliberate fixture, document, or domain-specific parallels, retain the code and apply the narrowest Fallow suppression with an inline justification, then run stale-suppression detection. |
+| RT-2026-07-18-419 | Coverage reviewer | Optimizing CRAP scores against Fallow's estimated coverage can produce churn unrelated to actual risk, especially in test and browser-runner callbacks. | High | Resolved in evidence model | Generate the real Vitest V8 coverage artifact and use it consistently for health decisions. Separate genuine decision complexity from uncovered developer-runner code; add tests where executable behaviour warrants them and document non-unit-testable runner callbacks precisely. |
+| RT-2026-07-18-420 | API-hygiene reviewer | A supposedly unused DTO may still be consumed through a dynamic import or external package boundary, and a cascading deletion can remove an implicit contract. | Critical | Resolved in deletion gate | Require Fallow trace, exact symbol search, GitNexus impact, private-package confirmation, TypeScript, and the full test suite before retaining a deletion. Dynamic imports receive explicit narrow suppressions rather than deletion. |
+| RT-2026-07-18-421 | Quality-gate reviewer | Raising thresholds or disabling rule families would make the report clean without improving the code and defeat the user's requested loop. | High | Resolved in gate policy | Do not disable rule families or globally raise thresholds. A finding closes only through a verified code/test improvement or a local evidence-backed suppression for an intentional construct. Final verification uses dead-code, security, duplication, health with real coverage, stale-suppression, TypeScript, lint, and tests. |
+
+### Critic reopen conditions (Fallow remediation)
+
+Reopen if an untraced export/file is deleted; an existing dirty hunk is replaced;
+hook order or state ownership changes without focused proof; a shared abstraction
+mixes distinct authority semantics; estimated coverage is presented as real;
+suppression lacks a local justification; a rule family or global threshold is
+relaxed to manufacture a clean report; or final Fallow, TypeScript, lint, and test
+evidence is not green on the resulting tree.
+
+## 2026-07-18 — Whole-frontend accessibility remediation critic pass
+
+Decision under review: remediate every confirmed WCAG 2.2 A/AA, axe
+best-practice, keyboard, coarse-pointer, and narrow-layout accessibility fault,
+then keep the rendered route matrix as the repository gate.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-422 | Assistive-technology reviewer | A green WCAG-tag-only axe run can conceal invalid landmark/heading/table structure, especially composite-widget ownership. | High | Resolved in gate | Add rendered best-practice coverage to the axe matrix, retain fail-closed route readiness, and inspect ARIA grids with the repository observation-log rules. |
+| RT-2026-07-18-423 | Keyboard reviewer | Replacing landmarks or compact layouts can leave visual parity while breaking focus order, roving focus, Escape handling, or focus restoration. | Critical | Resolved in verification | Prefer native semantics, preserve DOM order, add focused interaction assertions, and run keyboard/focus checks across route and modal states. |
+| RT-2026-07-18-424 | Responsive reviewer | Structural overflow checks can pass while headers overlap controls or narrow breakpoints remove the analyst's editing workflow. | Critical | Resolved in scope | Verify representative screenshots, hit-test the Ask launcher, measure real coarse-pointer targets, and compare desktop/narrow capability inventories for Deep-Dive and Model Builder. |
+| RT-2026-07-18-425 | Design-system reviewer | Global changes to `Panel`, `SurfaceState`, or action sizing can damage dense desktop hierarchy across dozens of callers. | Critical | Resolved in change contract | Preserve public APIs, prefer contextual heading overrides, constrain touch sizing to coarse pointers, and run the complete route/viewport matrix. GitNexus marks `Panel` and `SurfaceState` CRITICAL, so focused and full verification are mandatory. |
+| RT-2026-07-18-426 | Change-integrity reviewer | The dirty IC Book and QA worktree can be overwritten or falsely attributed to this audit. | Critical | Resolved in workflow | Use explicit patches only, avoid unrelated dirty hunks, record baseline TypeScript/lint faults separately, and inspect the final diff by path before handoff. |
+| RT-2026-07-18-427 | Compliance reviewer | Claiming “no faults” from automation alone overstates conformance because screen-reader behavior and physical-device ergonomics retain manual limits. | High | Accepted with disclosure | Report “no detectable automated faults” only after repeated clean gates and disclose residual VoiceOver/NVDA, browser/OS, and physical-device manual-test limits. |
+
+### Critic reopen conditions (accessibility remediation)
+
+Reopen if best-practice rules are excluded; any route/state is skipped; a
+composite widget has invalid ownership or incomplete keyboard behavior; a narrow
+surface loses a desktop capability without an accessible alternative; the
+launcher obscures a focusable control; shared-component blast radius is not
+verified; unrelated dirty work is replaced; or the final report equates an
+automated zero with complete legal conformance.
+
+## 2026-07-18 — Query draft continuity across identity revalidation
+
+Decision under review: retain an in-progress Query question across the existing
+security remount on tab refocus without weakening principal isolation.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-422 | Security reviewer | Persisting an analyst question in browser storage can expose sensitive research to the next user on a shared workstation. | Critical | Resolved in storage boundary | Use tab-scoped `sessionStorage` under the existing `caos.*` namespace. The established principal binder clears that namespace on logout, 401, or identity change; the identity revalidation/remount itself remains unchanged. |
+| RT-2026-07-18-423 | Context-integrity reviewer | A global draft can restore one issuer or portfolio question into a different analysis context. | High | Resolved in keying | Key the draft by the owned analysis-context id and gate composer readiness until that exact context's draft has hydrated. A context change restores only its own entry or an empty value. |
+| RT-2026-07-18-424 | Reliability reviewer | Private mode, quota exhaustion, or disabled storage could make Query unusable if persistence is mandatory. | High | Resolved in degradation | Wrap reads and writes; storage failure preserves the current in-memory composer and execution path, losing only remount continuity. |
+| RT-2026-07-18-425 | Authority reviewer | A browser draft could be mistaken for an authoritative or durable investigation. | High | Resolved in semantics | Cache only unsubmitted composer text. Runs, findings, evidence, and authority remain server-owned; no draft is shown as completed, cited, or recoverable beyond the current tab. |
+
+### Critic reopen conditions (Query draft continuity)
+
+Reopen if auth revalidation no longer tears down stale-principal state; a draft
+survives logout or principal change; a draft crosses analysis-context ids; storage
+failure blocks Query; or cached text is presented as a completed investigation.
+
+## 2026-07-18 — All-surface spatial rhythm critic pass
+
+Decision under review: arrange every CAOS route through shared spacing and
+composition contracts while preserving the intentionally dense institutional
+terminal, route capability, and specialist workbench behavior.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-428 | Analyst-density reviewer | A global spacing increase can make data-heavy worklists feel like consumer SaaS and reduce the rows, evidence, or model cells visible without scrolling. | Critical | Resolved in scale | Keep the 4px base and the existing compact control geometry. Use 8px for related content, 12px for pane rhythm, and 16–24px only for true section separation; do not inflate table rows or report-paper internals. |
+| RT-2026-07-18-429 | Capability reviewer | Rearranging support rails can hide context or evidence at common laptop widths, breaking the one-interaction evidence principle. | Critical | Resolved in composition | Preserve every supplied slot and its existing drawer controls. Change presentation only; retain DOM order, focus behavior, drawer access, and the primary artifact as the dominant region. |
+| RT-2026-07-18-430 | Shared-component reviewer | `PersonaWorkbench`, `SubHeader`, and `Panel` are CRITICAL hubs; an apparently small global rule can clip or overlap controls across most routes. | Critical | Resolved in implementation boundary | Do not change shared component behavior or public APIs. Constrain the work to existing CSS hooks and verify all 17 routed surfaces at 1440×1000 and 1024×900, including horizontal-overflow and browser-error checks. |
+| RT-2026-07-18-431 | Report-integrity reviewer | Workspace rhythm rules can accidentally alter Report Studio and Research paper geometry, compromising print fidelity. | Critical | Resolved in selector boundary | Exclude `rd-*`, `research-doc`, and print rules from workspace spacing changes; treat the paper as a deliverable nested within the arranged dark shell. |
+| RT-2026-07-18-432 | Responsive reviewer | A clean desktop composition can still become a monotonous stack or fixed-height overlap at compact widths. | High | Resolved in verification | Keep drawer mode and route-specific compact adaptations intact, add only breakpoint-scoped spacing compression, and inspect both full compact contact sheets and representative individual routes. |
+| RT-2026-07-18-433 | Change-integrity reviewer | The repository has substantial unrelated WIP, including this review log, so a broad design pass can overwrite or misattribute user changes. | Critical | Resolved in workflow | Apply an append-only review entry and isolated CSS patch, avoid every pre-existing dirty source file, inspect exact diffs, and do not stage or commit. |
+
+### Critic reopen conditions (all-surface spatial rhythm)
+
+Reopen if table/report density changes; any context or evidence capability becomes
+unreachable; a shared component API or behavior changes; paper output geometry
+moves; any route develops overlap, horizontal overflow, or browser errors at the
+verified viewports; or unrelated dirty work is replaced or attributed to this pass.
+
+## 2026-07-18 — Settings save in-flight critic pass
+
+Decision under review: make the global Settings save immediately inert while its
+profile PATCH is in flight, then restore either a confirmed pristine state or the
+existing dirty retry state.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-434 | Data-integrity reviewer | Disabling the action before persistence finishes could falsely imply that unsaved preferences are durable. | High | Resolved in state contract | Label the guarded state `Saving…`; update the baseline only after `saveAnalyst` returns true. A failed write keeps the old baseline, exposes the existing error/retry state, and re-enables the dirty action. |
+| RT-2026-07-18-435 | Concurrency reviewer | A slow PATCH currently permits repeated clicks that enqueue duplicate revision-checked writes. | High | Resolved in guard | Set the in-flight flag synchronously before the first await, return early on subsequent invocations, and clear it in `finally`. |
+| RT-2026-07-18-436 | Test-reliability reviewer | Asserting `aria-disabled` immediately can pass on the transient busy state without proving the save completed. | High | Resolved in browser contract | Make the E2E wait for the successful analyst-settings response and then assert the durable `No unsaved changes` title as well as the inert state. |
+
+### Critic reopen conditions (Settings save in-flight)
+
+Reopen if a failed save clears the dirty baseline; repeated clicks can enqueue more
+than one profile write; the button presents `No unsaved changes` while the PATCH is
+still pending; or browser coverage observes only the transient busy state without
+confirming the server response.
+
+## 2026-07-18 — Global Ask dock and Model target-size critic pass
+
+Decision under review: reserve a compact, stable desktop dock for the global Ask
+launcher and raise the two crowded Model Builder control families to the 24px
+WCAG 2.5.8 target floor without changing analytical behavior.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-437 | Analyst-density reviewer | Reserving launcher space across the workspace can remove a useful model row from every route, including surfaces where Ask is unavailable. | High | Resolved in scope | Activate the 52px dock only while an authenticated, Ask-enabled route renders the stable Ask dock marker. Query and signed-out surfaces retain their full height. |
+| RT-2026-07-18-438 | Interaction reviewer | Keying the dock to the visible trigger makes the page jump back to full height when Ask opens because the trigger disappears. | High | Resolved in lifecycle | Render a `display: contents` dock owner for the full authenticated Ask lifecycle, including open issuer chat, Deep-Dive ownership, and the global modal. The reserved geometry therefore does not change on open/close. |
+| RT-2026-07-18-439 | Model-density reviewer | Enlarging all model rows would materially reduce worksheet information density. | High | Resolved in target boundary | Change only the crowded 20px assumption inputs and 15px collapsible row buttons identified by the rendered target-spacing gate; preserve column widths and all non-interactive worksheet row geometry. |
+
+### Critic reopen conditions (Ask dock and Model targets)
+
+Reopen if the launcher overlaps a painted focusable target; opening Ask changes
+route height; Query or signed-out surfaces reserve an empty dock; Model Builder
+loses column alignment or control reachability; or the full rendered route matrix
+reports any target-size, clipping, overflow, or overlay failure.

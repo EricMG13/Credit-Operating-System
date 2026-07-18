@@ -9,7 +9,6 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
@@ -248,8 +247,15 @@ function DeepDive() {
     const chipRight = chipLeft + chip.offsetWidth;
     const offLeft = chipLeft < strip.scrollLeft;
     const offRight = chipRight > strip.scrollLeft + strip.clientWidth;
-    if (offLeft || offRight) chip.scrollIntoView({ inline: "center", block: "nearest" });
-  }, [tab, openLayers]);
+    if (offLeft || offRight) {
+      // Scroll only the launcher. Element.scrollIntoView() also moved the
+      // route's outer workbench scroll owner on narrow screens, shifting the
+      // complete analysis pane off the left edge.
+      const left = Math.max(0, chipLeft - (strip.clientWidth - chip.offsetWidth) / 2);
+      strip.scrollTo?.({ left, behavior: "auto" });
+      requestAnimationFrame(syncEdges);
+    }
+  }, [tab, openLayers, syncEdges]);
   // Evidence/source rail starts collapsed: traceability is on-demand (the E-xx
   // citation chips open the source directly), so it shouldn't hold prime
   // analytical real estate by default. The analyst expands it when they want it.
@@ -590,46 +596,7 @@ function DeepDive() {
         surface="deep-dive"
         decision={<DecisionHeader state={deepDecision} defaultOpen={false} />}
         primary={<div className="h-full min-h-0 flex flex-col">
-      <section className="lg:hidden flex-1 min-h-0 overflow-auto p-3" aria-label="Compact Deep-Dive review">
-        <div className="rounded border border-caos-border bg-caos-panel">
-          <div className="flex items-center justify-between gap-3 border-b border-caos-border px-3 py-2">
-            <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-accent">Compact review · read only</span>
-            <span className="flex items-center gap-1 tabular text-caos-xs text-caos-muted">
-              <StatusGlyph kind={caveatKind === "live" ? "success" : caveatKind === "error" ? "blocked" : "idle"} />
-              {caveatKind === "live" ? "Live run" : caveatKind === "error" ? "Run unavailable" : "Reference or incomplete"}
-            </span>
-          </div>
-          <div className="grid gap-4 p-4">
-            <div>
-              <div className="text-caos-xl font-medium text-caos-text">{dealLabel}</div>
-              <div className="mt-1 text-caos-sm leading-relaxed text-caos-muted">
-                Read posture, freshness and clearance here. Module authoring, evidence synchronization, layouts, simulation, issuer chat, QA actions and exports require a desktop-width workspace.
-              </div>
-            </div>
-            <dl className="grid gap-px overflow-hidden rounded border border-caos-border bg-caos-border tabular text-caos-xs">
-              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Standing view</dt><dd className="mt-1 text-caos-text">{"value" in deepDecision.whatChanged ? deepDecision.whatChanged.value : "message" in deepDecision.whatChanged ? deepDecision.whatChanged.message : "Observation unavailable"}</dd></div>
-              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Required action</dt><dd className="mt-1 text-caos-text">{"value" in deepDecision.requiredAction ? deepDecision.requiredAction.value : "message" in deepDecision.requiredAction ? deepDecision.requiredAction.message : "Action unavailable"}</dd></div>
-              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Evidence health</dt><dd className="mt-1 text-caos-text">{"value" in deepDecision.evidenceHealth ? deepDecision.evidenceHealth.value : "message" in deepDecision.evidenceHealth ? deepDecision.evidenceHealth.message : "Evidence unavailable"}</dd></div>
-              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Run progress</dt><dd className="mt-1 text-caos-text">{run.completed}/{run.total} modules</dd></div>
-            </dl>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href={`/query?issuer=${encodeURIComponent(issuerId)}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`}
-                className="caos-action-secondary no-underline focus-ring"
-              >
-                Investigate in Query
-              </Link>
-              <Link
-                href={`/pipeline?issuer=${encodeURIComponent(issuerId)}${live.runId ? `&run=${encodeURIComponent(live.runId)}` : ""}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`}
-                className="caos-action-secondary no-underline focus-ring"
-              >
-                Hand off to desk
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-      <div className="hidden lg:contents">
+      <div className="contents">
       {/* Decision header — evidence health mirrors the same caveat grammar the
           identity chip already states; the other three cells lean only on
           data this page already fetched (the sim clock, live module count,
@@ -792,12 +759,13 @@ function DeepDive() {
 
       {/* three-pane workspace */}
       <div
-        className="flex-1 min-h-0 grid gap-2 p-2"
+        className="deepdive-analysis-grid flex-1 min-h-0 grid gap-2 p-2"
         style={{ gridTemplateColumns: (railOpen ? "330px" : "42px") + " minmax(0,1fr) " + (decisionOpen ? "352px" : "42px") }}
       >
         <SourceRail ev={evModal} open={railOpen} onToggle={() => setRailOpen(!railOpen)} isReference={isReference} issuerCode={code} issuerName={isReference ? undefined : dealLabel} />
         <Panel
           title={title}
+          className="deepdive-analysis-primary"
           right={
             <span className="flex items-center gap-3">
               <span className="tabular text-caos-xs text-caos-muted">{code}</span>

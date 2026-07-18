@@ -27,12 +27,18 @@ function projectIdentity(project: string) {
   };
 }
 
+function projectClientIp(project: string) {
+  if (process.env.E2E_CLIENT_IP) return process.env.E2E_CLIENT_IP;
+  const suffix = project === "chromium" ? 1 : project === "firefox" ? 2 : project === "webkit" ? 3 : 254;
+  return `192.0.2.${suffix}`;
+}
+
 export default async function globalSetup(config: FullConfig) {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8000";
   const edgeSecret = process.env.E2E_EDGE_PROXY_SECRET;
-  const clientIp = process.env.E2E_CLIENT_IP;
   for (const project of config.projects) {
     const identity = projectIdentity(project.name);
+    const clientIp = projectClientIp(project.name);
     const statePath = projectStatePath(project.name);
     const requestHeaders = {
       ...(edgeSecret ? {
@@ -41,7 +47,7 @@ export default async function globalSetup(config: FullConfig) {
         "X-Forwarded-User": identity.email,
         "X-Forwarded-Preferred-Username": identity.name,
       } : {}),
-      ...(clientIp ? { "X-Forwarded-For": clientIp } : {}),
+      "X-Forwarded-For": clientIp,
     };
     const ctx = await request.newContext({
       baseURL,

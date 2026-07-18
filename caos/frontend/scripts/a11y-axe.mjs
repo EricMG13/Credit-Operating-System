@@ -3,6 +3,7 @@
 // Run via `node scripts/a11y-axe.mjs`; registered as a Fallow entry point.
 import { chromium } from 'playwright';
 import { createRequire } from 'module';
+import { mkdir } from 'node:fs/promises';
 import { installSurfaceStubs } from './browser-surface-fixtures.mjs';
 const require = createRequire(import.meta.url);
 const axePath = require.resolve('axe-core/axe.min.js');
@@ -11,8 +12,16 @@ const BASE = process.env.BASE || 'http://localhost:3000';
 const edgeSecret = process.env.E2E_EDGE_PROXY_SECRET;
 const forwardedEmail = process.env.E2E_FORWARDED_EMAIL || 'e2e-a11y@firm.test';
 const analystName = process.env.E2E_ANALYST_NAME || 'A11y Route Matrix';
+const screenshotDir = process.env.SCREENSHOT_DIR;
+const quiet = process.env.A11Y_QUIET === '1';
 let routes = (process.env.ROUTES || '/,/command,/decisions,/deepdive,/issuers,/issuers/profile?id=iss-1,/model,/monitor,/pipeline,/portfolios,/query,/reports,/research,/sector,/sector-rv,/settings,/sponsors,/upload').split(',');
-const TAGS = ['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa'];
+// Keep structural authoring defects (landmarks, heading order, empty table
+// headers, ARIA ownership) in the default gate. WCAG tags alone can report a
+// clean matrix while those faults remain in the rendered accessibility tree.
+const TAGS = (process.env.AXE_TAGS || 'wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice')
+  .split(',')
+  .map((tag) => tag.trim())
+  .filter(Boolean);
 const viewports = (process.env.VIEWPORTS || '1440x900').split(',').map((value) => {
   const match = value.trim().match(/^(\d+)x(\d+)$/);
   if (!match) throw new Error(`Invalid VIEWPORTS entry "${value}"; expected WIDTHxHEIGHT`);
@@ -20,6 +29,7 @@ const viewports = (process.env.VIEWPORTS || '1440x900').split(',').map((value) =
 });
 
 const browser = await chromium.launch();
+if (screenshotDir) await mkdir(screenshotDir, { recursive: true });
 const page = await browser.newPage({
   viewport: viewports[0],
   // The production CSP intentionally rejects arbitrary inline scripts. Axe is
@@ -76,7 +86,7 @@ for (const viewport of viewports) {
   await page.setViewportSize(viewport);
   for (const route of routes) {
   const evidenceKey = `${route}@${viewport.width}x${viewport.height}`;
-  console.error(`axe: ${evidenceKey}`);
+  if (!quiet) console.error(`axe: ${evidenceKey}`);
   // Long-lived polling and streaming requests mean `networkidle` is not a
   // reliable application-ready signal. DOM readiness plus the shared surface
   // marker below is deterministic and avoids a 30s delay on every live route.
@@ -112,12 +122,32 @@ for (const viewport of viewports) {
     };
     continue;
   }
+  // The model route resolves a calculation-authority boundary after its shell
+  // mounts. Scanning the transient card would miss the actual editor entirely.
+  if (new URL(route, BASE).pathname.startsWith('/model')) {
+    try {
+      await page.waitForFunction(
+        () => !document.body.textContent?.includes('Resolving model authority'),
+        undefined,
+        { timeout: 15000 },
+      );
+    } catch (error) {
+      out[evidenceKey] = {
+        url: new URL(page.url()).pathname,
+        viewport,
+        scan_error: `Model calculation authority did not settle: ${error.message}`,
+        violations: [],
+      };
+      continue;
+    }
+  }
   await page.addScriptTag({ path: axePath });
   const res = await page.evaluate(async ({ tags, viewport }) => {
     const r = await window.axe.run(document, { runOnly: { type: 'tag', values: tags } });
     const rootWidth = document.documentElement.clientWidth;
     const pageOverflowPx = Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0) - rootWidth;
     const isVisible = (element) => {
+      if (element.matches('.sr-only:not(:focus), [hidden]')) return false;
       const style = getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0 && !element.closest('[aria-hidden="true"]');
@@ -129,8 +159,10 @@ for (const viewport of viewports) {
       }
       return false;
     };
-    const clippedControls = [...document.querySelectorAll('a[href], button, input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])')]
+    const interactive = [...document.querySelectorAll('a[href], button, input, select, textarea, [role="button"], [role="tab"], [role="switch"], [tabindex]:not([tabindex="-1"])')]
       .filter(isVisible)
+      .filter((element) => !element.matches(':disabled, [aria-disabled="true"]'));
+    const clippedControls = interactive
       .filter((element) => {
         const rect = element.getBoundingClientRect();
         return (rect.left < -1 || rect.right > rootWidth + 1) && !hasHorizontalScrollOwner(element);
@@ -145,18 +177,109 @@ for (const viewport of viewports) {
           right: Math.round(rect.right),
         };
       });
+    // WCAG 2.5.8 permits a sub-24px target when its centre has a 24px clear
+    // circle. Flag only crowded undersized controls; inline prose links are an
+    // explicit exception in the criterion.
+    const targetSizeFailures = interactive
+      .filter((element) => getComputedStyle(element).display !== 'inline')
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        if (rect.width >= 24 && rect.height >= 24) return false;
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        return interactive.some((other) => {
+          if (other === element) return false;
+          const otherRect = other.getBoundingClientRect();
+          const ox = otherRect.left + otherRect.width / 2;
+          const oy = otherRect.top + otherRect.height / 2;
+          return Math.hypot(cx - ox, cy - oy) < 24;
+        });
+      })
+      .slice(0, 20)
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          label: (element.getAttribute('aria-label') || element.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 120),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        };
+      });
+    const launcher = document.querySelector('.caos-ask-launcher');
+    const overlayCollisions = launcher && isVisible(launcher)
+      ? interactive
+          .filter((element) => element !== launcher && !launcher.contains(element))
+          .filter((element) => {
+            const a = launcher.getBoundingClientRect();
+            const b = element.getBoundingClientRect();
+            const left = Math.max(a.left, b.left);
+            const right = Math.min(a.right, b.right);
+            const top = Math.max(a.top, b.top);
+            const bottom = Math.min(a.bottom, b.bottom);
+            if (right - left <= 1 || bottom - top <= 1) return false;
+            // Bounding boxes can extend beyond a clipping ancestor. Require the
+            // target to be present in the actual painted stack at the overlap.
+            const painted = document.elementsFromPoint((left + right) / 2, (top + bottom) / 2);
+            return painted.some((hit) => hit === element || element.contains(hit));
+          })
+          .slice(0, 20)
+          .map((element) => ({
+            tag: element.tagName.toLowerCase(),
+            label: (element.getAttribute('aria-label') || element.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 120),
+          }))
+      : [];
     return {
       url: location.pathname,
       viewport,
-      layout: { page_overflow_px: Math.max(0, Math.round(pageOverflowPx)), clipped_controls: clippedControls },
+      layout: {
+        page_overflow_px: Math.max(0, Math.round(pageOverflowPx)),
+        clipped_controls: clippedControls,
+        target_size_failures: targetSizeFailures,
+        overlay_collisions: overlayCollisions,
+        unexpected_horizontal_offsets: [
+          ...document.querySelectorAll('.caos-enterprise-page, .persona-workbench__composition, .persona-workbench__slot--primary'),
+        ]
+          .filter((element) => element.scrollLeft > 1)
+          .map((element) => ({
+            class_name: typeof element.className === 'string' ? element.className.slice(0, 160) : '',
+            scroll_left: Math.round(element.scrollLeft),
+          })),
+        diagnostic_regions: [
+          '.caos-enterprise-page',
+          '[data-testid="persona-workbench"]',
+          '.persona-workbench__slot--primary',
+          '.deepdive-analysis-grid',
+          '.deepdive-analysis-primary',
+          '.model-editor-layout',
+          '.model-sheet-region',
+        ].flatMap((selector) => {
+          const element = document.querySelector(selector);
+          if (!element) return [];
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return [{
+            selector,
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            client_width: element.clientWidth,
+            scroll_width: element.scrollWidth,
+            overflow_x: style.overflowX,
+          }];
+        }),
+      },
       violations: r.violations.map(v => ({
         id: v.id, impact: v.impact, help: v.help, wcag: v.tags.filter(t=>t.startsWith('wcag')),
         n: v.nodes.length,
-        nodes: v.nodes.slice(0,4).map(n => ({ target: n.target, summary: n.failureSummary }))
+        nodes: v.nodes.slice(0,4).map(n => ({ target: n.target, html: n.html, summary: n.failureSummary }))
       }))
     };
   }, { tags: TAGS, viewport });
   out[evidenceKey] = res;
+  if (screenshotDir) {
+    const safeName = evidenceKey.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'root';
+    await page.screenshot({ path: `${screenshotDir}/${safeName}.png`, fullPage: false });
+  }
   }
 }
 await browser.close();
@@ -166,11 +289,29 @@ await browser.close();
 let total = 0; let scanErrors = 0; let layoutFailures = 0; const byImpact = {};
 for (const r of Object.values(out)) {
   if (r.scan_error) scanErrors += 1;
-  if ((r.layout?.page_overflow_px || 0) > 1 || (r.layout?.clipped_controls?.length || 0) > 0) layoutFailures += 1;
+  if (
+    (r.layout?.page_overflow_px || 0) > 1
+    || (r.layout?.clipped_controls?.length || 0) > 0
+    || (r.layout?.target_size_failures?.length || 0) > 0
+    || (r.layout?.overlay_collisions?.length || 0) > 0
+    || (r.layout?.unexpected_horizontal_offsets?.length || 0) > 0
+  ) layoutFailures += 1;
   for (const v of r.violations || []) {
     total += v.n;
     byImpact[v.impact] = (byImpact[v.impact] || 0) + v.n;
   }
 }
-console.log(JSON.stringify({ base: BASE, tags: TAGS, viewports, total_nodes: total, scan_errors: scanErrors, layout_failures: layoutFailures, byImpact, routes: out }, null, 2));
+const compact = process.env.A11Y_COMPACT === '1';
+const reportedRoutes = compact
+  ? Object.fromEntries(Object.entries(out).filter(([, result]) => (
+      result.scan_error
+      || (result.violations?.length || 0) > 0
+      || (result.layout?.page_overflow_px || 0) > 1
+      || (result.layout?.clipped_controls?.length || 0) > 0
+      || (result.layout?.target_size_failures?.length || 0) > 0
+      || (result.layout?.overlay_collisions?.length || 0) > 0
+      || (result.layout?.unexpected_horizontal_offsets?.length || 0) > 0
+    )))
+  : out;
+console.log(JSON.stringify({ base: BASE, tags: TAGS, viewports, total_nodes: total, scan_errors: scanErrors, layout_failures: layoutFailures, byImpact, routes: reportedRoutes }, null, 2));
 process.exit(total > 0 || scanErrors > 0 || layoutFailures > 0 ? 1 : 0);

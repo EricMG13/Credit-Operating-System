@@ -38,8 +38,11 @@ async function fillSignup(page: import("@playwright/test").Page, code: string) {
   await page.getByLabel("Confirm passcode").fill("testpass123");
   await page.getByLabel("Invite code").fill(code);
   await page.getByLabel("Recovery word 1").fill("alpha");
+  await page.getByLabel("Confirm word 1").fill("alpha");
   await page.getByLabel("Recovery word 2").fill("bravo");
+  await page.getByLabel("Confirm word 2").fill("bravo");
   await page.getByLabel("Recovery word 3").fill("charlie");
+  await page.getByLabel("Confirm word 3").fill("charlie");
   return email;
 }
 

@@ -8,10 +8,16 @@ import https from "node:https";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// import.meta.url is the trusted location of this checked-in runner.
+// fallow-ignore-next-line security-sink
 const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const baseURL = process.env.PLAYWRIGHT_BASE_URL;
 const staticDir = process.env.E2E_STATIC_DIR
+  // E2E_STATIC_DIR is an explicit operator-selected staging location.
+  // fallow-ignore-next-line security-sink
   ? path.resolve(process.env.E2E_STATIC_DIR)
+  // The default is anchored to this runner's repository directory.
+  // fallow-ignore-next-line security-sink
   : path.resolve(frontendDir, "../server/static");
 
 if (!baseURL) {
@@ -27,6 +33,8 @@ if (!process.env.E2E_EDGE_PROXY_SECRET || !process.env.E2E_ACCESS_CODE) {
 
 function collectHtmlFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    // entry.name comes from readdirSync and cannot contain a path separator.
+    // fallow-ignore-next-line security-sink
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) return collectHtmlFiles(entryPath);
     return entry.isFile() && entry.name.endsWith(".html") ? [entryPath] : [];
@@ -35,6 +43,8 @@ function collectHtmlFiles(directory) {
 
 function latestMtime(directory) {
   return readdirSync(directory, { withFileTypes: true }).reduce((latest, entry) => {
+    // entry.name comes from readdirSync and cannot contain a path separator.
+    // fallow-ignore-next-line security-sink
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) return Math.max(latest, latestMtime(entryPath));
     // Unit-test edits do not contribute to the exported application artifact.
@@ -62,6 +72,8 @@ function readLiveCsp(url) {
   return new Promise((resolve, reject) => {
     const request = transport.request(url, {
       agent: url.protocol === "https:"
+        // The target hostname is restricted to loopback above; local test TLS is self-signed.
+        // fallow-ignore-next-line security-sink
         ? new https.Agent({ rejectUnauthorized: false })
         : undefined,
       headers: {
@@ -83,6 +95,8 @@ function readLiveCsp(url) {
 }
 
 async function assertLiveCspMatchesStaticExport() {
+  // frontendDir is derived from this checked-in runner's import.meta.url.
+  // fallow-ignore-next-line security-sink
   const sourceMtime = latestMtime(path.join(frontendDir, "src"));
   const staticMtime = latestMtime(staticDir);
   if (sourceMtime > staticMtime) {
@@ -159,11 +173,15 @@ function identityForProject(lane, project) {
   };
 }
 
+// frontendDir is derived from this checked-in runner's import.meta.url.
+// fallow-ignore-next-line security-sink
 const playwrightCli = path.join(frontendDir, "node_modules", "@playwright", "test", "cli.js");
 await assertLiveCspMatchesStaticExport();
 for (const [laneIndex, lane] of lanes.entries()) {
   for (const [projectIndex, project] of projects.entries()) {
     const identity = identityForProject(lane, project);
+    // The executable, spec names, projects, and flags all come from constants above.
+    // fallow-ignore-next-line security-sink
     const result = spawnSync(
       process.execPath,
       [playwrightCli, "test", ...lane.specs, `--project=${project}`, "--retries=0"],
@@ -171,12 +189,16 @@ for (const [laneIndex, lane] of lanes.entries()) {
         cwd: frontendDir,
         env: {
           ...process.env,
+          // frontendDir is derived from this checked-in runner's import.meta.url.
+          // fallow-ignore-next-line security-sink
           NODE_PATH: path.join(frontendDir, "node_modules"),
           E2E_FORWARDED_EMAIL: identity.email,
           E2E_ANALYST_NAME: identity.name,
           // RFC 5737 documentation addresses isolate the real per-source
           // throttle while the shared 30/minute credential backstop remains.
           E2E_CLIENT_IP: `192.0.2.${laneIndex * projects.length + projectIndex + 1}`,
+          // The lane identity and project are fixed constants declared above.
+          // fallow-ignore-next-line security-sink
           E2E_STORAGE_STATE_PATH: path.join(
             frontendDir,
             "../tests/frontend/e2e/.auth",

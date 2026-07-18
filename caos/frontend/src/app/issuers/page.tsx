@@ -548,7 +548,9 @@ function IssuersDirectory() {
                    </FilterHeader>
                 ))}
                 {/* Action column: no filter — the value is a constant UPLOAD button. */}
-                <span role="columnheader" className="tabular text-caos-xs uppercase tracking-wider text-caos-muted" />
+                <span role="columnheader" className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">
+                  <span className="sr-only">Document intake</span>
+                </span>
               </div>
               {/* ponytail: native content-visibility skips paint/layout for off-screen rows
                   — covers tens-to-hundreds of issuers. Swap to `virtua` only if a single book

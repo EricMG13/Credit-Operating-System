@@ -47,8 +47,8 @@ export function Panel({
       className={"bg-caos-panel border border-caos-border rounded-md flex flex-col min-h-0 " + className}
       style={collapsed ? { flex: "none", height: "auto" } : undefined}
     >
-      <div className={`h-8 shrink-0 px-3 flex items-center gap-2 bg-caos-elevated/20 ${collapsed ? "" : "border-b border-caos-border"}`}>
-        <Heading className="m-0 min-w-0 flex-1 tabular text-caos-xs font-semibold tracking-[0.12em] uppercase text-caos-text">
+      <div className={`caos-panel-header min-h-8 shrink-0 px-3 flex flex-wrap items-center gap-2 bg-caos-elevated/20 ${collapsed ? "" : "border-b border-caos-border"}`}>
+        <Heading className="caos-panel-title m-0 min-w-0 flex-1 tabular text-caos-xs font-semibold tracking-[0.12em] uppercase text-caos-text">
           {collapsible ? (
             <button
               type="button"
@@ -68,7 +68,7 @@ export function Panel({
             </button>
           ) : title}
         </Heading>
-        {right}
+        {right ? <div className="caos-panel-actions min-w-0">{right}</div> : null}
       </div>
       {/* Body is keyboard-focusable ONLY when it actually clips, so a scrollable
           panel can be reached without a mouse (WCAG 2.1.1; axe

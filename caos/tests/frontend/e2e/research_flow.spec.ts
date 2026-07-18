@@ -40,7 +40,8 @@ test.describe("Deep Research", () => {
         .getByTestId("persona-workbench")
         .getByRole("button", { name: /Run (deep|example) research/ }),
     ).toBeDisabled();
-    await expect(page.getByText("No report yet")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Research not run" })).toBeVisible();
+    await expect(page.getByText("Expected deliverable", { exact: true })).toBeVisible();
   });
 
   test("scope toggle swaps the subject field between sector and issuer", async ({ page }) => {

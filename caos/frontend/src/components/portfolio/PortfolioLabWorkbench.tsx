@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { SemanticVisualization, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
@@ -29,7 +29,7 @@ import {
   type PortfolioPositionSort,
   type StressRun,
 } from "@/lib/portfolio-lab";
-import { useTypedUrlState } from "@/lib/typed-url-state";
+import { useTypedUrlState, type TypedUrlUpdate, type TypedUrlValues } from "@/lib/typed-url-state";
 
 const URL_KEYS = [
   "portfolio", "dataset", "sort", "direction", "text", "sector", "rating",
@@ -38,6 +38,10 @@ const URL_KEYS = [
 
 type DatasetMode = "positions" | "constraints";
 type ChartMode = "concentration" | "ratings" | "maturity" | "risk" | "stress";
+type PortfolioUrlKey = (typeof URL_KEYS)[number];
+type PortfolioUrlUpdater = (changes: TypedUrlUpdate<PortfolioUrlKey>, mode?: "push" | "replace") => void;
+type PortfolioUrlValues = TypedUrlValues<PortfolioUrlKey>;
+type NullableErrorSetter = Dispatch<SetStateAction<string | null>>;
 
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -54,83 +58,83 @@ function sourceIds(analytics: PortfolioAnalytics) {
   return analytics.authority.source_ids;
 }
 
-export function createPortfolioVisualizationSpec(
-  mode: ChartMode,
-  analytics: PortfolioAnalytics,
-): VisualizationSpec {
-  const common = {
-    asOf: analytics.as_of ?? undefined,
-    sourceIds: sourceIds(analytics),
+function visualizationCommon(analytics: PortfolioAnalytics) {
+  return { asOf: analytics.as_of ?? undefined, sourceIds: sourceIds(analytics) };
+}
+
+function ratingVisualization(analytics: PortfolioAnalytics): VisualizationSpec {
+  const data = Object.entries(analytics.rating_distribution).map(([rating, value]) => ({ rating, value }));
+  return {
+    ...visualizationCommon(analytics),
+    kind: "bar",
+    title: "Rating distribution",
+    unit: "% NAV",
+    accessibleSummary: data.length
+      ? `${data[0].rating} is the first reported rating bucket at ${numberText(data[0].value, "%")}.`
+      : "No rating distribution is available.",
+    data,
+    tabularFallback: { label: "Rating distribution data", columns: [{ key: "rating", label: "Rating" }, { key: "value", label: "% NAV" }], data },
+    chart: { type: "interval", encode: { x: "rating", y: "value" } },
   };
-  if (mode === "ratings") {
-    const data = Object.entries(analytics.rating_distribution).map(([rating, value]) => ({ rating, value }));
-    return {
-      ...common,
-      kind: "bar",
-      title: "Rating distribution",
-      unit: "% NAV",
-      accessibleSummary: data.length
-        ? `${data[0].rating} is the first reported rating bucket at ${numberText(data[0].value, "%")}.`
-        : "No rating distribution is available.",
-      data,
-      tabularFallback: { label: "Rating distribution data", columns: [{ key: "rating", label: "Rating" }, { key: "value", label: "% NAV" }], data },
-      chart: { type: "interval", encode: { x: "rating", y: "value" } },
-    };
-  }
-  if (mode === "maturity") {
-    const data = Object.entries(analytics.maturity_wall).map(([year, value]) => ({ year, value }));
-    return {
-      ...common,
-      kind: "maturity-wall",
-      title: "Maturity wall",
-      unit: "USD",
-      accessibleSummary: data.length
-        ? `${data[0].year} is the first reported maturity year with ${data[0].value == null ? "unavailable exposure" : money.format(data[0].value)}.`
-        : "No maturity schedule is available.",
-      data,
-      tabularFallback: { label: "Maturity wall data", columns: [{ key: "year", label: "Year" }, { key: "value", label: "Market value" }], data },
-      chart: { type: "interval", encode: { x: "year", y: "value" } },
-    };
-  }
-  if (mode === "risk") {
-    const data = analytics.risk_budget.headroom.map((row) => ({
-      code: row.code ?? "Unknown",
-      headroom: row.headroom,
-      status: row.status,
-    }));
-    return {
-      ...common,
-      kind: "bullet",
-      title: "Risk-budget headroom",
-      unit: "limit units",
-      accessibleSummary: `${analytics.risk_budget.status_counts.Breach ?? 0} breached and ${analytics.risk_budget.status_counts.Watch ?? 0} watched constraints are reported.`,
-      status: (analytics.risk_budget.status_counts.Breach ?? 0) > 0
-        ? { label: "Breach present", tone: "critical" }
-        : { label: "Within limits", tone: "success" },
-      data,
-      tabularFallback: { label: "Risk-budget headroom data", columns: [{ key: "code", label: "Constraint" }, { key: "headroom", label: "Headroom" }, { key: "status", label: "Status" }], data },
-      chart: { type: "interval", encode: { x: "code", y: "headroom", color: "status" } },
-    };
-  }
-  if (mode === "stress") {
-    const data = (analytics.latest_stress_runs ?? []).map((run) => ({
-      scenario: run.label,
-      loss: run.loss_percent,
-      status: run.status,
-    }));
-    return {
-      ...common,
-      kind: "heatmap",
-      title: "Stress history",
-      unit: "% NAV loss",
-      accessibleSummary: data.length
-        ? `${data.length} persisted stress snapshots are available; latest is ${data[0].scenario}.`
-        : "No persisted stress snapshot is available.",
-      data,
-      tabularFallback: { label: "Stress history data", columns: [{ key: "scenario", label: "Scenario" }, { key: "loss", label: "Loss" }, { key: "status", label: "Status" }], data },
-      chart: { type: "cell", encode: { x: "scenario", y: "status", color: "loss" } },
-    };
-  }
+}
+
+function maturityVisualization(analytics: PortfolioAnalytics): VisualizationSpec {
+  const data = Object.entries(analytics.maturity_wall).map(([year, value]) => ({ year, value }));
+  return {
+    ...visualizationCommon(analytics),
+    kind: "maturity-wall",
+    title: "Maturity wall",
+    unit: "USD",
+    accessibleSummary: data.length
+      ? `${data[0].year} is the first reported maturity year with ${data[0].value == null ? "unavailable exposure" : money.format(data[0].value)}.`
+      : "No maturity schedule is available.",
+    data,
+    tabularFallback: { label: "Maturity wall data", columns: [{ key: "year", label: "Year" }, { key: "value", label: "Market value" }], data },
+    chart: { type: "interval", encode: { x: "year", y: "value" } },
+  };
+}
+
+function riskVisualization(analytics: PortfolioAnalytics): VisualizationSpec {
+  const data = analytics.risk_budget.headroom.map((row) => ({
+    code: row.code ?? "Unknown",
+    headroom: row.headroom,
+    status: row.status,
+  }));
+  const breached = (analytics.risk_budget.status_counts.Breach ?? 0) > 0;
+  return {
+    ...visualizationCommon(analytics),
+    kind: "bullet",
+    title: "Risk-budget headroom",
+    unit: "limit units",
+    accessibleSummary: `${analytics.risk_budget.status_counts.Breach ?? 0} breached and ${analytics.risk_budget.status_counts.Watch ?? 0} watched constraints are reported.`,
+    status: breached ? { label: "Breach present", tone: "critical" } : { label: "Within limits", tone: "success" },
+    data,
+    tabularFallback: { label: "Risk-budget headroom data", columns: [{ key: "code", label: "Constraint" }, { key: "headroom", label: "Headroom" }, { key: "status", label: "Status" }], data },
+    chart: { type: "interval", encode: { x: "code", y: "headroom", color: "status" } },
+  };
+}
+
+function stressVisualization(analytics: PortfolioAnalytics): VisualizationSpec {
+  const data = (analytics.latest_stress_runs ?? []).map((run) => ({
+    scenario: run.label,
+    loss: run.loss_percent,
+    status: run.status,
+  }));
+  return {
+    ...visualizationCommon(analytics),
+    kind: "heatmap",
+    title: "Stress history",
+    unit: "% NAV loss",
+    accessibleSummary: data.length
+      ? `${data.length} persisted stress snapshots are available; latest is ${data[0].scenario}.`
+      : "No persisted stress snapshot is available.",
+    data,
+    tabularFallback: { label: "Stress history data", columns: [{ key: "scenario", label: "Scenario" }, { key: "loss", label: "Loss" }, { key: "status", label: "Status" }], data },
+    chart: { type: "cell", encode: { x: "scenario", y: "status", color: "loss" } },
+  };
+}
+
+function concentrationVisualization(analytics: PortfolioAnalytics): VisualizationSpec {
   const data = analytics.concentration.sectors.map((row) => ({
     sector: row.sector,
     value: row.pct_nav,
@@ -138,7 +142,7 @@ export function createPortfolioVisualizationSpec(
   }));
   const lead = data[0];
   return {
-    ...common,
+    ...visualizationCommon(analytics),
     kind: "bar",
     title: "Sector concentration",
     unit: "% NAV",
@@ -149,6 +153,17 @@ export function createPortfolioVisualizationSpec(
     tabularFallback: { label: "Sector concentration data", columns: [{ key: "sector", label: "Sector" }, { key: "value", label: "% NAV" }, { key: "obligors", label: "Obligors" }], data },
     chart: { type: "interval", coordinate: { transform: [{ type: "transpose" }] }, encode: { x: "sector", y: "value" } },
   };
+}
+
+export function createPortfolioVisualizationSpec(
+  mode: ChartMode,
+  analytics: PortfolioAnalytics,
+): VisualizationSpec {
+  if (mode === "ratings") return ratingVisualization(analytics);
+  if (mode === "maturity") return maturityVisualization(analytics);
+  if (mode === "risk") return riskVisualization(analytics);
+  if (mode === "stress") return stressVisualization(analytics);
+  return concentrationVisualization(analytics);
 }
 
 export function PortfolioInsightCard({ insight, onRatify }: { insight: InsightArtifact; onRatify?: () => void }) {
@@ -470,7 +485,7 @@ export function PortfolioLabWorkbench() {
       </div>
       <div id="portfolio-dataset-panel" role="tabpanel" aria-labelledby={`portfolio-tab-${dataset}`}>
         <DominantTableRegion ownerId="portfolio-lab-main" label={`${dataset === "positions" ? "Portfolio positions" : "Portfolio constraints"} table`} data-total-rows={dataset === "positions" ? positions?.total : analytics?.compliance.length}>
-          {requestedPortfolioIsMissing ? <SurfaceState kind="unavailable" title="Portfolio not found" detail={`The requested portfolio (${requestedPortfolioId}) is not available. Choose a portfolio from the picker.`} compact /> : !portfolioId && portfolioListError ? <SurfaceState kind="offline" title="Portfolio register unavailable" detail={portfolioListError} compact /> : !portfolioId && portfolioListLoaded ? <SurfaceState kind="empty" title="No portfolios are configured" detail="Create or import a portfolio in Settings before opening the lab." primaryAction={<Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Open Settings</Link>} compact /> : loading && !positions ? <LoadingTable /> : error && !positions ? <SurfaceState kind="unavailable" title="Portfolio positions unavailable" detail={error} compact /> : dataset === "positions" && positions?.items.length ? <PositionsTable page={positions} selectedId={values.selected} onSelect={(row) => update({ selected: row.id })} /> : dataset === "positions" && positions ? <SurfaceState kind="empty" title="No positions match the active filters" detail="Clear or adjust the visible filters to broaden the result." compact /> : analytics?.compliance.length ? <ConstraintsTable rows={analytics.compliance} /> : analytics ? <SurfaceState kind="empty" title="No portfolio constraints are configured" compact /> : supportError ? <SurfaceState kind="unavailable" title="Constraint analytics unavailable" detail="Positions remain accessible." compact /> : <LoadingTable />}
+          {requestedPortfolioIsMissing ? <SurfaceState kind="unavailable" headingLevel={2} title="Portfolio not found" detail={`The requested portfolio (${requestedPortfolioId}) is not available. Choose a portfolio from the picker.`} compact /> : !portfolioId && portfolioListError ? <SurfaceState kind="offline" headingLevel={2} title="Portfolio register unavailable" detail={portfolioListError} compact /> : !portfolioId && portfolioListLoaded ? <SurfaceState kind="empty" headingLevel={2} title="No portfolios are configured" detail="Create or import a portfolio in Settings before opening the lab." primaryAction={<Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Open Settings</Link>} compact /> : loading && !positions ? <LoadingTable /> : error && !positions ? <SurfaceState kind="unavailable" headingLevel={2} title="Portfolio positions unavailable" detail={error} compact /> : dataset === "positions" && positions?.items.length ? <PositionsTable page={positions} selectedId={values.selected} onSelect={(row) => update({ selected: row.id })} /> : dataset === "positions" && positions ? <SurfaceState kind="empty" headingLevel={2} title="No positions match the active filters" detail="Clear or adjust the visible filters to broaden the result." compact /> : analytics?.compliance.length ? <ConstraintsTable rows={analytics.compliance} /> : analytics ? <SurfaceState kind="empty" headingLevel={2} title="No portfolio constraints are configured" compact /> : supportError ? <SurfaceState kind="unavailable" headingLevel={2} title="Constraint analytics unavailable" detail="Positions remain accessible." compact /> : <LoadingTable />}
         </DominantTableRegion>
       </div>
       {dataset === "positions" && positions?.next_cursor ? <button type="button" className="portfolio-lab__next" onClick={() => update({ cursor: positions.next_cursor, selected: null })}>Next positions</button> : null}
@@ -480,7 +495,7 @@ export function PortfolioLabWorkbench() {
   const context = (
     <section className="portfolio-lab__context" aria-label="Portfolio visualization">
       <label>View<select value={chart} onChange={(event) => update({ chart: event.target.value as ChartMode })}><option value="concentration">Concentration</option><option value="ratings">Ratings</option><option value="maturity">Maturity wall</option><option value="risk">Risk budget</option><option value="stress">Stress history</option></select></label>
-      {!portfolioId ? <p role="status">No portfolio selected — analytics unavailable.</p> : chartSpec ? <SemanticVisualization spec={chartSpec} /> : analyticsError ? <p role="status">{analyticsError} The positions workflow remains live.</p> : <p role="status">Loading portfolio analytics…</p>}
+      {!portfolioId ? <p role="status">No portfolio selected — analytics unavailable.</p> : chartSpec ? <SemanticVisualization spec={chartSpec} headingLevel={2} /> : analyticsError ? <p role="status">{analyticsError} The positions workflow remains live.</p> : <p role="status">Loading portfolio analytics…</p>}
     </section>
   );
 

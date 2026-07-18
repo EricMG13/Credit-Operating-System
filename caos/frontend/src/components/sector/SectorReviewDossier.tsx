@@ -184,7 +184,7 @@ export function SectorReviewDossier() {
       finalizationBar={<>{error ? <span className="mr-auto text-caos-xs text-caos-critical" role="alert">{error}</span> : ratifyAllArmed ? <span className="mr-auto text-caos-xs text-caos-warning">Confirm ratification scope · {ratificationScope}</span> : <span className="mr-auto tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{review ? `${review.status} · ${review.missing_dependencies.length} dependency gaps` : "No draft"}</span>}{context ? <><Link href={contextHref("/sector-rv", context.id)} className="caos-action-secondary focus-ring no-underline">Open sector in RV</Link><Link href={contextHref("/query", context.id)} className="caos-action-secondary focus-ring no-underline">Investigate in Query</Link></> : null}{finalAction}</>}
       narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">{review?.sector_label ?? "Sector"}</span> }}
     >
-      <main className="caos-persona-route sector-workbench min-h-0 flex-1 overflow-hidden p-2">
+      <section aria-label="Sector review workspace" className="caos-persona-route sector-workbench min-h-0 flex-1 overflow-hidden p-2">
         <PersonaWorkbench
           surface="sector-review"
           decision={<DecisionHeader state={decisionState} defaultOpen />}
@@ -214,7 +214,7 @@ export function SectorReviewDossier() {
           {context ? <div className="mt-4"><FindingsTray contextId={context.id} /></div> : null}
         </aside>}
         />
-      </main>
+      </section>
     </EnterprisePage>
   );
 }

@@ -268,5 +268,6 @@ describe("IC Book workbench", () => {
     fireEvent.change(screen.getByLabelText("Dissent rationale"), { target: { value: "Issuer-specific objection" } });
     fireEvent.click(tableRow(/2026-07-14/));
     expect((screen.getByLabelText("Dissent rationale") as HTMLTextAreaElement).value).toBe("");
+    expect(mocks.listDecisions).toHaveBeenCalledTimes(1);
   });
 });

@@ -14,6 +14,10 @@ const uniq = () => `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 async function runInvestigation(page: Page, question: string) {
   const composer = page.getByRole("textbox", { name: "Query coverage" });
   await expect(composer).toBeVisible({ timeout: 15000 });
+  // Context hydration can replace the initial shell after the textarea first
+  // becomes visible. Wait for the durable context before entering analyst text
+  // so a late mount cannot discard it on slower browser engines.
+  await expect(composer).toBeEnabled({ timeout: 15000 });
   await composer.fill(question);
   const run = page.getByRole("button", { name: "Run Query", exact: true });
   await expect(run).toBeEnabled({ timeout: 15000 });
@@ -58,7 +62,10 @@ test.describe("Query — persisted investigation workbench", () => {
 
   test("selected investigation survives reload", async ({ page }) => {
     await page.goto("/query/");
-    const title = await runInvestigation(page, `compare recovery assumptions ${uniq()}`);
+    // Keep this keyless E2E on the deterministic metric parser. Recovery
+    // comparison legitimately needs a model and returns an explicit partial
+    // result when no provider is configured, which is a separate contract.
+    const title = await runInvestigation(page, `which issuer is most levered ${uniq()}`);
     const before = ((await title.textContent()) ?? "").trim();
     const url = page.url();
     await page.reload();

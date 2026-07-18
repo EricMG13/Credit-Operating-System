@@ -215,8 +215,8 @@ describe("PersonaWorkbench", () => {
 
     const css = readFileSync("src/app/globals.css", "utf8");
     expect(css).toMatch(/composition--supports-0\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-    expect(css).toMatch(/composition--supports-1\s*\{[^}]*grid-template-columns:[^;}]*minmax\(220px,\s*0\.34fr\)/);
-    expect(css).toMatch(/composition--supports-2\s*\{[^}]*grid-template-columns:[^;}]*minmax\(240px,\s*0\.38fr\)/);
+    expect(css).toMatch(/composition--supports-1\s*\{[^}]*grid-template-columns:[^;}]*minmax\(220px,\s*0\.3fr\)/);
+    expect(css).toMatch(/composition--supports-2\s*\{[^}]*grid-template-columns:[^;}]*minmax\(240px,\s*0\.32fr\)/);
   });
 
   it("uses the canonical modal behavior for narrow drawers", async () => {

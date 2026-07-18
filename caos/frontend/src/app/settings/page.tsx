@@ -206,6 +206,8 @@ function Settings() {
   // ── Research defaults (browser-local) ──
   const [prefs, setPrefs] = useState<ResearchPrefs>(DEFAULT_PREFS);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   useEffect(() => setPrefs(loadPrefs()), []);
 
   // ── Model mode (saved with the Settings snapshot) ──
@@ -403,35 +405,42 @@ function Settings() {
   }, []);
 
   const saveAll = async () => {
-    if (!analystLoaded) return;
-    savePrefs(prefs);
-    saveMode(mode);
-    localStorage.setItem("caos_query_model", queryModel);
-    const stored = await saveAnalyst({
-      ...analystSettings,
-      workspace: {
-        ...(analystSettings.workspace || {}),
-        research_prefs: prefs,
-        // Profile storage is lowercase for compatibility with existing server
-        // settings. `normalizeProfileMode` accepts both representations on read.
-        model_mode: mode.toLowerCase(),
-        query_model: queryModel,
-      },
-    });
-    // Don't clear the dirty snapshot until the profile write actually settles.
-    // The browser-local values remain visible on failure, accompanied by the
-    // existing retry state, so the analyst can retry without re-entering them.
-    if (!stored) return;
-    baseline.current = snapshot();
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 2000);
+    if (!analystLoaded || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      savePrefs(prefs);
+      saveMode(mode);
+      localStorage.setItem("caos_query_model", queryModel);
+      const stored = await saveAnalyst({
+        ...analystSettings,
+        workspace: {
+          ...(analystSettings.workspace || {}),
+          research_prefs: prefs,
+          // Profile storage is lowercase for compatibility with existing server
+          // settings. `normalizeProfileMode` accepts both representations on read.
+          model_mode: mode.toLowerCase(),
+          query_model: queryModel,
+        },
+      });
+      // Don't clear the dirty snapshot until the profile write actually settles.
+      // The browser-local values remain visible on failure, accompanied by the
+      // existing retry state, so the analyst can retry without re-entering them.
+      if (!stored) return;
+      baseline.current = snapshot();
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2000);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
 
   return (
     <EnterprisePage kind="object"
       identity={<ShellIdentity title="Settings" />}
-      primaryAction={<ActionReason reason={!analystLoaded ? "Loading profile…" : dirty ? null : "No unsaved changes"} reasonDisplay="hidden" onClick={saveAll} className="caos-action-primary focus-ring">Save changes</ActionReason>}
+      primaryAction={<ActionReason reason={!analystLoaded ? "Loading profile…" : saving ? "Saving…" : dirty ? null : "No unsaved changes"} reasonDisplay="hidden" onClick={saveAll} className="caos-action-primary focus-ring">Save changes</ActionReason>}
       utilityLabel="Settings utilities"
       utilityControls={<button type="button" onClick={loadCfg} className="caos-action-secondary focus-ring">Refresh environment snapshot</button>}
       contextualControls={

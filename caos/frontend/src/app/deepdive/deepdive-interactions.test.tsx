@@ -240,12 +240,12 @@ describe("Deep-Dive reference interaction coverage", () => {
     expect(screen.getByText("scenario dynamic")).toBeTruthy();
     expect(screen.getByText(/Three panes:/)).toBeTruthy();
 
-    const phoneTriage = screen.getByRole("region", { name: "Compact Deep-Dive review" });
-    expect(phoneTriage.textContent).toContain("Compact review · read only");
-    const queryHandoff = Array.from(phoneTriage.querySelectorAll("a")).find((link) => link.textContent?.includes("Investigate in Query"));
-    const pipelineHandoff = Array.from(phoneTriage.querySelectorAll("a")).find((link) => link.textContent?.includes("Hand off to desk"));
-    expect(queryHandoff?.getAttribute("href")).toBe("/query?issuer=a71f0000-0000-0000-0000-000000000001&context=context-deep");
-    expect(pipelineHandoff?.getAttribute("href")).toBe("/pipeline?issuer=a71f0000-0000-0000-0000-000000000001&context=context-deep");
+    // Narrow layouts preserve the complete analyst workflow instead of
+    // substituting the former read-only triage card.
+    expect(screen.queryByText("Compact review · read only")).toBeNull();
+    expect(screen.getByRole("button", { name: "toggle source rail" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "toggle decision rail" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "open debate evidence" })).toBeTruthy();
 
     for (const containerId of ["narrow", "utility"]) {
       for (const label of ["Summary", "Report", "Dense"]) {

@@ -460,7 +460,7 @@ export function Sheet({
                     aria-label={(collapsed ? "Expand " : "Collapse ") + row.l + " rows"}
                     aria-expanded={!collapsed}
                     title={(collapsed ? "Expand " : "Collapse ") + row.l + " rows"}
-                    className="flex min-w-0 items-baseline gap-1.5 rounded text-left focus-ring"
+                    className="flex min-h-6 min-w-0 items-center gap-1.5 rounded text-left focus-ring"
                   >
                     <span className="tabular text-caos-3xs text-caos-accent" aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
                     <span className={"text-caos-sm leading-[15px] whitespace-nowrap " + (row.bold ? "font-bold text-caos-text" : "text-caos-text/80")} style={{ paddingLeft: row.ind ? 8 : 0 }}>

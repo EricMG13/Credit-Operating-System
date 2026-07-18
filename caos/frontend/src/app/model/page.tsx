@@ -35,7 +35,6 @@ import {
   type ModelCheckpointDTO,
 } from "@/lib/api";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
-import Link from "next/link";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { fromModelEngine } from "@/lib/provenance";
@@ -693,17 +692,18 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
           <ModelProvenance eng={eng} model={model} allowSeededFallback={isReference} freshness={modelFreshness} />
           {/* Save status — paired with the provenance badge since both describe model state */}
           {restoreError ? (
-            <button
-              type="button"
-              onClick={retryRestore}
-              role="alert"
-              title="Couldn't load this issuer's saved model — showing your local draft. Click to retry."
-              className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
-              style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
-            >
-              <span className="md:hidden">⚠ MODEL · RETRY</span>
-              <span className="hidden md:inline">⚠ SAVED MODEL UNAVAILABLE · RETRY</span>
-            </button>
+            <span role="alert" className="inline-flex">
+              <button
+                type="button"
+                onClick={retryRestore}
+                title="Couldn't load this issuer's saved model — showing your local draft. Click to retry."
+                className="focus-ring min-h-6 tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
+                style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
+              >
+                <span className="md:hidden">⚠ MODEL · RETRY</span>
+                <span className="hidden md:inline">⚠ SAVED MODEL UNAVAILABLE · RETRY</span>
+              </button>
+            </span>
           ) : !isReference && eng.phase === "error" ? (
             // M-5: eng (useModelEngine) collapsed a genuine backend error into the
             // same empty state as "no run yet" before the phase field existed —
@@ -718,17 +718,18 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
               ⚠ LIVE RUN UNAVAILABLE
             </span>
           ) : saveConflict ? (
-            <button
-              type="button"
-              onClick={() => { setSaveConflict(false); retryRestore(); }}
-              role="alert"
-              title="This model was saved elsewhere (e.g. another tab) since you loaded it — your edits were NOT saved. Click to reload the latest version, then reapply your changes."
-              className="focus-ring tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
-              style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 40%, transparent)" }}
-            >
-              <span className="md:hidden">✗ CONFLICT · RELOAD</span>
-              <span className="hidden md:inline">✗ SAVED ELSEWHERE · RELOAD</span>
-            </button>
+            <span role="alert" className="inline-flex">
+              <button
+                type="button"
+                onClick={() => { setSaveConflict(false); retryRestore(); }}
+                title="This model was saved elsewhere (e.g. another tab) since you loaded it — your edits were NOT saved. Click to reload the latest version, then reapply your changes."
+                className="focus-ring min-h-6 tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
+                style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 40%, transparent)" }}
+              >
+                <span className="md:hidden">✗ CONFLICT · RELOAD</span>
+                <span className="hidden md:inline">✗ SAVED ELSEWHERE · RELOAD</span>
+              </button>
+            </span>
           ) : saveError ? (
             <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
               ✗ SAVE FAILED
@@ -912,47 +913,8 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         surface="model"
         decision={<DecisionHeader state={modelDecision} defaultOpen={false} />}
         primary={<div className="h-full min-h-0 flex flex-col">
-      <section className="lg:hidden flex-1 min-h-0 overflow-auto p-3" aria-label="Compact model review">
-        <div className="rounded border border-caos-border bg-caos-panel">
-          <div className="flex items-center justify-between gap-3 border-b border-caos-border px-3 py-2">
-            <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-accent">Compact review · read only</span>
-            <span className="flex items-center gap-1 tabular text-caos-xs text-caos-muted">
-              <StatusGlyph kind={hasIssuerModel ? "success" : "idle"} />
-              {hasIssuerModel ? "Model available" : "Model unavailable"}
-            </span>
-          </div>
-          <div className="grid gap-4 p-4">
-            <div>
-              <div className="text-caos-xl font-medium text-caos-text">{issuerName}</div>
-              <div className="mt-1 text-caos-sm leading-relaxed text-caos-muted">
-                Review model authority and draft state here. Cell editing, formulas, multi-cell paste, assumptions, scenarios, undo/redo, checkpoint restore and export require a desktop-width workspace.
-              </div>
-            </div>
-            <dl className="grid grid-cols-2 gap-px overflow-hidden rounded border border-caos-border bg-caos-border tabular text-caos-xs">
-              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Anchor</dt><dd className="mt-1 text-caos-text">{modelAsOf || "Unknown"}</dd></div>
-              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Draft</dt><dd className="mt-1 text-caos-text">{dirty ? "Unsaved edits" : savedAt ? "Saved" : "No saved draft"}</dd></div>
-              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Overrides</dt><dd className="mt-1 text-caos-text">{ovCount}</dd></div>
-              <div className="bg-caos-elevated p-3"><dt className="uppercase tracking-wider text-caos-muted">Checkpoint</dt><dd className="mt-1 truncate text-caos-text">{analysis.context?.artifacts.model_checkpoint_id?.slice(0, 8) || "Required"}</dd></div>
-            </dl>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href={`/deepdive?issuer=${encodeURIComponent(issuerId)}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`}
-                className="caos-action-secondary no-underline focus-ring"
-              >
-                Review credit view
-              </Link>
-              <Link
-                href={`/pipeline?issuer=${encodeURIComponent(issuerId)}${eng.runId ? `&run=${encodeURIComponent(eng.runId)}` : ""}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`}
-                className="caos-action-secondary no-underline focus-ring"
-              >
-                Hand off to desk
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
       {/* workspace */}
-      <div className="hidden lg:flex flex-1 min-h-0 flex-col gap-2 p-2">
+      <div className="model-editor-workspace flex flex-1 min-h-0 flex-col gap-2 p-2">
         {hasIssuerModel ? (
           <>
             <Manifest hl={hl} setHl={setHl} isReference={isReference} />
@@ -985,7 +947,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
                 {pasteNotice}
               </div>
             ) : null}
-            <div className="flex-1 min-h-0 flex gap-2">
+            <div className="model-editor-layout flex-1 min-h-0 flex gap-2">
               {showAssumptions ? (
                 <AssumptionsPanel
                   assumptions={assumptions}
@@ -1000,7 +962,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
               ) : (
                 <CollapsedRail side="left" label="Assumptions" onExpand={() => setShowAssumptions(true)} />
               )}
-              <div className="flex-1 min-w-0 min-h-0 flex">
+              <div className="model-sheet-region flex-1 min-w-0 min-h-0 flex">
                 <Sheet
                   model={model}
                   showQ={showQuarters}
@@ -1077,7 +1039,7 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
 // stable so the sheet doesn't reflow jarringly on collapse.
 function CollapsedRail({ side, label, onExpand }: { side: "left" | "right"; label: string; onExpand: () => void }) {
   return (
-    <div className="w-7 shrink-0 bg-caos-panel border border-caos-border rounded-md flex flex-col items-center gap-2 py-2 text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos font-bold">
+    <div className="model-collapsed-rail w-7 shrink-0 bg-caos-panel border border-caos-border rounded-md flex flex-col items-center gap-2 py-2 text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos font-bold">
       <CollapseButton direction={side === "left" ? "right" : "left"} label={`Expand ${label} panel`} onClick={onExpand} />
       <span
         aria-hidden

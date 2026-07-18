@@ -57,11 +57,23 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  sessionStorage.clear();
   mocks.listQueryRuns.mockResolvedValue([]);
   mocks.context = { id: "context-1", name: "Coverage", sector_id: null, query_session_id: null, filters: {}, selected: {} };
 });
 
 describe("Query investigation workbench", () => {
+  it("restores an in-progress question after the secure workspace remount", async () => {
+    const first = render(<QueryPage />);
+    const input = await screen.findByLabelText("Query coverage");
+    fireEvent.change(input, { target: { value: "unfinished analyst question" } });
+    expect(sessionStorage.getItem("caos.query.draft.context-1")).toBe("unfinished analyst question");
+
+    first.unmount();
+    render(<QueryPage />);
+    expect((await screen.findByLabelText("Query coverage") as HTMLTextAreaElement).value).toBe("unfinished analyst question");
+  });
+
   it("declares the metric lane before execution and persists one versioned run", async () => {
     mocks.createQueryRun.mockResolvedValue({
       id: "run-1", context_id: "context-1", question: "which issuers are most levered",

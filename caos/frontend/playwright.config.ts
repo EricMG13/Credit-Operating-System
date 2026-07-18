@@ -1,9 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const edgeSecret = process.env.E2E_EDGE_PROXY_SECRET;
-const clientIp = process.env.E2E_CLIENT_IP;
 const storageState = process.env.E2E_STORAGE_STATE_PATH
   || "../tests/frontend/e2e/.auth/state.json";
+
+function projectClientIp(project: string) {
+  if (process.env.E2E_CLIENT_IP) return process.env.E2E_CLIENT_IP;
+  const suffix = project === "chromium" ? 1 : project === "firefox" ? 2 : project === "webkit" ? 3 : 254;
+  return `192.0.2.${suffix}`;
+}
 
 function projectStatePath(project: string) {
   const slash = Math.max(storageState.lastIndexOf("/"), storageState.lastIndexOf("\\"));
@@ -21,6 +26,7 @@ function projectIdentity(project: string) {
 
 function projectUse(project: string, device: (typeof devices)[keyof typeof devices]) {
   const identity = projectIdentity(project);
+  const clientIp = projectClientIp(project);
   const requestHeaders = {
     ...(edgeSecret ? {
       "X-Edge-Authorization": edgeSecret,
@@ -28,7 +34,7 @@ function projectUse(project: string, device: (typeof devices)[keyof typeof devic
       "X-Forwarded-User": identity.email,
       "X-Forwarded-Preferred-Username": identity.name,
     } : {}),
-    ...(clientIp ? { "X-Forwarded-For": clientIp } : {}),
+    "X-Forwarded-For": clientIp,
   };
   return {
     ...device,

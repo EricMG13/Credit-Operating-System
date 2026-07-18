@@ -16,3 +16,13 @@ e9e36ffacfa2ee644cefb7ec5c771455461488e5:caos/docs/QA_FULL_SWEEP.md:generic-api-
 # caos/docs/QA_FULL_SWEEP.md:270 — doc example showing how to clear the key
 # (`ANTHROPIC_API_KEY=""`) for offline QA, not a real key.
 183b459604143b19f87cfa7b7655e915ec1d7b6d:caos/docs/QA_FULL_SWEEP.md:generic-api-key:270
+# .claude/launch.json:29,69,89 — empty SESSION_SECRET/model-key values in
+# local QA launch commands. The generic rule consumes the following env-var
+# name as the value when the assignment is intentionally blank; no credential
+# is present (verified from the parsed command tokens without printing values).
+dd92f2dfb9a1b7321a301527ff4958c9c341aa95:.claude/launch.json:generic-api-key:29
+dd92f2dfb9a1b7321a301527ff4958c9c341aa95:.claude/launch.json:generic-api-key:69
+dd92f2dfb9a1b7321a301527ff4958c9c341aa95:.claude/launch.json:generic-api-key:89
+# caos/docs/CONTAINER_HARDENING_BLUEPRINT.md:735 — Docker's numeric
+# non-root UID:GID argument, misclassified by the curl-auth-user rule.
+197e8371eaa0ee45be0fcd290abeb6b421febef3:caos/docs/CONTAINER_HARDENING_BLUEPRINT.md:curl-auth-user:735

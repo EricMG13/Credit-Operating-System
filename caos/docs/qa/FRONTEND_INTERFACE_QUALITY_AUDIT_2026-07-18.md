@@ -17,30 +17,33 @@ a whole feel generated, but both weaken its otherwise intentional design.
 
 ## Executive summary
 
-**Overall score: 82 / 100 — strong desktop system, material narrow-screen
-exceptions.**
+**Overall score: 75 / 100 — strong desktop system, material narrow-screen and
+semantic-structure exceptions.**
 
 | Severity | Count |
 | --- | ---: |
 | Critical | 0 |
-| High | 1 |
-| Medium | 4 |
-| Low | 2 |
-| **Total** | **7** |
+| High | 2 |
+| Medium | 6 |
+| Low | 4 |
+| **Total** | **12** |
 
-The highest-impact issue is not a WCAG failure: Deep-Dive deliberately becomes
-read-only below the desktop breakpoint and removes the core authoring,
-evidence-sync, simulation, chat, QA, and export workflow. The next priorities
-are narrow panel-header collisions, incomplete 44px coarse-pointer targets,
-Report Studio's 417ms constrained-phone total blocking time, and route-state
-layout shifts on Sponsors and Sector Review.
+The two highest-impact issues are not WCAG failures: Deep-Dive and Model Builder
+deliberately become read-only below the desktop breakpoint and remove their core
+analytical workflows. The next priorities are narrow panel-header collisions,
+the global Ask launcher obscuring phone controls, incomplete 44px
+coarse-pointer targets, duplicate/nested main landmarks, Report Studio's 417ms
+constrained-phone total blocking time, and route-state layout shifts on
+Sponsors and Sector Review.
 
 Accessibility fundamentals are notably strong. Axe reported zero A/AA
 violations across 18 routes at desktop and phone widths, with no scan errors,
 document overflow, or clipped controls. The eight-profile layout gate passed all
-136 cases, including 200% zoom. Those automated gates do not detect visual
-overlap, hit-target comfort above the WCAG minimum, or functionality removed by
-breakpoint; direct visual and coarse-pointer checks found the exceptions below.
+136 cases, including 200% zoom. An additional axe best-practice pass did find
+landmark, heading-order, and empty-header defects. The WCAG-only gates also do
+not detect visual overlap, hit-target comfort above the WCAG minimum, or
+functionality removed by breakpoint; direct visual and coarse-pointer checks
+found the exceptions below.
 
 ## Detailed findings by severity
 
@@ -69,19 +72,43 @@ None found.
   retain its controls and results.
 - **Suggested command:** `/adapt`
 
+#### AUD-08 — Model Builder removes its core workflow below 1024px
+
+- **Location:** `caos/frontend/src/app/model/page.tsx:915-955`
+- **Severity:** High
+- **Category:** Responsive design
+- **Description:** Model Builder substitutes a compact read-only summary for
+  the full workspace below `lg`. Its own narrow-state copy confirms that cell
+  editing, formulas, multi-cell paste, assumptions, scenarios, undo/redo,
+  checkpoint restore, and export require a desktop-width workspace.
+- **Impact:** The primary analyst cannot maintain or advance the credit model
+  from a phone, tablet portrait view, or narrow split-screen. This removes the
+  route's principal task rather than adapting it.
+- **WCAG / standard:** Frontend-design responsive principle: preserve critical
+  functionality through sequential layouts, drawers, or progressive disclosure.
+  No direct WCAG criterion is asserted.
+- **Recommendation:** Retain a narrow sequential editor: section/period picker,
+  formula and override editor, assumption/scenario steps, undo/redo, checkpoint,
+  and export. The dense grid can become a focused row/period editor without
+  removing model authority or mutation controls.
+- **Suggested command:** `/adapt`
+
 ### Medium-severity issues
 
 #### AUD-02 — Shared panel headers collide with tab lists on phones
 
 - **Location:** `caos/frontend/src/components/shared/Panel.tsx:50-72`;
-  callers at `src/app/command/page.tsx:415-422` and
-  `src/app/monitor/page.tsx:267-270`
+  callers at `src/app/command/page.tsx:415-422`,
+  `src/app/monitor/page.tsx:267-270`, `src/app/issuers/page.tsx:430-458`, and
+  `src/app/pipeline/page.tsx:630-651`
 - **Severity:** Medium
 - **Category:** Responsive design
 - **Description:** `Panel` fixes its header at 32px and keeps the title and
-  `right` slot on one non-wrapping row. Command and Monitor place four/three
-  dataset tabs in that slot. At 390px the tabs paint over or clip “Live
-  Coverage” and “Alert triage · autonomy routing.”
+  `right` slot on one non-wrapping row. At 390px, Command's dataset tabs obscure
+  “Live Coverage”; Monitor's tabs force “Alert triage · autonomy routing” into
+  three lines inside 32px; the Directory search forces “Issuer Register ·
+  coverage universe” into three lines; and Pipeline's “Execution Graph · CP-X
+  route plan” overflows into the graph legend.
 - **Impact:** Analysts lose the panel's identity exactly where context is most
   important, and controls appear detached from the data they change.
 - **WCAG / standard:** WCAG 1.4.10 reflow intent; CAOS density-with-hierarchy
@@ -100,8 +127,8 @@ None found.
   `globals.css:660-685`
 - **Severity:** Medium
 - **Category:** Accessibility / Responsive design
-- **Description:** A real `hasTouch`/`isMobile` 390×844 check found 57 visible
-  route instances below 44px across seven representative routes after excluding
+- **Description:** A real `hasTouch`/`isMobile` 390×844 check found 125 visible
+  route instances below 44px across all 17 authenticated routes after excluding
   visually hidden skip links. Common cases are 30px page actions, 24px panel
   drawer triggers/citations, 24px filter buttons, and controls whose height is
   expanded to 44px while width remains 24-39px. The `.caos-target` coarse rule
@@ -154,6 +181,53 @@ None found.
   offline states.
 - **Suggested command:** `/impeccable` with its optimize workflow, then `/adapt`
 
+#### AUD-09 — The fixed Ask launcher obscures phone controls
+
+- **Location:** `caos/frontend/src/components/shared/Ask.tsx:263-277`; affected
+  controls include `src/app/command/page.tsx:52-53`,
+  `src/app/issuers/profile/ProfileContent.tsx:156-157`,
+  `src/components/decisions/ICBookWorkbench.tsx:446`, and
+  `src/app/settings/page.tsx:516-524`
+- **Severity:** Medium
+- **Category:** Responsive design / Interaction
+- **Description:** The 118×44px fixed Ask chip has route-specific bottom offsets
+  but no collision-avoidance or shared content inset. At 390×844 it physically
+  overlaps two Command dataset tabs, the IC Book portfolio selector, both
+  Issuer Profile hand-off links, and the Settings navigation-warning switch.
+  It also covers part of focusable Report/Pipeline scroll regions.
+- **Impact:** Part of each covered target is untappable and its label can be
+  obscured. Because the launcher is global and high-z-index, the failure recurs
+  as analysts scroll different route content under it.
+- **WCAG / standard:** WCAG 1.4.10 reflow intent and 2.5.8 target-spacing intent;
+  CAOS density-with-hierarchy principle. This was confirmed geometrically, not
+  reported by axe.
+- **Recommendation:** Reserve a shared bottom/right interaction inset in every
+  scroll owner or dock Ask into narrow chrome. Include the finalization bar and
+  safe-area inset in the position contract; verify with hit-testing, not only
+  document overflow.
+- **Suggested command:** `/adapt`
+
+#### AUD-10 — Three workbenches nest a second main landmark
+
+- **Location:** root main at `caos/frontend/src/app/layout.tsx:43-46`; nested
+  mains at `src/components/query/QueryInvestigationWorkbench.tsx:620-654`,
+  `src/components/sector/SectorReviewDossier.tsx:187-217`, and
+  `src/components/rv/RVScreenerWorkbench.tsx:293-329`
+- **Severity:** Medium
+- **Category:** Accessibility
+- **Description:** Query, Sector Review, and RV Screener each render a `<main>`
+  inside the root layout's `<main>`. Axe best-practice reports
+  `landmark-main-is-top-level`, `landmark-no-duplicate-main`, and
+  `landmark-unique` on all three routes at desktop and phone widths.
+- **Impact:** Screen-reader landmark navigation announces duplicate, unnamed
+  main regions and does not provide a stable top-level page structure on three
+  major analytical surfaces.
+- **WCAG / standard:** WCAG 1.3.1 structure intent; WAI landmark practice that a
+  document has one non-nested main landmark.
+- **Recommendation:** Keep the root `<main>` as the sole main landmark. Render
+  route workbench roots as `section`/`div` with a specific accessible label.
+- **Suggested command:** `/normalize`
+
 ### Low-severity issues
 
 #### AUD-06 — Citation excerpt uses a decorative side stripe
@@ -185,15 +259,66 @@ None found.
   with `scaleX` and the correct transform origin.
 - **Suggested command:** `/animate`
 
+#### AUD-11 — Route heading order skips from h1 to h3
+
+- **Location:** `caos/frontend/src/components/shared/SurfaceState.tsx:85`,
+  `src/components/model/ScenarioNetworkPanel.tsx:35-37`, and Portfolio Lab's
+  sector-concentration visualization
+- **Severity:** Low
+- **Category:** Accessibility
+- **Description:** Axe best-practice reports `heading-order` on Deep-Dive,
+  Model Builder, Portfolio Lab, Sector Review, and RV Screener in rendered
+  desktop/phone states. The common empty/loading state emits `h3` directly
+  beneath the route-level `h1`; Deep-Dive's scenario network and Portfolio
+  Lab's concentration panel do the same in populated desktop layouts.
+- **Impact:** Screen-reader heading traversal implies missing sections and makes
+  route hierarchy less predictable, particularly in empty or offline states.
+- **WCAG / standard:** WCAG 1.3.1 structure intent; axe best-practice
+  `heading-order` (moderate impact).
+- **Recommendation:** Give shared state/visualization components a contextual
+  heading level, default route sections to `h2`, and reserve `h3` for a real
+  nested subsection.
+- **Suggested command:** `/normalize`
+
+#### AUD-12 — Four data tables expose empty column headers
+
+- **Location:** `caos/frontend/src/app/issuers/page.tsx:521-545` and
+  `src/components/reports/ReportDoc.tsx:111-145`
+- **Severity:** Low
+- **Category:** Accessibility
+- **Description:** Axe best-practice reports one empty Directory grid header
+  (the select column) and three empty first-column headers in Report Studio's
+  Financials, Balance Sheet, and Credit Metrics tables. Report row labels are
+  rendered as `td`, so the blank first header does not establish a row-header
+  relationship either.
+- **Impact:** Assistive table navigation reaches unnamed columns; in the report
+  tables, a numeric cell's line-item context is less explicit than the visual
+  layout suggests.
+- **WCAG / standard:** WCAG 1.3.1 table-relationship intent; axe best-practice
+  `empty-table-header` (minor impact).
+- **Recommendation:** Name the Directory select/action column and use a visible
+  or visually hidden “Line item” header plus `th scope="row"` for report row
+  labels.
+- **Suggested command:** `/normalize`
+
 ## Patterns and systemic issues
 
 - **Narrow behavior is verified structurally, not visually.** The layout gate
   detects document overflow and missing composition slots, but not overlap,
   obscured headings, or breakpoint-level capability loss.
+- **Two core workbenches use capability amputation as responsive behavior.**
+  Deep-Dive and Model Builder both replace the primary analyst workflow with a
+  status-only read view below 1024px.
 - **Touch behavior has two standards.** Critical actions tagged
   `.caos-target` get a 44px height on coarse pointers; shared actions and
   micro-controls retain their 24-30px desktop boxes. The primitives need one
   explicit coarse-pointer contract.
+- **Global overlays and route scroll owners do not share geometry.** Ask has
+  fixed route-specific offsets, but route controls have no matching exclusion
+  zone, so valid local layouts are still obscured by global chrome.
+- **The WCAG-only axe gate omits useful structural rules.** Duplicate main
+  landmarks, heading-order gaps, and empty table headers all pass the current
+  production accessibility command unless best-practice rules are run too.
 - **Async state geometry is the remaining performance seam.** Desktop is stable,
   but slower phone transitions still recompose whole workbenches.
 - **Theme exceptions are controlled.** Literal colors are concentrated in chart
@@ -204,6 +329,9 @@ None found.
 
 - Axe found **0 violations**, **0 scan errors**, and **0 layout failures** across
   36 route/viewport scans.
+- The expanded route audit found **0 missing focus indicators** across the first
+  24 keyboard stops on each of 17 phone routes, **0 positive tabindex** values,
+  and **0 page-level horizontal-overflow routes**.
 - The responsive gate passed **136 / 136** cases across desktop, laptop, 1100px,
   tablet, 900px, 700px, phone, and 200% zoom.
 - Focus rings, skip links, modal focus management, scroll-region focusability,
@@ -218,21 +346,26 @@ None found.
 
 ## Recommendations by priority
 
-1. **Immediate:** Restore a task-complete narrow Deep-Dive path (AUD-01).
-2. **Short term:** Fix shared narrow panel headers and establish the coarse
-   pointer target contract (AUD-02, AUD-03).
-3. **Medium term:** Reduce Report Studio's initial render cost and stabilize
-   Sponsors/Sector loading geometry (AUD-04, AUD-05).
-4. **Long term:** Remove the decorative citation stripe and the isolated width
-   animation (AUD-06, AUD-07).
+1. **Immediate:** Restore task-complete narrow paths for Deep-Dive and Model
+   Builder (AUD-01, AUD-08).
+2. **Short term:** Fix shared narrow panel headers, reserve space for the Ask
+   launcher, and establish the coarse-pointer target contract (AUD-02, AUD-09,
+   AUD-03).
+3. **Medium term:** Correct the duplicated main landmarks, reduce Report
+   Studio's initial render cost, and stabilize Sponsors/Sector loading geometry
+   (AUD-10, AUD-04, AUD-05).
+4. **Long term:** Repair heading/table semantics, remove the decorative citation
+   stripe, and replace the isolated width animation (AUD-11, AUD-12, AUD-06,
+   AUD-07).
 
 ## Suggested commands for fixes
 
-- Use `/adapt` for AUD-01, AUD-02, AUD-03, and the narrow-state portion of
-  AUD-05.
+- Use `/adapt` for AUD-01, AUD-02, AUD-03, AUD-08, AUD-09, and the narrow-state
+  portion of AUD-05.
 - Use `/arrange` for the shared Panel heading/tab relationship in AUD-02.
-- Use `/normalize` for the target primitive contract and citation treatment in
-  AUD-03/AUD-06.
+- Use `/normalize` for the target primitive contract, citation treatment,
+  landmarks, heading levels, and table semantics in AUD-03/AUD-06/AUD-10/
+  AUD-11/AUD-12.
 - Use `/impeccable` for the performance optimization passes in AUD-04/AUD-05.
 - Use `/animate` for AUD-07.
 - Re-run `/audit` after remediation, retaining the real axe runner, 136-case
@@ -245,13 +378,31 @@ None found.
 - `npm test -- --reporter=dot`: 235 files / 1,442 tests passed.
 - `BYPASS_AUTH=1 VIEWPORTS=1440x900,390x844 node scripts/a11y-axe.mjs`:
   36 scans, zero violations/errors/layout failures.
+- Axe `best-practice` pass at 1440×900 and 390×844: duplicate/nested main
+  landmarks on three routes, heading-order defects on five rendered route
+  states, and four empty table headers; zero scan errors.
 - `node scripts/validate-enterprise-layout.mjs`: 136 checks, zero failures.
 - `node scripts/performance-audit.mjs`: production static export, desktop and
   constrained-phone profiles, zero scan errors.
-- Visual evidence covered Directory, Command, Deep-Dive, Model, Report Studio,
-  and Monitor at desktop and 390px.
+- Rendered 17 authenticated routes at 1440×900 and a real
+  `hasTouch`/`isMobile` 390×844 context. Captured pre-focus phone screenshots for
+  all 17 and inspected Directory, Command, IC Book, Deep-Dive, Model, Profile,
+  Pipeline, Portfolio, Query, Report Studio, Research, Monitor, Sector, RV,
+  Sponsors, Settings, and Upload.
+- Stateful browser validators passed Command, Monitor, and Issuer Profile at
+  desktop/tablet/phone. The IC Book product workflow passed finalize → history
+  row activation → confirmed dissent → reopen in a diagnostic using the current
+  `role=row` interaction contract. The checked-in `verify:ic-book` harness is
+  stale: it still expects the history row to be a button and omits the new
+  dissent-confirmation step.
+- Final desktop/phone console confirmation across all 17 routes found zero page
+  exceptions, hydration warnings, or scan errors. Remaining console/network
+  entries were expected unimplemented fixture endpoints and aborted Next link
+  prefetches during route changes.
 
 The browser runs use deterministic local API fixtures, so they verify rendered
-reference, empty, loading, and offline surfaces without mutating production
-data. They do not replace a live-backend audit of every populated editor state
-or testing on physical iOS/Android hardware.
+reference, empty, loading, offline, and selected stateful surfaces without
+mutating production data. Some screenshots therefore include deliberate 404 /
+offline fixture states; these were not counted as product service failures.
+They do not replace a live-backend audit of every populated editor state or
+testing on physical iOS/Android hardware.

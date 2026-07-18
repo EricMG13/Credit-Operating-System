@@ -379,9 +379,7 @@ test.describe("Command Center — current persisted workbench", () => {
     await expect.poll(fixtures.getSnapshotHits).toBeGreaterThan(beforeFocus);
 
     await page.getByRole("button", { name: "Open top change" }).click();
-    await expect(page).toHaveURL(/dataset=changes/);
-    await expect(page.getByText("Ranked Changes · autonomy draft", { exact: true })).toBeVisible();
-    await expect(page.getByText("EBITDA margin compressed sharply vs peers", { exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/deepdive\/?\?issuer=issuer-atlas(?:&|$)/);
 
     const patchResponse = await contextPatchResponse;
     expect(patchResponse.status()).toBe(200);

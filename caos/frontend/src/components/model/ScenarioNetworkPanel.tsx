@@ -33,9 +33,9 @@ export function ScenarioNetworkPanel({ issuerId, runId }: { issuerId: string; ru
 
   return (
     <section className="border-t border-caos-border pt-2" aria-labelledby="scenario-network-title">
-      <h3 id="scenario-network-title" className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
+      <h2 id="scenario-network-title" className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
         Scenario network · cross-module propagation
-      </h3>
+      </h2>
       {!runId ? (
         <SurfaceState
           kind="unavailable"

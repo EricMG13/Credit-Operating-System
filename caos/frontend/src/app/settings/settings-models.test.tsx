@@ -5,7 +5,7 @@
 // instead of vanishing (F5, exercised via the Email tab's sender list — the
 // routing lanes below are permanently disabled and never save).
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import SettingsPage from "./page";
 import { getAnalystSettings, getSettings, patchAnalystSettings } from "@/lib/api";
 
@@ -60,6 +60,37 @@ describe("Settings · Models tab", () => {
       const alert = screen.getByRole("alert");
       expect(alert.textContent).toContain("No analyst profile — settings not saved.");
     });
+  });
+
+  it("guards the global save while persistence is in flight and clears dirty state only after success", async () => {
+    let resolveSave!: (value: Awaited<ReturnType<typeof patchAnalystSettings>>) => void;
+    vi.mocked(patchAnalystSettings).mockReset()
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSave = resolve; }));
+
+    render(<SettingsPage />);
+    const save = await screen.findByRole("button", { name: "Save changes" });
+    await waitFor(() => expect(save.getAttribute("title")).toBe("No unsaved changes"));
+    fireEvent.click(await screen.findByRole("button", { name: /max/i }));
+    await waitFor(() => expect(save.getAttribute("aria-disabled")).toBeNull());
+
+    fireEvent.click(save);
+    await waitFor(() => {
+      expect(patchAnalystSettings).toHaveBeenCalledTimes(1);
+      expect(save.getAttribute("aria-disabled")).toBe("true");
+      expect(save.getAttribute("title")).toBe("Saving…");
+    });
+    fireEvent.click(save);
+    expect(patchAnalystSettings).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveSave({
+        model_lanes: {},
+        email_intelligence: { approved_senders: [] },
+        workspace: { model_mode: "max" },
+        revision: 1,
+      });
+    });
+    await waitFor(() => expect(save.getAttribute("title")).toBe("No unsaved changes"));
   });
 
   it("persists the unsaved-model navigation preference through the analyst workspace patch flow", async () => {

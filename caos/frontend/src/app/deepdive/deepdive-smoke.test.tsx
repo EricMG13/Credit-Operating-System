@@ -69,7 +69,7 @@ afterEach(() => {
 describe("Deep-Dive route smoke", () => {
   it("renders the complete reference workspace without a backend run", () => {
     render(<DeepDivePage />);
-    expect(screen.getByText(/Atlas Forge/i)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "2L TL '31 — new issue review" })).toBeTruthy();
     expect(screen.getByText("decision rail")).toBeTruthy();
   });
 });

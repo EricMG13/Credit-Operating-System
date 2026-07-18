@@ -231,6 +231,8 @@ export function buildWorkbook(
   return wb;
 }
 
+// Loaded dynamically by app/model/page.tsx to keep ExcelJS out of the initial bundle.
+// fallow-ignore-next-line unused-export
 export async function exportModel(
   model: Model,
   showQ: boolean,

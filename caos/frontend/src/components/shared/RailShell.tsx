@@ -26,11 +26,18 @@ export function RailShell({
 }) {
   if (!open) {
     return (
-      <div className="flex flex-col items-center gap-3 min-h-0 bg-caos-panel border border-caos-border rounded-md py-2.5">
+      <div
+        className="caos-rail-shell caos-rail-shell--collapsed flex flex-col items-center gap-3 min-h-0 bg-caos-panel border border-caos-border rounded-md py-2.5"
+        data-open="false"
+      >
         <CollapseButton direction={direction} label={expandTitle} onClick={onToggle} />
         {collapsed}
       </div>
     );
   }
-  return <div className="flex flex-col gap-2 min-h-0">{children}</div>;
+  return (
+    <div className="caos-rail-shell caos-rail-shell--open flex flex-col gap-2 min-h-0" data-open="true">
+      {children}
+    </div>
+  );
 }

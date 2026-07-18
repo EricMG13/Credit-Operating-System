@@ -493,9 +493,9 @@ id: research-16
 concept: Research
 feature: Research empty state
 story: As an analyst, I want a preview of report structure so that I know what to expect.
-expected: EmptyView "No report yet" (DRAFT badge) + "The deliverable" list (Executive summary, Detailed findings, Summary tables, Recommendations).
+expected: SurfaceState "Research not run" (not-run status) + "Expected deliverable" list (Executive summary, Detailed findings, Summary tables, Recommendations).
 trigger: result null, not running, no error
-files: caos/frontend/src/components/research/ReportPane.tsx:140
+files: caos/frontend/src/components/research/ReportPane.tsx:301
 endpoint: none (client-only)
 =END=
 =ROW=

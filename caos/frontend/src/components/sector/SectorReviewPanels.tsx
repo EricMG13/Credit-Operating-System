@@ -45,6 +45,7 @@ function EmptyPanel() {
     <div className="grid h-full place-items-center p-6">
       <SurfaceState
         kind="not-run"
+        headingLevel={2}
         title="No versioned dossier"
         detail="Request a refresh to create a draft without replacing any prior published review."
         compact
@@ -56,7 +57,7 @@ function EmptyPanel() {
 function LoadingPanel() {
   return (
     <div className="grid h-full place-items-center p-6">
-      <SurfaceState kind="loading" title="Loading sector review" compact />
+      <SurfaceState kind="loading" headingLevel={2} title="Loading sector review" compact />
     </div>
   );
 }

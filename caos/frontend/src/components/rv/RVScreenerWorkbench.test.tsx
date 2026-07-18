@@ -232,12 +232,16 @@ describe("RV Screener workbench", () => {
     expect(screen.getByText("1 · two · —")).toBeTruthy();
 
     const alpha = within(grid).getByText(/Alpha Telecom/).closest('[role="row"]') as HTMLElement;
-    fireEvent.keyDown(alpha, { key: "Enter" });
-    fireEvent.click(alpha);
+    const compare = within(alpha).getByRole("button", { name: "Compare" });
+    (HTMLElement.prototype.scrollTo as unknown as ReturnType<typeof vi.fn>).mockClear();
+    fireEvent.keyDown(compare, { key: "ArrowDown" });
+    expect((HTMLElement.prototype.scrollTo as unknown as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
     fireEvent.keyDown(alpha, { key: "ArrowDown" });
     expect((HTMLElement.prototype.scrollTo as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalled();
     expect(window.location.search).toContain("selected=candidate-2");
     const beta = within(grid).getByText(/Beta Fiber/).closest('[role="row"]') as HTMLElement;
+    fireEvent.keyDown(alpha, { key: "Enter" });
+    expect(window.location.search).toContain("selected=candidate-1");
     fireEvent.keyDown(beta, { key: "ArrowUp" });
 
     const viewport = within(grid).getByRole("rowgroup") as HTMLDivElement;

@@ -6,6 +6,7 @@ import { installSurfaceStubs } from './browser-surface-fixtures.mjs';
 const BASE = process.env.BASE || 'http://127.0.0.1:4173';
 const defaultRoutes = ['/issuers/','/issuers/profile/?id=iss-1','/upload/','/research/','/query/','/sector/','/sector-rv/','/command/','/portfolios/','/deepdive/','/model/','/decisions/','/reports/','/pipeline/','/monitor/','/sponsors/','/settings/'];
 const routes = process.env.ROUTES?.split(',').map((route) => route.trim()).filter(Boolean) ?? defaultRoutes;
+const quiet = process.env.LAYOUT_QUIET === '1';
 const defaultViewports = [
   { name: 'desktop', width: 1440, height: 900, zoom: 1 },
   { name: 'laptop', width: 1280, height: 800, zoom: 1 },
@@ -34,7 +35,7 @@ let checked = 0;
 for (const viewport of viewports) {
   await page.setViewportSize({ width: viewport.width, height: viewport.height });
   for (const route of routes) {
-    console.error(`layout: ${viewport.name} ${route}`);
+    if (!quiet) console.error(`layout: ${viewport.name} ${route}`);
     // Clear a prior route's synthetic zoom before navigation. Applying zoom to
     // `<html>` before hydration makes React report a false SSR mismatch.
     await page.evaluate(() => { document.documentElement.style.zoom = ''; });

@@ -64,6 +64,7 @@ function ModelAuthorityState({ loading }: { loading: boolean }) {
       <div className="p-3">
         <SurfaceState
           kind={loading ? "loading" : "error"}
+          headingLevel={2}
           title={loading ? "Resolving model authority" : "Model authority unavailable"}
           detail={loading
             ? "Checking the persisted workspace capability before loading a calculator."

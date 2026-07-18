@@ -108,3 +108,31 @@ read-only summary below its desktop breakpoint. Require representative
 screenshots, real coarse-pointer target measurements, and a desktop-vs-narrow
 capability inventory; structural overflow and axe results alone cannot verify
 responsive adaptation.
+
+## 2026-07-18 — debugging-code — OPEN
+
+The debugger-backend fallback link is broken: `SKILL.md` routes failed adapters
+to `references/installing-debuggers.md`, but the installed skill contains only
+`reference/tools.md`. Add the missing installation/troubleshooting reference or
+correct the link, and document that macOS `debugpy --pid` injection can close at
+initialization even when `debugpy` is installed; launching the program under DAP
+is the reliable fallback when attach returns `waiting for initialized: EOF`.
+
+## 2026-07-18 — a11y-audit — OPEN
+
+The Quick Start and tools reference are out of sync with the bundled scripts:
+`a11y_scanner.py` accepts `--format text|json` rather than `table|csv`, while
+`contrast_checker.py` accepts `--batch CSS_FILE` rather than `--file FILE` and
+uses `--suggest COLOR` with different semantics. Update the documented commands
+from the scripts' live `--help` contract, and add a self-check so the Scan phase
+does not fail before reaching the rendered axe gate.
+
+## 2026-07-18 — a11y-audit — OPEN
+
+The bundled regex scanner treats reusable components, tests, and generated audit
+artifacts as standalone pages, then reports page-landmark and unlabeled-control
+faults without resolving React component props or implicit labels. A whole-CAOS
+scan produced 1,169 mostly non-actionable findings while the rendered axe matrix
+was clean. Add include/exclude globs, distinguish route documents from component
+fragments, and either resolve common JSX label patterns or classify these rules
+as advisory so the loop converges on browser-confirmed faults.

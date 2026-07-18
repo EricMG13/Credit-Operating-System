@@ -63,7 +63,7 @@ const GROUPS: { title: string; items: DriverSpec[] }[] = [
 
 const GRID = "grid grid-cols-[1fr_repeat(4,40px)] gap-1 items-center";
 const CELL =
-  "w-full h-5 px-1 text-right tabular text-caos-xs rounded border bg-caos-elevated cursor-ew-resize select-none " +
+  "w-full h-6 px-1 text-right tabular text-caos-xs rounded border bg-caos-elevated cursor-ew-resize select-none " +
   "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none " +
   "focus:outline-none focus:border-caos-accent";
 
@@ -144,7 +144,7 @@ function Cell({ spec, model, modified, accent, label, clearLabel, onChange, onRe
         onClick={onReset}
         aria-label={clearLabel}
         title={clearLabel}
-        className="absolute -top-1 -right-1 w-3 h-3 flex items-center justify-center rounded-sm border bg-caos-panel tabular text-caos-3xs leading-none text-caos-muted opacity-0 group-hover/cell:opacity-100 group-focus-within/cell:opacity-100 focus:opacity-100 focus:outline-none hover:text-caos-text focus:text-caos-text transition-caos"
+        className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center rounded-sm border bg-caos-panel tabular text-caos-3xs leading-none text-caos-muted opacity-0 group-hover/cell:opacity-100 group-focus-within/cell:opacity-100 focus:opacity-100 focus:outline-none hover:text-caos-text focus:text-caos-text transition-caos"
         style={{ borderColor: accent }}
       >
         ✕

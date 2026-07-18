@@ -81,13 +81,15 @@ describe("Model Builder · restore race (SEC-H1)", () => {
 
     currentIssuer = REFERENCE_ISSUER;
     const { rerender } = render(<ModelPage />);
-    const retry = await screen.findByRole("alert", { name: /retry/i });
+    const retry = await screen.findByRole("button", { name: /retry/i });
+    expect(retry.closest('[role="alert"]')?.textContent).toContain("RETRY");
     fireEvent.click(retry); // retry A — response deliberately left in-flight
 
     // Analyst switches issuers while A's retry is still pending.
     currentIssuer = "issuer-b";
     rerender(<ModelPage />);
-    expect((await screen.findByRole("alert")).textContent).toContain("Model authority unavailable");
+    const unavailable = await screen.findByText(/Model authority unavailable/i);
+    expect(unavailable.closest('[role="alert"]')?.textContent).toContain("Model authority unavailable");
 
     // A's stale retry resolves — must be a no-op on B's state.
     retryA.resolve({
@@ -96,7 +98,7 @@ describe("Model Builder · restore race (SEC-H1)", () => {
     });
     await retryA.promise;
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.getByRole("alert").textContent).toContain("Model authority unavailable");
+    expect(screen.getByText(/Model authority unavailable/i).closest('[role="alert"]')?.textContent).toContain("Model authority unavailable");
     expect(screen.queryByText(/SAVED/)).toBeNull();
   });
 });
