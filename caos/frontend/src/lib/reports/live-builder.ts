@@ -46,44 +46,40 @@ function frozenOverrideStatus(expiresAt: unknown, reportEventAt?: string): strin
   return expiry > eventAt ? "ACTIVE AT REPORT EVENT" : "INACTIVE AT REPORT EVENT";
 }
 
+function normalizedReportingText(value: unknown, uppercase = false): string {
+  if (typeof value !== "string" || !value.trim()) return "Unavailable";
+  const text = value.trim();
+  return uppercase ? text.toUpperCase() : text;
+}
+
+function frozenInstrumentCurrencies(values: unknown[]): Map<string, string> {
+  const currencies = new Map<string, string>();
+  for (const value of values) {
+    if (!value || typeof value !== "object") continue;
+    const instrument = value as Record<string, unknown>;
+    if (typeof instrument.instrument_id !== "string" || !instrument.instrument_id) continue;
+    currencies.set(instrument.instrument_id, normalizedReportingText(instrument.currency, true));
+  }
+  return currencies;
+}
+
 function frozenModelReportingIdentity(snapshot: Record<string, unknown>) {
   const payload = snapshot.payload && typeof snapshot.payload === "object"
     ? snapshot.payload as Record<string, unknown>
     : {};
-  const rawCurrency = payload.reporting_currency;
-  const rawUnit = payload.reporting_unit;
-  const currency = typeof rawCurrency === "string" && rawCurrency.trim()
-    ? rawCurrency.trim().toUpperCase()
-    : "Unavailable";
-  const unit = typeof rawUnit === "string" && rawUnit.trim()
-    ? rawUnit.trim()
-    : "Unavailable";
-  const instrumentCurrencies = new Map<string, string>();
+  const currency = normalizedReportingText(payload.reporting_currency, true);
+  const unit = normalizedReportingText(payload.reporting_unit);
   const debtInstruments = Array.isArray(payload.debt_instruments) ? payload.debt_instruments : [];
   const overrides = Array.isArray(payload.overrides) ? payload.overrides : [];
-  for (const value of debtInstruments) {
-    if (!value || typeof value !== "object") continue;
-    const instrument = value as Record<string, unknown>;
-    if (typeof instrument.instrument_id !== "string" || !instrument.instrument_id) continue;
-    const instrumentCurrency = typeof instrument.currency === "string" && instrument.currency.trim()
-      ? instrument.currency.trim().toUpperCase()
-      : "Unavailable";
-    instrumentCurrencies.set(instrument.instrument_id, instrumentCurrency);
-  }
-  return { currency, unit, scale: `${currency} ${unit}`, instrumentCurrencies, overrides };
+  return { currency, unit, scale: `${currency} ${unit}`, instrumentCurrencies: frozenInstrumentCurrencies(debtInstruments), overrides };
 }
 
-function frozenModelSections(payload: Record<string, unknown>, reportEventAt?: string): Section[] {
-  const model = payload.model;
-  if (!model || typeof model !== "object") return [];
-  const snapshot = model as Record<string, unknown>;
-  const calculation = snapshot.calculation;
-  if (!calculation || typeof calculation !== "object") return [];
-  const periods = Array.isArray((calculation as Record<string, unknown>).periods)
-    ? (calculation as Record<string, unknown>).periods as unknown[]
-    : [];
-  const reporting = frozenModelReportingIdentity(snapshot);
-  const sections: Section[] = [{
+type FrozenReporting = ReturnType<typeof frozenModelReportingIdentity>;
+
+function frozenIdentitySection(snapshot: Record<string, unknown>, calculation: Record<string, unknown>, reporting: FrozenReporting): Section {
+  const authority = snapshot.authority as Record<string, unknown> | undefined;
+  const origins = Array.isArray(authority?.model_input_origins) ? (authority.model_input_origins as unknown[]).join(", ") : "unknown";
+  return {
     t: "profile",
     title: "MODEL ENGINE V2 · FROZEN IDENTITY",
     rows: [
@@ -94,21 +90,19 @@ function frozenModelSections(payload: Record<string, unknown>, reportEventAt?: s
       ["Draft revision", String(snapshot.draft_revision ?? "Unavailable")],
       ["Reporting currency", reporting.currency],
       ["Reporting unit", reporting.unit],
-      ["Availability", String((calculation as Record<string, unknown>).status ?? "unknown").toUpperCase()],
-      ["Model origin", String((snapshot.authority as Record<string, unknown> | undefined)?.origin ?? "unknown").toUpperCase()],
-      ["Model input origins", Array.isArray((snapshot.authority as Record<string, unknown> | undefined)?.model_input_origins)
-        ? ((snapshot.authority as Record<string, unknown>).model_input_origins as unknown[]).join(", ")
-        : "unknown"],
-      ["Model analyst override", (snapshot.authority as Record<string, unknown> | undefined)?.analyst_override ? "YES" : "NO"],
+      ["Availability", String(calculation.status ?? "unknown").toUpperCase()],
+      ["Model origin", String(authority?.origin ?? "unknown").toUpperCase()],
+      ["Model input origins", origins],
+      ["Model analyst override", authority?.analyst_override ? "YES" : "NO"],
     ],
-  }];
-  const gaps = Array.isArray((calculation as Record<string, unknown>).gaps)
-    ? (calculation as Record<string, unknown>).gaps as unknown[]
-    : [];
-  const warnings = Array.isArray((calculation as Record<string, unknown>).warnings)
-    ? (calculation as Record<string, unknown>).warnings as unknown[]
-    : [];
-  if (gaps.length || warnings.length) sections.push({
+  };
+}
+
+function availabilityLedger(calculation: Record<string, unknown>): Section | null {
+  const gaps = Array.isArray(calculation.gaps) ? calculation.gaps : [];
+  const warnings = Array.isArray(calculation.warnings) ? calculation.warnings : [];
+  if (!gaps.length && !warnings.length) return null;
+  return {
     t: "table",
     title: "MODEL ENGINE V2 · AVAILABILITY LEDGER",
     cols: ["Type", "Detail"],
@@ -117,102 +111,132 @@ function frozenModelSections(payload: Record<string, unknown>, reportEventAt?: s
       ...gaps.map((value) => ({ cells: ["GAP", String(value)] })),
       ...warnings.map((value) => ({ cells: ["WARNING", String(value)] })),
     ],
-  });
+  };
+}
+
+function frozenModelRow(period: Record<string, unknown>): TableRow {
+  return { cells: [
+    String(period.period_key ?? ""), String(period.label ?? ""),
+    modelAmount(period.revenue), modelAmount(period.adjusted_ebitda),
+    modelAmount(period.cash_interest), modelAmount(period.total_debt),
+    modelAmount(period.net_debt), modelMultiple(period.gross_leverage),
+    modelMultiple(period.net_leverage), modelMultiple(period.interest_coverage),
+    modelAmount(period.free_cash_flow),
+  ] };
+}
+
+function frozenDebtRow(periodKey: string, instrument: Record<string, unknown>, reporting: FrozenReporting): TableRow {
+  const instrumentId = String(instrument.instrument_id ?? "");
+  return { cells: [
+    periodKey, instrumentId, reporting.instrumentCurrencies.get(instrumentId) ?? "Unavailable",
+    modelAmount(instrument.opening_balance), modelAmount(instrument.closing_balance),
+    modelAmount(instrument.average_balance), modelAmount(instrument.benchmark_interest),
+    modelAmount(instrument.margin_interest), modelAmount(instrument.coupon_interest),
+    modelAmount(instrument.fees), modelAmount(instrument.pik_interest),
+    modelAmount(instrument.hedge_effect), modelAmount(instrument.fx_effect),
+    modelAmount(instrument.cash_interest), modelAmount(instrument.debt_reporting_currency),
+    modelAmount(instrument.rollforward_residual),
+  ] };
+}
+
+function collectPeriodNodes(period: Record<string, unknown>, nodes: Map<string, Record<string, unknown>>) {
+  for (const value of Array.isArray(period.nodes) ? period.nodes : []) {
+    if (!value || typeof value !== "object") continue;
+    const node = value as Record<string, unknown>;
+    if (typeof node.node_id === "string") nodes.set(node.node_id, node);
+  }
+}
+
+function collectPeriodDebtRows(period: Record<string, unknown>, reporting: FrozenReporting, debtRows: TableRow[]) {
+  const periodKey = String(period.period_key ?? "");
+  for (const value of Array.isArray(period.instruments) ? period.instruments : []) {
+    if (value && typeof value === "object") debtRows.push(frozenDebtRow(periodKey, value as Record<string, unknown>, reporting));
+  }
+}
+
+function collectFrozenPeriodRows(periods: unknown[], reporting: FrozenReporting) {
   const modelRows: TableRow[] = [];
   const debtRows: TableRow[] = [];
   const nodes = new Map<string, Record<string, unknown>>();
   for (const value of periods) {
     if (!value || typeof value !== "object") continue;
     const period = value as Record<string, unknown>;
-    modelRows.push({ cells: [
-      String(period.period_key ?? ""), String(period.label ?? ""),
-      modelAmount(period.revenue), modelAmount(period.adjusted_ebitda),
-      modelAmount(period.cash_interest), modelAmount(period.total_debt),
-      modelAmount(period.net_debt), modelMultiple(period.gross_leverage),
-      modelMultiple(period.net_leverage), modelMultiple(period.interest_coverage),
-      modelAmount(period.free_cash_flow),
-    ] });
-    const periodNodes = Array.isArray(period.nodes) ? period.nodes : [];
-    for (const nodeValue of periodNodes) {
-      if (!nodeValue || typeof nodeValue !== "object") continue;
-      const node = nodeValue as Record<string, unknown>;
-      if (typeof node.node_id === "string") nodes.set(node.node_id, node);
-    }
-    const instruments = Array.isArray(period.instruments) ? period.instruments : [];
-    for (const instrumentValue of instruments) {
-      if (!instrumentValue || typeof instrumentValue !== "object") continue;
-      const instrument = instrumentValue as Record<string, unknown>;
-      debtRows.push({ cells: [
-        String(period.period_key ?? ""), String(instrument.instrument_id ?? ""),
-        reporting.instrumentCurrencies.get(String(instrument.instrument_id ?? "")) ?? "Unavailable",
-        modelAmount(instrument.opening_balance),
-        modelAmount(instrument.closing_balance),
-        modelAmount(instrument.average_balance),
-        modelAmount(instrument.benchmark_interest),
-        modelAmount(instrument.margin_interest),
-        modelAmount(instrument.coupon_interest),
-        modelAmount(instrument.fees),
-        modelAmount(instrument.pik_interest),
-        modelAmount(instrument.hedge_effect),
-        modelAmount(instrument.fx_effect),
-        modelAmount(instrument.cash_interest),
-        modelAmount(instrument.debt_reporting_currency),
-        modelAmount(instrument.rollforward_residual),
-      ] });
-    }
+    modelRows.push(frozenModelRow(period));
+    collectPeriodNodes(period, nodes);
+    collectPeriodDebtRows(period, reporting, debtRows);
   }
+  return { debtRows, modelRows, nodes };
+}
+
+function frozenOverrideRow(override: Record<string, unknown>, nodes: Map<string, Record<string, unknown>>, reportEventAt?: string): TableRow {
+  const nodeId = String(override.node_id ?? "Unavailable");
+  const displaced = nodes.get(nodeId);
+  const formula = typeof displaced?.formula === "string" && displaced.formula.trim() ? displaced.formula : "No formula (input)";
+  return { cells: [
+    frozenOverrideStatus(override.expires_at, reportEventAt), nodeId,
+    override.value_type === "null" ? "NULL" : auditCell(override.value),
+    auditCell(override.reason), auditCell(override.scope), auditCell(override.source),
+    auditCell(override.expires_at, "No expiry"), formula, auditCell(displaced?.original_value),
+  ] };
+}
+
+function frozenOverrideSection(reporting: FrozenReporting, nodes: Map<string, Record<string, unknown>>, reportEventAt?: string): Section | null {
   const overrides = reporting.overrides
     .filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object")
     .sort((left, right) => String(left.node_id ?? "").localeCompare(String(right.node_id ?? "")));
   const renderedOverrides = overrides.slice(0, MAX_FROZEN_OVERRIDE_ROWS);
-  if (renderedOverrides.length) {
-    const overrideRows: TableRow[] = renderedOverrides.map((override) => {
-      const nodeId = String(override.node_id ?? "Unavailable");
-      const displaced = nodes.get(nodeId);
-      return { cells: [
-        frozenOverrideStatus(override.expires_at, reportEventAt),
-        nodeId,
-        override.value_type === "null" ? "NULL" : auditCell(override.value),
-        auditCell(override.reason),
-        auditCell(override.scope),
-        auditCell(override.source),
-        auditCell(override.expires_at, "No expiry"),
-        typeof displaced?.formula === "string" && displaced.formula.trim()
-          ? displaced.formula
-          : "No formula (input)",
-        auditCell(displaced?.original_value),
-      ] };
-    });
-    if (overrides.length > renderedOverrides.length) {
-      overrideRows.push({ cells: [
-        "TRUNCATED",
-        `${overrides.length - renderedOverrides.length} additional overrides remain in the frozen payload`,
-        "", "", "", "", "", "", "",
-      ] });
-    }
-    sections.push({
-      t: "table",
-      title: "MODEL ENGINE V2 · FROZEN OVERRIDE LEDGER",
-      cols: ["Status", "Node", "Value", "Reason", "Scope", "Source", "Expires", "Displaced formula", "Displaced value"],
-      align: [0, 0, 1, 0, 0, 0, 0, 0, 1],
-      rows: overrideRows,
-    });
-  }
-  if (modelRows.length) sections.push({
+  if (!renderedOverrides.length) return null;
+  const rows = renderedOverrides.map((override) => frozenOverrideRow(override, nodes, reportEventAt));
+  const omitted = overrides.length - renderedOverrides.length;
+  if (omitted) rows.push({ cells: ["TRUNCATED", `${omitted} additional overrides remain in the frozen payload`, "", "", "", "", "", "", ""] });
+  return {
+    t: "table",
+    title: "MODEL ENGINE V2 · FROZEN OVERRIDE LEDGER",
+    cols: ["Status", "Node", "Value", "Reason", "Scope", "Source", "Expires", "Displaced formula", "Displaced value"],
+    align: [0, 0, 1, 0, 0, 0, 0, 0, 1],
+    rows,
+  };
+}
+
+function frozenCalculationSection(rows: TableRow[], reporting: FrozenReporting): Section | null {
+  if (!rows.length) return null;
+  return {
     t: "table",
     title: `MODEL ENGINE V2 · CALCULATION · ${reporting.scale.toUpperCase()}`,
     cols: ["Period", "Label", "Revenue", "Adj. EBITDA", "Cash interest", "Total debt", "Net debt", "Gross lev.", "Net lev.", "Interest coverage", "FCF"],
     align: [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    rows: modelRows,
-  });
-  if (debtRows.length) sections.push({
+    rows,
+  };
+}
+
+function frozenDebtSection(rows: TableRow[], reporting: FrozenReporting): Section | null {
+  if (!rows.length) return null;
+  return {
     t: "table",
     title: `MODEL ENGINE V2 · DEBT SCHEDULE · ${reporting.unit.toUpperCase()} · REPORTING CURRENCY ${reporting.currency}`,
     cols: ["Period", "Instrument", "Currency", "Opening", "Closing", "Average", "Benchmark", "Margin", "Coupon", "Fees", "PIK", "Hedge", "FX", "Cash interest", `Debt (${reporting.scale})`, "Roll-forward residual"],
     align: [0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-    rows: debtRows,
-  });
-  return sections;
+    rows,
+  };
+}
+
+function frozenModelSections(payload: Record<string, unknown>, reportEventAt?: string): Section[] {
+  const model = payload.model;
+  if (!model || typeof model !== "object") return [];
+  const snapshot = model as Record<string, unknown>;
+  const calculation = snapshot.calculation;
+  if (!calculation || typeof calculation !== "object") return [];
+  const calculationRecord = calculation as Record<string, unknown>;
+  const periods = Array.isArray(calculationRecord.periods) ? calculationRecord.periods : [];
+  const reporting = frozenModelReportingIdentity(snapshot);
+  const collected = collectFrozenPeriodRows(periods, reporting);
+  return [
+    frozenIdentitySection(snapshot, calculationRecord, reporting),
+    availabilityLedger(calculationRecord),
+    frozenOverrideSection(reporting, collected.nodes, reportEventAt),
+    frozenCalculationSection(collected.modelRows, reporting),
+    frozenDebtSection(collected.debtRows, reporting),
+  ].filter((section): section is Section => section !== null);
 }
 
 function sourceIds(section: OutSection): string[] {

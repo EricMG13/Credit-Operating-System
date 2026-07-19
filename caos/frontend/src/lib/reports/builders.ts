@@ -244,37 +244,36 @@ function getCapitalStructure(model: Model) {
   return { reported, addbacks, adj, structEbitda, rcf, tlb, ssn, sub, secured, tdebt, cash, ev, equity, xm, pev, pfInt };
 }
 
-function modelAppendix(model: Model, currency = "USD"): Report {
-  const subtotalLines = new Set(["gp", "ebit", "ffo", "cfo"]);
-  const kpiGroupLines = new Set(["intcov", "sga", "dso", "taxr"]);
+const APPENDIX_SUBTOTAL_LINES = new Set(["gp", "ebit", "ffo", "cfo"]);
+const APPENDIX_KPI_GROUP_LINES = new Set(["intcov", "sga", "dso", "taxr"]);
+
+function modelAppendixTable(model: Model, columns: Model["columns"]) {
   const appendixPctColor = (v: number | null, rowId: string, bold: boolean, rowFmt?: string): string =>
     cellTextColor({ rowId, v, isOv: false, pct: true, bold, rowFmt }).replace("var(--caos-accent)", APPENDIX_PCT_BLUE);
   const labelFor = (key: string) => {
-    const c = model.cols[key];
-    const col = model.columns.find((x) => x.key === key);
-    if (!col) return c.label;
-    if (col.group === "Q") return `Q ${c.label}`;
-    return `${col.group} ${c.label}`;
+    const cell = model.cols[key];
+    const column = model.columns.find((candidate) => candidate.key === key);
+    if (!column) return cell.label;
+    return column.group === "Q" ? `Q ${cell.label}` : `${column.group} ${cell.label}`;
   };
-  const cols = ["Line", ...model.columns.map((c) => labelFor(c.key))];
-  const rows: TableRow[] = ROWS.map((r) => r.sec
-    ? { cells: [r.sec, ...model.columns.map(() => "")], b: 1, line: 1, gap: 1 }
+  const cols = ["Line", ...columns.map((column) => labelFor(column.key))];
+  const rows: TableRow[] = ROWS.map((row) => row.sec
+    ? { cells: [row.sec, ...columns.map(() => "")], b: 1, line: 1, gap: 1 }
     : (() => {
-        const values = model.columns.map((c) => r.g?.(model.cols[c.key]) ?? null);
+        const values = columns.map((column) => row.g?.(model.cols[column.key]) ?? null);
         return {
-          cells: [
-            r.sub ? `${r.l} (${r.sub})` : r.l || "",
-            ...values.map((v) => fmt(v, r.f)),
-          ],
-          cellColors: r.pct && r.id ? [
-            undefined,
-            ...values.map((v) => appendixPctColor(v, r.id!, !!r.bold, r.f)),
-          ] : undefined,
-          b: r.bold,
-          line: r.line || (r.id && (subtotalLines.has(r.id) || kpiGroupLines.has(r.id)) ? 1 : undefined),
-          gap: r.line || (r.id && kpiGroupLines.has(r.id) ? 1 : undefined),
+          cells: [row.sub ? `${row.l} (${row.sub})` : row.l || "", ...values.map((value) => fmt(value, row.f))],
+          cellColors: row.pct && row.id ? [undefined, ...values.map((value) => appendixPctColor(value, row.id!, !!row.bold, row.f))] : undefined,
+          b: row.bold,
+          line: row.line || (row.id && (APPENDIX_SUBTOTAL_LINES.has(row.id) || APPENDIX_KPI_GROUP_LINES.has(row.id)) ? 1 : undefined),
+          gap: row.line || (row.id && APPENDIX_KPI_GROUP_LINES.has(row.id) ? 1 : undefined),
         };
       })());
+  return { cols, rows };
+}
+
+function modelAppendix(model: Model, currency = "USD"): Report {
+  const { cols, rows } = modelAppendixTable(model, model.columns);
   return {
     id: "model",
     title: "Model Appendix",
@@ -288,12 +287,104 @@ function modelAppendix(model: Model, currency = "USD"): Report {
   };
 }
 
+type CapitalStructure = ReturnType<typeof getCapitalStructure>;
+
+function onReportPage(section: Section, page?: string): Section {
+  return page ? { ...section, page } : section;
+}
+
+function companySummarySections(page?: string): Section[] {
+  return [
+    onReportPage({ t: "cols", w: [1, 1], items: [
+      [{ t: "profile", title: "COMPANY PROFILE", rows: [
+        ["Company", "Atlas Forge Industrials (ATLF)"], ["Sector", "Industrials — engineered metal components"],
+        ["Shareholders", "Kestrel Fund V 68.4% · co-invest 22.4% · mgmt 9.2%"], ["Corp Ratings (M/S/F)", "B2 / B / —"],
+        ["Country", "United States"], ["Management", "T. Renner (CEO) · M. Okafor (CFO)"],
+        ["Sector Outlook", "STABLE — order book 1.06x"], ["Sponsor Quality", "Competent operator · extractive policy (CP-2D)"],
+        ["Credit Score", "71 / 100 (CP-3 T3.3)"], ["Credit Direction", "IMPROVING — gated on Q3-26 certificate"],
+      ] }],
+      [{ t: "profile", title: "RECOMMENDATION", rows: [
+        ["Analyst", "CAOS · RUN #2641"], ["Date", "Jun 10, 2026"],
+        ["Recommendation", "OVERWEIGHT — 75bps initial → 125bps max (CP-6E)"], ["Entry", "+388bps or wider · limit at +400"],
+        ["CLO", "Market weight"], ["Indexed Loans", "Market weight"],
+        ["Indexed Lev Loan", "Overweight"], ["Clearance", "CP-5 CONDITIONAL — QA-117 open"],
+      ] }],
+    ] }, page),
+    onReportPage({ t: "table", title: "TRANSACTION SUMMARY AND NEW DEBT ISSUES", cols: ["Borrower", "Instrument", "Debt Type", "UoP", "Tranche ($Mn)", "Guidance / IPT", "OID", "Maturity", "Exp. Ratings", "CR Score", "Commit"], align: [0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0], rows: [
+      { cells: ["Atlas Forge Intermediate Holdings", "2L TL '31", "2nd Lien Term Loan", "Refi 2L bridge + GCP", "900", "S+400–425 / IPT S+450", "99.41", "2031", "B3 / B−", "71", "May-26"] },
+    ] }, page),
+  ];
+}
+
+function businessOverviewSection(capital: CapitalStructure, page?: string, adjustmentsTitle = "EBITDA ADJUSTMENTS"): Section {
+  const { reported, addbacks, adj, structEbitda } = capital;
+  return onReportPage({ t: "cols", w: [3, 2], items: [
+    [{ t: "text", title: "BUSINESS DESCRIPTION", body: "Engineered metal components for industrial OEMs across Drivetrain (46% of revenue), Fluid Systems (31%) and Aftermarket & Services (23% of revenue, 44% of gross profit). 14 plants (9 US, 4 EU, 1 MX); #1–2 share in 7 of 9 core lines. The credit rests on a 1.9M-unit installed base feeding contract-locked aftermarket revenue renewing at 92%; 71% of COGS is pass-through-indexed with a 60–90 day lag. Owned by Kestrel Capital Fund V since the 2021 LBO ($2,150M EV, 7.9x)." }],
+    [{ t: "profile", title: adjustmentsTitle, rows: [
+      ["Reported EBITDA (LTM)", fm(reported)], ["Company add-backs", fm(addbacks)],
+      ["Adj. EBITDA (company)", fm(adj)], ["Analyst adj. 1 — recurring 'one-time' charges", "(25)"],
+      ["Analyst adj. 2 — cost-out phasing risk", "(10)"], ["Analyst adj. 3", "—"],
+      ["Structuring EBITDA", fm(structEbitda)],
+    ], boldLast: 1 }],
+  ] }, page);
+}
+
+function capitalStructureSections(capital: CapitalStructure, page?: string): Section[] {
+  const { rcf, tlb, ssn, sub, secured, tdebt, cash, ev, equity, xm, pev, pfInt, structEbitda } = capital;
+  return [
+    onReportPage({ t: "table", title: "CAPITAL STRUCTURE", cols: ["Facility", "Spread / Coupon", "CCY", "Maturity", "Bid", "Ask", "Outstanding ($Mn)", "Multiple", "% EV", "Recommendation"], align: [0, 1, 0, 1, 1, 1, 1, 1, 1, 0], rows: [
+      { cells: ["RCF $250M (drawn)", "S+350", "USD", "2027", "—", "—", fm(rcf), "", "", "—"] },
+      { cells: ["1L Term Loan B", "S+375", "USD", "2029", "99.10", "99.60", fm(tlb), "", "", "HOLD"] },
+      { cells: ["2L TL '31 (subject)", "S+425", "USD", "2031", "96.25", "96.75", fm(ssn), "", "", "BUY"] },
+      { cells: ["Senior secured debt", "", "", "", "", "", fm(secured), xm(secured), pev(secured), ""], b: 1, line: 1 },
+      { cells: ["Sub Notes '32", "10.000%", "USD", "2032", "88.50", "89.80", fm(sub), "", "", "AVOID"] },
+      { cells: ["Unsecured / subordinated", "", "", "", "", "", fm(sub), xm(sub), "", ""], b: 1, line: 1 },
+      { cells: ["Total debt", "", "", "", "", "", fm(tdebt), xm(tdebt), pev(tdebt), ""], b: 1 },
+      { cells: ["Cash", "", "", "", "", "", fm(cash), "", "", ""] },
+      { cells: ["(Implied) Equity @ 9.5x", "", "", "", "", "", fm(equity), "", "", ""] },
+      { cells: ["EV @ 9.5x structuring EBITDA", "", "", "", "", "", fm(ev), "9.50x", "100%", ""], b: 1, line: 1 },
+      { cells: ["PF interest", "", "", "", "", "", fm(pfInt), fx(structEbitda / pfInt), "", ""], it: 1 },
+    ] }, page),
+    seniorityStackChart(rcf, tlb, ssn, sub, equity, page),
+  ];
+}
+
+function varianceSection(page?: string): Section {
+  return onReportPage({ t: "table", title: "VARIANCE VS ANALYST MODEL", cols: ["Line", "Saved base", "Actual", "Δ", "Driver"], align: [0, 1, 1, 1, 0], rows: [
+    { cells: ["Revenue", "722.0", "715.0", "−1.0%", "Fluid Systems volume"] },
+    { cells: ["Adj. EBITDA", "112.7", "108.0", "−4.2%", "volume (−3.1) + cost-out phasing (−1.6)"] },
+    { cells: ["Margin", "15.6%", "15.1%", "−50bps", "absorption"] },
+  ] }, page);
+}
+
+function catalystCalendarSection(page?: string, title = "CATALYST CALENDAR — NEXT 12 MONTHS"): Section {
+  return onReportPage({ t: "table", title, cols: ["Date", "Event", "Prob.", "Impact", "Route"], align: [0, 0, 1, 0, 0], rows: [
+    { cells: ["Jul 28, 2026", "Q2-26 earnings + first add-back realization print", "100%", "HIGH", "CP-1B · CP-6A"] },
+    { cells: ["Sep 2026", "RCF extension / repricing window opens", "70%", "MED", "CP-3D"] },
+    { cells: ["Oct 2026", "Q3-26 compliance certificate (add-back test)", "100%", "HIGH", "CP-1 · T-1"] },
+    { cells: ["Q4 2026", "Kestrel Fund V exit-window commentary", "40%", "MED", "CP-2D"] },
+    { cells: ["Q2 2027", "Meridian-platform contract repricing", "100%", "HIGH", "CP-2B P1"] },
+  ] }, page);
+}
+
+function keyProvisionsSection(page?: string): Section {
+  return onReportPage({ t: "table", title: "KEY PROVISIONS", cols: ["Provision · doc", "Feature", "Aggressiveness", "Headroom / capacity"], align: [0, 0, 1, 1], rows:
+    COVENANTS.slice(0, 6).map((covenant) => ({ cells: [covenant.ref, covenant.name, covenant.agg + " / 10", covenant.headroom] })),
+  }, page);
+}
+
+function capacityBuildSection(page?: string, title = "CAPACITY BUILD ($M)"): Section {
+  return onReportPage({ t: "table", title, cols: ["Component", "Amount", "Basis"], align: [0, 1, 0], rows: [
+    { cells: ["Freebie basket", "150", "greater of $150M / 35% × EBITDA"] },
+    { cells: ["Ratio capacity", "310", "to 5.25x secured at 4.68x current"] },
+    { cells: ["Reclassification headroom", "155", "basket migration mechanics"] },
+    { cells: ["Total — incurrable pari or senior to 2L", "612", ""], b: 1, line: 1 },
+  ] }, page);
+}
+
 /* ---------- Credit Snapshot ---------- */
 function creditSnapshot(model: Model): Report {
-  const {
-    reported, addbacks, adj, structEbitda, rcf, tlb, ssn, sub,
-    secured, tdebt, cash, ev, equity, xm, pev, pfInt
-  } = getCapitalStructure(model);
+  const capital = getCapitalStructure(model);
   return {
     id: "snapshot", title: "Credit Snapshot", file: "ATLF Credit Snapshot",
     subtitle: "Atlas Forge Industrials (ATLF) · generated from RUN #2641 module outputs · Jun 10, 2026",
@@ -303,47 +394,9 @@ function creditSnapshot(model: Model): Report {
       { chip: "CP-3B T3B.2", ev: ["E-63"] }, { chip: "CP-6A 06", ev: [] }, { chip: "MKT", ev: ["E-71"] }, { chip: "M-118", ev: [] },
     ],
     sections: [
-      { t: "cols", w: [1, 1], items: [
-        [{ t: "profile", title: "COMPANY PROFILE", rows: [
-          ["Company", "Atlas Forge Industrials (ATLF)"], ["Sector", "Industrials — engineered metal components"],
-          ["Shareholders", "Kestrel Fund V 68.4% · co-invest 22.4% · mgmt 9.2%"], ["Corp Ratings (M/S/F)", "B2 / B / —"],
-          ["Country", "United States"], ["Management", "T. Renner (CEO) · M. Okafor (CFO)"],
-          ["Sector Outlook", "STABLE — order book 1.06x"], ["Sponsor Quality", "Competent operator · extractive policy (CP-2D)"],
-          ["Credit Score", "71 / 100 (CP-3 T3.3)"], ["Credit Direction", "IMPROVING — gated on Q3-26 certificate"],
-        ] }],
-        [{ t: "profile", title: "RECOMMENDATION", rows: [
-          ["Analyst", "CAOS · RUN #2641"], ["Date", "Jun 10, 2026"],
-          ["Recommendation", "OVERWEIGHT — 75bps initial → 125bps max (CP-6E)"], ["Entry", "+388bps or wider · limit at +400"],
-          ["CLO", "Market weight"], ["Indexed Loans", "Market weight"],
-          ["Indexed Lev Loan", "Overweight"], ["Clearance", "CP-5 CONDITIONAL — QA-117 open"],
-        ] }],
-      ] },
-      { t: "table", title: "TRANSACTION SUMMARY AND NEW DEBT ISSUES", cols: ["Borrower", "Instrument", "Debt Type", "UoP", "Tranche ($Mn)", "Guidance / IPT", "OID", "Maturity", "Exp. Ratings", "CR Score", "Commit"], align: [0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0], rows: [
-        { cells: ["Atlas Forge Intermediate Holdings", "2L TL '31", "2nd Lien Term Loan", "Refi 2L bridge + GCP", "900", "S+400–425 / IPT S+450", "99.41", "2031", "B3 / B−", "71", "May-26"] },
-      ] },
-      { t: "table", title: "CAPITAL STRUCTURE", cols: ["Facility", "Spread / Coupon", "CCY", "Maturity", "Bid", "Ask", "Outstanding ($Mn)", "Multiple", "% EV", "Recommendation"], align: [0, 1, 0, 1, 1, 1, 1, 1, 1, 0], rows: [
-        { cells: ["RCF $250M (drawn)", "S+350", "USD", "2027", "—", "—", fm(rcf), "", "", "—"] },
-        { cells: ["1L Term Loan B", "S+375", "USD", "2029", "99.10", "99.60", fm(tlb), "", "", "HOLD"] },
-        { cells: ["2L TL '31 (subject)", "S+425", "USD", "2031", "96.25", "96.75", fm(ssn), "", "", "BUY"] },
-        { cells: ["Senior secured debt", "", "", "", "", "", fm(secured), xm(secured), pev(secured), ""], b: 1, line: 1 },
-        { cells: ["Sub Notes '32", "10.000%", "USD", "2032", "88.50", "89.80", fm(sub), "", "", "AVOID"] },
-        { cells: ["Unsecured / subordinated", "", "", "", "", "", fm(sub), xm(sub), "", ""], b: 1, line: 1 },
-        { cells: ["Total debt", "", "", "", "", "", fm(tdebt), xm(tdebt), pev(tdebt), ""], b: 1 },
-        { cells: ["Cash", "", "", "", "", "", fm(cash), "", "", ""] },
-        { cells: ["(Implied) Equity @ 9.5x", "", "", "", "", "", fm(equity), "", "", ""] },
-        { cells: ["EV @ 9.5x structuring EBITDA", "", "", "", "", "", fm(ev), "9.50x", "100%", ""], b: 1, line: 1 },
-        { cells: ["PF interest", "", "", "", "", "", fm(pfInt), fx(structEbitda / pfInt), "", ""], it: 1 },
-      ] },
-      seniorityStackChart(rcf, tlb, ssn, sub, equity),
-      { t: "cols", w: [3, 2], items: [
-        [{ t: "text", title: "BUSINESS DESCRIPTION", body: "Engineered metal components for industrial OEMs across Drivetrain (46% of revenue), Fluid Systems (31%) and Aftermarket & Services (23% of revenue, 44% of gross profit). 14 plants (9 US, 4 EU, 1 MX); #1–2 share in 7 of 9 core lines. The credit rests on a 1.9M-unit installed base feeding contract-locked aftermarket revenue renewing at 92%; 71% of COGS is pass-through-indexed with a 60–90 day lag. Owned by Kestrel Capital Fund V since the 2021 LBO ($2,150M EV, 7.9x)." }],
-        [{ t: "profile", title: "EBITDA ADJUSTMENTS", rows: [
-          ["Reported EBITDA (LTM)", fm(reported)], ["Company add-backs", fm(addbacks)],
-          ["Adj. EBITDA (company)", fm(adj)], ["Analyst adj. 1 — recurring 'one-time' charges", "(25)"],
-          ["Analyst adj. 2 — cost-out phasing risk", "(10)"], ["Analyst adj. 3", "—"],
-          ["Structuring EBITDA", fm(structEbitda)],
-        ], boldLast: 1 }],
-      ] },
+      ...companySummarySections(),
+      ...capitalStructureSections(capital),
+      businessOverviewSection(capital),
       { t: "text", title: "INVESTMENT THESIS", body: "Carry plus deleveraging, not convergence: at +388bps the 2L TL pays +48–63bps over the fair band (+20–25bps ex-E-44) for risks that are monitorable rather than structural. Base case deleverages to ~4.9x by FY27 on realized add-backs alone (sponsor model demoted to upside). The bear case — structural add-backs, $612M priming capacity, sponsor recap record — is real but priced; the IC haircuts base EBITDA by $35M and stages sizing accordingly. Verdict: CONSTRUCTIVE, add on weakness (CP-6A).", label: "Catalysts and near-term events", labelBody: "Jul 28 Q2-26 print (first add-back realization read) · Oct-26 Q3-26 compliance certificate (T-1 — thesis-defining) · Sep-26 RCF extension window · Jun-27 MFN sunset · Q2-27 Meridian repricing." },
       { t: "cols", w: [1, 1], items: [
         [
@@ -406,11 +459,7 @@ function earningsUpdate(): Report {
         legend: { color: { position: "top" } },
         labels: [{ text: "v", position: "top", fontSize: 10, fontWeight: 600, transform: [{ type: "overlapHide" }] }],
       } },
-      { t: "table", title: "VARIANCE VS ANALYST MODEL", cols: ["Line", "Saved base", "Actual", "Δ", "Driver"], align: [0, 1, 1, 1, 0], rows: [
-        { cells: ["Revenue", "722.0", "715.0", "−1.0%", "Fluid Systems volume"] },
-        { cells: ["Adj. EBITDA", "112.7", "108.0", "−4.2%", "volume (−3.1) + cost-out phasing (−1.6)"] },
-        { cells: ["Margin", "15.6%", "15.1%", "−50bps", "absorption"] },
-      ] },
+      varianceSection(),
       { t: "text", title: "OVERALL EARNINGS VIEW", body: "Earnings trajectory intact: +6.2% LTM EBITDA growth, realized price (+180bps) running ahead of input inflation (+140bps), and aftermarket mix grinding up (+100bps over four quarters) — the most thesis-supportive trend on the dashboard. The sponsor model runs hot; conflict logged to CP-5 and the model demoted to upside case. CP-1 normalized actuals remain the base for all downstream work." },
       { t: "table", title: "WATCH ITEMS → NEXT PRINT (JUL 28)", cols: ["Item", "Threshold", "Routed to"], align: [0, 0, 0], rows: [
         { cells: ["Add-back realization (first print)", "< $30M run-rate → T-1 trips", "CP-6A re-vote"] },
@@ -424,42 +473,10 @@ function earningsUpdate(): Report {
 /* ---------- IC Credit Memo ---------- */
 function creditMemo(model: Model): Report {
   const w = DEBATE.weighting;
-  const {
-    reported, addbacks, adj, structEbitda, rcf, tlb, ssn, sub,
-    secured, tdebt, cash, ev, equity, xm, pev, pfInt
-  } = getCapitalStructure(model);
+  const capital = getCapitalStructure(model);
 
-  const subtotalLines = new Set(["gp", "ebit", "ffo", "cfo"]);
-  const kpiGroupLines = new Set(["intcov", "sga", "dso", "taxr"]);
-  const appendixPctColor = (v: number | null, rowId: string, bold: boolean, rowFmt?: string): string =>
-    cellTextColor({ rowId, v, isOv: false, pct: true, bold, rowFmt }).replace("var(--caos-accent)", APPENDIX_PCT_BLUE);
-  const labelFor = (key: string) => {
-    const c = model.cols[key];
-    const col = model.columns.find((x) => x.key === key);
-    if (!col) return c.label;
-    if (col.group === "Q") return `Q ${c.label}`;
-    return `${col.group} ${c.label}`;
-  };
   const nonQuarterColumns = model.columns.filter((c) => c.group !== "Q");
-  const cols = ["Line", ...nonQuarterColumns.map((c) => labelFor(c.key))];
-  const appendixRows: TableRow[] = ROWS.map((r) => r.sec
-    ? { cells: [r.sec, ...nonQuarterColumns.map(() => "")], b: 1, line: 1, gap: 1 }
-    : (() => {
-        const values = nonQuarterColumns.map((c) => r.g?.(model.cols[c.key]) ?? null);
-        return {
-          cells: [
-            r.sub ? `${r.l} (${r.sub})` : r.l || "",
-            ...values.map((v) => fmt(v, r.f)),
-          ],
-          cellColors: r.pct && r.id ? [
-            undefined,
-            ...values.map((v) => appendixPctColor(v, r.id!, !!r.bold, r.f)),
-          ] : undefined,
-          b: r.bold,
-          line: r.line || (r.id && (subtotalLines.has(r.id) || kpiGroupLines.has(r.id)) ? 1 : undefined),
-          gap: r.line || (r.id && kpiGroupLines.has(r.id) ? 1 : undefined),
-        };
-      })());
+  const { cols, rows: appendixRows } = modelAppendixTable(model, nonQuarterColumns);
 
   return {
     id: "memo", title: "IC Credit Memo", file: "ATLF IC Credit Memo",
@@ -468,33 +485,8 @@ function creditMemo(model: Model): Report {
     srcs: [{ chip: "CP-6A", ev: ["E-09", "E-87"] }, { chip: "CP-6E", ev: ["E-71"] }, { chip: "CP-4C", ev: ["E-63", "E-64"] }, { chip: "CP-3B", ev: [] }, { chip: "CP-1B", ev: ["E-58"] }],
     sections: [
       // Page 1: L1 Business
-      { page: "Page 1: Business", t: "cols", w: [1, 1], items: [
-        [{ t: "profile", title: "COMPANY PROFILE", rows: [
-          ["Company", "Atlas Forge Industrials (ATLF)"], ["Sector", "Industrials — engineered metal components"],
-          ["Shareholders", "Kestrel Fund V 68.4% · co-invest 22.4% · mgmt 9.2%"], ["Corp Ratings (M/S/F)", "B2 / B / —"],
-          ["Country", "United States"], ["Management", "T. Renner (CEO) · M. Okafor (CFO)"],
-          ["Sector Outlook", "STABLE — order book 1.06x"], ["Sponsor Quality", "Competent operator · extractive policy (CP-2D)"],
-          ["Credit Score", "71 / 100 (CP-3 T3.3)"], ["Credit Direction", "IMPROVING — gated on Q3-26 certificate"],
-        ] }],
-        [{ t: "profile", title: "RECOMMENDATION", rows: [
-          ["Analyst", "CAOS · RUN #2641"], ["Date", "Jun 10, 2026"],
-          ["Recommendation", "OVERWEIGHT — 75bps initial → 125bps max (CP-6E)"], ["Entry", "+388bps or wider · limit at +400"],
-          ["CLO", "Market weight"], ["Indexed Loans", "Market weight"],
-          ["Indexed Lev Loan", "Overweight"], ["Clearance", "CP-5 CONDITIONAL — QA-117 open"],
-        ] }],
-      ] },
-      { page: "Page 1: Business", t: "table", title: "TRANSACTION SUMMARY AND NEW DEBT ISSUES", cols: ["Borrower", "Instrument", "Debt Type", "UoP", "Tranche ($Mn)", "Guidance / IPT", "OID", "Maturity", "Exp. Ratings", "CR Score", "Commit"], align: [0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0], rows: [
-        { cells: ["Atlas Forge Intermediate Holdings", "2L TL '31", "2nd Lien Term Loan", "Refi 2L bridge + GCP", "900", "S+400–425 / IPT S+450", "99.41", "2031", "B3 / B−", "71", "May-26"] },
-      ] },
-      { page: "Page 1: Business", t: "cols", w: [3, 2], items: [
-        [{ t: "text", title: "BUSINESS DESCRIPTION", body: "Engineered metal components for industrial OEMs across Drivetrain (46% of revenue), Fluid Systems (31%) and Aftermarket & Services (23% of revenue, 44% of gross profit). 14 plants (9 US, 4 EU, 1 MX); #1–2 share in 7 of 9 core lines. The credit rests on a 1.9M-unit installed base feeding contract-locked aftermarket revenue renewing at 92%; 71% of COGS is pass-through-indexed with a 60–90 day lag. Owned by Kestrel Capital Fund V since the 2021 LBO ($2,150M EV, 7.9x)." }],
-        [{ t: "profile", title: "EBITDA ADJUSTMENTS (CP-1 K-09)", rows: [
-          ["Reported EBITDA (LTM)", fm(reported)], ["Company add-backs", fm(addbacks)],
-          ["Adj. EBITDA (company)", fm(adj)], ["Analyst adj. 1 — recurring 'one-time' charges", "(25)"],
-          ["Analyst adj. 2 — cost-out phasing risk", "(10)"], ["Analyst adj. 3", "—"],
-          ["Structuring EBITDA", fm(structEbitda)],
-        ], boldLast: 1 }],
-      ] },
+      ...companySummarySections("Page 1: Business"),
+      businessOverviewSection(capital, "Page 1: Business", "EBITDA ADJUSTMENTS (CP-1 K-09)"),
       ...finSections(model).map(s => ({ ...s, page: "Page 1: Business" })),
       // Page 1: L1 Business — CP-1B Earnings Assessment
       { page: "Page 1: Business", t: "profile", title: "EARNINGS ASSESSMENT (CP-1B)", rows: [
@@ -503,11 +495,7 @@ function creditMemo(model: Model): Report {
         ["Thesis impact", "NEUTRAL-POSITIVE · no trigger trips"],
         ["Overall Earnings View", "Earnings trajectory intact: +6.2% LTM EBITDA growth, realized price (+180bps) running ahead of input inflation (+140bps), and aftermarket mix grinding up (+100bps over four quarters) — the most thesis-supportive trend on the dashboard. The sponsor model runs hot; conflict logged to CP-5 and the model demoted to upside case."],
       ] },
-      { page: "Page 1: Business", t: "table", title: "VARIANCE VS ANALYST MODEL", cols: ["Line", "Saved base", "Actual", "Δ", "Driver"], align: [0, 1, 1, 1, 0], rows: [
-        { cells: ["Revenue", "722.0", "715.0", "−1.0%", "Fluid Systems volume"] },
-        { cells: ["Adj. EBITDA", "112.7", "108.0", "−4.2%", "volume (−3.1) + cost-out phasing (−1.6)"] },
-        { cells: ["Margin", "15.6%", "15.1%", "−50bps", "absorption"] },
-      ] },
+      varianceSection("Page 1: Business"),
 
       // Page 2: L2 Risk
       { page: "Page 2: Risk", t: "cols", w: [1, 1], items: [
@@ -528,29 +516,10 @@ function creditMemo(model: Model): Report {
           { t: "text", title: "SINGLE GREATEST UNCERTAINTY", body: DEBATE.uncertainty },
         ],
       ] },
-      { page: "Page 2: Risk", t: "table", title: "CATALYST CALENDAR — NEXT 12 MONTHS (CP-2C)", cols: ["Date", "Event", "Prob.", "Impact", "Route"], align: [0, 0, 1, 0, 0], rows: [
-        { cells: ["Jul 28, 2026", "Q2-26 earnings + first add-back realization print", "100%", "HIGH", "CP-1B · CP-6A"] },
-        { cells: ["Sep 2026", "RCF extension / repricing window opens", "70%", "MED", "CP-3D"] },
-        { cells: ["Oct 2026", "Q3-26 compliance certificate (add-back test)", "100%", "HIGH", "CP-1 · T-1"] },
-        { cells: ["Q4 2026", "Kestrel Fund V exit-window commentary", "40%", "MED", "CP-2D"] },
-        { cells: ["Q2 2027", "Meridian-platform contract repricing", "100%", "HIGH", "CP-2B P1"] },
-      ] },
+      catalystCalendarSection("Page 2: Risk", "CATALYST CALENDAR — NEXT 12 MONTHS (CP-2C)"),
 
       // Page 3: L3 Capital
-      { page: "Page 3: Capital", t: "table", title: "CAPITAL STRUCTURE", cols: ["Facility", "Spread / Coupon", "CCY", "Maturity", "Bid", "Ask", "Outstanding ($Mn)", "Multiple", "% EV", "Recommendation"], align: [0, 1, 0, 1, 1, 1, 1, 1, 1, 0], rows: [
-        { cells: ["RCF $250M (drawn)", "S+350", "USD", "2027", "—", "—", fm(rcf), "", "", "—"] },
-        { cells: ["1L Term Loan B", "S+375", "USD", "2029", "99.10", "99.60", fm(tlb), "", "", "HOLD"] },
-        { cells: ["2L TL '31 (subject)", "S+425", "USD", "2031", "96.25", "96.75", fm(ssn), "", "", "BUY"] },
-        { cells: ["Senior secured debt", "", "", "", "", "", fm(secured), xm(secured), pev(secured), ""], b: 1, line: 1 },
-        { cells: ["Sub Notes '32", "10.000%", "USD", "2032", "88.50", "89.80", fm(sub), "", "", "AVOID"] },
-        { cells: ["Unsecured / subordinated", "", "", "", "", "", fm(sub), xm(sub), "", ""], b: 1, line: 1 },
-        { cells: ["Total debt", "", "", "", "", "", fm(tdebt), xm(tdebt), pev(tdebt), ""], b: 1 },
-        { cells: ["Cash", "", "", "", "", "", fm(cash), "", "", ""] },
-        { cells: ["(Implied) Equity @ 9.5x", "", "", "", "", "", fm(equity), "", "", ""] },
-        { cells: ["EV @ 9.5x structuring EBITDA", "", "", "", "", "", fm(ev), "9.50x", "100%", ""], b: 1, line: 1 },
-        { cells: ["PF interest", "", "", "", "", "", fm(pfInt), fx(structEbitda / pfInt), "", ""], it: 1 },
-      ] },
-      seniorityStackChart(rcf, tlb, ssn, sub, equity, "Page 3: Capital"),
+      ...capitalStructureSections(capital, "Page 3: Capital"),
       { page: "Page 3: Capital", t: "cols", w: [1, 1], items: [
         [{ t: "table", title: "RECOVERY SCENARIOS — 2L TL (CP-3B)", cols: ["Scenario", "EV basis", "1L", "2L TL", "Sub"], align: [0, 0, 1, 1, 1], rows: [
           { cells: ["Going concern", "7.0x × $421M", "100%", "100%", "100%"] },
@@ -582,15 +551,8 @@ function creditMemo(model: Model): Report {
         { cells: ["RP capacity usable today", "$310M", "T-4 — any activation"] },
         { cells: ["Add-backs (uncapped credit agreement definition)", "18.2% of adj.", "T-1 — Q3-26 certificate"] },
       ] },
-      { page: "Page 4: Model", t: "table", title: "KEY PROVISIONS", cols: ["Provision · doc", "Feature", "Aggressiveness", "Headroom / capacity"], align: [0, 0, 1, 1], rows:
-        COVENANTS.slice(0, 6).map((c) => ({ cells: [c.ref, c.name, c.agg + " / 10", c.headroom] })),
-      },
-      { page: "Page 4: Model", t: "table", title: "CAPACITY BUILD ($M) (CP-4C)", cols: ["Component", "Amount", "Basis"], align: [0, 1, 0], rows: [
-        { cells: ["Freebie basket", "150", "greater of $150M / 35% × EBITDA"] },
-        { cells: ["Ratio capacity", "310", "to 5.25x secured at 4.68x current"] },
-        { cells: ["Reclassification headroom", "155", "basket migration mechanics"] },
-        { cells: ["Total — incurrable pari or senior to 2L", "612", ""], b: 1, line: 1 },
-      ] },
+      keyProvisionsSection("Page 4: Model"),
+      capacityBuildSection("Page 4: Model", "CAPACITY BUILD ($M) (CP-4C)"),
       { page: "Page 4: Model", t: "text", title: "COVENANT INTERPRETATION", body: "This document set shifts risk from PD to LGD: default is not nearer (no maintenance covenant to trip; liquidity strong), but the creditor's position at default is erodible — used capacity cuts the 6.0x-stress 2L recovery from 21% to ~8%." },
 
       // Page 5: L6 Committee
@@ -632,15 +594,8 @@ function covenantBrief(): Report {
         ["EBITDA add-backs", "18.2% of adj. — uncapped under the credit agreement"],
         ["Nearest pressure point", CAPACITY.nearest],
       ] },
-      { t: "table", title: "KEY PROVISIONS", cols: ["Provision · doc", "Feature", "Aggressiveness", "Headroom / capacity"], align: [0, 0, 1, 1], rows:
-        COVENANTS.slice(0, 6).map((c) => ({ cells: [c.ref, c.name, c.agg + " / 10", c.headroom] })),
-      },
-      { t: "table", title: "CAPACITY BUILD ($M)", cols: ["Component", "Amount", "Basis"], align: [0, 1, 0], rows: [
-        { cells: ["Freebie basket", "150", "greater of $150M / 35% × EBITDA"] },
-        { cells: ["Ratio capacity", "310", "to 5.25x secured at 4.68x current"] },
-        { cells: ["Reclassification headroom", "155", "basket migration mechanics"] },
-        { cells: ["Total — incurrable pari or senior to 2L", "612", ""], b: 1, line: 1 },
-      ] },
+      keyProvisionsSection(),
+      capacityBuildSection(),
       { t: "text", title: "PD vs LGD TRANSLATION", body: "This document set shifts risk from PD to LGD: default is not nearer (no maintenance covenant to trip; liquidity strong), but the creditor's position at default is erodible — used capacity cuts the 6.0x-stress 2L recovery from 21% to ~8%. The single most consequential date in the documents is the MFN sunset, June 2027, after which a priming raise carries no yield protection for 2L lenders." },
     ],
   };
@@ -657,13 +612,7 @@ function monitoringDigest(): Report {
       { t: "table", title: "TRIGGERS ARMED", cols: ["ID", "Trigger", "On trip"], align: [0, 0, 0], rows:
         TRIGGERS.map((tr) => ({ cells: [tr.id, tr.text, tr.owner] })),
       },
-      { t: "table", title: "CATALYST CALENDAR — NEXT 12 MONTHS", cols: ["Date", "Event", "Prob.", "Impact", "Route"], align: [0, 0, 1, 0, 0], rows: [
-        { cells: ["Jul 28, 2026", "Q2-26 earnings + first add-back realization print", "100%", "HIGH", "CP-1B · CP-6A"] },
-        { cells: ["Sep 2026", "RCF extension / repricing window opens", "70%", "MED", "CP-3D"] },
-        { cells: ["Oct 2026", "Q3-26 compliance certificate (add-back test)", "100%", "HIGH", "CP-1 · T-1"] },
-        { cells: ["Q4 2026", "Kestrel Fund V exit-window commentary", "40%", "MED", "CP-2D"] },
-        { cells: ["Q2 2027", "Meridian-platform contract repricing", "100%", "HIGH", "CP-2B P1"] },
-      ] },
+      catalystCalendarSection(),
       { t: "list", title: "ADD / TRIM DISCIPLINE", items: SIZING.addTriggers.map((x) => "ADD — " + x).concat(SIZING.trimTriggers.map((x) => "TRIM — " + x)) },
       { t: "text", title: "STANDING POSTURE", body: "ADD-ON-WEAKNESS at 75bps with a standing limit order at +400bps. Path to 125bps max runs through trigger T-1 (Q3-26 certificate ≥ $30M realized add-backs) plus a same-day B3-bucket headroom re-test. Open QA item: E-44 re-anchor (QA-117) — committee pack held until remediation R-1 lands." },
     ],

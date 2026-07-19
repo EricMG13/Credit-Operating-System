@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { useRovingFocus } from "@/lib/useRovingFocus";
-import { focusFirstRowAction, syncRowActionTabStops } from "@/lib/rowActionMode";
+import { syncRowActionTabStops } from "@/lib/rowActionMode";
+import { handleRovingActionRowKeyDown } from "@/lib/row-action-keyboard";
 import type {
   CommandPortfolioPosition,
   CommandPosture,
@@ -171,29 +172,7 @@ export function CommandPortfolioTable({
                 activate();
               }}
               onKeyDown={(event) => {
-                if (event.key === "Escape" && actionRowId === position.id) {
-                  event.preventDefault();
-                  setActionRowId(null);
-                  event.currentTarget.focus();
-                  return;
-                }
-                if (event.currentTarget !== event.target) return;
-                if (event.key === "F2") {
-                  if (focusFirstRowAction(event.currentTarget)) {
-                    event.preventDefault();
-                    setActionRowId(position.id);
-                  }
-                  return;
-                }
-                if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
-                  setActionRowId(null);
-                  focusProps.onKeyDown(event);
-                  return;
-                }
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  activate();
-                }
+                handleRovingActionRowKeyDown(event, position.id, actionRowId, setActionRowId, focusProps.onKeyDown, activate);
               }}
               className={`${COLS} cursor-pointer border-b border-caos-border/50 px-3 py-1.5 outline-none transition-caos focus-ring ${isSelected ? "bg-caos-accent/10" : "hover:bg-caos-elevated/50"}`}
             >

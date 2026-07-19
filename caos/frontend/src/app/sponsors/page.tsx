@@ -34,18 +34,21 @@ export default function SponsorsPage() {
   );
 }
 
-function SponsorsView() {
-  const analysis = useAnalysisContext({ name: "Sponsor review" });
-  const { openProfile } = useIssuerProfileOverlay();
+type SponsorsAnalysis = ReturnType<typeof useAnalysisContext>;
+type OpenIssuerProfile = ReturnType<typeof useIssuerProfileOverlay>["openProfile"];
+
+function nextSponsorSelection(rows: SponsorSummary[], current: string | null, saved: string | null) {
+  if (current && rows.some((row) => row.sponsor === current)) return current;
+  if (saved && rows.some((row) => row.sponsor === saved)) return saved;
+  return rows[0]?.sponsor ?? null;
+}
+
+function useSponsorRegister(analysis: SponsorsAnalysis) {
   // null = loading; [] = loaded-empty. Transport failure is separate: an
   // unreachable register must never read as "no sponsors".
   const [sponsors, setSponsors] = useState<SponsorSummary[] | null>(null);
   const [sponsorsError, setSponsorsError] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
-  const [record, setRecord] = useState<SponsorTrackRecord | null>(null);
-  const [recordLoading, setRecordLoading] = useState(false);
-  const [recordError, setRecordError] = useState(false);
-  const [recordRetry, setRecordRetry] = useState(0);
   const initialSelection = useRef(
     analysis.context?.artifacts.sponsor_id
       ?? analysis.context?.surface_state.sponsors?.active_id
@@ -61,9 +64,7 @@ function SponsorsView() {
         if (stale) return;
         setSponsors(rows);
         const saved = initialSelection.current;
-        setSelected((current) => current && rows.some((row) => row.sponsor === current)
-          ? current
-          : saved && rows.some((row) => row.sponsor === saved) ? saved : rows[0]?.sponsor ?? null);
+        setSelected((current) => nextSponsorSelection(rows, current, saved));
       })
       .catch(() => { if (!stale) { setSponsors([]); setSponsorsError(true); } });
     return () => { stale = true; };
@@ -72,7 +73,14 @@ function SponsorsView() {
   useEffect(() => {
     return loadSponsors();
   }, [loadSponsors]);
+  return { loadSponsors, selected, setSelected, sponsors, sponsorsError };
+}
 
+function useSponsorRecord(selected: string | null) {
+  const [record, setRecord] = useState<SponsorTrackRecord | null>(null);
+  const [recordLoading, setRecordLoading] = useState(false);
+  const [recordError, setRecordError] = useState(false);
+  const [recordRetry, setRecordRetry] = useState(0);
   useEffect(() => {
     if (!selected) { setRecord(null); return; }
     let stale = false;
@@ -84,7 +92,10 @@ function SponsorsView() {
       .finally(() => { if (!stale) setRecordLoading(false); });
     return () => { stale = true; };
   }, [selected, recordRetry]);
+  return { record, recordError, recordLoading, retryRecord: () => setRecordRetry((current) => current + 1) };
+}
 
+function useSponsorContextSync(analysis: SponsorsAnalysis, selected: string | null) {
   const sponsorsContext = analysis.context;
   const patchSponsorsContext = analysis.patch;
   useEffect(() => {
@@ -102,126 +113,165 @@ function SponsorsView() {
       },
     }).catch(() => undefined);
   }, [patchSponsorsContext, selected, sponsorsContext]);
+}
 
-  const openSponsorIssuer = (issuerId: string) => {
-    // Navigate first — the context patch reconciles in the background and a
-    // rejection (rate limit) surfaces via AnalysisContextSaveState instead of
-    // silently eating the click.
-    openProfile(issuerId);
-    const context = analysis.context;
-    if (context) {
-      void analysis.patch({
-        issuer_ids: context.issuer_ids.includes(issuerId) ? context.issuer_ids : [...context.issuer_ids, issuerId],
-        surface_state: {
-          ...context.surface_state,
-          sponsors: { ...(context.surface_state.sponsors ?? {}), selected_ids: [issuerId] },
-        },
-      }).catch(() => undefined);
-    }
+function openSponsorIssuer(analysis: SponsorsAnalysis, openProfile: OpenIssuerProfile, issuerId: string) {
+  // Navigate first — the context patch reconciles in the background and a
+  // rejection (rate limit) surfaces via AnalysisContextSaveState instead of
+  // silently eating the click.
+  openProfile(issuerId);
+  const context = analysis.context;
+  if (!context) return;
+  void analysis.patch({
+    issuer_ids: context.issuer_ids.includes(issuerId) ? context.issuer_ids : [...context.issuer_ids, issuerId],
+    surface_state: {
+      ...context.surface_state,
+      sponsors: { ...(context.surface_state.sponsors ?? {}), selected_ids: [issuerId] },
+    },
+  }).catch(() => undefined);
+}
+
+function useSponsorsController() {
+  const analysis = useAnalysisContext({ name: "Sponsor review" });
+  const { openProfile } = useIssuerProfileOverlay();
+  const register = useSponsorRegister(analysis);
+  const trackRecord = useSponsorRecord(register.selected);
+  useSponsorContextSync(analysis, register.selected);
+  return {
+    analysis, ...register, ...trackRecord,
+    openSponsorIssuer: (issuerId: string) => openSponsorIssuer(analysis, openProfile, issuerId),
   };
+}
 
-  return (
-    <EnterprisePage kind="worklist"
-      identity={<ShellIdentity tag="CP-2D" title="Sponsor Track Records" />}
-      primaryAction={<ActionReason className="caos-action-primary focus-ring" reason={selected ? null : sponsors === null ? "The sponsor register is still loading." : sponsorsError ? "The sponsor register is unavailable." : "Select a sponsor row first."} onClick={() => { if (selected) document.getElementById("sponsor-record")?.focus(); }}>Review selected sponsor</ActionReason>}
-      status={<AnalysisContextSaveState analysis={analysis} />}
-      contextualControls={
-        <span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">
-          {sponsors === null ? "Loading register" : sponsorsError ? "Register unavailable" : `${sponsors.length} sponsors`}
-        </span>
-      }
-      narrowContract={{ essentialControls: null }}
-    >
-      <div className="caos-persona-route sponsors-workbench flex-1 min-h-0 p-2">
-      <PersonaWorkbench surface="sponsors" primary={<div className="h-full min-h-0 flex flex-col">
+type SponsorsController = ReturnType<typeof useSponsorsController>;
+
+function sponsorReviewReason(controller: SponsorsController) {
+  if (controller.selected) return null;
+  if (controller.sponsors === null) return "The sponsor register is still loading.";
+  if (controller.sponsorsError) return "The sponsor register is unavailable.";
+  return "Select a sponsor row first.";
+}
+
+function sponsorRegisterStatus(controller: SponsorsController) {
+  if (controller.sponsors === null) return "Loading register";
+  if (controller.sponsorsError) return "Register unavailable";
+  return `${controller.sponsors.length} sponsors`;
+}
+
+function sponsorToolbarCount(controller: SponsorsController) {
+  if (controller.sponsors === null) return "Loading";
+  if (controller.sponsorsError) return "Unavailable";
+  return `${controller.sponsors.length} sponsors`;
+}
+
+function SponsorsPrimaryAction({ controller }: { controller: SponsorsController }) {
+  const reviewSelected = () => {
+    if (controller.selected) document.getElementById("sponsor-record")?.focus();
+  };
+  return <ActionReason className="caos-action-primary focus-ring" reason={sponsorReviewReason(controller)} onClick={reviewSelected}>Review selected sponsor</ActionReason>;
+}
+
+function SponsorRegisterRow({ controller, sponsor }: { controller: SponsorsController; sponsor: SponsorSummary }) {
+  const active = controller.selected === sponsor.sponsor;
+  const countSuffix = sponsor.issuer_count === 1 ? "" : "s";
+  const activeClass = active ? "bg-caos-elevated/70" : "";
+  return <button
+    onClick={() => controller.setSelected(sponsor.sponsor)}
+    aria-pressed={active}
+    className={`w-full text-left px-3 py-2 flex items-baseline gap-2 transition-caos focus-ring hover:bg-caos-elevated/50 ${activeClass}`}
+  >
+    <span className="text-caos-lg text-caos-text truncate flex-1">{sponsor.sponsor}</span>
+    {active ? <span className="tabular text-caos-2xs text-caos-accent whitespace-nowrap">Selected</span> : null}
+    <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">{sponsor.issuer_count} name{countSuffix}</span>
+  </button>;
+}
+
+function SponsorRegisterContent({ controller }: { controller: SponsorsController }) {
+  const { analysis, loadSponsors, sponsors, sponsorsError } = controller;
+  if (sponsors === null) return <div className="p-3"><SurfaceState kind="loading" title="Loading sponsor register" compact /></div>;
+  if (sponsorsError) return <div className="p-3"><SurfaceState
+    kind="offline"
+    title="Sponsor register unavailable"
+    detail="The service could not be reached. No conclusion was drawn from the missing response."
+    primaryAction={<button type="button" onClick={loadSponsors} className="caos-action-primary focus-ring">Retry</button>}
+  /></div>;
+  if (sponsors.length === 0) return <div className="p-3"><SurfaceState
+    kind="empty"
+    title="No sponsors on file"
+    detail="Set Sponsor / PE owner on an issuer. Track records aggregate observed CP-2D reviews across that sponsor’s covered names."
+    primaryAction={<Link href={analysis.context ? contextHref("/issuers", analysis.context.id) : "/issuers"} className="caos-secondary-action focus-ring no-underline">Open issuer directory</Link>}
+  /></div>;
+  return <div className="flex flex-col divide-y divide-caos-border/30">
+    {sponsors.map((sponsor) => <SponsorRegisterRow key={sponsor.sponsor} controller={controller} sponsor={sponsor} />)}
+  </div>;
+}
+
+function SponsorRegister({ controller }: { controller: SponsorsController }) {
+  return <Panel title="Sponsors · by coverage" className="w-full shrink-0 md:w-80">
+    <SponsorRegisterContent controller={controller} />
+  </Panel>;
+}
+
+function SponsorAverageRisk({ record }: { record: SponsorTrackRecord | null }) {
+  return record?.avg_governance_risk_score != null
+    ? <span className="tabular text-caos-xs text-caos-muted">avg governance risk {record.avg_governance_risk_score}/10</span>
+    : null;
+}
+
+function SponsorRecordContent({ controller }: { controller: SponsorsController }) {
+  const { analysis, openSponsorIssuer: openIssuer, record, recordError, recordLoading, selected, sponsors, sponsorsError } = controller;
+  if (sponsors !== null && sponsors.length === 0 && !sponsorsError) return <div className="p-3"><SurfaceState kind="empty" title="Add sponsors first" detail="Set a Sponsor / PE owner on a covered issuer — track records build from covered names." compact /></div>;
+  if (!selected) return <div className="p-3"><SurfaceState kind="empty" title="Select a sponsor" detail="Choose a covered sponsor to inspect recurring governance flags and source health." compact /></div>;
+  if (recordLoading) return <div className="p-3"><SurfaceState kind="loading" title={`Loading ${selected}`} detail="Retrieving the persisted cross-name CP-2D record." compact /></div>;
+  if (recordError || !record) return <div className="p-3"><SurfaceState
+    kind="unavailable"
+    title="Sponsor record unavailable"
+    detail="The selected sponsor record could not be loaded. The current sponsor selection is preserved."
+    supporting={<p className="tabular text-caos-xs text-caos-text">Preserved: {selected}</p>}
+    primaryAction={<button type="button" onClick={controller.retryRecord} className="caos-action-primary focus-ring">Retry</button>}
+  /></div>;
+  return <TrackRecord record={record} onOpenIssuer={openIssuer} contextId={analysis.context?.id} />;
+}
+
+function SponsorRecord({ controller }: { controller: SponsorsController }) {
+  const title = controller.selected ? `Track record · ${controller.selected}` : "Track record";
+  return <div id="sponsor-record" tabIndex={-1} className="min-h-56 flex-1 min-w-0 focus:outline-none md:min-h-0">
+    <Panel title={title} className="h-full" right={<SponsorAverageRisk record={controller.record} />}>
+      <SponsorRecordContent controller={controller} />
+    </Panel>
+  </div>;
+}
+
+function SponsorsWorkbench({ controller }: { controller: SponsorsController }) {
+  return <div className="caos-persona-route sponsors-workbench flex-1 min-h-0 p-2">
+    <PersonaWorkbench surface="sponsors" primary={<div className="h-full min-h-0 flex flex-col">
       <WorkbenchToolbar
         title="Sponsor coverage"
         description="Select a sponsor to inspect cross-name governance and ownership history."
-        count={sponsors === null ? "Loading" : sponsorsError ? "Unavailable" : `${sponsors.length} sponsors`}
+        count={sponsorToolbarCount(controller)}
         viewLabel="Shared worklist"
       />
-
       <DominantTableRegion ownerId="sponsor-register" label="Sponsor coverage register" className="flex-1 min-h-0">
-      <div className="h-full min-h-0 flex flex-col gap-2 md:flex-row">
-        {/* sponsor register */}
-        <Panel title="Sponsors · by coverage" className="w-full shrink-0 md:w-80">
-          {sponsors === null ? (
-            <div className="p-3"><SurfaceState kind="loading" title="Loading sponsor register" compact /></div>
-          ) : sponsorsError ? (
-            <div className="p-3">
-              <SurfaceState
-                kind="offline"
-                title="Sponsor register unavailable"
-                detail="The service could not be reached. No conclusion was drawn from the missing response."
-                primaryAction={<button type="button" onClick={loadSponsors} className="caos-action-primary focus-ring">Retry</button>}
-              />
-            </div>
-          ) : sponsors.length === 0 ? (
-            <div className="p-3">
-              <SurfaceState
-                kind="empty"
-                title="No sponsors on file"
-                detail="Set Sponsor / PE owner on an issuer. Track records aggregate observed CP-2D reviews across that sponsor’s covered names."
-                primaryAction={<Link href={analysis.context ? contextHref("/issuers", analysis.context.id) : "/issuers"} className="caos-secondary-action focus-ring no-underline">Open issuer directory</Link>}
-              />
-            </div>
-          ) : (
-            <div className="flex flex-col divide-y divide-caos-border/30">
-              {sponsors.map((s) => (
-                <button
-                  key={s.sponsor}
-                  onClick={() => setSelected(s.sponsor)}
-                  aria-pressed={selected === s.sponsor}
-                  className={
-                    "w-full text-left px-3 py-2 flex items-baseline gap-2 transition-caos focus-ring hover:bg-caos-elevated/50 " +
-                    (selected === s.sponsor ? "bg-caos-elevated/70" : "")
-                  }
-                >
-                  <span className="text-caos-lg text-caos-text truncate flex-1">{s.sponsor}</span>
-                  {selected === s.sponsor ? <span className="tabular text-caos-2xs text-caos-accent whitespace-nowrap">Selected</span> : null}
-                  <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
-                    {s.issuer_count} name{s.issuer_count === 1 ? "" : "s"}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </Panel>
-
-        {/* track record */}
-        <div id="sponsor-record" tabIndex={-1} className="min-h-56 flex-1 min-w-0 focus:outline-none md:min-h-0">
-        <Panel
-          title={selected ? `Track record · ${selected}` : "Track record"}
-          className="h-full"
-          right={record?.avg_governance_risk_score != null
-            ? <span className="tabular text-caos-xs text-caos-muted">avg governance risk {record.avg_governance_risk_score}/10</span>
-            : undefined}
-        >
-          {sponsors !== null && sponsors.length === 0 && !sponsorsError ? (
-            <div className="p-3"><SurfaceState kind="empty" title="Add sponsors first" detail="Set a Sponsor / PE owner on a covered issuer — track records build from covered names." compact /></div>
-          ) : !selected ? (
-            <div className="p-3"><SurfaceState kind="empty" title="Select a sponsor" detail="Choose a covered sponsor to inspect recurring governance flags and source health." compact /></div>
-          ) : recordLoading ? (
-            <div className="p-3"><SurfaceState kind="loading" title={`Loading ${selected}`} detail="Retrieving the persisted cross-name CP-2D record." compact /></div>
-          ) : recordError || !record ? (
-            <div className="p-3">
-              <SurfaceState
-                kind="unavailable"
-                title="Sponsor record unavailable"
-                detail="The selected sponsor record could not be loaded. The current sponsor selection is preserved."
-                supporting={<p className="tabular text-caos-xs text-caos-text">Preserved: {selected}</p>}
-                primaryAction={<button type="button" onClick={() => setRecordRetry((n) => n + 1)} className="caos-action-primary focus-ring">Retry</button>}
-              />
-            </div>
-          ) : (
-            <TrackRecord record={record} onOpenIssuer={openSponsorIssuer} contextId={analysis.context?.id} />
-          )}
-        </Panel>
+        <div className="h-full min-h-0 flex flex-col gap-2 md:flex-row">
+          <SponsorRegister controller={controller} />
+          <SponsorRecord controller={controller} />
         </div>
-      </div>
       </DominantTableRegion>
-      </div>} />
-      </div>
+    </div>} />
+  </div>;
+}
+
+function SponsorsView() {
+  const controller = useSponsorsController();
+  return (
+    <EnterprisePage kind="worklist"
+      identity={<ShellIdentity tag="CP-2D" title="Sponsor Track Records" />}
+      primaryAction={<SponsorsPrimaryAction controller={controller} />}
+      status={<AnalysisContextSaveState analysis={controller.analysis} />}
+      contextualControls={<span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">{sponsorRegisterStatus(controller)}</span>}
+      narrowContract={{ essentialControls: null }}
+    >
+      <SponsorsWorkbench controller={controller} />
     </EnterprisePage>
   );
 }

@@ -364,7 +364,7 @@ def _decode_cursor(cursor: str) -> tuple[datetime, str]:
         UnicodeDecodeError,
         ValueError,
     ) as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid insight cursor.") from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid insight cursor.") from exc
 
 
 @router.get("/contexts/{context_id}/insights", response_model=InsightPage)

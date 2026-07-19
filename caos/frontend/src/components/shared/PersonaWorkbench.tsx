@@ -97,25 +97,12 @@ function PersonaDrawer({
   );
 }
 
-export function PersonaWorkbench({
-  surface,
-  persona,
-  decision,
-  primary,
-  context,
-  inspector,
-  utility,
-  finalization,
-  className = "",
-}: PersonaWorkbenchProps) {
-  const provider = useRoleView();
-  const activePersona = persona ?? provider.roleView;
-  const composition = getSurfaceComposition(surface, activePersona);
+type SurfaceComposition = ReturnType<typeof getSurfaceComposition>;
+
+function usePersonaWorkbenchState(surface: AnalysisSurfaceName, activePersona: RoleView, composition: SurfaceComposition) {
   const narrow = useNarrowWorkbench();
   const [activeDrawer, setActiveDrawer] = useState<DrawerSlot | null>(null);
-  const [openPanels, setOpenPanels] = useState(() => (
-    defaultPanelState(composition.defaultOpenPanels)
-  ));
+  const [openPanels, setOpenPanels] = useState(() => defaultPanelState(composition.defaultOpenPanels));
   const drawerTitleId = useId();
   const contextPanelId = useId();
   const inspectorPanelId = useId();
@@ -129,105 +116,106 @@ export function PersonaWorkbench({
     if (!narrow) setActiveDrawer(null);
   }, [narrow]);
 
-  const slots: Record<WorkbenchSlot, ReactNode> = {
-    decision,
-    primary,
-    context: narrow || !openPanels.context ? null : context,
-    inspector: narrow || !openPanels.inspector ? null : inspector,
-    utility,
-    finalization,
+  const toggleSupportingPanel = (slot: DrawerSlot) => {
+    if (narrow) setActiveDrawer(slot);
+    else setOpenPanels((current) => ({ ...current, [slot]: !current[slot] }));
   };
-  const supportOrder = composition.slotOrder.filter((slot): slot is DrawerSlot => {
-    if (narrow || (slot !== "context" && slot !== "inspector")) return false;
-    const supplied = slot === "context" ? context : inspector;
-    return supplied !== null && supplied !== undefined && openPanels[slot];
+  return { activeDrawer, contextPanelId, drawerTitleId, inspectorPanelId, narrow, openPanels, setActiveDrawer, toggleSupportingPanel };
+}
+
+type WorkbenchState = ReturnType<typeof usePersonaWorkbenchState>;
+
+function SupportTrigger({ slot, state }: { slot: DrawerSlot; state: WorkbenchState }) {
+  const context = slot === "context";
+  const title = context ? "Context" : "Inspector";
+  const expanded = state.narrow ? state.activeDrawer === slot : state.openPanels[slot];
+  const panelId = context ? state.contextPanelId : state.inspectorPanelId;
+  const drawerLabel = context ? "Open context drawer" : "Open evidence inspector drawer";
+  const panelLabel = `${state.openPanels[slot] ? "Collapse" : "Open"} ${context ? "context" : "evidence inspector"} panel`;
+  return (
+    <button type="button" aria-expanded={expanded} aria-controls={panelId} aria-label={state.narrow ? drawerLabel : panelLabel} onClick={() => state.toggleSupportingPanel(slot)} className="persona-workbench__drawer-trigger">
+      {state.narrow ? title : <><span aria-hidden="true">{state.openPanels[slot] ? "▾ " : "▸ "}</span>{title}</>}
+    </button>
+  );
+}
+
+function SupportingPanelNav({ context, inspector, state }: { context?: ReactNode; inspector?: ReactNode; state: WorkbenchState }) {
+  if (!context && !inspector) return null;
+  return (
+    <nav className="persona-workbench__drawer-triggers" aria-label="Workbench supporting panels">
+      {context ? <SupportTrigger slot="context" state={state} /> : null}
+      {inspector ? <SupportTrigger slot="inspector" state={state} /> : null}
+    </nav>
+  );
+}
+
+function workbenchSlots(props: PersonaWorkbenchProps, state: WorkbenchState): Record<WorkbenchSlot, ReactNode> {
+  return {
+    decision: props.decision,
+    primary: props.primary,
+    context: state.narrow || !state.openPanels.context ? null : props.context,
+    inspector: state.narrow || !state.openPanels.inspector ? null : props.inspector,
+    utility: props.utility,
+    finalization: props.finalization,
+  };
+}
+
+function visibleSupportOrder(composition: SurfaceComposition, props: PersonaWorkbenchProps, state: WorkbenchState): DrawerSlot[] {
+  if (state.narrow) return [];
+  return composition.slotOrder.filter((slot): slot is DrawerSlot => {
+    if (slot !== "context" && slot !== "inspector") return false;
+    const supplied = slot === "context" ? props.context : props.inspector;
+    return supplied !== null && supplied !== undefined && state.openPanels[slot];
   });
-  const visibleSupportCount = supportOrder.length;
+}
+
+function WorkbenchComposition({ composition, props, state }: { composition: SurfaceComposition; props: PersonaWorkbenchProps; state: WorkbenchState }) {
+  const slots = workbenchSlots(props, state);
+  const supportOrder = visibleSupportOrder(composition, props, state);
   const gridAreaFor = (slot: WorkbenchSlot) => {
     if (slot === supportOrder[0]) return "support-a";
     if (slot === supportOrder[1]) return "support-b";
     return slot;
   };
-  const drawerContent = activeDrawer === "context" ? context : inspector;
-  const drawerTitle = activeDrawer === "context" ? "Context" : "Evidence inspector";
-  const drawerPanelId = activeDrawer === "context" ? contextPanelId : inspectorPanelId;
-  const toggleSupportingPanel = (slot: DrawerSlot) => {
-    if (narrow) {
-      setActiveDrawer(slot);
-      return;
-    }
-    setOpenPanels((current) => ({ ...current, [slot]: !current[slot] }));
-  };
+  return (
+    <div className={`persona-workbench__composition persona-workbench__composition--supports-${supportOrder.length}`} data-visible-support-count={supportOrder.length}>
+      {composition.slotOrder.map((slot) => slots[slot] ? (
+        <section key={slot} id={slot === "context" ? state.contextPanelId : slot === "inspector" ? state.inspectorPanelId : undefined} className={`persona-workbench__slot persona-workbench__slot--${slot}`} data-slot={slot} data-grid-area={gridAreaFor(slot)} style={{ gridArea: gridAreaFor(slot) }}>
+          {slots[slot]}
+        </section>
+      ) : null)}
+    </div>
+  );
+}
 
+function ActivePersonaDrawer({ context, inspector, state }: { context?: ReactNode; inspector?: ReactNode; state: WorkbenchState }) {
+  if (!state.narrow || !state.activeDrawer) return null;
+  const contextDrawer = state.activeDrawer === "context";
+  const content = contextDrawer ? context : inspector;
+  if (!content) return null;
+  return (
+    <PersonaDrawer content={content} onClose={() => state.setActiveDrawer(null)} panelId={contextDrawer ? state.contextPanelId : state.inspectorPanelId} title={contextDrawer ? "Context" : "Evidence inspector"} titleId={state.drawerTitleId} />
+  );
+}
+
+function PersonaWorkbenchView({ activePersona, composition, props, state }: { activePersona: RoleView; composition: SurfaceComposition; props: PersonaWorkbenchProps; state: WorkbenchState }) {
+  return (
+    <div data-testid="persona-workbench" data-surface={props.surface} data-persona={activePersona} data-dominant-representation={composition.dominantRepresentation} data-summary-density={composition.summaryDensity} data-default-open-panels={composition.defaultOpenPanels.join(" ")} data-table-column-preset={composition.tableColumnPreset} className={`persona-workbench ${props.className ?? ""}`}>
+      <SupportingPanelNav context={props.context} inspector={props.inspector} state={state} />
+      <WorkbenchComposition composition={composition} props={props} state={state} />
+      <ActivePersonaDrawer context={props.context} inspector={props.inspector} state={state} />
+    </div>
+  );
+}
+
+export function PersonaWorkbench(props: PersonaWorkbenchProps) {
+  const provider = useRoleView();
+  const activePersona = props.persona ?? provider.roleView;
+  const composition = getSurfaceComposition(props.surface, activePersona);
+  const state = usePersonaWorkbenchState(props.surface, activePersona, composition);
   return (
     <DominantTableOwnerGuard>
-      <div
-        data-testid="persona-workbench"
-        data-surface={surface}
-        data-persona={activePersona}
-        data-dominant-representation={composition.dominantRepresentation}
-        data-summary-density={composition.summaryDensity}
-        data-default-open-panels={composition.defaultOpenPanels.join(" ")}
-        data-table-column-preset={composition.tableColumnPreset}
-        className={`persona-workbench ${className}`}
-      >
-        {context || inspector ? (
-          <nav className="persona-workbench__drawer-triggers" aria-label="Workbench supporting panels">
-            {context ? (
-              <button
-                type="button"
-                aria-expanded={narrow ? activeDrawer === "context" : openPanels.context}
-                aria-controls={contextPanelId}
-                aria-label={narrow ? "Open context drawer" : `${openPanels.context ? "Collapse" : "Open"} context panel`}
-                onClick={() => toggleSupportingPanel("context")}
-                className="persona-workbench__drawer-trigger"
-              >
-                {narrow ? "Context" : <><span aria-hidden="true">{openPanels.context ? "▾ " : "▸ "}</span>Context</>}
-              </button>
-            ) : null}
-            {inspector ? (
-              <button
-                type="button"
-                aria-expanded={narrow ? activeDrawer === "inspector" : openPanels.inspector}
-                aria-controls={inspectorPanelId}
-                aria-label={narrow ? "Open evidence inspector drawer" : `${openPanels.inspector ? "Collapse" : "Open"} evidence inspector panel`}
-                onClick={() => toggleSupportingPanel("inspector")}
-                className="persona-workbench__drawer-trigger"
-              >
-                {narrow ? "Inspector" : <><span aria-hidden="true">{openPanels.inspector ? "▾ " : "▸ "}</span>Inspector</>}
-              </button>
-            ) : null}
-          </nav>
-        ) : null}
-
-        <div
-          className={`persona-workbench__composition persona-workbench__composition--supports-${visibleSupportCount}`}
-          data-visible-support-count={visibleSupportCount}
-        >
-          {composition.slotOrder.map((slot) => slots[slot] ? (
-            <section
-              key={slot}
-              id={slot === "context" ? contextPanelId : slot === "inspector" ? inspectorPanelId : undefined}
-              className={`persona-workbench__slot persona-workbench__slot--${slot}`}
-              data-slot={slot}
-              data-grid-area={gridAreaFor(slot)}
-              style={{ gridArea: gridAreaFor(slot) }}
-            >
-              {slots[slot]}
-            </section>
-          ) : null)}
-        </div>
-
-        {narrow && activeDrawer && drawerContent ? (
-          <PersonaDrawer
-            content={drawerContent}
-            onClose={() => setActiveDrawer(null)}
-            panelId={drawerPanelId}
-            title={drawerTitle}
-            titleId={drawerTitleId}
-          />
-        ) : null}
-      </div>
+      <PersonaWorkbenchView activePersona={activePersona} composition={composition} props={props} state={state} />
     </DominantTableOwnerGuard>
   );
 }

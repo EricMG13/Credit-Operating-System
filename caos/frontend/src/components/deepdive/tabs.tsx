@@ -426,14 +426,7 @@ export function CovenantsTab({ onOpenEvidence, layout = "report" }: { onOpenEvid
 }
 
 /* ---------- generic module output view ---------- */
-export function ModuleView({
-  id,
-  sim,
-  onOpenEvidence,
-  liveOut,
-  allowSeededFallback = true,
-  layout = "report",
-}: {
+interface ModuleViewProps {
   id: string;
   sim: Sim;
   onOpenEvidence: OpenEv;
@@ -442,120 +435,111 @@ export function ModuleView({
   liveOut?: ModuleOutput;
   allowSeededFallback?: boolean;
   layout?: DeepDiveLayout;
-}) {
-  const meta = MODULES.find((m) => m.id === id);
-  const plan = SIM_PLAN.find((m) => m.id === id);
-  const out = liveOut ?? (allowSeededFallback ? MODULE_OUTPUTS[id] : undefined);
-  // ModuleCharts / StepOutputGrid / OutputRegister render module-level *hardcoded
-  // Atlas Forge fixtures* keyed only on `id` — they have no live equivalent. On a
-  // live run they would show another issuer's mock charts/steps (and a fake
-  // "RUN #2641 · ATLF" stamp) beneath the genuinely-live KPIs/sections, under the
-  // ● LIVE badge. Suppress them for live modules so nothing mock reads as live.
-  const isLive = !!liveOut;
-  const st = sim.mods[id]?.state || "idle";
-  if (!out || !meta) {
-    const missingAnalyticalReference = !!meta && allowSeededFallback && meta.layer !== "INFRA";
-    const openPipeline = !allowSeededFallback || missingAnalyticalReference;
-    return (
-      <div className="h-full flex flex-col items-center justify-center gap-2 p-6 text-center text-caos-muted">
-        <div className="tabular text-caos-xl text-caos-text">{id} · no analytical output register</div>
-        <div className="text-caos-md leading-relaxed max-w-[400px]">
-          {!allowSeededFallback
-            ? meta
-              ? meta.name + " has no issuer-specific output available. Run or re-run the issuer, then inspect CP-5 for any gate reason."
-              : "This module id is not part of the CP-X route graph."
-            : meta
-              ? missingAnalyticalReference
-                ? meta.name + " has no synthetic reference finding. Run it for an issuer to produce a source-gated output."
-                : meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register."
-              : "This module id is not part of the CP-X route graph."}
-        </div>
-        {meta ? (
-          // Route the CTA where the copy points: a missing issuer output is
-          // fixed by running the issuer (Pipeline), not by opening the
-          // reference committee pack (Report Studio).
-          <Link
-            href={openPipeline ? "/pipeline" : "/reports"}
-            className="tabular text-caos-sm px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-          >
-            {openPipeline ? "OPEN PIPELINE — RUN THE ISSUER →" : "OPEN REPORT STUDIO →"}
-          </Link>
-        ) : null}
-      </div>
-    );
-  }
-  // Three information tiers:
-  //   summary -- analysis body plus compact workflow-step summary.
-  //   report  -- analysis body plus consolidated workflow cards and register.
-  //   dense   -- analysis body plus unconsolidated packed steps and register.
-  const secs = out.sections;
-  const lead = secs.length && secs[secs.length - 1].type === "text" && LEAD_TITLE.test(secs[secs.length - 1].title)
-    ? (secs[secs.length - 1] as Extract<typeof secs[number], { type: "text" }>)
-    : null;
-  const rest = lead ? secs.slice(0, -1) : secs;
-  const kpiBlock = isLive && out.kpis.length > 0 && out.kpis.every((k) => !k.v || k.v === "—") ? (
-    <div className="bg-caos-bg px-3 py-2 text-caos-md text-caos-muted leading-snug">
-      Engine ran and produced this module, but no populated headline figures are
-      available — thin source data for this issuer. Any produced sections appear below.
-    </div>
-  ) : (
-    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
-      {out.kpis.map((k) => (
-        <StatCard key={k.l} value={k.v} label={k.l} sev={k.sev} />
-      ))}
+}
+
+type PipelineModuleMeta = (typeof MODULES)[number];
+type TextModuleSection = Extract<ModuleOutput["sections"][number], { type: "text" }>;
+
+function missingModuleMessage(meta: PipelineModuleMeta | undefined, allowSeededFallback: boolean, missingAnalyticalReference: boolean) {
+  if (!meta) return "This module id is not part of the CP-X route graph.";
+  if (!allowSeededFallback) return meta.name + " has no issuer-specific output available. Run or re-run the issuer, then inspect CP-5 for any gate reason.";
+  if (missingAnalyticalReference) return meta.name + " has no synthetic reference finding. Run it for an issuer to produce a source-gated output.";
+  return meta.name + " is an infrastructure module — its product is the committee pack itself, not an output register.";
+}
+
+function MissingModuleView({ allowSeededFallback, id, meta }: { allowSeededFallback: boolean; id: string; meta?: PipelineModuleMeta }) {
+  const missingAnalyticalReference = Boolean(meta && allowSeededFallback && meta.layer !== "INFRA");
+  const openPipeline = !allowSeededFallback || missingAnalyticalReference;
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-2 p-6 text-center text-caos-muted">
+      <div className="tabular text-caos-xl text-caos-text">{id} · no analytical output register</div>
+      <div className="text-caos-md leading-relaxed max-w-[400px]">{missingModuleMessage(meta, allowSeededFallback, missingAnalyticalReference)}</div>
+      {meta ? <Link href={openPipeline ? "/pipeline" : "/reports"} className="tabular text-caos-sm px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">{openPipeline ? "OPEN PIPELINE — RUN THE ISSUER →" : "OPEN REPORT STUDIO →"}</Link> : null}
     </div>
   );
-  const leadBlock = lead ? (
+}
+
+function splitLeadSection(output: ModuleOutput): { lead: TextModuleSection | null; rest: ModuleOutput["sections"] } {
+  const finalSection = output.sections.at(-1);
+  const lead = finalSection?.type === "text" && LEAD_TITLE.test(finalSection.title) ? finalSection : null;
+  return { lead, rest: lead ? output.sections.slice(0, -1) : output.sections };
+}
+
+function ModuleKpis({ live, output }: { live: boolean; output: ModuleOutput }) {
+  const missing = live && output.kpis.length > 0 && output.kpis.every((kpi) => !kpi.v || kpi.v === "—");
+  if (missing) {
+    return <div className="bg-caos-bg px-3 py-2 text-caos-md text-caos-muted leading-snug">Engine ran and produced this module, but no populated headline figures are available — thin source data for this issuer. Any produced sections appear below.</div>;
+  }
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+      {output.kpis.map((kpi) => <StatCard key={kpi.l} value={kpi.v} label={kpi.l} sev={kpi.sev} />)}
+    </div>
+  );
+}
+
+function ModuleLead({ lead, onOpenEvidence }: { lead: TextModuleSection | null; onOpenEvidence: OpenEv }) {
+  if (!lead) return null;
+  return (
     <div className="rounded border border-caos-accent/40 bg-caos-elevated px-3 py-2.5">
       <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent mb-1">▸ {lead.title}</div>
       <div className="text-caos-xl text-caos-text leading-relaxed">
         {lead.body}
-        {lead.ev && lead.ev.length ? (
-          <span className="inline-flex gap-1 ml-1.5 align-middle">
-            {lead.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
-          </span>
-        ) : null}
+        {lead.ev?.length ? <span className="inline-flex gap-1 ml-1.5 align-middle">{lead.ev.map((evidenceId) => <EvChip key={evidenceId} id={evidenceId} onOpen={onOpenEvidence} />)}</span> : null}
       </div>
     </div>
-  ) : null;
-  const analysisBody = (
+  );
+}
+
+function ModuleAnalysis({ id, live, onOpenEvidence, output }: { id: string; live: boolean; onOpenEvidence: OpenEv; output: ModuleOutput }) {
+  const { lead, rest } = splitLeadSection(output);
+  return (
     <>
-      {kpiBlock}
-      {!isLive ? leadBlock : null}
-      {!isLive ? <OutSections sections={rest} onOpenEvidence={onOpenEvidence} /> : null}
-      {!isLive ? <ModuleCharts id={id} /> : null}
+      <ModuleKpis live={live} output={output} />
+      {live ? null : <ModuleLead lead={lead} onOpenEvidence={onOpenEvidence} />}
+      {live ? null : <OutSections sections={rest} onOpenEvidence={onOpenEvidence} />}
+      {live ? null : <ModuleCharts id={id} />}
     </>
   );
-  const liveRegister = isLive ? (
-    <LiveOutputRegister id={id} output={out} onOpenEvidence={onOpenEvidence} />
-  ) : null;
-  const body = (() => {
-    switch (layout) {
-      case "summary":
-        return (
-          <>
-            {analysisBody}
-            {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="summary" /> : liveRegister}
-          </>
-        );
-      case "report":
-        return (
-          <>
-            {analysisBody}
-            {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="report" /> : null}
-            {!isLive ? <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} /> : liveRegister}
-          </>
-        );
-      case "dense":
-        return (
-          <>
-            {analysisBody}
-            {!isLive ? <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="dense" /> : null}
-            {!isLive ? <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} /> : liveRegister}
-          </>
-        );
-    }
-  })();
+}
+
+function ModuleLayoutBody({ id, layout, live, onOpenEvidence, output }: { id: string; layout: DeepDiveLayout; live: boolean; onOpenEvidence: OpenEv; output: ModuleOutput }) {
+  const liveRegister = live ? <LiveOutputRegister id={id} output={output} onOpenEvidence={onOpenEvidence} /> : null;
+  if (layout === "summary") {
+    return <><ModuleAnalysis id={id} live={live} onOpenEvidence={onOpenEvidence} output={output} />{live ? liveRegister : <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode="summary" />}</>;
+  }
+  return (
+    <>
+      <ModuleAnalysis id={id} live={live} onOpenEvidence={onOpenEvidence} output={output} />
+      {live ? null : <StepOutputGrid id={id} onOpenEvidence={onOpenEvidence} mode={layout} />}
+      {live ? liveRegister : <OutputRegister key={id + layout} id={id} defaultOpen={false} onOpenEvidence={onOpenEvidence} />}
+    </>
+  );
+}
+
+function ModuleIdentity({ id, live, meta, planEvent, state }: { id: string; live: boolean; meta: PipelineModuleMeta; planEvent?: string; state: string }) {
+  return (
+    <div className="bg-caos-bg px-3 py-2.5 flex items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          {live ? null : <Dot sev={state} />}
+          <span className="tabular text-caos-2xl text-caos-text whitespace-nowrap">{id}</span>
+          <span className="text-caos-2xl font-semibold text-caos-text">{meta.name}</span>
+          {live ? null : <Tag sev={state}>{state}</Tag>}
+        </div>
+        <div className="text-caos-md text-caos-muted mt-1">{meta.desc}</div>
+        {!live && planEvent ? <div className="tabular text-caos-sm text-caos-muted mt-1.5 leading-snug">▸ {planEvent}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+export function ModuleView({ id, sim, onOpenEvidence, liveOut, allowSeededFallback = true, layout = "report" }: ModuleViewProps) {
+  const meta = MODULES.find((module) => module.id === id);
+  const plan = SIM_PLAN.find((module) => module.id === id);
+  const output = liveOut ?? (allowSeededFallback ? MODULE_OUTPUTS[id] : undefined);
+  if (!output || !meta) return <MissingModuleView allowSeededFallback={allowSeededFallback} id={id} meta={meta} />;
+  const live = Boolean(liveOut);
+  const state = sim.mods[id]?.state || "idle";
 
   return (
     <div className="p-3 flex flex-col gap-3">
@@ -564,19 +548,8 @@ export function ModuleView({
           the module's identity — provenance is the ● LIVE badge in the panel
           header, produced-ness is the output itself. (critique: two state
           machines disagreeing under ● LIVE) */}
-      <div className="bg-caos-bg px-3 py-2.5 flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            {!isLive ? <Dot sev={st} /> : null}
-            <span className="tabular text-caos-2xl text-caos-text whitespace-nowrap">{id}</span>
-            <span className="text-caos-2xl font-semibold text-caos-text">{meta.name}</span>
-            {!isLive ? <Tag sev={st}>{st}</Tag> : null}
-          </div>
-          <div className="text-caos-md text-caos-muted mt-1">{meta.desc}</div>
-          {!isLive && plan?.event ? <div className="tabular text-caos-sm text-caos-muted mt-1.5 leading-snug">▸ {plan.event}</div> : null}
-        </div>
-      </div>
-      {body}
+      <ModuleIdentity id={id} live={live} meta={meta} planEvent={plan?.event} state={state} />
+      <ModuleLayoutBody id={id} layout={layout} live={live} onOpenEvidence={onOpenEvidence} output={output} />
     </div>
   );
 }

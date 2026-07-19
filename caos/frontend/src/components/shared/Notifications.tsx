@@ -23,6 +23,34 @@ type Toast = {
   href?: string;
   eventId?: string;
 };
+type NotificationFeed = Awaited<ReturnType<typeof listNotifications>>;
+
+const pollingAllowed = (stopped: boolean, requestInFlight: boolean): boolean =>
+  !stopped && document.visibilityState !== "hidden" && !requestInFlight;
+
+const ingestNotificationFeed = (
+  feed: NotificationFeed,
+  initialized: { current: boolean },
+  delivered: { current: Set<string> },
+  enqueue: (toast: Toast) => void,
+) => {
+  if (!initialized.current) {
+    for (const event of feed.items) delivered.current.add(event.id);
+    initialized.current = true;
+    return;
+  }
+  for (const event of feed.items) {
+    if (delivered.current.has(event.id)) continue;
+    delivered.current.add(event.id);
+    enqueue({
+      id: `event-${event.id}`,
+      eventId: event.id,
+      title: event.title,
+      body: event.body ?? undefined,
+      href: event.href ?? undefined,
+    });
+  }
+};
 const Ctx = createContext<(title: string, body?: string) => void>(() => {});
 
 export function useNotify() {
@@ -56,29 +84,14 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     let stopped = false;
 
     const poll = async () => {
-      if (stopped || document.visibilityState === "hidden" || requestInFlight.current) return;
+      if (!pollingAllowed(stopped, requestInFlight.current)) return;
       requestInFlight.current = true;
       try {
         const feed = await listNotifications(cursor.current);
         if (stopped) return;
-        if (!initialized.current) {
-          // Establish a high-water mark only. Existing history belongs in the
-          // durable feed, not in a burst of fresh completion toasts at login.
-          for (const event of feed.items) delivered.current.add(event.id);
-          initialized.current = true;
-        } else {
-          for (const event of feed.items) {
-            if (delivered.current.has(event.id)) continue;
-            delivered.current.add(event.id);
-            enqueue({
-              id: `event-${event.id}`,
-              eventId: event.id,
-              title: event.title,
-              body: event.body ?? undefined,
-              href: event.href ?? undefined,
-            });
-          }
-        }
+        // Establish a high-water mark on the first read; later reads enqueue
+        // only unseen events from the durable notification feed.
+        ingestNotificationFeed(feed, initialized, delivered, enqueue);
         cursor.current = feed.next_cursor ?? cursor.current;
       } catch {
         // A routine toast feed must never take down the application shell. The

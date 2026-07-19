@@ -15,7 +15,7 @@ const UNKNOWN_TEXT: Record<"loading" | "error" | "noRun", string> = {
   noRun: "ORIGIN: UNKNOWN — no completed run for this issuer",
 };
 
-export function AuthorityBlock({
+export function ReportAuthority({
   caveatKind,
   liveRunBacked,
   runId,

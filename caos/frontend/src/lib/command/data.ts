@@ -35,102 +35,45 @@ export interface PortfolioRow {
   ytdSpark?: number[];
 }
 
+const ACRISURE_POSITION = {
+  code: "ACRISU", borrower: "Acrisure LLC", sector: "Insurance", subSector: "Insurance",
+  rank: "1L Gtd Sr. Secd", bid: 90.5, ask: 91.5, rating: "B2 / B", px: 91.0,
+  margin: 325.0, dm: 660.0, dd: -4.5, lev: 0, cov: 0, m2e: 8.8,
+  posture: "UNDERWEIGHT", conv: 4, qa: "clear", alerts: 1, watch: true,
+  spark: [664.5, 663.9, 663.2, 662.6, 661.9, 661.3, 660.6, 660.0],
+  ytdSpark: [669.4, 668.0, 666.7, 665.4, 664.0, 662.7, 661.3, 660.0],
+} satisfies Omit<PortfolioRow, "id" | "name" | "figi" | "size" | "maturity" | "inst">;
+
+const BERKELEY_POSITION = {
+  code: "BRKRES", name: "BRKRES TL B 1L USD", borrower: "Berkeley Research Group Holdings LLC",
+  sector: "Commercial Support Services", subSector: "Professional Services", figi: "BBG015JZ83G6",
+  rank: "1L Gtd Sr. Secd", maturity: "03-May-32", bid: 99.75, ask: 100.13, rating: "B2 / B",
+  inst: "BRKRES TL B 1L USD", px: 99.94, margin: 325.0, dm: 327.0, dd: -0.19,
+  lev: 0, cov: 0, m2e: 6.9, posture: "HOLD", conv: 3, qa: "clear", alerts: 0, watch: false,
+  spark: [327.2, 327.2, 327.1, 327.1, 327.1, 327.1, 327.0, 327.0],
+  ytdSpark: [327.6, 327.5, 327.4, 327.4, 327.3, 327.2, 327.1, 327.0],
+} satisfies Omit<PortfolioRow, "id" | "size">;
+
+const CAESARS_POSITION = {
+  code: "CZR", borrower: "Caesars Entertainment Inc", sector: "Consumer Discretionary",
+  subSector: "Consumer Services", figi: "BBG01QWKTDR2", rank: "1L Gtd Sr. Secd",
+  maturity: "06-Feb-30", bid: 97.5, ask: 98.13, rating: "Ba3 / BB-", px: 97.81,
+  margin: 225.0, dm: 307.0, dd: -1.81, lev: 0, cov: 0, m2e: 6.6,
+  posture: "HOLD", conv: 3, qa: "clear", alerts: 0, watch: false,
+  spark: [308.8, 308.6, 308.3, 308.0, 307.8, 307.5, 307.3, 307.0],
+  ytdSpark: [308.5, 308.3, 308.1, 307.9, 307.6, 307.4, 307.2, 307.0],
+} satisfies Omit<PortfolioRow, "id" | "name" | "size" | "inst">;
+
 export const PORTFOLIO: PortfolioRow[] = [
   {
-    "id": "BBG01B6UZZ33",
-    "code": "ACRISU",
-    "name": "ACRISU TL B6 1L USD",
-    "borrower": "Acrisure LLC",
-    "sector": "Insurance",
-    "subSector": "Insurance",
-    "figi": "BBG01B6UZZ33",
-    "rank": "1L Gtd Sr. Secd",
-    "size": "$1.0mm",
-    "maturity": "21-Jun-32",
-    "bid": 90.5,
-    "ask": 91.5,
-    "rating": "B2 / B",
-    "inst": "ACRISU TL B6 1L USD",
-    "px": 91.0,
-    "margin": 325.0,
-    "dm": 660.0,
-    "dd": -4.5,
-    "lev": 0,
-    "cov": 0,
-    "m2e": 8.8,
-    "posture": "UNDERWEIGHT",
-    "conv": 4,
-    "qa": "clear",
-    "alerts": 1,
-    "watch": true,
-    "spark": [
-      664.5,
-      663.9,
-      663.2,
-      662.6,
-      661.9,
-      661.3,
-      660.6,
-      660.0
-    ],
-    "ytdSpark": [
-      669.4,
-      668.0,
-      666.7,
-      665.4,
-      664.0,
-      662.7,
-      661.3,
-      660.0
-    ]
+    ...ACRISURE_POSITION,
+    id: "BBG01B6UZZ33", name: "ACRISU TL B6 1L USD", figi: "BBG01B6UZZ33",
+    size: "$1.0mm", maturity: "21-Jun-32", inst: "ACRISU TL B6 1L USD",
   },
   {
-    "id": "BBG01VC35FJ0",
-    "code": "ACRISU",
-    "name": "ACRISU TL B 1L USD",
-    "borrower": "Acrisure LLC",
-    "sector": "Insurance",
-    "subSector": "Insurance",
-    "figi": "BBG01VC35FJ0",
-    "rank": "1L Gtd Sr. Secd",
-    "size": "$0.5mm",
-    "maturity": "31-Jul-32",
-    "bid": 90.5,
-    "ask": 91.5,
-    "rating": "B2 / B",
-    "inst": "ACRISU TL B 1L USD",
-    "px": 91.0,
-    "margin": 325.0,
-    "dm": 660.0,
-    "dd": -4.5,
-    "lev": 0,
-    "cov": 0,
-    "m2e": 8.8,
-    "posture": "UNDERWEIGHT",
-    "conv": 4,
-    "qa": "clear",
-    "alerts": 1,
-    "watch": true,
-    "spark": [
-      664.5,
-      663.9,
-      663.2,
-      662.6,
-      661.9,
-      661.3,
-      660.6,
-      660.0
-    ],
-    "ytdSpark": [
-      669.4,
-      668.0,
-      666.7,
-      665.4,
-      664.0,
-      662.7,
-      661.3,
-      660.0
-    ]
+    ...ACRISURE_POSITION,
+    id: "BBG01VC35FJ0", name: "ACRISU TL B 1L USD", figi: "BBG01VC35FJ0",
+    size: "$0.5mm", maturity: "31-Jul-32", inst: "ACRISU TL B 1L USD",
   },
   {
     "id": "BBG01SWXG1G4",
@@ -2779,100 +2722,12 @@ export const PORTFOLIO: PortfolioRow[] = [
     ]
   },
   {
-    "id": "BBG015JZ83G6-1",
-    "code": "BRKRES",
-    "name": "BRKRES TL B 1L USD",
-    "borrower": "Berkeley Research Group Holdings LLC",
-    "sector": "Commercial Support Services",
-    "subSector": "Professional Services",
-    "figi": "BBG015JZ83G6",
-    "rank": "1L Gtd Sr. Secd",
-    "size": "$3.0mm",
-    "maturity": "03-May-32",
-    "bid": 99.75,
-    "ask": 100.13,
-    "rating": "B2 / B",
-    "inst": "BRKRES TL B 1L USD",
-    "px": 99.94,
-    "margin": 325.0,
-    "dm": 327.0,
-    "dd": -0.19,
-    "lev": 0,
-    "cov": 0,
-    "m2e": 6.9,
-    "posture": "HOLD",
-    "conv": 3,
-    "qa": "clear",
-    "alerts": 0,
-    "watch": false,
-    "spark": [
-      327.2,
-      327.2,
-      327.1,
-      327.1,
-      327.1,
-      327.1,
-      327.0,
-      327.0
-    ],
-    "ytdSpark": [
-      327.6,
-      327.5,
-      327.4,
-      327.4,
-      327.3,
-      327.2,
-      327.1,
-      327.0
-    ]
+    ...BERKELEY_POSITION,
+    id: "BBG015JZ83G6-1", size: "$3.0mm",
   },
   {
-    "id": "BBG015JZ83G6-2",
-    "code": "BRKRES",
-    "name": "BRKRES TL B 1L USD",
-    "borrower": "Berkeley Research Group Holdings LLC",
-    "sector": "Commercial Support Services",
-    "subSector": "Professional Services",
-    "figi": "BBG015JZ83G6",
-    "rank": "1L Gtd Sr. Secd",
-    "size": "$5.0mm",
-    "maturity": "03-May-32",
-    "bid": 99.75,
-    "ask": 100.13,
-    "rating": "B2 / B",
-    "inst": "BRKRES TL B 1L USD",
-    "px": 99.94,
-    "margin": 325.0,
-    "dm": 327.0,
-    "dd": -0.19,
-    "lev": 0,
-    "cov": 0,
-    "m2e": 6.9,
-    "posture": "HOLD",
-    "conv": 3,
-    "qa": "clear",
-    "alerts": 0,
-    "watch": false,
-    "spark": [
-      327.2,
-      327.2,
-      327.1,
-      327.1,
-      327.1,
-      327.1,
-      327.0,
-      327.0
-    ],
-    "ytdSpark": [
-      327.6,
-      327.5,
-      327.4,
-      327.4,
-      327.3,
-      327.2,
-      327.1,
-      327.0
-    ]
+    ...BERKELEY_POSITION,
+    id: "BBG015JZ83G6-2", size: "$5.0mm",
   },
   {
     "id": "BBG01XX46N5",
@@ -3643,100 +3498,12 @@ export const PORTFOLIO: PortfolioRow[] = [
     ]
   },
   {
-    "id": "BBG01QWKTDR2-1",
-    "code": "CZR",
-    "name": "CZR TL B 1L USD",
-    "borrower": "Caesars Entertainment Inc",
-    "sector": "Consumer Discretionary",
-    "subSector": "Consumer Services",
-    "figi": "BBG01QWKTDR2",
-    "rank": "1L Gtd Sr. Secd",
-    "size": "$3.0mm",
-    "maturity": "06-Feb-30",
-    "bid": 97.5,
-    "ask": 98.13,
-    "rating": "Ba3 / BB-",
-    "inst": "CZR TL B 1L USD",
-    "px": 97.81,
-    "margin": 225.0,
-    "dm": 307.0,
-    "dd": -1.81,
-    "lev": 0,
-    "cov": 0,
-    "m2e": 6.6,
-    "posture": "HOLD",
-    "conv": 3,
-    "qa": "clear",
-    "alerts": 0,
-    "watch": false,
-    "spark": [
-      308.8,
-      308.6,
-      308.3,
-      308.0,
-      307.8,
-      307.5,
-      307.3,
-      307.0
-    ],
-    "ytdSpark": [
-      308.5,
-      308.3,
-      308.1,
-      307.9,
-      307.6,
-      307.4,
-      307.2,
-      307.0
-    ]
+    ...CAESARS_POSITION,
+    id: "BBG01QWKTDR2-1", name: "CZR TL B 1L USD", size: "$3.0mm", inst: "CZR TL B 1L USD",
   },
   {
-    "id": "BBG01QWKTDR2-2",
-    "code": "CZR",
-    "name": "CZR TL B1 1L USD",
-    "borrower": "Caesars Entertainment Inc",
-    "sector": "Consumer Discretionary",
-    "subSector": "Consumer Services",
-    "figi": "BBG01QWKTDR2",
-    "rank": "1L Gtd Sr. Secd",
-    "size": "$1.0mm",
-    "maturity": "06-Feb-30",
-    "bid": 97.5,
-    "ask": 98.13,
-    "rating": "Ba3 / BB-",
-    "inst": "CZR TL B1 1L USD",
-    "px": 97.81,
-    "margin": 225.0,
-    "dm": 307.0,
-    "dd": -1.81,
-    "lev": 0,
-    "cov": 0,
-    "m2e": 6.6,
-    "posture": "HOLD",
-    "conv": 3,
-    "qa": "clear",
-    "alerts": 0,
-    "watch": false,
-    "spark": [
-      308.8,
-      308.6,
-      308.3,
-      308.0,
-      307.8,
-      307.5,
-      307.3,
-      307.0
-    ],
-    "ytdSpark": [
-      308.5,
-      308.3,
-      308.1,
-      307.9,
-      307.6,
-      307.4,
-      307.2,
-      307.0
-    ]
+    ...CAESARS_POSITION,
+    id: "BBG01QWKTDR2-2", name: "CZR TL B1 1L USD", size: "$1.0mm", inst: "CZR TL B1 1L USD",
   },
   {
     "id": "BBG01HBLY3G7",
@@ -18302,7 +18069,7 @@ export const EMAILS: EmailRow[] = [
   },
 ];
 
-export interface AlertRow {
+interface AlertRow {
   sev: string;
   issuer: string;
   code: string;
@@ -18354,43 +18121,6 @@ const SIM_ALERT_BASELINE = 2;
 export function simAlertsToday(tick: number, active: boolean): number {
   return active ? Math.min(ALERTS.length, Math.floor(tick / SIM_ALERT_ACCRUAL_EVERY) + SIM_ALERT_BASELINE) : ALERTS.length;
 }
-
-export interface SectorRow {
-  sector: string;
-  stance: "CONSTRUCTIVE" | "NEUTRAL" | "CAUTIOUS" | "NEGATIVE";
-  ew: number;
-  trend: string;
-  reviewed: string;
-  due: boolean;
-}
-
-export const SECTORS: SectorRow[] = [
-  { sector: "Industrials", stance: "CONSTRUCTIVE", ew: 0, trend: "PMI 52.4 ↑ · destocking ending", reviewed: "May 28", due: false },
-  { sector: "Telecom", stance: "NEGATIVE", ew: 3, trend: "fiber overbuild · ARPU −2.1%", reviewed: "Jun 02", due: false },
-  { sector: "Healthcare", stance: "CAUTIOUS", ew: 2, trend: "labor cost +6% · reimbursement lag", reviewed: "May 14", due: true },
-  { sector: "Chemicals", stance: "CAUTIOUS", ew: 2, trend: "TiO2 −3.8% w/w · energy input ↓", reviewed: "May 30", due: false },
-  { sector: "Media", stance: "NEGATIVE", ew: 4, trend: "linear decay accel · ad soft", reviewed: "Jun 05", due: false },
-  { sector: "Software", stance: "CONSTRUCTIVE", ew: 0, trend: "NRR stable 108% · pricing holds", reviewed: "May 22", due: false },
-  { sector: "Packaging", stance: "NEUTRAL", ew: 1, trend: "volumes flat · resin pass-through", reviewed: "May 19", due: true },
-  { sector: "Energy Svcs", stance: "CONSTRUCTIVE", ew: 1, trend: "dayrates firm · backlog 1.4x", reviewed: "Jun 01", due: false },
-];
-
-// Research view: coverage freshness (issuer × layer)
-// states: fresh | aging | stale | running | blocked
-const COVERAGE_CELLS: Record<string, string[]> = {
-  L1: ["fresh", "fresh", "fresh", "fresh", "aging", "fresh", "fresh", "fresh", "stale", "fresh"],
-  L2: ["fresh", "fresh", "running", "fresh", "aging", "fresh", "fresh", "aging", "stale", "running"],
-  L3: ["fresh", "aging", "running", "fresh", "fresh", "fresh", "fresh", "aging", "stale", "fresh"],
-  L4: ["fresh", "fresh", "fresh", "aging", "fresh", "fresh", "aging", "fresh", "blocked", "running"],
-  L5: ["aging", "fresh", "fresh", "fresh", "fresh", "fresh", "fresh", "fresh", "stale", "fresh"],
-  L6: ["fresh", "fresh", "aging", "fresh", "aging", "fresh", "fresh", "stale", "stale", "aging"],
-};
-
-export const COVERAGE = PORTFOLIO.map((p, i) => ({
-  code: p.code,
-  id: p.id || p.figi || p.code,
-  cells: Object.fromEntries(Object.entries(COVERAGE_CELLS).map(([l, arr]) => [l, arr[i % arr.length]])) as Record<string, string>,
-}));
 
 // One CP-5 QA-gate item. The live derivation (lib/command/qa.ts) emits this shape
 // from exact findings, with a run-gate fallback only when a run has no findings.

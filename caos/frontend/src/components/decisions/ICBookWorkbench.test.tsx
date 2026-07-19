@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 
 const state = vi.hoisted(() => ({
   roleView: "analyst" as "analyst" | "pm" | "qa",
+  userRole: "analyst" as "analyst" | "qa" | "admin",
   context: { id: "ctx-1", issuer_ids: ["issuer-1"], portfolio_scope: "portfolio-1", artifacts: { issuer_run_id: "run-1", report_version_id: "report-1", portfolio_id: "portfolio-1" } },
 }));
 const mocks = vi.hoisted(() => ({
@@ -16,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   patchAgenda: vi.fn(),
   finalizeAgenda: vi.fn(),
   vote: vi.fn(),
+  requestException: vi.fn(),
+  reviewException: vi.fn(),
+  revokeException: vi.fn(),
   listOpinions: vi.fn(),
 }));
 
@@ -27,6 +31,9 @@ vi.mock("@/components/shared/ConceptNav", () => ({ ConceptNav: () => <nav>Concep
 vi.mock("@/components/shared/AnalysisContextStrip", () => ({ AnalysisContextStrip: () => null }));
 vi.mock("@/components/shared/RoleViewProvider", () => ({
   useRoleView: () => ({ roleView: state.roleView, setRoleView: vi.fn(), ready: true }),
+}));
+vi.mock("@/components/shared/AuthProvider", () => ({
+  useAuth: () => ({ user: { id: "user-1", role: state.userRole } }),
 }));
 vi.mock("@/lib/api", () => ({
   getIssuers: mocks.getIssuers,
@@ -46,6 +53,9 @@ vi.mock("@/lib/ic-book", async (importOriginal) => {
     patchAgenda: mocks.patchAgenda,
     finalizeAgenda: mocks.finalizeAgenda,
     vote: mocks.vote,
+    requestException: mocks.requestException,
+    reviewException: mocks.reviewException,
+    revokeException: mocks.revokeException,
   } };
 });
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => {
@@ -84,6 +94,7 @@ beforeEach(() => {
   })) });
   globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as typeof ResizeObserver;
   state.roleView = "analyst";
+  state.userRole = "analyst";
   mocks.getIssuers.mockReset().mockResolvedValue([{ id: "issuer-1", name: "Alpha", ticker: "ALPH" }]);
   mocks.getPortfolios.mockReset().mockResolvedValue([{ id: "portfolio-1", name: "Credit Fund I" }]);
   mocks.listRuns.mockReset().mockResolvedValue([{ id: "run-1", committee_status: "Committee Ready" }]);
@@ -93,6 +104,9 @@ beforeEach(() => {
   mocks.patchAgenda.mockReset().mockResolvedValue(agenda);
   mocks.finalizeAgenda.mockReset().mockResolvedValue({ agenda: { ...agenda, status: "decided", finalized_decision_id: "decision-1" }, decision });
   mocks.vote.mockReset().mockResolvedValue(decision);
+  mocks.requestException.mockReset().mockResolvedValue(agenda);
+  mocks.reviewException.mockReset().mockResolvedValue(agenda);
+  mocks.revokeException.mockReset().mockResolvedValue(agenda);
   mocks.listOpinions.mockReset().mockResolvedValue({ current: null, items: [] });
 });
 
@@ -269,5 +283,49 @@ describe("IC Book workbench", () => {
     fireEvent.click(tableRow(/2026-07-14/));
     expect((screen.getByLabelText("Dissent rationale") as HTMLTextAreaElement).value).toBe("");
     expect(mocks.listDecisions).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets QA review a pending evidence exception with a required note", async () => {
+    state.roleView = "qa";
+    state.userRole = "qa";
+    const pendingException = {
+      id: "exception-1",
+      agenda_item_id: agenda.id,
+      run_id: agenda.run_id,
+      basis_sha256: "basis-1",
+      failure_codes: ["run_not_committee_ready"],
+      finding_ids: [],
+      rationale: "Restricted run with sufficient mitigants.",
+      mitigants: ["Cap initial position at 50 bps"],
+      expires_at: "2026-08-01",
+      status: "pending",
+      requested_by: "analyst-1",
+      requested_at: "2026-07-13T10:00:00Z",
+      reviewed_by: null,
+      reviewed_at: null,
+      review_note: null,
+      revoked_by: null,
+      revoked_at: null,
+      revision: 4,
+    } as const;
+    mocks.listAgenda.mockResolvedValueOnce({
+      items: [{ ...agenda, status: "draft", readiness_failures: ["run_not_committee_ready"], evidence_exception: pendingException }],
+      next_cursor: null,
+      total: 1,
+    });
+
+    render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
+    expect(screen.getByText("Cap initial position at 50 bps")).toBeTruthy();
+    const note = screen.getByLabelText("QA review note");
+    expect((screen.getByRole("button", { name: "Approve exception" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(note, { target: { value: "Evidence gap is bounded." } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve exception" }));
+    await waitFor(() => expect(mocks.reviewException).toHaveBeenCalledWith("exception-1", {
+      expected_revision: 4,
+      decision: "approve",
+      review_note: "Evidence gap is bounded.",
+    }));
   });
 });

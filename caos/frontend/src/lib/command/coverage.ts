@@ -59,7 +59,7 @@ export const runnableIssuerId = (code: string): string | null =>
   RUNNABLE_ISSUERS[code] ?? null;
 
 // The one engine-backed reference deal (Atlas Forge Industrials). It is NOT one
-// of the demo-sleeve positions in COVERAGE (those are tickers like AAWW/ACOM),
+// of the demo-sleeve positions in the coverage matrix (tickers like AAWW/ACOM),
 // so the matrix prepends it explicitly — otherwise no row would be runnable and
 // the whole RE-RUN path is unreachable. Cells are a seeded starting point; a
 // completed real run overwrites the touched layers via rollupRunToCells.
@@ -67,6 +67,40 @@ export const ATLF_COVERAGE_ROW: { code: string; id: string; cells: Record<string
   code: "ATLF",
   id: "ATLF",
   cells: { L1: "fresh", L2: "aging", L3: "fresh", L4: "stale", L5: "aging", L6: "fresh" },
+};
+
+interface LayerCoverage {
+  total: number;
+  cleared: number;
+}
+
+const layerCoverage = (run: RunSummaryDTO): Partial<Record<CoverageLayer, LayerCoverage>> => {
+  const byLayer: Partial<Record<CoverageLayer, LayerCoverage>> = {};
+  for (const moduleStatus of run.modules || []) {
+    const layer = MODULE_LAYER[moduleStatus.module_id];
+    if (!layer) continue;
+    const bucket = (byLayer[layer] ??= { total: 0, cleared: 0 });
+    bucket.total += 1;
+    if (isCleared(moduleStatus.qa_status)) bucket.cleared += 1;
+  }
+  return byLayer;
+};
+
+const coverageStatus = (coverage: LayerCoverage): CoverageStatus => {
+  if (coverage.cleared === coverage.total) return "fresh";
+  return coverage.cleared === 0 ? "blocked" : "aging";
+};
+
+const populatedLayerStatuses = (
+  byLayer: Partial<Record<CoverageLayer, LayerCoverage>>,
+): Partial<Record<CoverageLayer, CoverageStatus>> => {
+  const statuses: Partial<Record<CoverageLayer, CoverageStatus>> = {};
+  for (const layer of COVERAGE_LAYERS) {
+    if (layer === "L5") continue;
+    const coverage = byLayer[layer];
+    if (coverage?.total) statuses[layer] = coverageStatus(coverage);
+  }
+  return statuses;
 };
 
 // Roll a COMPLETED real run up into per-layer cell statuses — the honest
@@ -80,21 +114,7 @@ export const ATLF_COVERAGE_ROW: { code: string; id: string; cells: Record<string
 export function rollupRunToCells(
   run: RunSummaryDTO,
 ): Partial<Record<CoverageLayer, CoverageStatus>> {
-  const byLayer: Record<string, { total: number; cleared: number }> = {};
-  for (const m of run.modules || []) {
-    const layer = MODULE_LAYER[m.module_id];
-    if (!layer) continue;
-    const b = (byLayer[layer] ??= { total: 0, cleared: 0 });
-    b.total += 1;
-    if (isCleared(m.qa_status)) b.cleared += 1;
-  }
-  const out: Partial<Record<CoverageLayer, CoverageStatus>> = {};
-  for (const layer of COVERAGE_LAYERS) {
-    if (layer === "L5") continue; // QA phase — handled from run.qa_status below
-    const b = byLayer[layer];
-    if (!b || b.total === 0) continue; // untouched → leave the seeded value
-    out[layer] = b.cleared === b.total ? "fresh" : b.cleared === 0 ? "blocked" : "aging";
-  }
+  const out = populatedLayerStatuses(layerCoverage(run));
   if (run.qa_status) out.L5 = isCleared(run.qa_status) ? "fresh" : "blocked";
   return out;
 }

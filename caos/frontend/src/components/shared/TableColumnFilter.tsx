@@ -51,21 +51,7 @@ export function useColumnFilters<T>(
   ), [rows, filters, getters]);
 }
 
-export function FilterHeader<T>({
-  label,
-  col,
-  rows,
-  getValue,
-  selected,
-  onChange,
-  className = "",
-  iconOnly = false,
-  sortable = false,
-  sortState = null,
-  onSort,
-  asHeaderCell = false,
-  children,
-}: {
+interface FilterHeaderProps<T> {
   label: string;
   col: string;
   rows: T[];
@@ -87,7 +73,41 @@ export function FilterHeader<T>({
   // aria-sort's required-context rule.
   asHeaderCell?: boolean;
   children: ReactNode;
-}) {
+}
+
+function optionComparator(allNumeric: boolean) {
+  return (a: string, b: string) => {
+    if (!allNumeric) return a.localeCompare(b);
+    if (a === "—") return 1;
+    if (b === "—") return -1;
+    return Number(a) - Number(b);
+  };
+}
+
+function useFilterOptions<T>(rows: T[], getValue: (row: T) => Primitive) {
+  return useMemo(() => {
+    const unique = Array.from(new Set(rows.map((row) => keyOf(getValue(row)))));
+    const allNumeric = unique.every((value) => value === "—" || (value !== "" && !Number.isNaN(Number(value))));
+    return unique.sort(optionComparator(allNumeric));
+  }, [rows, getValue]);
+}
+
+function trapDialogFocus(event: KeyboardEvent, panel: HTMLDivElement | null) {
+  if (event.key !== "Tab") return;
+  const focusable = panel?.querySelectorAll<HTMLElement>(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  );
+  if (!focusable?.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const movingBeforeFirst = event.shiftKey && document.activeElement === first;
+  const movingPastLast = !event.shiftKey && document.activeElement === last;
+  if (!movingBeforeFirst && !movingPastLast) return;
+  event.preventDefault();
+  (movingBeforeFirst ? last : first).focus();
+}
+
+function useFilterDialog() {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -98,20 +118,6 @@ export function FilterHeader<T>({
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  // Numeric-aware order: the default lexicographic sort scrambled numeric
-  // columns ('1050' < '250' < '44' < '9'), and with >MAX_VISIBLE_OPTIONS values
-  // the visible slice kept a lexicographic prefix instead of the extremes.
-  const opts = useMemo(() => {
-    const uniq = Array.from(new Set(rows.map((r) => keyOf(getValue(r)))));
-    const allNumeric = uniq.every((v) => v === "—" || (v !== "" && !Number.isNaN(Number(v))));
-    return allNumeric
-      ? uniq.sort((a, b) => (a === "—" ? 1 : b === "—" ? -1 : Number(a) - Number(b)))
-      : uniq.sort();
-  }, [rows, getValue]);
-  const active = selected !== undefined;
-  const matches = opts.filter((o) => o.toLowerCase().includes(q.trim().toLowerCase()));
-  const visible = matches.slice(0, MAX_VISIBLE_OPTIONS);
 
   const openAt = (el: HTMLElement) => {
     triggerRef.current = el;
@@ -131,22 +137,7 @@ export function FilterHeader<T>({
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { setOpen(false); return; }
-      if (e.key === "Tab") {
-        const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        );
-        if (!focusable || focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        const activeEl = document.activeElement;
-        if (e.shiftKey && activeEl === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && activeEl === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
+      trapDialogFocus(e, panelRef.current);
     };
     const onPointer = (e: PointerEvent) => {
       if (panelRef.current?.contains(e.target as Node)) return;
@@ -159,211 +150,174 @@ export function FilterHeader<T>({
       window.removeEventListener("pointerdown", onPointer);
     };
   }, [open]);
+  return { mounted, open, openAt, panelRef, pos, q, setOpen, setQ };
+}
 
-  const dialogNode = mounted && open ? createPortal(
+type FilterDialogController = ReturnType<typeof useFilterDialog>;
+
+function nextOptionSelection(selected: string[] | undefined, options: string[], option: string, checked: boolean) {
+  const base = selected ?? options;
+  const next = checked ? Array.from(new Set([...base, option])) : base.filter((value) => value !== option);
+  return next.length === options.length ? undefined : next;
+}
+
+function FilterOption({ col, onChange, option, options, selected }: { col: string; onChange: FilterHeaderProps<unknown>["onChange"]; option: string; options: string[]; selected: string[] | undefined }) {
+  const checked = selected === undefined || selected.includes(option);
+  return <label className="flex min-w-0 items-center gap-2 px-1 py-1 hover:bg-caos-elevated/70 rounded">
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={(event) => onChange(col, nextOptionSelection(selected, options, option, event.target.checked))}
+      className="accent-[var(--caos-accent)]"
+    />
+    <span className="tabular text-caos-xs text-caos-text truncate" title={option}>{option}</span>
+  </label>;
+}
+
+function FilterOptions({ col, onChange, options, selected, visible }: { col: string; onChange: FilterHeaderProps<unknown>["onChange"]; options: string[]; selected: string[] | undefined; visible: string[] }) {
+  if (!visible.length) return <div className="px-1 py-2 tabular text-caos-xs text-caos-muted">No values</div>;
+  return <>{visible.map((option) => <FilterOption key={option} col={col} onChange={onChange} option={option} options={options} selected={selected} />)}</>;
+}
+
+function FilterDialog<T>({ controller, matches, options, props, visible }: { controller: FilterDialogController; matches: string[]; options: string[]; props: FilterHeaderProps<T>; visible: string[] }) {
+  if (!controller.mounted || !controller.open) return null;
+  return createPortal(
     <div
-      ref={panelRef}
+      ref={controller.panelRef}
       role="dialog"
       aria-modal="true"
-      aria-label={`Filter ${label}`}
+      aria-label={`Filter ${props.label}`}
       className="fixed z-overlay w-64 rounded border border-caos-border bg-caos-panel p-2 shadow-lg"
-      style={{ left: pos.x, top: pos.y, boxShadow: "var(--shadow-pop)" }}
+      style={{ left: controller.pos.x, top: controller.pos.y, boxShadow: "var(--shadow-pop)" }}
     >
       <div className="flex items-center gap-2 mb-2">
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted flex-1 min-w-0 truncate" title={`Filter ${label}`}>Filter {label}</span>
-        <button
-          type="button"
-          aria-label={`Close ${label} filter`}
-          className="rounded px-1 tabular text-caos-xs text-caos-muted hover:text-caos-text focus-ring"
-          onClick={() => setOpen(false)}
-        >
-          ×
-        </button>
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted flex-1 min-w-0 truncate" title={`Filter ${props.label}`}>Filter {props.label}</span>
+        <button type="button" aria-label={`Close ${props.label} filter`} className="rounded px-1 tabular text-caos-xs text-caos-muted hover:text-caos-text focus-ring" onClick={() => controller.setOpen(false)}>×</button>
       </div>
       <input
         autoFocus
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
+        value={controller.q}
+        onChange={(event) => controller.setQ(event.target.value)}
         placeholder="Search values"
-        aria-label={`Search ${label} values`}
+        aria-label={`Search ${props.label} values`}
         className="w-full rounded border border-caos-border bg-caos-elevated px-2 py-1 tabular text-caos-xs text-caos-text outline-none focus-ring"
       />
       <div className="mt-2 flex gap-1">
-        <button type="button" className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text focus-ring" onClick={() => onChange(col, undefined)}>All</button>
-        <button type="button" className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text focus-ring" onClick={() => onChange(col, [])}>Clear</button>
+        <button type="button" className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text focus-ring" onClick={() => props.onChange(props.col, undefined)}>All</button>
+        <button type="button" className="tabular text-caos-2xs px-1.5 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text focus-ring" onClick={() => props.onChange(props.col, [])}>Clear</button>
       </div>
-      <div className="mt-2 max-h-44 overflow-auto">
-        {visible.length ? visible.map((o) => (
-          <label key={o} className="flex min-w-0 items-center gap-2 px-1 py-1 hover:bg-caos-elevated/70 rounded">
-            <input
-              type="checkbox"
-              checked={selected === undefined || selected.includes(o)}
-              onChange={(e) => {
-                const base = selected !== undefined ? selected : opts;
-                const next = e.target.checked
-                  ? Array.from(new Set([...base, o]))
-                  : base.filter((x) => x !== o);
-                if (next.length === opts.length) {
-                  onChange(col, undefined);
-                } else {
-                  onChange(col, next);
-                }
-              }}
-              className="accent-[var(--caos-accent)]"
-            />
-            <span className="tabular text-caos-xs text-caos-text truncate" title={o}>{o}</span>
-          </label>
-        )) : (
-          <div className="px-1 py-2 tabular text-caos-xs text-caos-muted">No values</div>
-        )}
-      </div>
-      {matches.length > visible.length ? (
-        <div className="mt-1 px-1 tabular text-caos-2xs text-caos-muted">
-          Showing first {visible.length} of {matches.length} values
-        </div>
-      ) : null}
+      <div className="mt-2 max-h-44 overflow-auto"><FilterOptions col={props.col} onChange={props.onChange} options={options} selected={props.selected} visible={visible} /></div>
+      {matches.length > visible.length ? <div className="mt-1 px-1 tabular text-caos-2xs text-caos-muted">Showing first {visible.length} of {matches.length} values</div> : null}
     </div>,
-    document.body
-  ) : null;
-
-  // Shared funnel-filter trigger — identical chrome whether or not the column
-  // is sortable, so the filter affordance never changes shape between columns.
-  const filterTrigger = (
-    <button
-      type="button"
-      aria-label={`Filter ${label}`}
-      aria-haspopup="dialog"
-      aria-expanded={open}
-      title={`Filter ${label}`}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openAt(e.currentTarget);
-      }}
-      className={
-        "inline-flex h-6 min-h-6 w-6 min-w-6 shrink-0 items-center justify-center rounded border transition-caos focus-ring " +
-        (active
-          ? "border-caos-accent text-caos-accent bg-caos-elevated"
-          : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
-      }
-    >
-      <FunnelIcon />
-    </button>
+    document.body,
   );
+}
 
-  if (!iconOnly && sortable && onSort) {
-    const dir = sortState?.col === col ? sortState.dir : null;
-    // aria-sort lives on the header cell; the visible glyph + label carry the
-    // same meaning by position + shape (never color alone).
-    const ariaSort = dir === "asc" ? "ascending" : dir === "desc" ? "descending" : "none";
-    const nextVerb = dir === "asc" ? "descending" : dir === "desc" ? "clear sort on" : "ascending";
-    return (
-      <>
-        <span
-          {...(asHeaderCell ? { role: "columnheader", "aria-sort": ariaSort } : {})}
-          className="inline-flex items-center gap-1.5 min-w-0"
-        >
-          <button
-            type="button"
-            aria-label={`Sort ${label} ${nextVerb}`}
-            title={`Sort ${label} ${nextVerb}`}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onSort(col);
-            }}
-            className={
-              "inline-flex items-center gap-1 min-w-0 hover:text-caos-text transition-caos focus-ring " +
-              className +
-              (dir ? " text-caos-accent" : " text-caos-muted")
-            }
-          >
-            <span className="truncate">{children}</span>
-            {dir ? (
-              <span aria-hidden="true" className="inline-flex w-2 shrink-0 justify-center leading-none text-caos-2xs">
-                {dir === "asc" ? "▲" : "▼"}
-              </span>
-            ) : null}
-          </button>
-          {filterTrigger}
-        </span>
-        {dialogNode}
-      </>
-    );
-  }
+function iconFilterClass(active: boolean) {
+  const state = active
+    ? "border-caos-accent text-caos-accent bg-caos-elevated"
+    : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60";
+  return `inline-flex h-6 min-h-6 w-6 min-w-6 shrink-0 items-center justify-center rounded border transition-caos focus-ring ${state}`;
+}
 
-  if (!iconOnly) {
-    const trigger = (
+function openFilter(event: React.MouseEvent<HTMLButtonElement>, controller: FilterDialogController) {
+  event.preventDefault();
+  event.stopPropagation();
+  controller.openAt(event.currentTarget);
+}
+
+function IconFilterTrigger({ active, controller, label }: { active: boolean; controller: FilterDialogController; label: string }) {
+  return <button
+    type="button"
+    aria-label={`Filter ${label}`}
+    aria-haspopup="dialog"
+    aria-expanded={controller.open}
+    title={`Filter ${label}`}
+    onClick={(event) => openFilter(event, controller)}
+    className={iconFilterClass(active)}
+  ><FunnelIcon /></button>;
+}
+
+function sortDirection(props: FilterHeaderProps<unknown>) {
+  return props.sortState?.col === props.col ? props.sortState.dir : null;
+}
+
+function ariaSortDirection(dir: SortDir | null) {
+  if (dir === "asc") return "ascending" as const;
+  if (dir === "desc") return "descending" as const;
+  return "none" as const;
+}
+
+function nextSortVerb(dir: SortDir | null) {
+  if (dir === "asc") return "descending";
+  if (dir === "desc") return "clear sort on";
+  return "ascending";
+}
+
+function SortGlyph({ dir }: { dir: SortDir | null }) {
+  return dir ? <span aria-hidden="true" className="inline-flex w-2 shrink-0 justify-center leading-none text-caos-2xs">{dir === "asc" ? "▲" : "▼"}</span> : null;
+}
+
+function SortableFilterHeader<T>({ active, controller, dialog, props }: { active: boolean; controller: FilterDialogController; dialog: ReactNode; props: FilterHeaderProps<T> }) {
+  const dir = sortDirection(props as FilterHeaderProps<unknown>);
+  const sort = () => props.onSort?.(props.col);
+  return <>
+    <span {...(props.asHeaderCell ? { role: "columnheader", "aria-sort": ariaSortDirection(dir) } : {})} className="inline-flex items-center gap-1.5 min-w-0">
       <button
         type="button"
-        aria-label={`Filter ${label}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        title={`Filter ${label}`}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          openAt(e.currentTarget);
-        }}
-        className={
-          "inline-flex items-center gap-1.5 hover:text-caos-text transition-caos focus-ring " +
-          className +
-          (active ? " text-caos-accent" : " text-caos-muted")
-        }
+        aria-label={`Sort ${props.label} ${nextSortVerb(dir)}`}
+        title={`Sort ${props.label} ${nextSortVerb(dir)}`}
+        onClick={(event) => { event.preventDefault(); event.stopPropagation(); sort(); }}
+        className={`inline-flex items-center gap-1 min-w-0 hover:text-caos-text transition-caos focus-ring ${props.className ?? ""}${dir ? " text-caos-accent" : " text-caos-muted"}`}
       >
-        <span>{children}</span>
-        <span
-          className={
-            "inline-flex h-4 w-4 items-center justify-center rounded border transition-caos " +
-            (active
-              ? "border-caos-accent text-caos-accent bg-caos-elevated"
-              : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
-          }
-        >
-          <FunnelIcon />
-        </span>
+        <span className="truncate">{props.children}</span><SortGlyph dir={dir} />
       </button>
-    );
-    return (
-      <>
-        {asHeaderCell ? <span role="columnheader" className="contents">{trigger}</span> : trigger}
-        {dialogNode}
-      </>
-    );
-  }
+      <IconFilterTrigger active={active} controller={controller} label={props.label} />
+    </span>
+    {dialog}
+  </>;
+}
 
-  return (
-    <>
-      <span
-        title={`Filter ${label}`}
-        className={
-          "inline-flex items-center " +
-          className +
-          (active ? " text-caos-accent" : "")
-        }
-      >
-        <button
-          type="button"
-          aria-label={`Filter ${label}`}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          title={`Filter ${label}`}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            openAt(e.currentTarget);
-          }}
-          className={
-            "inline-flex h-6 min-h-6 w-6 min-w-6 shrink-0 items-center justify-center rounded border transition-caos focus-ring " +
-            (active
-              ? "border-caos-accent text-caos-accent bg-caos-elevated"
-              : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
-          }
-        >
-          <FunnelIcon />
-        </button>
-      </span>
-      {dialogNode}
-    </>
-  );
+function combinedFunnelClass(active: boolean) {
+  const state = active
+    ? "border-caos-accent text-caos-accent bg-caos-elevated"
+    : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60";
+  return `inline-flex h-4 w-4 items-center justify-center rounded border transition-caos ${state}`;
+}
+
+function CombinedFilterHeader<T>({ active, controller, dialog, props }: { active: boolean; controller: FilterDialogController; dialog: ReactNode; props: FilterHeaderProps<T> }) {
+  const trigger = <button
+    type="button"
+    aria-label={`Filter ${props.label}`}
+    aria-haspopup="dialog"
+    aria-expanded={controller.open}
+    title={`Filter ${props.label}`}
+    onClick={(event) => openFilter(event, controller)}
+    className={`inline-flex items-center gap-1.5 hover:text-caos-text transition-caos focus-ring ${props.className ?? ""}${active ? " text-caos-accent" : " text-caos-muted"}`}
+  >
+    <span>{props.children}</span><span className={combinedFunnelClass(active)}><FunnelIcon /></span>
+  </button>;
+  return <>{props.asHeaderCell ? <span role="columnheader" className="contents">{trigger}</span> : trigger}{dialog}</>;
+}
+
+function IconOnlyFilterHeader<T>({ active, controller, dialog, props }: { active: boolean; controller: FilterDialogController; dialog: ReactNode; props: FilterHeaderProps<T> }) {
+  return <>
+    <span title={`Filter ${props.label}`} className={`inline-flex items-center ${props.className ?? ""}${active ? " text-caos-accent" : ""}`}>
+      <IconFilterTrigger active={active} controller={controller} label={props.label} />
+    </span>
+    {dialog}
+  </>;
+}
+
+export function FilterHeader<T>(props: FilterHeaderProps<T>) {
+  const controller = useFilterDialog();
+  const options = useFilterOptions(props.rows, props.getValue);
+  const query = controller.q.trim().toLowerCase();
+  const matches = options.filter((option) => option.toLowerCase().includes(query));
+  const visible = matches.slice(0, MAX_VISIBLE_OPTIONS);
+  const active = props.selected !== undefined;
+  const dialog = <FilterDialog controller={controller} matches={matches} options={options} props={props} visible={visible} />;
+  if (!props.iconOnly && props.sortable && props.onSort) return <SortableFilterHeader active={active} controller={controller} dialog={dialog} props={props} />;
+  if (!props.iconOnly) return <CombinedFilterHeader active={active} controller={controller} dialog={dialog} props={props} />;
+  return <IconOnlyFilterHeader active={active} controller={controller} dialog={dialog} props={props} />;
 }

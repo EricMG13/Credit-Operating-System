@@ -13,7 +13,8 @@
 // already has its own roving-focus solution) and are out of scope here.
 
 import { useRovingTabs } from "@/lib/useRovingTabs";
-import { focusFirstRowAction, ROW_ACTION_SELECTOR, syncRowActionTabStops } from "@/lib/rowActionMode";
+import { ROW_ACTION_SELECTOR, syncRowActionTabStops } from "@/lib/rowActionMode";
+import { handleActionRowKeyDown } from "@/lib/row-action-keyboard";
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 export type DataTableAlign = "text" | "numeric" | "center" | "action";
@@ -69,6 +70,274 @@ const ALIGN_TH: Record<DataTableAlign, string> = {
 const ROW_KEYBOARD_INSTRUCTIONS =
   "Use Up and Down Arrow to move between rows. Press Enter to open a row or F2 to use actions within it; Escape returns to the row.";
 
+type RovingItemProps = ReturnType<ReturnType<typeof useRovingTabs>["getItemProps"]>;
+
+const columnLabel = <T,>(column: DataTableColumn<T>): string =>
+  column.unit ? `${column.header} (${column.unit})` : column.header;
+
+const columnAriaSort = <T,>(
+  column: DataTableColumn<T>,
+  canSort: boolean,
+  sort?: DataTableSort | null,
+): "ascending" | "descending" | "none" | undefined => {
+  if (!canSort) return undefined;
+  if (sort?.key !== column.key) return "none";
+  return sort.direction === "asc" ? "ascending" : "descending";
+};
+
+function ColumnLabel<T>({
+  column,
+  canSort,
+  sort,
+  onSort,
+}: {
+  column: DataTableColumn<T>;
+  canSort: boolean;
+  sort?: DataTableSort | null;
+  onSort?: (key: string) => void;
+}) {
+  const label = columnLabel(column);
+  if (!canSort) return label;
+  const glyph = sort?.key === column.key ? sort.direction === "asc" ? " ▲" : " ▼" : null;
+  return (
+    <button type="button" onClick={() => onSort?.(column.key)} className="uppercase tracking-wider hover:text-caos-text focus-ring">
+      {label}{glyph}
+    </button>
+  );
+}
+
+function DataTableHeaderCell<T>({
+  column,
+  sort,
+  onSort,
+}: {
+  column: DataTableColumn<T>;
+  sort?: DataTableSort | null;
+  onSort?: (key: string) => void;
+}) {
+  const align = column.align ?? "text";
+  const canSort = Boolean(column.sortable && onSort);
+  return (
+    <th
+      scope="col"
+      aria-sort={columnAriaSort(column, canSort, sort)}
+      style={column.width ? { width: column.width } : undefined}
+      className={`px-2 py-1 font-mono font-medium uppercase tracking-wider ${ALIGN_TH[align]}`}
+    >
+      <ColumnLabel column={column} canSort={canSort} sort={sort} onSort={onSort} />
+    </th>
+  );
+}
+
+function DataTableHeader<T>({ columns, sort, onSort }: Pick<DataTableProps<T>, "columns" | "sort" | "onSort">) {
+  return (
+    <thead className="sticky top-0 z-raised bg-caos-elevated text-caos-muted">
+      <tr>{columns.map((column) => <DataTableHeaderCell key={column.key} column={column} sort={sort} onSort={onSort} />)}</tr>
+    </thead>
+  );
+}
+
+function DataTableCell<T>({ column, row, index }: { column: DataTableColumn<T>; row: T; index: number }) {
+  const className = `px-2 py-1.5 ${ALIGN_TD[column.align ?? "text"]}`;
+  return column.rowHeader
+    ? <th scope="row" className={`${className} font-normal`}>{column.render(row, index)}</th>
+    : <td className={className}>{column.render(row, index)}</td>;
+}
+
+const handleRowKeyDown = <T,>(
+  event: React.KeyboardEvent<HTMLTableRowElement>,
+  row: T,
+  index: number,
+  rowId: string,
+  actionRowId: string | null,
+  itemProps: RovingItemProps,
+  setActionRowId: (id: string | null) => void,
+  onRowActivate: (row: T, index: number) => void,
+) => {
+  handleActionRowKeyDown(event, {
+    rowId,
+    actionRowId,
+    setActionRowId,
+    onNavigate: itemProps.onKeyDown,
+    onActivate: () => onRowActivate(row, index),
+  });
+};
+
+const rowClasses = <T,>(
+  itemProps: RovingItemProps | null,
+  rowClassName: DataTableProps<T>["rowClassName"],
+  row: T,
+  index: number,
+): string | undefined => [
+  itemProps ? "cursor-pointer focus-ring hover:bg-caos-elevated/30" : "",
+  rowClassName?.(row, index) ?? "",
+].filter(Boolean).join(" ") || undefined;
+
+const rowRefBinding = (
+  itemProps: RovingItemProps | null,
+  rowRefs: { readonly current: Map<string, HTMLTableRowElement> },
+  rowId: string,
+) => itemProps ? (element: HTMLTableRowElement | null) => {
+  itemProps.ref(element);
+  if (element) rowRefs.current.set(rowId, element);
+  else rowRefs.current.delete(rowId);
+} : undefined;
+
+const rowKeyBinding = <T,>(
+  itemProps: RovingItemProps | null,
+  onRowActivate: DataTableProps<T>["onRowActivate"],
+  row: T,
+  index: number,
+  rowId: string,
+  actionRowId: string | null,
+  setActionRowId: (id: string | null) => void,
+) => itemProps && onRowActivate
+  ? (event: React.KeyboardEvent<HTMLTableRowElement>) => handleRowKeyDown(
+    event, row, index, rowId, actionRowId, itemProps, setActionRowId, onRowActivate,
+  )
+  : undefined;
+
+const rowClickBinding = <T,>(
+  itemProps: RovingItemProps | null,
+  onRowActivate: DataTableProps<T>["onRowActivate"],
+  row: T,
+  index: number,
+  setActiveIndex: (index: number) => void,
+) => itemProps && onRowActivate ? (event: React.MouseEvent<HTMLTableRowElement>) => {
+  const target = event.target as HTMLElement;
+  const interactiveDescendant = target.closest?.(ROW_ACTION_SELECTOR);
+  if (interactiveDescendant && interactiveDescendant !== event.currentTarget) return;
+  setActiveIndex(index);
+  onRowActivate(row, index);
+} : undefined;
+
+const rowBlurBinding = (
+  itemProps: RovingItemProps | null,
+  actionRowId: string | null,
+  rowId: string,
+  setActionRowId: (id: string | null) => void,
+) => itemProps ? (event: React.FocusEvent<HTMLTableRowElement>) => {
+  if (actionRowId === rowId && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+    setActionRowId(null);
+  }
+} : undefined;
+
+function DataTableRow<T>({
+  row,
+  index,
+  rowId,
+  columns,
+  itemProps,
+  actionRowId,
+  selectedRowId,
+  rowClassName,
+  rowRefs,
+  setActiveIndex,
+  setActionRowId,
+  onRowActivate,
+}: {
+  row: T;
+  index: number;
+  rowId: string;
+  columns: DataTableColumn<T>[];
+  itemProps: RovingItemProps | null;
+  actionRowId: string | null;
+  selectedRowId?: string | null;
+  rowClassName?: (row: T, index: number) => string;
+  rowRefs: { readonly current: Map<string, HTMLTableRowElement> };
+  setActiveIndex: (index: number) => void;
+  setActionRowId: (id: string | null) => void;
+  onRowActivate?: (row: T, index: number) => void;
+}) {
+  return (
+    <tr
+      ref={rowRefBinding(itemProps, rowRefs, rowId)}
+      tabIndex={itemProps?.tabIndex}
+      aria-selected={selectedRowId != null ? rowId === selectedRowId : undefined}
+      aria-keyshortcuts={itemProps ? "F2" : undefined}
+      data-action-mode={actionRowId === rowId ? "true" : undefined}
+      onFocus={itemProps ? () => setActiveIndex(index) : undefined}
+      onKeyDown={rowKeyBinding(itemProps, onRowActivate, row, index, rowId, actionRowId, setActionRowId)}
+      onClick={rowClickBinding(itemProps, onRowActivate, row, index, setActiveIndex)}
+      onBlur={rowBlurBinding(itemProps, actionRowId, rowId, setActionRowId)}
+      className={rowClasses(itemProps, rowClassName, row, index)}
+    >
+      {columns.map((column) => <DataTableCell key={column.key} column={column} row={row} index={index} />)}
+    </tr>
+  );
+}
+
+const useDataTableInteraction = <T,>(
+  rows: T[],
+  getRowId: DataTableProps<T>["getRowId"],
+  selectedRowId: DataTableProps<T>["selectedRowId"],
+  onRowActivate: DataTableProps<T>["onRowActivate"],
+) => {
+  const selectedIndex = selectedRowId != null
+    ? rows.findIndex((row, index) => getRowId(row, index) === selectedRowId)
+    : -1;
+  const [activeIndex, setActiveIndex] = useState(() => selectedIndex >= 0 ? selectedIndex : 0);
+  const [actionRowId, setActionRowId] = useState<string | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
+  const rowIdsKey = JSON.stringify(rows.map((row, index) => getRowId(row, index)));
+  useEffect(() => {
+    if (rows.length === 0) setActiveIndex(0);
+    else if (selectedIndex >= 0) setActiveIndex(selectedIndex);
+    else setActiveIndex((current) => Math.min(current, rows.length - 1));
+  }, [rows.length, selectedIndex]);
+  useEffect(() => setActionRowId(null), [rowIdsKey]);
+  useLayoutEffect(() => {
+    if (!onRowActivate) return;
+    for (const [rowId, rowElement] of rowRefs.current) {
+      syncRowActionTabStops(rowElement, actionRowId === rowId);
+    }
+  });
+  const { getItemProps } = useRovingTabs(
+    onRowActivate ? rows.length : 0,
+    activeIndex,
+    setActiveIndex,
+    { orientation: "vertical" },
+  );
+  return { actionRowId, activeIndex, getItemProps, rowRefs, setActionRowId, setActiveIndex };
+};
+
+function DataTableBody<T>({
+  columns,
+  rows,
+  getRowId,
+  onRowActivate,
+  selectedRowId,
+  rowClassName,
+  interaction,
+}: Pick<DataTableProps<T>, "columns" | "rows" | "getRowId" | "onRowActivate" | "selectedRowId" | "rowClassName"> & {
+  interaction: ReturnType<typeof useDataTableInteraction<T>>;
+}) {
+  return (
+    <tbody className="divide-y divide-caos-border/40">
+      {rows.map((row, index) => {
+        const rowId = getRowId(row, index);
+        return (
+          <DataTableRow
+            key={rowId}
+            row={row}
+            index={index}
+            rowId={rowId}
+            columns={columns}
+            itemProps={onRowActivate ? interaction.getItemProps(index) : null}
+            actionRowId={interaction.actionRowId}
+            selectedRowId={selectedRowId}
+            rowClassName={rowClassName}
+            rowRefs={interaction.rowRefs}
+            setActiveIndex={interaction.setActiveIndex}
+            setActionRowId={interaction.setActionRowId}
+            onRowActivate={onRowActivate}
+          />
+        );
+      })}
+    </tbody>
+  );
+}
+
 export function DataTable<T>({
   columns,
   rows,
@@ -81,42 +350,8 @@ export function DataTable<T>({
   caption,
   className = "",
 }: DataTableProps<T>) {
-  const selectedIndex = selectedRowId != null ? rows.findIndex((row, i) => getRowId(row, i) === selectedRowId) : -1;
-  const [activeIndex, setActiveIndex] = useState(() => (selectedIndex >= 0 ? selectedIndex : 0));
-  const [actionRowId, setActionRowId] = useState<string | null>(null);
-  const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
-  const rowIdsKey = JSON.stringify(rows.map((row, index) => getRowId(row, index)));
+  const interaction = useDataTableInteraction(rows, getRowId, selectedRowId, onRowActivate);
   const keyboardInstructionsId = useId();
-
-  useEffect(() => {
-    if (rows.length === 0) {
-      setActiveIndex(0);
-    } else if (selectedIndex >= 0) {
-      setActiveIndex(selectedIndex);
-    } else {
-      setActiveIndex((current) => Math.min(current, rows.length - 1));
-    }
-  }, [rows.length, selectedIndex]);
-
-  useEffect(() => {
-    setActionRowId(null);
-  }, [rowIdsKey]);
-
-  // An activatable worklist contributes one Tab stop, not one stop per nested
-  // link/button per row. F2 temporarily exposes only the active row's actions.
-  useLayoutEffect(() => {
-    if (!onRowActivate) return;
-    for (const [rowId, rowElement] of rowRefs.current) {
-      syncRowActionTabStops(rowElement, actionRowId === rowId);
-    }
-  });
-
-  const { getItemProps } = useRovingTabs(
-    onRowActivate ? rows.length : 0,
-    activeIndex,
-    setActiveIndex,
-    { orientation: "vertical" },
-  );
 
   return (
     <Fragment>
@@ -130,112 +365,8 @@ export function DataTable<T>({
         className={`caos-data-table w-full border-collapse font-sans text-caos-xs${className ? ` ${className}` : ""}`}
       >
       {caption ? <caption className="sr-only">{caption}</caption> : null}
-      <thead className="sticky top-0 z-raised bg-caos-elevated text-caos-muted">
-        <tr>
-          {columns.map((col) => {
-            const align = col.align ?? "text";
-            const label = col.unit ? `${col.header} (${col.unit})` : col.header;
-            const canSort = Boolean(col.sortable && onSort);
-            const ariaSort =
-              canSort && sort?.key === col.key ? (sort.direction === "asc" ? "ascending" : "descending") : canSort ? "none" : undefined;
-            return (
-              <th
-                key={col.key}
-                scope="col"
-                aria-sort={ariaSort}
-                style={col.width ? { width: col.width } : undefined}
-                className={`px-2 py-1 font-mono font-medium uppercase tracking-wider ${ALIGN_TH[align]}`}
-              >
-                {canSort ? (
-                  <button
-                    type="button"
-                    onClick={() => onSort?.(col.key)}
-                    className="uppercase tracking-wider hover:text-caos-text focus-ring"
-                  >
-                    {label}
-                    {sort?.key === col.key ? (sort.direction === "asc" ? " ▲" : " ▼") : null}
-                  </button>
-                ) : (
-                  label
-                )}
-              </th>
-            );
-          })}
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-caos-border/40">
-        {rows.map((row, i) => {
-          const rowId = getRowId(row, i);
-          const itemProps = onRowActivate ? getItemProps(i) : null;
-          const classes = [
-            itemProps ? "cursor-pointer focus-ring hover:bg-caos-elevated/30" : "",
-            rowClassName?.(row, i) ?? "",
-          ].filter(Boolean).join(" ");
-          return (
-            <tr
-              key={rowId}
-              ref={itemProps ? (element) => {
-                itemProps.ref(element);
-                if (element) rowRefs.current.set(rowId, element);
-                else rowRefs.current.delete(rowId);
-              } : undefined}
-              tabIndex={itemProps?.tabIndex}
-              aria-selected={selectedRowId != null ? rowId === selectedRowId : undefined}
-              aria-keyshortcuts={itemProps ? "F2" : undefined}
-              data-action-mode={actionRowId === rowId ? "true" : undefined}
-              onFocus={itemProps ? () => setActiveIndex(i) : undefined}
-              onKeyDown={itemProps ? (event) => {
-                if (event.key === "Escape" && actionRowId === rowId) {
-                  event.preventDefault();
-                  setActionRowId(null);
-                  event.currentTarget.focus();
-                  return;
-                }
-                // Nested controls own their own keyboard contract. In particular,
-                // Enter on an in-row action must not also activate the row.
-                if (event.currentTarget !== event.target) return;
-                if (event.key === "F2") {
-                  if (focusFirstRowAction(event.currentTarget)) {
-                    event.preventDefault();
-                    setActionRowId(rowId);
-                  }
-                  return;
-                }
-                itemProps.onKeyDown(event);
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onRowActivate?.(row, i);
-                }
-              } : undefined}
-              onClick={itemProps ? (event) => {
-                // Let cell content activate the row while isolating buttons,
-                // links, and form controls nested inside it.
-                const target = event.target as HTMLElement;
-                const interactiveDescendant = target.closest?.(ROW_ACTION_SELECTOR);
-                if (interactiveDescendant && interactiveDescendant !== event.currentTarget) return;
-                setActiveIndex(i);
-                onRowActivate?.(row, i);
-              } : undefined}
-              onBlur={itemProps ? (event) => {
-                if (actionRowId === rowId && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                  setActionRowId(null);
-                }
-              } : undefined}
-              className={classes || undefined}
-            >
-              {columns.map((col) => col.rowHeader ? (
-                <th key={col.key} scope="row" className={`px-2 py-1.5 font-normal ${ALIGN_TD[col.align ?? "text"]}`}>
-                  {col.render(row, i)}
-                </th>
-              ) : (
-                <td key={col.key} className={`px-2 py-1.5 ${ALIGN_TD[col.align ?? "text"]}`}>
-                  {col.render(row, i)}
-                </td>
-              ))}
-            </tr>
-          );
-        })}
-      </tbody>
+      <DataTableHeader columns={columns} sort={sort} onSort={onSort} />
+      <DataTableBody columns={columns} rows={rows} getRowId={getRowId} onRowActivate={onRowActivate} selectedRowId={selectedRowId} rowClassName={rowClassName} interaction={interaction} />
       </table>
     </Fragment>
   );

@@ -3,10 +3,11 @@ import { defineConfig, devices } from "@playwright/test";
 const edgeSecret = process.env.E2E_EDGE_PROXY_SECRET;
 const storageState = process.env.E2E_STORAGE_STATE_PATH
   || "../tests/frontend/e2e/.auth/state.json";
+const PROJECT_IP_SUFFIX: Record<string, number> = { chromium: 1, firefox: 2, webkit: 3 };
 
 function projectClientIp(project: string) {
   if (process.env.E2E_CLIENT_IP) return process.env.E2E_CLIENT_IP;
-  const suffix = project === "chromium" ? 1 : project === "firefox" ? 2 : project === "webkit" ? 3 : 254;
+  const suffix = PROJECT_IP_SUFFIX[project] ?? 254;
   return `192.0.2.${suffix}`;
 }
 

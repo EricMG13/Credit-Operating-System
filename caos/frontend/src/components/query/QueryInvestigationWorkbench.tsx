@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
@@ -191,34 +191,95 @@ function GraphLaneResult({ run, onCitation }: { run: QueryRun; onCitation?: (id:
   );
 }
 
-function GroundedLaneResult({ run, onCitation }: { run: QueryRun; onCitation?: (id: string, label: string) => void }) {
-  const rawSentences = Array.isArray(run.result.sentences) ? run.result.sentences : [];
-  const sentences = rawSentences.filter((sentence): sentence is Record<string, unknown> => !!sentence && typeof sentence === "object" && !Array.isArray(sentence));
-  const citationRows = Array.isArray(run.result.citations) ? run.result.citations : [];
-  const factRows = Array.isArray(run.result.fact_citations) ? run.result.fact_citations : [];
-  const citationLabels = new Map<string, string>();
-  const factLabels = new Map<string, string>();
-  for (const row of citationRows) {
+type CitationHandler = (id: string, label: string) => void;
+type GroundedSources = { chunks: string[]; facts: string[] };
+
+function recordArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item))
+    : [];
+}
+
+function sourceLabelMap(rows: unknown, idKey: "chunk_id" | "fact_id") {
+  const labels = new Map<string, string>();
+  if (!Array.isArray(rows)) return labels;
+  for (const row of rows) {
     if (!row || typeof row !== "object" || Array.isArray(row)) continue;
     const value = row as Record<string, unknown>;
-    const id = stringValue(value.chunk_id);
-    if (id) citationLabels.set(id, stringValue(value.label) ?? id);
+    const id = stringValue(value[idKey]);
+    if (id) labels.set(id, stringValue(value.label) ?? id);
   }
-  for (const row of factRows) {
-    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
-    const value = row as Record<string, unknown>;
-    const id = stringValue(value.fact_id);
-    if (id) factLabels.set(id, stringValue(value.label) ?? id);
-  }
-  const sentenceSources = sentences.map((sentence) => ({
+  return labels;
+}
+
+function groundedSources(sentence: Record<string, unknown>): GroundedSources {
+  return {
     chunks: Array.isArray(sentence.chunk_ids) ? sentence.chunk_ids.map(stringValue).filter((id): id is string => !!id) : [],
     facts: Array.isArray(sentence.fact_ids) ? sentence.fact_ids.map(stringValue).filter((id): id is string => !!id) : [],
-  }));
-  const sourceCount = new Set(sentenceSources.flatMap(({ chunks, facts }) => [...chunks, ...facts])).size;
-  const fallbackAnswer = stringValue(run.result.answer);
-  const unavailable = run.result.unavailable === true || (!sentences.length && !fallbackAnswer);
+  };
+}
 
-  if (unavailable) {
+function prepareGroundedResult(run: QueryRun) {
+  const sentences = recordArray(run.result.sentences);
+  const sentenceSources = sentences.map(groundedSources);
+  const fallbackAnswer = stringValue(run.result.answer);
+  return {
+    citationLabels: sourceLabelMap(run.result.citations, "chunk_id"),
+    factLabels: sourceLabelMap(run.result.fact_citations, "fact_id"),
+    fallbackAnswer,
+    sentenceSources,
+    sentences,
+    sourceCount: new Set(sentenceSources.flatMap(({ chunks, facts }) => [...chunks, ...facts])).size,
+    unavailable: run.result.unavailable === true || (!sentences.length && !fallbackAnswer),
+  };
+}
+
+type GroundedModel = ReturnType<typeof prepareGroundedResult>;
+
+function GroundedChunk({ id, index, labels, onCitation }: { id: string; index: number; labels: Map<string, string>; onCitation?: CitationHandler }) {
+  if (!onCitation) return <span className="tabular text-caos-3xs text-caos-muted">C{index + 1}</span>;
+  const label = labels.get(id) ?? id;
+  return <button
+    type="button"
+    aria-label={`Open cited source ${label}`}
+    title={label}
+    onClick={() => onCitation(id, labels.get(id) ?? `C${index + 1}`)}
+    className="rounded-sm border border-caos-accent/50 px-1 py-px tabular text-caos-3xs text-caos-accent hover:bg-caos-elevated focus-ring"
+  >C{index + 1} ↗</button>;
+}
+
+function GroundedFact({ id, index, labels }: { id: string; index: number; labels: Map<string, string> }) {
+  return <span title={labels.get(id) ?? id} className="rounded-sm border border-caos-border px-1 py-px tabular text-caos-3xs text-caos-muted">F{index + 1} · {labels.get(id) ?? "metric fact"}</span>;
+}
+
+function GroundedClaim({ index, model, onCitation }: { index: number; model: GroundedModel; onCitation?: CitationHandler }) {
+  const sentence = model.sentences[index];
+  const text = stringValue(sentence.text) ?? "Grounded claim unavailable.";
+  const claimType = stringValue(sentence.claim_type) ?? "observation";
+  const { chunks, facts } = model.sentenceSources[index];
+  return <li className="border-l border-caos-border pl-3">
+    <p className="text-caos-sm leading-relaxed text-caos-text">{text}</p>
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">{claimType}</span>
+      {chunks.map((id, sourceIndex) => <GroundedChunk key={id} id={id} index={sourceIndex} labels={model.citationLabels} onCitation={onCitation} />)}
+      {facts.map((id, factIndex) => <GroundedFact key={id} id={id} index={factIndex} labels={model.factLabels} />)}
+      {!chunks.length && !facts.length ? <span className="tabular text-caos-3xs uppercase text-caos-warning">Uncited · keep in draft</span> : null}
+    </div>
+  </li>;
+}
+
+function GroundedAnswer({ model, onCitation }: { model: GroundedModel; onCitation?: CitationHandler }) {
+  if (!model.sentences.length) return <div className="mt-2">
+    <p className="text-caos-sm leading-relaxed text-caos-text">{model.fallbackAnswer}</p>
+    <p className="mt-2 tabular text-caos-2xs uppercase text-caos-warning">No sentence-level citations attached · keep in draft</p>
+  </div>;
+  return <ol className="mt-2 space-y-3">{model.sentences.map((_sentence, index) => <GroundedClaim key={index} index={index} model={model} onCitation={onCitation} />)}</ol>;
+}
+
+function GroundedLaneResult({ run, onCitation }: { run: QueryRun; onCitation?: CitationHandler }) {
+  const model = prepareGroundedResult(run);
+
+  if (model.unavailable) {
     return <SurfaceState kind="empty" title="No grounded answer" detail="The evidence gate retained no cited claims for this question." className="m-3" />;
   }
 
@@ -227,83 +288,79 @@ function GroundedLaneResult({ run, onCitation }: { run: QueryRun; onCitation?: (
       <div className="flex flex-wrap items-center justify-between gap-2">
         <AnalysisStateBadge state={run.status} />
         <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
-          {sourceCount} cited {sourceCount === 1 ? "source" : "sources"}
+          {model.sourceCount} cited {model.sourceCount === 1 ? "source" : "sources"}
         </span>
       </div>
       <p className="mt-2 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{run.question}</p>
-      {sentences.length ? (
-        <ol className="mt-2 space-y-3">
-          {sentences.map((sentence, index) => {
-            const text = stringValue(sentence.text) ?? "Grounded claim unavailable.";
-            const claimType = stringValue(sentence.claim_type) ?? "observation";
-            const { chunks, facts } = sentenceSources[index];
-            return (
-              <li key={`${index}-${text.slice(0, 24)}`} className="border-l border-caos-border pl-3">
-                <p className="text-caos-sm leading-relaxed text-caos-text">{text}</p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">{claimType}</span>
-                  {chunks.map((id, sourceIndex) => onCitation ? (
-                    <button
-                      key={id}
-                      type="button"
-                      aria-label={`Open cited source ${citationLabels.get(id) ?? id}`}
-                      title={citationLabels.get(id) ?? id}
-                      onClick={() => onCitation(id, citationLabels.get(id) ?? `C${sourceIndex + 1}`)}
-                      className="rounded-sm border border-caos-accent/50 px-1 py-px tabular text-caos-3xs text-caos-accent hover:bg-caos-elevated focus-ring"
-                    >
-                      C{sourceIndex + 1} ↗
-                    </button>
-                  ) : (
-                    <span key={id} className="tabular text-caos-3xs text-caos-muted">C{sourceIndex + 1}</span>
-                  ))}
-                  {facts.map((id, factIndex) => (
-                    <span key={id} title={factLabels.get(id) ?? id} className="rounded-sm border border-caos-border px-1 py-px tabular text-caos-3xs text-caos-muted">
-                      F{factIndex + 1} · {factLabels.get(id) ?? "metric fact"}
-                    </span>
-                  ))}
-                  {!chunks.length && !facts.length ? <span className="tabular text-caos-3xs uppercase text-caos-warning">Uncited · keep in draft</span> : null}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      ) : (
-        <div className="mt-2">
-          <p className="text-caos-sm leading-relaxed text-caos-text">{fallbackAnswer}</p>
-          <p className="mt-2 tabular text-caos-2xs uppercase text-caos-warning">No sentence-level citations attached · keep in draft</p>
-        </div>
-      )}
+      <GroundedAnswer model={model} onCitation={onCitation} />
     </article>
   );
 }
 
-function QueryResult({ run, onCitation }: { run: QueryRun | null; onCitation?: (id: string, label: string) => void }) {
-  if (!run) {
-    return (
-      <div className="h-full grid place-items-center p-6 text-center">
-        <SurfaceState
-          kind="not-run"
-          title="Ask one cross-coverage question."
-          detail="The lane is declared before execution. No graph, model overlay or report is generated until you run it."
-          className="max-w-xl"
-        />
-      </div>
-    );
-  }
-  if (run.status === "partial" || run.status === "error") {
-    const alternatives = Array.isArray(run.result.available_lanes) ? run.result.available_lanes.join(" · ") : "metric · graph";
-    return (
-      <SurfaceState
-        kind={run.status}
-        title="Question preserved"
-        detail={run.error ?? stringValue(run.result.recovery) ?? "The selected lane is incomplete."}
-        supporting={<p className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">Available alternatives · {alternatives}</p>}
-        className="m-3"
-      />
-    );
-  }
-  if (run.selected_lane === "graph") return <GraphLaneResult run={run} onCitation={onCitation} />;
-  if (run.selected_lane === "grounded") return <GroundedLaneResult run={run} onCitation={onCitation} />;
+function rowMetrics(row: Record<string, unknown>) {
+  return row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics) ? row.metrics as Record<string, unknown> : {};
+}
+
+function metricRowCitation(row: Record<string, unknown>, enabled: boolean) {
+  if (!enabled) return null;
+  return Object.values(rowMetrics(row))
+    .map((cell) => (cell && typeof cell === "object" ? (cell as { citation?: { chunk_id?: string | null } | null }).citation : null))
+    .find((citation) => citation && typeof citation === "object" && citation.chunk_id)?.chunk_id ?? null;
+}
+
+function MetricSourceButton({ id, label, onCitation }: { id: string | null; label: string; onCitation?: CitationHandler }) {
+  if (!id || !onCitation) return null;
+  return <button type="button" title="Open the cited source extract for this row" onClick={() => onCitation(id, label)} className="ml-1.5 rounded border border-caos-accent/50 px-1 py-px tabular text-caos-2xs text-caos-accent hover:bg-caos-elevated focus-ring">❝ src</button>;
+}
+
+function MetricObservation({ index, onCitation, row }: { index: number; onCitation?: CitationHandler; row: Record<string, unknown> }) {
+  const issuer = rowIssuer(row);
+  const issuerId = stringValue(issuer?.id) ?? stringValue(row.issuer_id);
+  const label = stringValue(row.label) ?? stringValue(row.name) ?? stringValue(row.company) ?? stringValue(row.issuer_name) ?? stringValue(issuer?.name) ?? `Result ${index + 1}`;
+  const issuerMeta = [stringValue(issuer?.ticker), stringValue(issuer?.industry)].filter(Boolean).join(" · ");
+  const rowChunk = metricRowCitation(row, !!onCitation);
+  return <span className="font-semibold text-caos-text">
+    {issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}
+    <MetricSourceButton id={rowChunk} label={label} onCitation={onCitation} />
+    {issuerMeta ? <span className="block font-normal text-caos-2xs text-caos-muted">{issuerMeta}</span> : null}
+  </span>;
+}
+
+function metricColumn(column: Record<string, unknown>, rankKey: string | null): DataTableColumn<Record<string, unknown>> {
+  const key = stringValue(column.key) ?? "";
+  return {
+    key,
+    header: stringValue(column.label) ?? key,
+    align: "numeric",
+    unit: stringValue(column.unit) ?? undefined,
+    render: (row) => {
+      const metrics = rowMetrics(row);
+      const cell = metrics[key] && typeof metrics[key] === "object" ? (metrics[key] as Record<string, unknown>).value : undefined;
+      const value = key === rankKey && cell === undefined ? row.rank_value : cell;
+      return <span className={key === rankKey ? "text-caos-text" : "text-caos-muted"}>{value === undefined || value === null ? "—" : formatMetricValue(value)}</span>;
+    },
+  };
+}
+
+function metricDetails(row: Record<string, unknown>) {
+  const issuer = rowIssuer(row);
+  const issuerMeta = [stringValue(issuer?.ticker), stringValue(issuer?.industry)].filter(Boolean).join(" · ");
+  if (issuerMeta) return issuerMeta;
+  return Object.entries(row)
+    .filter(([key]) => !["label", "name", "company", "issuer_name", "issuer", "metrics", "rank_value"].includes(key))
+    .slice(0, 4)
+    .map(([key, value]) => `${key}: ${stringValue(value) ?? "…"}`)
+    .join(" · ");
+}
+
+function fallbackMetricColumns(rankLabel: string, rankUnit: string): DataTableColumn<Record<string, unknown>>[] {
+  return [
+    { key: "rank-value", header: rankLabel, align: "numeric", unit: rankUnit || undefined, render: (row) => <span className="text-caos-text">{row.rank_value === undefined ? "—" : formatMetricValue(row.rank_value)}</span> },
+    { key: "details", header: "Details", render: (row) => <span className="text-caos-muted">{metricDetails(row)}</span> },
+  ];
+}
+
+function prepareMetricResult(run: QueryRun) {
   const answer = stringValue(run.result.answer) ?? stringValue(run.result.summary) ?? stringValue(run.result.synthesis) ?? stringValue(run.result.interpretation);
   const rows = resultRows(run);
   const rankKey = stringValue(run.result.rank_by);
@@ -320,118 +377,96 @@ function QueryResult({ run, onCitation }: { run: QueryRun | null; onCitation?: (
   // the result carries no delta marker, say so rather than implying it answered.
   const asksDelta = /deteriorat|worsen|improv|chang|trend|declin/i.test(run.question);
   const hasDelta = run.result.rank_is_delta === true || /delta|change|Δ/i.test(rankLabel);
-  const levelCaveat = asksDelta && !hasDelta;
-  const tableRows = rows.slice(0, 100);
-  const tableColumns: DataTableColumn<Record<string, unknown>>[] = [
+  return { columns, headline, levelCaveat: asksDelta && !hasDelta, rankKey, rankLabel, rankUnit, rows, tableRows: rows.slice(0, 100) };
+}
+
+type MetricModel = ReturnType<typeof prepareMetricResult>;
+
+function metricTableColumns(model: MetricModel, onCitation?: CitationHandler): DataTableColumn<Record<string, unknown>>[] {
+  const valueColumns = model.columns.length
+    ? model.columns.map((column) => metricColumn(column, model.rankKey))
+    : fallbackMetricColumns(model.rankLabel, model.rankUnit);
+  return [
     { key: "result-rank", header: "#", align: "numeric", render: (_row, index) => <span className="text-caos-accent">{index + 1}</span> },
     {
       key: "observation",
       header: "Observation",
       rowHeader: true,
-      render: (row, index) => {
-        const issuer = rowIssuer(row);
-        const issuerId = stringValue(issuer?.id) ?? stringValue(row.issuer_id);
-        const label = stringValue(row.label) ?? stringValue(row.name) ?? stringValue(row.company) ?? stringValue(row.issuer_name) ?? stringValue(issuer?.name) ?? `Result ${index + 1}`;
-        const issuerMeta = [stringValue(issuer?.ticker), stringValue(issuer?.industry)].filter(Boolean).join(" · ");
-        const metrics = row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics) ? row.metrics as Record<string, unknown> : {};
-        const rowChunk = onCitation ? Object.values(metrics)
-          .map((cell) => (cell && typeof cell === "object" ? (cell as { citation?: { chunk_id?: string | null } | null }).citation : null))
-          .find((cite) => cite && typeof cite === "object" && cite.chunk_id)?.chunk_id ?? null : null;
-        return <span className="font-semibold text-caos-text">{issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}{rowChunk ? <button type="button" title="Open the cited source extract for this row" onClick={() => onCitation?.(rowChunk, label)} className="ml-1.5 rounded border border-caos-accent/50 px-1 py-px tabular text-caos-2xs text-caos-accent hover:bg-caos-elevated focus-ring">❝ src</button> : null}{issuerMeta ? <span className="block font-normal text-caos-2xs text-caos-muted">{issuerMeta}</span> : null}</span>;
-      },
+      render: (row, index) => <MetricObservation index={index} onCitation={onCitation} row={row} />,
     },
-    ...(columns.length ? columns.map((column): DataTableColumn<Record<string, unknown>> => {
-      const key = stringValue(column.key) ?? "";
-      return {
-        key,
-        header: stringValue(column.label) ?? key,
-        align: "numeric",
-        unit: stringValue(column.unit) ?? undefined,
-        render: (row) => {
-          const metrics = row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics) ? row.metrics as Record<string, unknown> : {};
-          const cell = metrics[key] && typeof metrics[key] === "object" ? (metrics[key] as Record<string, unknown>).value : undefined;
-          const value = key === rankKey && cell === undefined ? row.rank_value : cell;
-          return <span className={key === rankKey ? "text-caos-text" : "text-caos-muted"}>{value === undefined || value === null ? "—" : formatMetricValue(value)}</span>;
-        },
-      };
-    }) : [
-      { key: "rank-value", header: rankLabel, align: "numeric" as const, unit: rankUnit || undefined, render: (row: Record<string, unknown>) => <span className="text-caos-text">{row.rank_value === undefined ? "—" : formatMetricValue(row.rank_value)}</span> },
-      { key: "details", header: "Details", render: (row: Record<string, unknown>) => {
-        const issuer = rowIssuer(row);
-        const issuerMeta = [stringValue(issuer?.ticker), stringValue(issuer?.industry)].filter(Boolean).join(" · ");
-        const details = issuerMeta || Object.entries(row).filter(([key]) => !["label", "name", "company", "issuer_name", "issuer", "metrics", "rank_value"].includes(key)).slice(0, 4).map(([key, value]) => `${key}: ${stringValue(value) ?? "…"}`).join(" · ");
-        return <span className="text-caos-muted">{details}</span>;
-      } },
-    ]),
+    ...valueColumns,
   ];
+}
+
+function MetricResultsBody({ model, run, tableColumns }: { model: MetricModel; run: QueryRun; tableColumns: DataTableColumn<Record<string, unknown>>[] }) {
+  if (!model.rows.length) return <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap border-t border-caos-border pt-3 text-caos-xs leading-relaxed text-caos-muted">{JSON.stringify(run.result, null, 2)}</pre>;
+  return <div className="mt-3 overflow-auto border-t border-caos-border">
+    <DataTable columns={tableColumns} rows={model.tableRows} getRowId={(row, index) => `${stringValue(row.issuer_id) ?? stringValue(row.label) ?? "result"}-${index}`} caption="Query metric results" rowClassName={() => "hover:bg-caos-elevated/40"} />
+  </div>;
+}
+
+function MetricLaneResult({ run, onCitation }: { run: QueryRun; onCitation?: CitationHandler }) {
+  const model = prepareMetricResult(run);
+  const tableColumns = metricTableColumns(model, onCitation);
   return (
     <div className="min-h-0 overflow-auto p-3">
       <div className="rounded-md border border-caos-border bg-caos-panel p-3">
         <div className="flex flex-wrap items-center gap-2">
           <AnalysisStateBadge state={run.status} />
           <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Native {run.selected_lane} view</span>
-          {levelCaveat ? <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning" title="This lane ranks by current level, not by period-over-period change. Δ metrics are not yet available.">△ ranked by level, not change</span> : null}
+          {model.levelCaveat ? <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning" title="This lane ranks by current level, not by period-over-period change. Δ metrics are not yet available.">△ ranked by level, not change</span> : null}
         </div>
-        {headline !== run.question ? <p className="mt-2 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{run.question}</p> : null}
-        <h2 className="mt-1 text-base font-semibold leading-snug text-caos-text">{headline}</h2>
-        {rows.length ? (
-          <div className="mt-3 overflow-auto border-t border-caos-border">
-            {/* Every backend column renders as a real column — the old table
-                showed only the rank metric and flattened the rest into prose. */}
-            <DataTable columns={tableColumns} rows={tableRows} getRowId={(row, index) => `${stringValue(row.issuer_id) ?? stringValue(row.label) ?? "result"}-${index}`} caption="Query metric results" rowClassName={() => "hover:bg-caos-elevated/40"} />
-          </div>
-        ) : (
-          <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap border-t border-caos-border pt-3 text-caos-xs leading-relaxed text-caos-muted">{JSON.stringify(run.result, null, 2)}</pre>
-        )}
+        {model.headline !== run.question ? <p className="mt-2 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{run.question}</p> : null}
+        <h2 className="mt-1 text-base font-semibold leading-snug text-caos-text">{model.headline}</h2>
+        <MetricResultsBody model={model} run={run} tableColumns={tableColumns} />
       </div>
     </div>
   );
 }
 
-export function QueryInvestigationWorkbench() {
-  const contextState = useAnalysisContext({ name: "Cross-coverage investigation" });
-  const { values: urlState, update: updateUrlState } = useTypedUrlState(QUERY_URL_KEYS);
+function QueryUnavailableResult() {
+  return <div className="h-full grid place-items-center p-6 text-center">
+    <SurfaceState kind="not-run" title="Ask one cross-coverage question." detail="The lane is declared before execution. No graph, model overlay or report is generated until you run it." className="max-w-xl" />
+  </div>;
+}
+
+function QueryIncompleteResult({ run }: { run: QueryRun }) {
+  const alternatives = Array.isArray(run.result.available_lanes) ? run.result.available_lanes.join(" · ") : "metric · graph";
+  return <SurfaceState
+    kind={run.status === "error" ? "error" : "partial"}
+    title="Question preserved"
+    detail={run.error ?? stringValue(run.result.recovery) ?? "The selected lane is incomplete."}
+    supporting={<p className="tabular text-caos-xs uppercase tracking-wider text-caos-muted">Available alternatives · {alternatives}</p>}
+    className="m-3"
+  />;
+}
+
+function QueryResult({ run, onCitation }: { run: QueryRun | null; onCitation?: CitationHandler }) {
+  if (!run) return <QueryUnavailableResult />;
+  if (run.status === "partial" || run.status === "error") return <QueryIncompleteResult run={run} />;
+  if (run.selected_lane === "graph") return <GraphLaneResult run={run} onCitation={onCitation} />;
+  if (run.selected_lane === "grounded") return <GroundedLaneResult run={run} onCitation={onCitation} />;
+  return <MetricLaneResult run={run} onCitation={onCitation} />;
+}
+
+type QueryUrlControl = ReturnType<typeof useTypedUrlState<(typeof QUERY_URL_KEYS)[number]>>;
+type QueryContextState = ReturnType<typeof useAnalysisContext>;
+
+function useQueryComposer(activeContextId: string | null, url: QueryUrlControl) {
   const [question, setQuestion] = useState("");
-  const [lane, setLaneState] = useState<QueryRun["selected_lane"]>(() => urlState.lane === "graph" || urlState.lane === "grounded" ? urlState.lane : "metric");
+  const [lane, setLaneState] = useState<QueryRun["selected_lane"]>(() => url.values.lane === "graph" || url.values.lane === "grounded" ? url.values.lane : "metric");
   const [manualLane, setManualLane] = useState(false);
-  const [run, setRun] = useState<QueryRun | null>(null);
-  const [history, setHistory] = useState<QueryRun[]>([]);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [capabilityId, setCapabilityId] = useState("peer-set");
-  const [capabilityError, setCapabilityError] = useState<string | null>(null);
-  const [pinning, setPinning] = useState(false);
-  const [pinError, setPinError] = useState<string | null>(null);
   const [draftContextId, setDraftContextId] = useState<string | null>(null);
-  // Click-to-source for the citation register — every C-n identifier opens the
-  // underlying document extract (or an explicit failure) instead of sitting as
-  // inert text on the surface whose required action says "inspect citations".
-  const [citation, setCitation] = useState<{ id: string; label: string } | null>(null);
-  // Resolved citation labels (issuer · document) — a bare UUID prefix forces the
-  // analyst to open every extract and match issuers from memory. Chunk-backed
-  // ids resolve; non-chunk ids (claim/evidence) keep the id prefix.
-  const [citationMeta, setCitationMeta] = useState<Record<string, string>>({});
-  const [findingsKey, setFindingsKey] = useState(0);
-  const historyGeneration = useRef(0);
-  const historyContextId = useRef<string | null>(null);
-  const runGeneration = useRef(0);
-  const runningRef = useRef(false);
-  const pinningRef = useRef(false);
-  const activeContextId = contextState.context?.id ?? null;
-  const activeQuerySessionId = contextState.context?.query_session_id ?? null;
-  const activeContextIdRef = useRef<string | null>(activeContextId);
-  activeContextIdRef.current = activeContextId;
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const updateUrl = url.update;
   const setLane = useCallback((next: QueryRun["selected_lane"]) => {
     setLaneState(next);
-    updateUrlState({ lane: next === "metric" ? null : next }, "replace");
-  }, [updateUrlState]);
+    updateUrl({ lane: next === "metric" ? null : next }, "replace");
+  }, [updateUrl]);
   const setDraftQuestion = useCallback((value: string) => {
     setQuestion(value);
     if (activeContextId) writeQueryDraft(activeContextId, value);
   }, [activeContextId]);
-
   useEffect(() => {
     if (!activeContextId) {
       setQuestion("");
@@ -441,12 +476,6 @@ export function QueryInvestigationWorkbench() {
     setQuestion(readQueryDraft(activeContextId));
     setDraftContextId(activeContextId);
   }, [activeContextId]);
-
-  // Ask.tsx's openWith() redirects ⌘K "Ask CAOS: <text>" here on /query — it
-  // used to dispatch a bare Event with no payload, so the composer was never
-  // even focused, let alone prefilled, and the typed question was silently
-  // dropped. `detail?.text` is undefined for the plain Alt+K/header-button
-  // toggle (which only wants a focus, no prefill change).
   useEffect(() => {
     const onFocus = (event: Event) => {
       const text = (event as CustomEvent<{ text?: string }>).detail?.text;
@@ -459,41 +488,19 @@ export function QueryInvestigationWorkbench() {
     window.addEventListener("caos:query-focus", onFocus);
     return () => window.removeEventListener("caos:query-focus", onFocus);
   }, [manualLane, setDraftQuestion, setLane]);
-
   useEffect(() => {
-    // A run belongs to the exact context that created it. Scope navigation
-    // invalidates the completion synchronously via the render-updated ref and
-    // resets the pending UI when the new context commits.
-    runGeneration.current += 1;
-    runningRef.current = false;
-    setRunning(false);
-    setRunError(null);
-  }, [activeContextId]);
+    if (url.values.lane === "graph" || url.values.lane === "grounded" || url.values.lane === "metric") setLaneState(url.values.lane);
+    else if (url.values.lane === null) setLaneState("metric");
+  }, [url.values.lane]);
+  return { composerRef, draftContextId, lane, manualLane, question, setDraftQuestion, setLane, setManualLane };
+}
 
-  const citationIds = run?.authority.source_ids;
-  useEffect(() => {
-    if (!citationIds?.length) { setCitationMeta({}); return; }
-    let stale = false;
-    void Promise.all(citationIds.slice(0, 20).map((sourceId) =>
-      getChunk(sourceId)
-        .then((chunk) => [sourceId, `${chunk.issuer_name} · ${chunk.doc}`] as const)
-        // Non-chunk source ids (claim/evidence) 404 here — they keep the id prefix.
-        .catch(() => null),
-    )).then((entries) => {
-      if (stale) return;
-      setCitationMeta(Object.fromEntries(entries.filter((entry) => entry !== null)));
-    });
-    return () => { stale = true; };
-  }, [citationIds]);
-
-  useEffect(() => {
-    if (urlState.lane === "graph" || urlState.lane === "grounded" || urlState.lane === "metric") {
-      setLaneState(urlState.lane);
-    } else if (urlState.lane === null) {
-      setLaneState("metric");
-    }
-  }, [urlState.lane]);
-
+function useQueryHistory(activeContextId: string | null, activeQuerySessionId: string | null, requestedRun: string | null) {
+  const [run, setRun] = useState<QueryRun | null>(null);
+  const [history, setHistory] = useState<QueryRun[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyGeneration = useRef(0);
+  const historyContextId = useRef<string | null>(null);
   useEffect(() => {
     const generation = ++historyGeneration.current;
     setHistory([]);
@@ -510,18 +517,36 @@ export function QueryInvestigationWorkbench() {
     analysisApi.listQueryRuns(activeContextId).then((rows) => {
       if (generation !== historyGeneration.current) return;
       setHistory(rows);
-      if (urlState.run || activeQuerySessionId) {
-        const latest = rows.find((item) => item.id === (urlState.run ?? activeQuerySessionId));
-        if (latest) setRun(latest);
-      }
+      const selectedId = requestedRun ?? activeQuerySessionId;
+      const latest = selectedId ? rows.find((item) => item.id === selectedId) : null;
+      if (latest) setRun(latest);
     }).catch((error) => {
-      if (generation === historyGeneration.current) {
-        setHistoryError(toErrorMessage(error, "Saved investigations unavailable"));
-      }
+      if (generation === historyGeneration.current) setHistoryError(toErrorMessage(error, "Saved investigations unavailable"));
     });
     return () => { historyGeneration.current += 1; };
-  }, [activeContextId, activeQuerySessionId, urlState.run]);
+  }, [activeContextId, activeQuerySessionId, requestedRun]);
+  return { history, historyError, run, setHistory, setRun };
+}
 
+function useQueryExecution(activeContextId: string | null) {
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const runGeneration = useRef(0);
+  const runningRef = useRef(false);
+  const activeContextIdRef = useRef<string | null>(activeContextId);
+  activeContextIdRef.current = activeContextId;
+  useEffect(() => {
+    runGeneration.current += 1;
+    runningRef.current = false;
+    setRunning(false);
+    setRunError(null);
+  }, [activeContextId]);
+  return { activeContextIdRef, runError, runGeneration, running, runningRef, setRunError, setRunning };
+}
+
+function useQueryCapabilities() {
+  const [capabilityId, setCapabilityId] = useState("peer-set");
+  const [capabilityError, setCapabilityError] = useState<string | null>(null);
   useEffect(() => {
     let current = true;
     queryCapabilities().then((value) => {
@@ -535,159 +560,337 @@ export function QueryInvestigationWorkbench() {
     });
     return () => { current = false; };
   }, []);
+  return { capabilityError, capabilityId, setCapabilityId };
+}
 
-  const setAnalysisContext = contextState.setContext;
-  const runQuery = useCallback(async () => {
-    if (!activeContextId || !question.trim() || runningRef.current) return;
-    const generation = ++runGeneration.current;
-    const contextId = activeContextId;
-    runningRef.current = true;
-    setRunning(true);
-    setRunError(null);
-    try {
-      const next = await analysisApi.createQueryRun({
-        context_id: contextId,
-        question: question.trim(),
-        selected_lane: lane,
-        capability_id: lane === "graph" ? capabilityId : undefined,
-      });
-      if (generation !== runGeneration.current || activeContextIdRef.current !== contextId) return;
-      setRun(next);
-      updateUrlState({ run: next.id, lane: next.selected_lane === "metric" ? null : next.selected_lane }, "replace");
-      setHistory((current) => [next, ...current.filter((item) => item.id !== next.id)].slice(0, 100));
-      setAnalysisContext((current) => current?.id === contextId
-        ? { ...current, query_session_id: next.id }
-        : current);
-    } catch (error) {
-      if (generation === runGeneration.current && activeContextIdRef.current === contextId) {
-        setRunError(toErrorMessage(error, "Query could not be run"));
-      }
-    } finally {
-      if (generation === runGeneration.current && activeContextIdRef.current === contextId) {
-        runningRef.current = false;
-        setRunning(false);
-      }
+function useQueryPinState() {
+  const [pinning, setPinning] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [findingsKey, setFindingsKey] = useState(0);
+  const pinningRef = useRef(false);
+  return { findingsKey, pinError, pinning, pinningRef, setFindingsKey, setPinError, setPinning };
+}
+
+function useQueryCitations(run: QueryRun | null) {
+  const [citation, setCitation] = useState<{ id: string; label: string } | null>(null);
+  const [citationMeta, setCitationMeta] = useState<Record<string, string>>({});
+  const citationIds = run?.authority.source_ids;
+  useEffect(() => {
+    if (!citationIds?.length) { setCitationMeta({}); return; }
+    let stale = false;
+    void Promise.all(citationIds.slice(0, 20).map((sourceId) =>
+      getChunk(sourceId)
+        .then((chunk) => [sourceId, `${chunk.issuer_name} · ${chunk.doc}`] as const)
+        // Non-chunk source ids (claim/evidence) 404 here — they keep the id prefix.
+        .catch(() => null),
+    )).then((entries) => {
+      if (stale) return;
+      setCitationMeta(Object.fromEntries(entries.filter((entry) => entry !== null)));
+    });
+    return () => { stale = true; };
+  }, [citationIds]);
+  return { citation, citationMeta, setCitation };
+}
+
+type QueryComposerState = ReturnType<typeof useQueryComposer>;
+type QueryHistoryState = ReturnType<typeof useQueryHistory>;
+type QueryExecutionState = ReturnType<typeof useQueryExecution>;
+type QueryCapabilitiesState = ReturnType<typeof useQueryCapabilities>;
+type QueryPinState = ReturnType<typeof useQueryPinState>;
+type QueryCitationState = ReturnType<typeof useQueryCitations>;
+
+interface QueryState {
+  capabilities: QueryCapabilitiesState;
+  citations: QueryCitationState;
+  composer: QueryComposerState;
+  contextState: QueryContextState;
+  execution: QueryExecutionState;
+  history: QueryHistoryState;
+  pin: QueryPinState;
+  url: QueryUrlControl;
+}
+
+async function runQuery(state: QueryState) {
+  const contextId = state.contextState.context?.id ?? null;
+  if (!contextId || !state.composer.question.trim() || state.execution.runningRef.current) return;
+  const generation = ++state.execution.runGeneration.current;
+  state.execution.runningRef.current = true;
+  state.execution.setRunning(true);
+  state.execution.setRunError(null);
+  try {
+    const next = await analysisApi.createQueryRun({
+      context_id: contextId,
+      question: state.composer.question.trim(),
+      selected_lane: state.composer.lane,
+      capability_id: state.composer.lane === "graph" ? state.capabilities.capabilityId : undefined,
+    });
+    if (generation !== state.execution.runGeneration.current || state.execution.activeContextIdRef.current !== contextId) return;
+    state.history.setRun(next);
+    state.url.update({ run: next.id, lane: next.selected_lane === "metric" ? null : next.selected_lane }, "replace");
+    state.history.setHistory((current) => [next, ...current.filter((item) => item.id !== next.id)].slice(0, 100));
+    state.contextState.setContext((current) => current?.id === contextId ? { ...current, query_session_id: next.id } : current);
+  } catch (error) {
+    if (generation === state.execution.runGeneration.current && state.execution.activeContextIdRef.current === contextId) {
+      state.execution.setRunError(toErrorMessage(error, "Query could not be run"));
     }
-  }, [activeContextId, capabilityId, lane, question, setAnalysisContext, updateUrlState]);
+  } finally {
+    if (generation === state.execution.runGeneration.current && state.execution.activeContextIdRef.current === contextId) {
+      state.execution.runningRef.current = false;
+      state.execution.setRunning(false);
+    }
+  }
+}
 
-  const missing = useMemo(() => Array.isArray(run?.result.missing_dependencies) ? run.result.missing_dependencies.map(String) : [], [run]);
-  const decisionState: DecisionContextState = {
+function queryPinTitle(run: QueryRun) {
+  return stringValue(run.result.answer)
+    ?? stringValue(run.result.summary)
+    ?? stringValue(run.result.synthesis)
+    ?? stringValue(run.result.interpretation)
+    ?? run.question;
+}
+
+async function pinFinding(state: QueryState) {
+  const context = state.contextState.context;
+  const run = state.history.run;
+  if (state.pin.pinningRef.current || !context || !run || !["ready", "observed-empty"].includes(run.status)) return;
+  if (!run.authority.source_ids.length) return;
+  state.pin.pinningRef.current = true;
+  state.pin.setPinning(true);
+  state.pin.setPinError(null);
+  try {
+    const title = queryPinTitle(run);
+    await analysisApi.createFinding({
+      context_id: context.id, kind: "query-answer", title,
+      body: title === run.question ? "" : run.question,
+      source_surface: "query", source_run_id: run.id,
+      evidence: { source_ids: run.authority.source_ids, result: run.result },
+    });
+    state.pin.setFindingsKey((value) => value + 1);
+  } catch (error) {
+    state.pin.setPinError(toErrorMessage(error, "Finding was not pinned"));
+  } finally {
+    state.pin.pinningRef.current = false;
+    state.pin.setPinning(false);
+  }
+}
+
+function missingDependencies(run: QueryRun | null) {
+  return Array.isArray(run?.result.missing_dependencies) ? run.result.missing_dependencies.map(String) : [];
+}
+
+function queryRequiredAction(run: QueryRun | null) {
+  if (run?.status !== "ready") return "Choose a recovery lane";
+  return run.authority.source_ids.length ? "Inspect citations and pin the finding" : "Attach citations before pinning — keep this draft";
+}
+
+function queryDecisionState(run: QueryRun | null): DecisionContextState {
+  const missing = missingDependencies(run);
+  return {
     whatChanged: datum(run, run ? `Query completed via ${run.selected_lane}` : null, missing),
     whyItMatters: datum(run, run?.question ?? null, missing),
-    requiredAction: datum(run, run?.status === "ready" ? (run.authority.source_ids.length === 0 ? "Attach citations before pinning — keep this draft" : "Inspect citations and pin the finding") : "Choose a recovery lane", missing),
+    requiredAction: datum(run, queryRequiredAction(run), missing),
     evidenceHealth: datum(run, run ? `${run.authority.source_ids.length} cited sources · ${run.authority.freshness}` : null, missing),
   };
+}
 
-  const pinFinding = async () => {
-    // Same rule the button's reason states: no citations, no pin. CP-5 would
-    // refuse to ratify an uncited finding anyway — block it at the source.
-    if (pinningRef.current || !contextState.context || !run || !["ready", "observed-empty"].includes(run.status)) return;
-    if (run.authority.source_ids.length === 0) return;
-    pinningRef.current = true;
-    setPinning(true);
-    setPinError(null);
-    try {
-      // Title mirrors the on-screen headline chain; the question goes in the
-      // body ONLY when it isn't already the title — otherwise the pinned card
-      // printed the same sentence twice (bold title + muted body).
-      const pinTitle =
-        stringValue(run.result.answer) ??
-        stringValue(run.result.summary) ??
-        stringValue(run.result.synthesis) ??
-        stringValue(run.result.interpretation) ??
-        run.question;
-      await analysisApi.createFinding({
-        context_id: contextState.context.id,
-        kind: "query-answer",
-        title: pinTitle,
-        body: pinTitle === run.question ? "" : run.question,
-        source_surface: "query",
-        source_run_id: run.id,
-        evidence: { source_ids: run.authority.source_ids, result: run.result },
-      });
-      setFindingsKey((value) => value + 1);
-    } catch (error) {
-      setPinError(toErrorMessage(error, "Finding was not pinned"));
-    } finally {
-      pinningRef.current = false;
-      setPinning(false);
-    }
-  };
-
+function useQueryController() {
+  const contextState = useAnalysisContext({ name: "Cross-coverage investigation" });
+  const url = useTypedUrlState(QUERY_URL_KEYS);
+  const activeContextId = contextState.context?.id ?? null;
+  const composer = useQueryComposer(activeContextId, url);
+  const history = useQueryHistory(activeContextId, contextState.context?.query_session_id ?? null, url.values.run);
+  const capabilities = useQueryCapabilities();
+  const execution = useQueryExecution(activeContextId);
+  const citations = useQueryCitations(history.run);
+  const pin = useQueryPinState();
+  const state: QueryState = { capabilities, citations, composer, contextState, execution, history, pin, url };
   const context = contextState.context;
-  // The context row and its URL binding are one readiness boundary. Publishing
-  // controls after the row arrives but before `?context=` lands lets a slower
-  // browser accept input that the pending history update can then overwrite.
-  const contextReady = !!context
-    && !contextState.loading
-    && urlState.context === context.id
-    && draftContextId === context.id;
-  const contextReadyReason = contextReady ? null : "Waiting for the investigation context to load";
-  // The RoleViewSwitch in the compact header already shows the active view —
-  // repeating it here was the double "View:" the critique flagged.
-  const narrow = { essentialControls: null };
-  // One composer, two homes: the dominant region pre-run, the context rail
-  // once results exist.
-  const composer = (
-    <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer" aria-busy={!contextReady}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">Selected lane</span>
-        {(["metric", "graph", "grounded"] as const).map((value) => <Button key={value} variant="secondary" reason={contextReadyReason} aria-pressed={lane === value} onClick={() => { setLane(value); setManualLane(true); }} className={lane === value ? "border-caos-accent text-caos-text" : ""}>{value}</Button>)}
-        {manualLane ? <ActionReason reason={contextReadyReason} className="tabular text-caos-2xs text-caos-accent focus-ring aria-disabled:opacity-40" onClick={() => { setManualLane(false); setLane(inferLane(question)); }}>Use suggested lane</ActionReason> : null}
-      </div>
-      <textarea ref={composerRef} aria-label="Query coverage" disabled={!contextReady} value={question} onChange={(event) => { const value = event.target.value; setDraftQuestion(value); if (!manualLane) setLane(inferLane(value)); }} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(); } }} rows={2} placeholder="Ask across coverage, evidence and published analysis…" className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring disabled:opacity-40" />
-      {!run ? <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <ActionReason key={starter} reason={contextReadyReason} aria-pressed={question === starter} onClick={() => { setDraftQuestion(starter); if (!manualLane) setLane(inferLane(starter)); }} className={"rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring aria-disabled:opacity-40 " + (question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text")}>{starter}</ActionReason>)}</div> : null}
-      {capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {capabilityError}</p> : null}
-      {runError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{runError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void runQuery()}>Retry query</button></p> : null}
-    </section>
-  );
-  return (
-    <EnterprisePage
-      kind="analytical"
-      identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text">Query</span>{context ? <span className="tabular text-caos-2xs text-caos-muted">{context.name}</span> : null}</>}
-      status={contextState.loading ? <span className="tabular text-caos-2xs text-caos-muted">Loading context…</span> : contextState.error ? <span className="text-caos-xs text-caos-critical">{contextState.error}</span> : <span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>}
-      primaryAction={<Button variant="primary" onClick={() => void runQuery()} reason={contextReadyReason ?? (!question.trim() ? "Enter a question first" : running ? "Running…" : null)}>{running ? "Running…" : "Run Query"}</Button>}
-      contextualControls={<>{headStat("Lane", lane)}{headStat("History", `${history.length} runs`)}</>}
-      utilityLabel="Query utilities"
-      utilityControls={<div className="space-y-4 text-caos-xs"><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Saved investigations</h3>{historyError ? <p role="alert" className="mt-2 text-caos-critical">{historyError}</p> : null}<ol className="mt-2 space-y-1">{history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => { setRun(item); setDraftQuestion(item.question); setLane(item.selected_lane); setManualLane(true); updateUrlState({ run: item.id }, "replace"); }}>{item.question}</button></li>)}</ol></div><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={capabilityId} onChange={(event) => setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>{context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}</div>}
-      narrowContract={narrow}
-    >
-      <section aria-label="Query investigation workspace" className="caos-persona-route query-workbench min-h-0 flex-1 overflow-hidden p-2">
-        <PersonaWorkbench
-          surface="query"
-          decision={<DecisionHeader state={decisionState} defaultOpen={!!run} />}
-          context={run ? composer : <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer note"><p className="text-caos-xs leading-relaxed text-caos-muted">TIP · Declare the lane before running — metric ranks coverage, graph traverses relationships, grounded answers from cited documents.</p></section>}
-          primary={run
-            ? <section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">{run.selected_lane === "metric" && resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full"><QueryResult run={run} onCitation={(id, label) => setCitation({ id, label })} /></DominantTableRegion> : <QueryResult run={run} onCitation={(id, label) => setCitation({ id, label })} />}</section>
-            : <section className="min-h-0 h-full overflow-auto border border-caos-border grid place-items-center p-6" aria-label="Query answer">
-              {/* Pre-run, the question IS the work — the composer owns the
-                  dominant region instead of a blank canvas dwarfing a
-                  sidebar-width input (2026-07-16 critique H8). */}
-              <div className="w-full max-w-2xl text-center">
-                <p className="tabular text-caos-xs uppercase tracking-widest text-caos-accent">Investigation ready</p>
-                <h2 className="mt-2 text-lg font-semibold text-caos-text">Ask one cross-coverage question.</h2>
-                <p className="mx-auto mt-2 max-w-[65ch] text-caos-sm leading-relaxed text-caos-muted">The lane is declared before execution. No graph, model overlay or report is generated until you run it.</p>
-                <div className="mt-5 text-left">{composer}</div>
-              </div>
-            </section>}
-          inspector={<aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50 p-3" aria-label="Query evidence inspector">
-            <div className="flex items-center gap-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Evidence inspector</h2>{run ? <ActionReason
-              reason={!["ready", "observed-empty"].includes(run.status)
-                ? "Only a completed run can be pinned"
-                : run.authority.source_ids.length === 0
-                ? "Attach citations before pinning — draft results can't enter the tray"
-                : pinning ? "Pinning…" : null}
-              reasonDisplay="hidden"
-              onClick={() => void pinFinding()}
-              className="caos-action-secondary ml-auto focus-ring"
-            >{pinning ? "Pinning…" : "Pin finding"}</ActionReason> : null}</div>
-            {pinError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{pinError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void pinFinding()}>Retry pin</button></p> : null}
-            {run ? <><div className="mt-3"><AuthorityLine authority={run.authority} /></div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3><p className="mt-1 text-caos-xs leading-relaxed text-caos-text">{run.authority.source_ids.length ? `${run.authority.source_ids.length} cited sources — open one to read the underlying extract.` : "No citation identifiers were attached; keep this result in draft."}</p>{run.authority.source_ids.length ? <ol className="mt-2 space-y-1">{run.authority.source_ids.slice(0, 20).map((id, index) => <li key={id}><button type="button" title={`Open source extract · ${id}`} onClick={() => setCitation({ id, label: `C${index + 1}` })} className="w-full rounded-sm px-1 py-0.5 text-left tabular text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text focus-ring"><span className="text-caos-accent">C{index + 1}</span> · {citationMeta[id] ?? `${id.slice(0, 8)}…`} <span className="text-caos-accent">↗</span></button></li>)}</ol> : null}</div><div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div></> : <p className="mt-3 text-caos-xs text-caos-muted">Run an investigation to inspect its method, caveats and citations.</p>}
-            {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={findingsKey} /></div> : null}
-          </aside>}
-        />
-      </section>
-      {citation ? <CitationViewer chunkId={citation.id} label={citation.label} onClose={() => setCitation(null)} /> : null}
-    </EnterprisePage>
-  );
+  const contextReady = !!context && !contextState.loading && url.values.context === context.id && composer.draftContextId === context.id;
+  return { contextReady, contextReadyReason: contextReady ? null : "Waiting for the investigation context to load", decisionState: queryDecisionState(history.run), state };
+}
+
+type QueryController = ReturnType<typeof useQueryController>;
+
+function selectHistoryRun(state: QueryState, run: QueryRun) {
+  state.history.setRun(run);
+  state.composer.setDraftQuestion(run.question);
+  state.composer.setLane(run.selected_lane);
+  state.composer.setManualLane(true);
+  state.url.update({ run: run.id }, "replace");
+}
+
+function LaneControls({ controller }: { controller: QueryController }) {
+  const { contextReadyReason, state } = controller;
+  return <div className="flex flex-wrap items-center gap-2">
+    <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">Selected lane</span>
+    {(["metric", "graph", "grounded"] as const).map((lane) => <Button key={lane} variant="secondary" reason={contextReadyReason} aria-pressed={state.composer.lane === lane} onClick={() => { state.composer.setLane(lane); state.composer.setManualLane(true); }} className={state.composer.lane === lane ? "border-caos-accent text-caos-text" : ""}>{lane}</Button>)}
+    {state.composer.manualLane ? <ActionReason reason={contextReadyReason} className="tabular text-caos-2xs text-caos-accent focus-ring aria-disabled:opacity-40" onClick={() => { state.composer.setManualLane(false); state.composer.setLane(inferLane(state.composer.question)); }}>Use suggested lane</ActionReason> : null}
+  </div>;
+}
+
+function StarterQuestions({ controller }: { controller: QueryController }) {
+  const { contextReadyReason, state } = controller;
+  if (state.history.run) return null;
+  return <div className="mt-2 flex flex-wrap gap-2">{STARTERS.map((starter) => <ActionReason
+    key={starter}
+    reason={contextReadyReason}
+    aria-pressed={state.composer.question === starter}
+    onClick={() => { state.composer.setDraftQuestion(starter); if (!state.composer.manualLane) state.composer.setLane(inferLane(starter)); }}
+    className={`rounded-sm border px-2 py-1 text-left text-caos-xs focus-ring aria-disabled:opacity-40 ${state.composer.question === starter ? "border-caos-accent text-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text"}`}
+  >{starter}</ActionReason>)}</div>;
+}
+
+function QueryComposer({ controller }: { controller: QueryController }) {
+  const { contextReady, state } = controller;
+  return <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer" aria-busy={!contextReady}>
+    <LaneControls controller={controller} />
+    <textarea
+      ref={state.composer.composerRef}
+      aria-label="Query coverage"
+      disabled={!contextReady}
+      value={state.composer.question}
+      onChange={(event) => { const value = event.target.value; state.composer.setDraftQuestion(value); if (!state.composer.manualLane) state.composer.setLane(inferLane(value)); }}
+      onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void runQuery(state); } }}
+      rows={2}
+      placeholder="Ask across coverage, evidence and published analysis…"
+      className="mt-2 w-full resize-none rounded-md border border-caos-border bg-caos-bg px-3 py-2 text-caos-md text-caos-text placeholder:text-caos-muted focus-ring disabled:opacity-40"
+    />
+    <StarterQuestions controller={controller} />
+    {state.capabilities.capabilityError ? <p className="mt-2 text-caos-xs text-caos-warning">△ {state.capabilities.capabilityError}</p> : null}
+    {state.execution.runError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{state.execution.runError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void runQuery(state)}>Retry query</button></p> : null}
+  </section>;
+}
+
+function QueryUtilities({ state }: { state: QueryState }) {
+  const context = state.contextState.context;
+  return <div className="space-y-4 text-caos-xs">
+    <div>
+      <h3 className="tabular uppercase tracking-wider text-caos-muted">Saved investigations</h3>
+      {state.history.historyError ? <p role="alert" className="mt-2 text-caos-critical">{state.history.historyError}</p> : null}
+      <ol className="mt-2 space-y-1">{state.history.history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => selectHistoryRun(state, item)}>{item.question}</button></li>)}</ol>
+    </div>
+    <div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={state.capabilities.capabilityId} onChange={(event) => state.capabilities.setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>
+    {context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}
+  </div>;
+}
+
+function QueryIdentity({ context }: { context: QueryContextState["context"] }) {
+  return <><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text">Query</span>{context ? <span className="tabular text-caos-2xs text-caos-muted">{context.name}</span> : null}</>;
+}
+
+function QueryStatus({ contextState }: { contextState: QueryContextState }) {
+  if (contextState.loading) return <span className="tabular text-caos-2xs text-caos-muted">Loading context…</span>;
+  if (contextState.error) return <span className="text-caos-xs text-caos-critical">{contextState.error}</span>;
+  return <span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>;
+}
+
+function QueryPrimaryAction({ controller }: { controller: QueryController }) {
+  const { contextReadyReason, state } = controller;
+  const reason = contextReadyReason ?? (!state.composer.question.trim() ? "Enter a question first" : state.execution.running ? "Running…" : null);
+  return <Button variant="primary" onClick={() => void runQuery(state)} reason={reason}>{state.execution.running ? "Running…" : "Run Query"}</Button>;
+}
+
+function QueryResultSurface({ state }: { state: QueryState }) {
+  const run = state.history.run;
+  if (!run) return null;
+  const result = <QueryResult run={run} onCitation={(id, label) => state.citations.setCitation({ id, label })} />;
+  return <section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">
+    {run.selected_lane === "metric" && resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full">{result}</DominantTableRegion> : result}
+  </section>;
+}
+
+function QueryPreRunSurface({ controller }: { controller: QueryController }) {
+  return <section className="min-h-0 h-full overflow-auto border border-caos-border grid place-items-center p-6" aria-label="Query answer">
+    <div className="w-full max-w-2xl text-center">
+      <p className="tabular text-caos-xs uppercase tracking-widest text-caos-accent">Investigation ready</p>
+      <h2 className="mt-2 text-lg font-semibold text-caos-text">Ask one cross-coverage question.</h2>
+      <p className="mx-auto mt-2 max-w-[65ch] text-caos-sm leading-relaxed text-caos-muted">The lane is declared before execution. No graph, model overlay or report is generated until you run it.</p>
+      <div className="mt-5 text-left"><QueryComposer controller={controller} /></div>
+    </div>
+  </section>;
+}
+
+function QueryPrimary({ controller }: { controller: QueryController }) {
+  return controller.state.history.run ? <QueryResultSurface state={controller.state} /> : <QueryPreRunSurface controller={controller} />;
+}
+
+function pinReason(state: QueryState) {
+  const run = state.history.run;
+  if (!run || !["ready", "observed-empty"].includes(run.status)) return "Only a completed run can be pinned";
+  if (!run.authority.source_ids.length) return "Attach citations before pinning — draft results can't enter the tray";
+  return state.pin.pinning ? "Pinning…" : null;
+}
+
+function QueryPinAction({ state }: { state: QueryState }) {
+  if (!state.history.run) return null;
+  return <ActionReason reason={pinReason(state)} reasonDisplay="hidden" onClick={() => void pinFinding(state)} className="caos-action-secondary ml-auto focus-ring">{state.pin.pinning ? "Pinning…" : "Pin finding"}</ActionReason>;
+}
+
+function QueryCitationRegister({ state }: { state: QueryState }) {
+  const run = state.history.run;
+  if (!run) return null;
+  const sourceIds = run.authority.source_ids;
+  return <div className="mt-4">
+    <h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3>
+    <p className="mt-1 text-caos-xs leading-relaxed text-caos-text">{sourceIds.length ? `${sourceIds.length} cited sources — open one to read the underlying extract.` : "No citation identifiers were attached; keep this result in draft."}</p>
+    {sourceIds.length ? <ol className="mt-2 space-y-1">{sourceIds.slice(0, 20).map((id, index) => <li key={id}><button type="button" title={`Open source extract · ${id}`} onClick={() => state.citations.setCitation({ id, label: `C${index + 1}` })} className="w-full rounded-sm px-1 py-0.5 text-left tabular text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text focus-ring"><span className="text-caos-accent">C{index + 1}</span> · {state.citations.citationMeta[id] ?? `${id.slice(0, 8)}…`} <span className="text-caos-accent">↗</span></button></li>)}</ol> : null}
+  </div>;
+}
+
+function QueryRunDetails({ state }: { state: QueryState }) {
+  const run = state.history.run;
+  if (!run) return <p className="mt-3 text-caos-xs text-caos-muted">Run an investigation to inspect its method, caveats and citations.</p>;
+  return <>
+    <div className="mt-3"><AuthorityLine authority={run.authority} /></div>
+    <QueryCitationRegister state={state} />
+    <div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div>
+  </>;
+}
+
+function QueryInspector({ state }: { state: QueryState }) {
+  const context = state.contextState.context;
+  return <aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50 p-3" aria-label="Query evidence inspector">
+    <div className="flex items-center gap-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Evidence inspector</h2><QueryPinAction state={state} /></div>
+    {state.pin.pinError ? <p role="alert" className="mt-2 text-caos-xs text-caos-critical">{state.pin.pinError} <button type="button" className="ml-2 text-caos-accent focus-ring" onClick={() => void pinFinding(state)}>Retry pin</button></p> : null}
+    <QueryRunDetails state={state} />
+    {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={state.pin.findingsKey} /></div> : null}
+  </aside>;
+}
+
+function QueryWorkspace({ controller }: { controller: QueryController }) {
+  const run = controller.state.history.run;
+  const contextRail = run
+    ? <QueryComposer controller={controller} />
+    : <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer note"><p className="text-caos-xs leading-relaxed text-caos-muted">TIP · Declare the lane before running — metric ranks coverage, graph traverses relationships, grounded answers from cited documents.</p></section>;
+  return <section aria-label="Query investigation workspace" className="caos-persona-route query-workbench min-h-0 flex-1 overflow-hidden p-2">
+    <PersonaWorkbench
+      surface="query"
+      decision={<DecisionHeader state={controller.decisionState} defaultOpen={!!run} />}
+      context={contextRail}
+      primary={<QueryPrimary controller={controller} />}
+      inspector={<QueryInspector state={controller.state} />}
+    />
+  </section>;
+}
+
+function QueryCitationViewer({ state }: { state: QueryState }) {
+  return state.citations.citation ? <CitationViewer chunkId={state.citations.citation.id} label={state.citations.citation.label} onClose={() => state.citations.setCitation(null)} /> : null;
+}
+
+export function QueryInvestigationWorkbench() {
+  const controller = useQueryController();
+  const { state } = controller;
+  return <EnterprisePage
+    kind="analytical"
+    identity={<QueryIdentity context={state.contextState.context} />}
+    status={<QueryStatus contextState={state.contextState} />}
+    primaryAction={<QueryPrimaryAction controller={controller} />}
+    contextualControls={<>{headStat("Lane", state.composer.lane)}{headStat("History", `${state.history.history.length} runs`)}</>}
+    utilityLabel="Query utilities"
+    utilityControls={<QueryUtilities state={state} />}
+    narrowContract={{ essentialControls: null }}
+  >
+    <QueryWorkspace controller={controller} />
+    <QueryCitationViewer state={state} />
+  </EnterprisePage>;
 }

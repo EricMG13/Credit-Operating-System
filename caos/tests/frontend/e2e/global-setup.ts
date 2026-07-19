@@ -27,12 +27,14 @@ function projectIdentity(project: string) {
   };
 }
 
+// fallow-ignore-next-line complexity -- Every browser-project branch runs in Playwright, outside Istanbul unit coverage.
 function projectClientIp(project: string) {
   if (process.env.E2E_CLIENT_IP) return process.env.E2E_CLIENT_IP;
   const suffix = project === "chromium" ? 1 : project === "firefox" ? 2 : project === "webkit" ? 3 : 254;
   return `192.0.2.${suffix}`;
 }
 
+// fallow-ignore-next-line complexity -- This Playwright lifecycle entry runs before browser tests, outside Istanbul coverage.
 export default async function globalSetup(config: FullConfig) {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8000";
   const edgeSecret = process.env.E2E_EDGE_PROXY_SECRET;

@@ -17,6 +17,18 @@ export const PEER_CREDIT_METRIC_ROWS = [
   ["Tarn Engineered Sys", "B3 / CCC+", "7.1x", "11.4%", "22%", "+577"],
 ];
 
+export const NORMALIZED_FINANCIAL_ROWS = [
+  ["Revenue", "2,410", "2,588", "2,742", "2,801"],
+  ["Adj. EBITDA", "358", "392", "415", "421"],
+  ["Adj. EBITDA margin", "14.9%", "15.1%", "15.1%", "15.0%"],
+  ["Reported EBITDA (pre add-back)", "318", "329", "341", "344"],
+  ["Capex", "(96)", "(108)", "(118)", "(121)"],
+  ["Free cash flow", "142", "158", "169", "172"],
+  ["Net debt", "2,392", "2,371", "2,380", "2,391"],
+  ["Net leverage (adj.)", "6.7x", "6.0x", "5.7x", "5.7x"],
+  ["Interest coverage", "1.9x", "2.0x", "2.1x", "2.1x"],
+];
+
 export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
     "CP-1": {
       kpis: [
@@ -24,17 +36,7 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
         { l: "Coverage gate", v: "GREEN", sev: "ok" }, { l: "Definition conflicts", v: "2", sev: "warning" },
       ],
       sections: [
-        { type: "table", title: "CP-1-07 · Normalized financials ($M)", cols: ["", "FY23", "FY24", "FY25", "LTM Q1-26"], align: [0,1,1,1,1], rows: [
-          ["Revenue", "2,410", "2,588", "2,742", "2,801"],
-          ["Adj. EBITDA", "358", "392", "415", "421"],
-          ["Adj. EBITDA margin", "14.9%", "15.1%", "15.1%", "15.0%"],
-          ["Reported EBITDA (pre add-back)", "318", "329", "341", "344"],
-          ["Capex", "(96)", "(108)", "(118)", "(121)"],
-          ["Free cash flow", "142", "158", "169", "172"],
-          ["Net debt", "2,392", "2,371", "2,380", "2,391"],
-          ["Net leverage (adj.)", "6.7x", "6.0x", "5.7x", "5.7x"],
-          ["Interest coverage", "1.9x", "2.0x", "2.1x", "2.1x"],
-        ]},
+        { type: "table", title: "CP-1-07 · Normalized financials ($M)", cols: ["", "FY23", "FY24", "FY25", "LTM Q1-26"], align: [0,1,1,1,1], rows: NORMALIZED_FINANCIAL_ROWS },
         { type: "flags", title: "CP-1-10 · Definition conflict register", items: [
           { sev: "warning", text: "EBITDA definition: SFA caps cost-saving add-backs at 25% (24mo); 2L Credit Agt is uncapped — covenant calcs diverge by $14.2M.", ev: ["E-09", "E-103"] },
           { sev: "warning", text: "Derived Q4-25 period constructed from sponsor model — Q4-25 management accounts not provided (gap G-02).", ev: ["E-58"] },

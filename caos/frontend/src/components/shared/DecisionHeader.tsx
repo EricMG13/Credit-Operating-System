@@ -50,49 +50,46 @@ function sharedAuthority(states: DecisionDatumState[]) {
   return entries.every((entry) => entry!.key === first.key) ? first : null;
 }
 
-function Datum({ state, showObservation = true }: { state: DecisionDatumState; showObservation?: boolean }) {
-  let content: React.ReactNode;
-  let glyph = "";
+function datumPresentation(state: DecisionDatumState): { content: React.ReactNode; glyph: string } {
   switch (state.kind) {
-    case "ready":
-      content = state.value;
-      break;
+    case "ready": return { content: state.value, glyph: "" };
     case "observed-empty":
       // "○" = observed, nothing there. A "✓" here scan-reads as green health
       // decorating an empty board (2026-07-16 critique, PM persona).
-      glyph = "○";
-      content = state.message ?? "No material change observed";
-      break;
-    case "stale":
-      glyph = "△";
-      content = state.value;
-      break;
-    case "partial":
-      glyph = "△";
-      content = state.value ?? `Partial result · missing ${state.missingSources.join(", ")}`;
-      break;
-    case "loading":
-      glyph = "◌";
-      content = state.message ?? "Checking source…";
-      break;
-    case "offline":
-      glyph = "△";
-      content = state.lastKnown ?? "Source offline";
-      break;
-    case "error":
-      glyph = "✕";
-      content = state.message;
-      break;
-    case "unavailable":
-      glyph = "—";
-      content = state.message ?? "Unavailable";
-      break;
+      return { content: state.message ?? "No material change observed", glyph: "○" };
+    case "stale": return { content: state.value, glyph: "△" };
+    case "partial": return { content: state.value ?? `Partial result · missing ${state.missingSources.join(", ")}`, glyph: "△" };
+    case "loading": return { content: state.message ?? "Checking source…", glyph: "◌" };
+    case "offline": return { content: state.lastKnown ?? "Source offline", glyph: "△" };
+    case "error": return { content: state.message, glyph: "✕" };
+    case "unavailable": return { content: state.message ?? "Unavailable", glyph: "—" };
   }
+}
 
+function DatumObservation({ state, show }: { state: DecisionDatumState; show: boolean }) {
+  if (!show) return null;
   const timestamp = datumTimestamp(state);
   const authority = datumAuthority(state);
-  const interactive = state.kind === "offline" || state.kind === "error";
+  return (
+    <>
+      {timestamp ? <span className="basis-full tabular text-caos-2xs text-caos-muted">as of {timestamp}</span> : null}
+      {authority ? <span className="basis-full mt-0.5"><ConclusionAuthority prov={{ ...authority.provenance, asOf: timestamp ?? authority.provenance.asOf }} approval={authority.approval} /></span> : null}
+    </>
+  );
+}
 
+function DatumActions({ state }: { state: DecisionDatumState }) {
+  const interactive = state.kind === "offline" || state.kind === "error";
+  return (
+    <>
+      {interactive && state.onRetry ? <button type="button" onClick={state.onRetry} className="caos-action-secondary focus-ring">{state.retryLabel ?? "Retry source"}</button> : null}
+      {state.kind === "error" && state.onEscalate ? <button type="button" onClick={state.onEscalate} className="caos-action-secondary focus-ring">{state.escalationLabel ?? "Escalate issue"}</button> : null}
+    </>
+  );
+}
+
+function Datum({ state, showObservation = true }: { state: DecisionDatumState; showObservation?: boolean }) {
+  const { content, glyph } = datumPresentation(state);
   return (
     <div
       className="caos-decision-state flex-wrap font-sans text-caos-md leading-relaxed"
@@ -101,22 +98,8 @@ function Datum({ state, showObservation = true }: { state: DecisionDatumState; s
     >
       {glyph ? <span aria-hidden="true">{glyph}</span> : null}
       <span className="min-w-0 [overflow-wrap:anywhere]">{content}</span>
-      {showObservation && timestamp ? <span className="basis-full tabular text-caos-2xs text-caos-muted">as of {timestamp}</span> : null}
-      {showObservation && authority ? (
-        <span className="basis-full mt-0.5">
-          <ConclusionAuthority prov={{ ...authority.provenance, asOf: timestamp ?? authority.provenance.asOf }} approval={authority.approval} />
-        </span>
-      ) : null}
-      {interactive && state.onRetry ? (
-        <button type="button" onClick={state.onRetry} className="caos-action-secondary focus-ring">
-          {state.retryLabel ?? "Retry source"}
-        </button>
-      ) : null}
-      {state.kind === "error" && state.onEscalate ? (
-        <button type="button" onClick={state.onEscalate} className="caos-action-secondary focus-ring">
-          {state.escalationLabel ?? "Escalate issue"}
-        </button>
-      ) : null}
+      <DatumObservation state={state} show={showObservation} />
+      <DatumActions state={state} />
     </div>
   );
 }

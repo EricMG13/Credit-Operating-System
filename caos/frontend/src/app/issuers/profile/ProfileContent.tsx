@@ -126,6 +126,29 @@ function Sparkline({ pts, color, fmt }: { pts: { period: string; value: number }
   );
 }
 
+const trendDelta = (delta: number | null) => {
+  if (delta == null) return null;
+  const tone = delta > 0 ? "text-caos-success" : delta < 0 ? "text-caos-critical" : "text-caos-muted";
+  const glyph = delta > 0 ? "▲ +" : delta < 0 ? "▼ " : "■ ";
+  const value = Math.abs(delta) >= 10 ? Math.round(delta) : delta.toFixed(1);
+  return { tone, glyph, value };
+};
+
+function TrendDelta({ delta, periods }: { delta: number | null; periods: number }) {
+  const presentation = trendDelta(delta);
+  if (!presentation) return null;
+  return (
+    <div className={`tabular text-caos-2xs ${presentation.tone}`}>
+      {presentation.glyph}{presentation.value} over {periods}p
+    </div>
+  );
+}
+
+function TrendPlot({ pts, color, unit }: { pts: { period: string; value: number }[]; color: string; unit: (v: number) => string }) {
+  if (pts.length >= 2) return <Sparkline pts={pts} color={color} fmt={unit} />;
+  return <div className="tabular text-caos-2xs text-caos-muted py-2.5">LTM only · needs ≥2 periods for a trend</div>;
+}
+
 function TrendCard({ title, pts, color, unit }: { title: string; pts: { period: string; value: number }[]; color: string; unit: (v: number) => string }) {
   const latest = pts.length ? pts[pts.length - 1].value : null;
   const delta = pts.length >= 2 ? pts[pts.length - 1].value - pts[0].value : null;
@@ -135,16 +158,8 @@ function TrendCard({ title, pts, color, unit }: { title: string; pts: { period: 
         <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{title}</span>
         <span className="tabular text-caos-metric font-semibold">{latest != null ? unit(latest) : "—"}</span>
       </div>
-      {pts.length >= 2 ? (
-        <Sparkline pts={pts} color={color} fmt={unit} />
-      ) : (
-        <div className="tabular text-caos-2xs text-caos-muted py-2.5">LTM only · needs ≥2 periods for a trend</div>
-      )}
-      {delta != null ? (
-        <div className={"tabular text-caos-2xs " + (delta > 0 ? "text-caos-success" : delta < 0 ? "text-caos-critical" : "text-caos-muted")}>
-          {delta > 0 ? "▲ +" : delta < 0 ? "▼ " : "■ "}{Math.abs(delta) >= 10 ? Math.round(delta) : delta.toFixed(1)} over {pts.length}p
-        </div>
-      ) : null}
+      <TrendPlot pts={pts} color={color} unit={unit} />
+      <TrendDelta delta={delta} periods={pts.length} />
     </div>
   );
 }
@@ -183,7 +198,7 @@ const BAND_SEV: Record<string, string> = {
 const bandSev = (v: unknown) => BAND_SEV[String(v).toUpperCase()] ?? "low";
 
 // ─── value formatting (tabular, aligned) ────────────────────────────────────
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Credit metric units require one exhaustive deterministic formatter.
 function fmt(value: number, unit: string): string {
   if (unit === "x") return value.toFixed(1) + "×";
   if (unit === "%") return value.toFixed(1) + "%";
@@ -258,7 +273,7 @@ const PROV_SHORT: Record<string, string> = {
 // Colorize-as-signal: tint a metric value ONLY when it breaches a credit
 // threshold — never decoration. Directionality differs (leverage worse high;
 // coverage / Altman worse low). null = neutral (ink, not colored).
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Metric direction and severity semantics live in one keyed mapping.
 function metricSev(key: string, v: number): string | null {
   if (key === "net_leverage") return v >= 6 ? "critical" : v >= 4.5 ? "warning" : null;
   if (key === "interest_coverage") return v < 1.5 ? "critical" : v < 2.5 ? "warning" : null;
@@ -308,7 +323,7 @@ function headlineDelta(
 // One KPI-strip tile — the exact tile the "Credit snapshot" panel rendered
 // (breach tint gated to live runs, provenance shorthand, ▸ src link), lifted into
 // a standalone tile so Row 1 is a 6-across strip rather than a boxed grid.
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- KPI value, delta, provenance, and navigation form one atomic tile.
 function KpiTile({ m, delta, deepHref, provMixed, anyPriorDelta }: {
   m: ProfileMetric; delta: number | null; deepHref: string; provMixed: boolean; anyPriorDelta: boolean;
 }) {
@@ -369,7 +384,7 @@ function KpiTile({ m, delta, deepHref, provMixed, anyPriorDelta }: {
 // direction stated factually (revenue/EBITDA up or down, margin +/−pp), never an
 // opinion or a rating. No delta on the latest run → a neutral pointer to the trend
 // cards; never ran → say so. This does NOT fabricate a stance.
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Deterministic desk-read wording must cover every earnings and run state.
 function deskReadLine(earnings: EarningsSummary, hasRun: boolean): string {
   const rev = earnings.revenue_growth_pct;
   const eb = earnings.ebitda_growth_pct;
@@ -394,7 +409,7 @@ function deskReadLine(earnings: EarningsSummary, hasRun: boolean): string {
     : "No completed run yet — run an analysis to populate the desk read.";
 }
 
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Profile fetch, loading, error, and route state share one view boundary.
 function IssuerProfileView() {
   const id = useSearchParams().get("id");
   const [data, setData] = useState<IssuerProfile | null>(null);
@@ -407,7 +422,7 @@ function IssuerProfileView() {
     setLoading(true);
     getIssuerProfile(id)
       .then((d) => { if (!stale) { setData(d); setError(null); } })
-      // fallow-ignore-next-line complexity
+      // fallow-ignore-next-line complexity -- Error normalization distinguishes stale, missing, and failed profile requests.
       .catch((e) => {
         if (stale) return;
         const detail = (e as { response?: { status?: number; data?: { detail?: string } } })?.response;
@@ -447,7 +462,7 @@ function ErrorView({ id, msg }: { id: string | null; msg: string }) {
   );
 }
 
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Full profile composition shares loaded evidence and authority state.
 export function Profile({
   id,
   data,
@@ -1102,7 +1117,7 @@ function EmptyIfBlank({ ok, latest }: { ok: unknown[]; latest: boolean }) {
   return <Empty>{latest ? "Not surfaced by the latest run." : "No completed run yet — run an analysis."}</Empty>;
 }
 
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Delta formatting and directional styling are one deterministic row projection.
 function DeltaRow({ label, v, suffix }: { label: string; v: unknown; suffix: string }) {
   if (v == null || typeof v !== "number") return null;
   const sev = v > 0 ? "pass" : v < 0 ? "high" : "low";
@@ -1188,7 +1203,7 @@ function BizCol({ title, facts, deepHref }: { title: string; facts: BusinessFact
 }
 
 // Ownership fact(s) plus the CP-2D sponsor red-flag ledger.
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Ownership facts and sponsor red flags form one credit-governance column.
 function OwnershipCol({ facts, ledger, score, deepHref }: {
   facts: BusinessFact[]; ledger: { flag: string; chunk_id?: string }[]; score?: number; deepHref: string;
 }) {

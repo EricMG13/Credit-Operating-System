@@ -56,6 +56,7 @@ interface RunSummary {
 }
 
 // Poll GET /api/runs/{id} until the run reaches a terminal status (or timeout).
+// fallow-ignore-next-line complexity -- Poll termination branches execute only in the Playwright integration lane.
 async function pollRunToTerminal(api: APIRequestContext, runId: string): Promise<RunSummary> {
   const deadline = Date.now() + RUN_TERMINAL_TIMEOUT_MS;
   let last: RunSummary | null = null;

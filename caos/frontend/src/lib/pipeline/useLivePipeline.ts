@@ -59,6 +59,101 @@ interface RouteStep {
   depends_on?: string[];
 }
 
+interface RouteRuntime {
+  gate_status?: string;
+  summary?: string;
+  execution_sequence?: RouteStep[];
+}
+
+const routeRuntime = (cpx: ModuleDetailDTO | null): RouteRuntime =>
+  (cpx?.runtime_output ?? {}) as RouteRuntime;
+
+const blockedReasons = (details: readonly ModuleDetailDTO[]) => new Map(
+  details.map((detail) => {
+    const runtime = detail.runtime_output ?? {};
+    const runtimeReason = typeof runtime.blocked_reason === "string" ? runtime.blocked_reason : null;
+    const limitationReason = detail.limitation_flags.find(
+      (flag) => typeof flag === "string" && flag.trim(),
+    ) ?? null;
+    return [detail.module_id, runtimeReason || limitationReason] as const;
+  }),
+);
+
+const pipelineModules = (statusById: Map<string, ModuleStatusDTO>): Sim["mods"] => {
+  const mods: Sim["mods"] = {};
+  for (const node of MODULES) {
+    const moduleStatus = statusById.get(node.id);
+    mods[node.id] = { state: moduleStatus ? liveOutcome(moduleStatus) : "idle", prog: moduleStatus ? 1 : 0 };
+  }
+  return mods;
+};
+
+const orderedModuleIds = (
+  steps: readonly RouteStep[],
+  statusById: Map<string, ModuleStatusDTO>,
+): string[] => {
+  const ordered = steps.map((step) => step.module_id).filter((id) => statusById.has(id));
+  for (const id of statusById.keys()) if (!ordered.includes(id)) ordered.push(id);
+  return ordered;
+};
+
+const moduleEvent = (
+  id: string,
+  module: ModuleStatusDTO,
+  blockedReason: string | null,
+): string => `${id} ${module.module_name} — ${module.committee_status}`
+  + (module.confidence !== module.committee_status ? ` · ${module.confidence}` : "")
+  + (blockedReason ? ` · Blocked: ${blockedReason}` : "");
+
+const pipelinePlan = (
+  steps: readonly RouteStep[],
+  statusById: Map<string, ModuleStatusDTO>,
+  blockedReasonById: Map<string, string | null>,
+): PlanStep[] => {
+  const depsById = new Map(steps.map((step) => [step.module_id, step.depends_on ?? []]));
+  return orderedModuleIds(steps, statusById).map((id) => {
+    const moduleStatus = statusById.get(id)!;
+    const outcome = liveOutcome(moduleStatus);
+    const blockedReason = outcome === "blocked" ? blockedReasonById.get(id) ?? null : null;
+    return {
+      id,
+      deps: (depsById.get(id) ?? []).filter((dependency) => statusById.has(dependency)),
+      dur: 1,
+      outcome,
+      event: moduleEvent(id, moduleStatus, blockedReason),
+    };
+  });
+};
+
+const pipelineEvents = (plan: readonly PlanStep[]): SimEvent[] => plan
+  .filter((step) => step.event)
+  .map((step) => ({
+    t: "",
+    sev: step.outcome === "pass" ? "ok" : step.outcome,
+    text: step.event,
+  }));
+
+const pipelineScope = (
+  run: RunSummaryDTO,
+  plannedIds: readonly string[],
+  statusById: Map<string, ModuleStatusDTO>,
+): Set<string> => run.status === "complete" || plannedIds.length === 0
+  ? new Set(statusById.keys())
+  : new Set(plannedIds);
+
+const blockedModules = (
+  modules: readonly ModuleStatusDTO[],
+  blockedReasonById: Map<string, string | null>,
+) => modules
+  .filter((module) => liveOutcome(module) === "blocked")
+  .map((module) => ({
+    moduleId: module.module_id,
+    reason: blockedReasonById.get(module.module_id) ?? null,
+  }));
+
+const isCompletedOutcome = (outcome: string): boolean =>
+  outcome === "pass" || outcome === "warning" || outcome === "held";
+
 // Pure transform (no I/O) so the mapping is unit-testable: a completed run + its
 // CP-X route plan → the {sim, plan, scope} the Pipeline views already render.
 export function buildLiveSnapshot(
@@ -67,65 +162,21 @@ export function buildLiveSnapshot(
   details: readonly ModuleDetailDTO[] = [],
 ): LivePipeline {
   const statusById = new Map(run.modules.map((m) => [m.module_id, m]));
-  const rt = (cpx?.runtime_output ?? {}) as {
-    gate_status?: string;
-    summary?: string;
-    execution_sequence?: RouteStep[];
-  };
-  const depsById = new Map(
-    (rt.execution_sequence ?? []).map((s) => [s.module_id, s.depends_on ?? []]),
-  );
-  const plannedIds = (rt.execution_sequence ?? []).map((step) => step.module_id);
-  const blockedReasonById = new Map(details.map((detail) => {
-    const runtime = detail.runtime_output ?? {};
-    const runtimeReason = typeof runtime.blocked_reason === "string" ? runtime.blocked_reason : null;
-    const limitationReason = detail.limitation_flags.find((flag) => typeof flag === "string" && flag.trim()) ?? null;
-    return [detail.module_id, runtimeReason || limitationReason] as const;
-  }));
+  const rt = routeRuntime(cpx);
+  const steps = rt.execution_sequence ?? [];
+  const plannedIds = steps.map((step) => step.module_id);
+  const blockedReasonById = blockedReasons(details);
 
   // Node states: every graph node defaults idle, overridden by what the run
   // actually produced. Unproduced infra/export nodes stay idle.
-  const mods: Sim["mods"] = {};
-  for (const node of MODULES) {
-    const m = statusById.get(node.id);
-    mods[node.id] = { state: m ? liveOutcome(m) : "idle", prog: m ? 1 : 0 };
-  }
+  const mods = pipelineModules(statusById);
 
   // Inspector reads plan.find(id) for per-module detail; synthesize one entry per
   // produced module, ordered by the route plan's execution order.
-  const ordered = (rt.execution_sequence ?? []).map((s) => s.module_id)
-    .filter((id) => statusById.has(id));
-  for (const id of statusById.keys()) if (!ordered.includes(id)) ordered.push(id);
-
-  const plan: PlanStep[] = ordered.map((id) => {
-    const m = statusById.get(id)!;
-    const outcome = liveOutcome(m);
-    const blockedReason = outcome === "blocked" ? blockedReasonById.get(id) : null;
-    return {
-      id,
-      deps: (depsById.get(id) ?? []).filter((d) => statusById.has(d)),
-      dur: 1,
-      outcome,
-      // committee_status collapses to the confidence label verbatim when gated
-      // on Insufficient Information (server gate.py) — omit the redundant
-      // repeat rather than stutter "Insufficient Information · Insufficient Information".
-      event: `${id} ${m.module_name} — ${m.committee_status}`
-        + (m.confidence !== m.committee_status ? ` · ${m.confidence}` : "")
-        + (blockedReason ? ` · Blocked: ${blockedReason}` : ""),
-    };
-  });
-
-  const events: SimEvent[] = plan
-    .filter((p) => p.event)
-    .map((p) => ({ t: "", sev: p.outcome === "pass" ? "ok" : p.outcome, text: p.event }));
-
-  const cleared = (s: string) => s === "pass" || s === "warning" || s === "held";
-  const partialScope = run.status === "complete" || plannedIds.length === 0
-    ? new Set(statusById.keys())
-    : new Set(plannedIds);
-  const blocked = run.modules
-    .filter((module) => liveOutcome(module) === "blocked")
-    .map((module) => ({ moduleId: module.module_id, reason: blockedReasonById.get(module.module_id) ?? null }));
+  const plan = pipelinePlan(steps, statusById, blockedReasonById);
+  const events = pipelineEvents(plan);
+  const partialScope = pipelineScope(run, plannedIds, statusById);
+  const blocked = blockedModules(run.modules, blockedReasonById);
   return {
     runId: run.id,
     status: run.status,
@@ -137,7 +188,7 @@ export function buildLiveSnapshot(
     sim: { mods, events, tick: 0, done: run.status === "complete" || run.status === "failed" },
     plan,
     scope: partialScope,
-    completed: plan.filter((p) => cleared(p.outcome)).length,
+    completed: plan.filter((step) => isCompletedOutcome(step.outcome)).length,
     total: partialScope.size,
     produced: plan.length,
     pending: Array.from(partialScope).filter((moduleId) => !statusById.has(moduleId)).length,

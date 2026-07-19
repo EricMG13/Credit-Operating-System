@@ -231,7 +231,7 @@ async def replace_watchlist(
         unknown = target - valid
         if unknown:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown issuer id(s): {sorted(unknown)}",
             )
     existing = (await db.execute(

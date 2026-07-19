@@ -20,6 +20,16 @@ const CAOS_G2_THEMES = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type G2Spec = Record<string, any>;
 
+function mapChanged<T>(values: T[], transform: (value: T) => T): T[] {
+  let changed = false;
+  const next = values.map((value) => {
+    const result = transform(value);
+    if (result !== value) changed = true;
+    return result;
+  });
+  return changed ? next : values;
+}
+
 // Period labels can arrive lowercase from run payloads ("fy2024" → "FY2024").
 // Only string VALUES inside `data` subtrees are rewritten; object keys and the
 // rest of the spec (encode field names like x:"fy", scale keys, formatters)
@@ -31,23 +41,15 @@ function normalizeFyValues(v: unknown): unknown {
     return res === v ? v : res;
   }
   if (Array.isArray(v)) {
-    let changed = false;
-    const next = v.map((x) => {
-      const r = normalizeFyValues(x);
-      if (r !== x) changed = true;
-      return r;
-    });
-    return changed ? next : v;
+    return mapChanged(v, normalizeFyValues);
   }
   if (v && typeof v === "object") {
-    let changed = false;
     const entries = Object.entries(v);
-    const nextEntries = entries.map(([k, val]) => {
-      const r = normalizeFyValues(val);
-      if (r !== val) changed = true;
-      return [k, r] as const;
+    const nextEntries = mapChanged(entries, ([key, value]) => {
+      const result = normalizeFyValues(value);
+      return (result === value ? [key, value] : [key, result]) as [string, unknown];
     });
-    return changed ? Object.fromEntries(nextEntries) : v;
+    return nextEntries === entries ? v : Object.fromEntries(nextEntries);
   }
   return v;
 }
@@ -56,29 +58,15 @@ function normalizeFyValues(v: unknown): unknown {
 export function normalizeFy(spec: G2Spec): G2Spec {
   const walk = (v: unknown): unknown => {
     if (Array.isArray(v)) {
-      let changed = false;
-      const next = v.map((x) => {
-        const r = walk(x);
-        if (r !== x) changed = true;
-        return r;
-      });
-      return changed ? next : v;
+      return mapChanged(v, walk);
     }
     if (v && typeof v === "object") {
-      let changed = false;
       const entries = Object.entries(v);
-      const nextEntries = entries.map(([k, val]) => {
-        if (k === "data") {
-          const r = normalizeFyValues(val);
-          if (r !== val) changed = true;
-          return [k, r] as const;
-        } else {
-          const r = walk(val);
-          if (r !== val) changed = true;
-          return [k, r] as const;
-        }
+      const nextEntries = mapChanged(entries, ([key, value]) => {
+        const result = key === "data" ? normalizeFyValues(value) : walk(value);
+        return (result === value ? [key, value] : [key, result]) as [string, unknown];
       });
-      return changed ? Object.fromEntries(nextEntries) : v;
+      return nextEntries === entries ? v : Object.fromEntries(nextEntries);
     }
     return v;
   };

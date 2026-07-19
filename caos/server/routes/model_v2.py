@@ -357,7 +357,7 @@ async def _validate_binding(
     live_inputs = "live" in origins
     if live_inputs and not source_run_id:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Live model inputs require an exact owned source run.",
         )
     if not live_inputs and source_run_id:
@@ -371,7 +371,7 @@ async def _validate_binding(
         )
         if live_inputs and run.id not in payload.source_ids:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "Live model source IDs do not include the selected run.",
             )
         if live_inputs:
@@ -481,12 +481,12 @@ def _bounded_payload(payload: ModelDraftPayload) -> dict:
         size = len(json.dumps(value, allow_nan=False, separators=(",", ":")))
     except (ValueError, TypeError) as exc:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Model payload is not canonically serializable.",
         ) from exc
     if size > _MAX_DRAFT_BYTES:
         raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status.HTTP_413_CONTENT_TOO_LARGE,
             "Model draft is too large.",
         )
     return value
@@ -838,7 +838,7 @@ async def mutate_model_v2_override(
     before_calculation = calculate_model(payload)
     if body.action == "set":
         if body.override is None or body.node_id is not None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Set requires override only.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Set requires override only.")
         _require_future_derived_expiry(body.override)
         target = body.override.node_id
         try:
@@ -849,7 +849,7 @@ async def mutate_model_v2_override(
         applied = body.override
     else:
         if body.override is not None or body.node_id is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Reset requires node_id only.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Reset requires node_id only.")
         target = body.node_id
         try:
             original_node = calculation_node(before_calculation, target)
@@ -915,7 +915,7 @@ async def mutate_model_v2_overrides_batch(
     ]
     if any(target is None for target in targets) or len(set(targets)) != len(targets):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "A batch must contain one valid mutation per unique model node.",
         )
 
@@ -926,7 +926,7 @@ async def mutate_model_v2_overrides_batch(
         if mutation.action == "set":
             if mutation.override is None or mutation.node_id is not None:
                 raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
                     "Set requires override only.",
                 )
             _require_future_derived_expiry(mutation.override)
@@ -944,7 +944,7 @@ async def mutate_model_v2_overrides_batch(
         else:
             if mutation.override is not None or mutation.node_id is None:
                 raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
                     "Reset requires node_id only.",
                 )
             target = mutation.node_id

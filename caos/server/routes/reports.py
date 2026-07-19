@@ -72,12 +72,12 @@ def _bounded_composition(
         )
     except (TypeError, ValueError) as exc:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"{label} is not canonically serializable.",
         ) from exc
     if len(canonical.encode("utf-8")) > max_bytes:
         raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status.HTTP_413_CONTENT_TOO_LARGE,
             f"{label} is too large.",
         )
     return canonical
@@ -491,7 +491,7 @@ async def _prepare_report(
     except ValueError as exc:
         if model_enabled:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "Report composition must contain only server-reviewable editorial intent.",
             ) from exc
         # Compatibility while Model Engine v2 is rolled back: never trust or
@@ -506,7 +506,7 @@ async def _prepare_report(
     try:
         reviewed_report = materialize_reviewed_report(canonical_document, intent)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     payload = {
         "composition": {
             "reviewed_report": reviewed_report,

@@ -12,7 +12,12 @@ const getAutonomyDraft = vi.fn();
 const getAlertStates = vi.fn();
 const getPortfolio = vi.fn();
 const getDigest = vi.fn();
-const analysisState = vi.hoisted(() => ({ patch: vi.fn() }));
+const analysisState = vi.hoisted(() => ({
+  context: null as null | { id: string; artifacts: Record<string, string>; surface_state: Record<string, Record<string, string>> },
+  patch: vi.fn(() => Promise.resolve()),
+  listInsights: vi.fn(),
+  createInsight: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/monitor",
@@ -24,8 +29,12 @@ vi.mock("@/components/shared/RequireAuth", () => ({
 }));
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
+  analysisApi: {
+    listInsights: (...args: unknown[]) => analysisState.listInsights(...args),
+    createInsight: (...args: unknown[]) => analysisState.createInsight(...args),
+  },
   useAnalysisContext: () => ({
-    context: null,
+    context: analysisState.context,
     setContext: vi.fn(),
     patch: analysisState.patch,
     loading: false,
@@ -46,6 +55,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  analysisState.context = null;
 });
 
 describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
@@ -116,5 +126,53 @@ describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
     expect(screen.getByText("Mixed Origin · reference + live run")).toBeTruthy();
     expect(screen.getByText("Overdue Refresh · never run")).toBeTruthy();
     expect(screen.getByText("Never Run Co")).toBeTruthy();
+  });
+
+  it("tracks the selected alert and generates a cited brief for the active analysis context", async () => {
+    analysisState.context = { id: "ctx-monitor", artifacts: {}, surface_state: {} };
+    analysisState.listInsights.mockResolvedValue({ items: [], current: null, next_cursor: null });
+    analysisState.createInsight.mockResolvedValue({
+      id: "insight-1",
+      context_id: "ctx-monitor",
+      surface: "monitor",
+      kind: "alert-brief",
+      status: "ready",
+      subject_refs: { alert_event_id: "alert-9" },
+      summary: "Cited alert brief is ready.",
+      claims: [],
+      recommended_actions: [],
+      missing_dependencies: [],
+      authority: {},
+      source_fingerprint: "fp-1",
+      version: 1,
+      model: "test",
+      generated_at: "2026-07-12T09:00:00Z",
+      ratified_at: null,
+      rejected_at: null,
+      lease_owner: null,
+      lease_expires_at: null,
+    });
+    getAutonomyDraft.mockRejectedValue(new Error("network error"));
+    getAlertStates.mockRejectedValue(new Error("network error"));
+    getPortfolio.mockRejectedValue(new Error("network error"));
+    getDigest.mockRejectedValue(new Error("network error"));
+
+    render(<MonitorPage />);
+    await screen.findByRole("button", { name: "Generate cited brief" });
+
+    fireEvent(window, new CustomEvent("caos:monitor-selection", {
+      detail: { count: 2, eventId: "alert-9" },
+    }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Acknowledge selected (2)" })).toBeTruthy());
+    expect(analysisState.patch).toHaveBeenCalledWith(expect.objectContaining({
+      artifacts: expect.objectContaining({ alert_event_id: "alert-9" }),
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate cited brief" }));
+    await waitFor(() => expect(analysisState.createInsight).toHaveBeenCalledWith(
+      "ctx-monitor",
+      expect.objectContaining({ subject_refs: { alert_event_id: "alert-9" } }),
+    ));
+    expect(await screen.findByText("Cited alert brief is ready.")).toBeTruthy();
   });
 });

@@ -187,7 +187,7 @@ async def upsert_alert_state(
     if not rate_limit.hit(f"alert-state:{caller.id}", max_attempts=_WRITES_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Alert-state rate limit reached — try again in a minute.")
     if body.state not in _VALID_STATES:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "state must be one of: open, ack, resolved.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "state must be one of: open, ack, resolved.")
 
     existing = (
         await db.execute(select(AlertState).where(AlertState.alert_key == body.alert_key))

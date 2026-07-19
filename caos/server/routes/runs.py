@@ -310,7 +310,7 @@ async def create_run(
     require_issuer(caller, await db.get(Issuer, body.issuer_id))
     if idempotency_key is not None and not _IDEMPOTENCY_KEY_RE.fullmatch(idempotency_key):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Idempotency-Key must be 1-128 letters, digits, '.', '_', ':' or '-'.",
         )
     request_hash = _idempotency_request_hash(body) if idempotency_key else None

@@ -84,7 +84,9 @@ jobs:
       - name: Dead code (vulture)
         run: |
           pip install vulture==2.14
-          vulture caos/server caos/scripts --min-confidence 80 --ignore-names cls
+          vulture caos/server caos/scripts \
+            --exclude '*/.venv/*,*/.venv311/*' \
+            --min-confidence 80 --ignore-names cls
       - run: |
           pip install --require-hashes -r caos/server/requirements.lock
           pip install pytest pytest-asyncio httpx
@@ -274,7 +276,10 @@ jobs:
       # Python SAST — high severity, medium+ confidence. server/ + scripts/ only;
       # the test dirs live under caos/tests and are out of scope here.
       - name: Python SAST (bandit)
-        run: bandit -r caos/server caos/scripts --severity-level high --confidence-level medium
+        run: >-
+          bandit -r caos/server caos/scripts
+          -x 'caos/server/.venv,caos/server/.venv311'
+          --severity-level high --confidence-level medium
       # Frontend deps straight from the lockfile — no install needed.
       - name: Frontend deps (npm audit)
         working-directory: caos/frontend

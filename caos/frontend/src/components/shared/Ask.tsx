@@ -241,7 +241,7 @@ function IssuerScopedAsk({ onClose }: { onClose: () => void }) {
 }
 
 
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Global Ask ownership coordinates route, modal, profile, and issuer-chat lifecycles.
 export function AskLauncher() {
   const { open, setOpen, toggle } = useAsk();
   const { user, needsLogin } = useAuth();
@@ -294,16 +294,10 @@ export function AskLauncher() {
 
 // Cross-issuer NL query — a true modal (backdrop + centered panel), so it gets
 // focus-trap / restore / scroll-lock + dialog semantics via useModalA11y.
-function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void }) {
-  const contextState = useAnalysisContext({ name: "Global ASK investigation" });
-  const panelRef = useModalA11y<HTMLDivElement>(onClose);
-  const concept = conceptFor(pathname);
-  // One-shot prefill from the ⌘K palette's "Ask CAOS" row (modal mounts fresh
-  // per open, so an initializer is enough).
-  const { prefill } = useAsk();
+type AskAnalysisContext = ReturnType<typeof useAnalysisContext>;
+type AskCapabilityMap = Map<string, { label: string; enabled: boolean; reason: string | null }>;
 
-  const [caps, setCaps] = useState<CapabilitiesResult | null>(null);
-  const [capsErr, setCapsErr] = useState<string | null>(null);
+function useAskQueryState(prefill: string | null) {
   const [graph, setGraph] = useState<GraphResult | null>(null);
   const [graphErr, setGraphErr] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -316,6 +310,59 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const [hasQueried, setHasQueried] = useState(false);
   const [layout, setLayout] = useState<QueryView>("graph");
   const [queryRun, setQueryRun] = useState<QueryRun | null>(null);
+  const resetSearch = useCallback(() => {
+    setHasQueried(false);
+    setGraph(null);
+    setGraphErr(null);
+    setNote(null);
+    setSuggest([]);
+    setText("");
+  }, []);
+  const openNode = useCallback((node: GraphNode) => {
+    setSelectedNode(node);
+    setReaderOpen(true);
+  }, []);
+  return {
+    graph, setGraph, graphErr, setGraphErr, running, setRunning, text, setText,
+    note, setNote, suggest, setSuggest, cite, setCite, selectedNode, setSelectedNode,
+    readerOpen, setReaderOpen, hasQueried, setHasQueried, layout, setLayout,
+    queryRun, setQueryRun, resetSearch, openNode,
+  };
+}
+
+type AskQueryState = ReturnType<typeof useAskQueryState>;
+
+function useAskCapabilities(concept: keyof typeof PROMPTS_BY_CONCEPT) {
+  const [caps, setCaps] = useState<CapabilitiesResult | null>(null);
+  const [capsErr, setCapsErr] = useState<string | null>(null);
+  const capById = useMemo(() => {
+    const map: AskCapabilityMap = new Map();
+    caps?.groups.forEach((group) => group.capabilities.forEach((capability) => map.set(capability.id, capability)));
+    return map;
+  }, [caps]);
+  useEffect(() => {
+    let cancelled = false;
+    queryCapabilities()
+      .then((result) => {
+        if (!cancelled) setCaps(result);
+      })
+      .catch((error) => {
+        if (!cancelled) setCapsErr((error as Error)?.message || "could not load capabilities");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const prompts = useMemo(() => {
+    const promptSet = PROMPTS_BY_CONCEPT[concept] || [];
+    return promptSet.filter((prompt) => capById.get(prompt.id)?.enabled).slice(0, 4);
+  }, [capById, concept]);
+  return { caps, capsErr, capById, prompts };
+}
+
+type AskCapabilities = ReturnType<typeof useAskCapabilities>;
+
+function useAskPinning(contextState: AskAnalysisContext, query: AskQueryState) {
   const [pinned, setPinned] = useState(false);
   const [pinning, setPinning] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
@@ -323,101 +370,25 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   const pinGeneration = useRef(0);
   const activeContextId = contextState.context?.id ?? null;
   const activeContextIdRef = useRef<string | null>(activeContextId);
-  const activeQueryRunIdRef = useRef<string | null>(queryRun?.id ?? null);
+  const activeQueryRunIdRef = useRef<string | null>(query.queryRun?.id ?? null);
   activeContextIdRef.current = activeContextId;
-  activeQueryRunIdRef.current = queryRun?.id ?? null;
+  activeQueryRunIdRef.current = query.queryRun?.id ?? null;
 
-  useEffect(() => {
+  const resetPinState = useCallback(() => {
     pinGeneration.current += 1;
     pinningRef.current = false;
     setPinning(false);
     setPinned(false);
     setPinError(null);
-  }, [activeContextId, queryRun?.id]);
-
-  const capById = useMemo(() => {
-    const m = new Map<string, { label: string; enabled: boolean; reason: string | null }>();
-    caps?.groups.forEach((g) => g.capabilities.forEach((c) => m.set(c.id, c)));
-    return m;
-  }, [caps]);
-
-  // Load capabilities on mount so keyword mapping and suggestions work, but do NOT auto-run anything.
-  useEffect(() => {
-    let cancelled = false;
-    queryCapabilities()
-      .then((c) => {
-        if (!cancelled) setCaps(c);
-      })
-      .catch((e) => {
-        if (!cancelled) setCapsErr((e as Error)?.message || "could not load capabilities");
-      });
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  const prompts = useMemo(() => {
-    const promptSet = PROMPTS_BY_CONCEPT[concept] || [];
-    return promptSet.filter((p) => capById.get(p.id)?.enabled).slice(0, 4);
-  }, [capById, concept]);
-
-  const runSeq = useRef(0);
-  const run = useCallback((capId: string) => {
-    const seq = ++runSeq.current;
-    pinGeneration.current += 1;
-    pinningRef.current = false;
-    setPinning(false);
-    setHasQueried(true);
-    setRunning(true);
-    setGraphErr(null);
-    setNote(null);
-    setSuggest([]);
-    setSelectedNode(null);
-    setReaderOpen(false);
-    setPinned(false);
-    setPinError(null);
-
-    const context = contextState.context;
-    if (!context) {
-      setGraphErr(contextState.error || "Analysis context is not ready.");
-      setRunning(false);
-      return;
-    }
-    const question = text.trim() || capById.get(capId)?.label || capId;
-    analysisApi.createQueryRun({
-      context_id: context.id,
-      question,
-      selected_lane: "graph",
-      capability_id: capId,
-    })
-      .then((savedRun) => {
-        if (seq !== runSeq.current) return;
-        setQueryRun(savedRun);
-        if (savedRun.status !== "ready" && savedRun.status !== "observed-empty") {
-          const missing = Array.isArray(savedRun.result.missing_dependencies)
-            ? ` Missing: ${savedRun.result.missing_dependencies.join(", ")}.`
-            : "";
-          throw new Error(savedRun.error || `Query ${savedRun.status}.${missing}`);
-        }
-        const g = savedRun.result as unknown as GraphResult;
-        setGraph(g);
-        // Every run opens on its native view — a leftover Scatter/Lineage from
-        // the previous graph must never be the first render of a new one.
-        setLayout(nativeView(g.capability_id, g.mode));
-      })
-      .catch((e) => {
-        if (seq !== runSeq.current) return;
-        const d = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-          || (e as Error)?.message || "could not run query";
-        setGraphErr(String(d));
-      })
-      .finally(() => {
-        if (seq === runSeq.current) setRunning(false);
-      });
-  }, [capById, contextState.context, contextState.error, text]);
+  useEffect(() => {
+    resetPinState();
+  }, [activeContextId, query.queryRun?.id, resetPinState]);
 
   const pinQueryFinding = useCallback(async () => {
     const context = contextState.context;
+    const queryRun = query.queryRun;
     if (!context || !queryRun || pinned || pinningRef.current) return;
     const generation = ++pinGeneration.current;
     const contextId = context.id;
@@ -429,44 +400,104 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
       await analysisApi.createFinding({
         context_id: contextId,
         kind: "global-ask-answer",
-        title: graph?.title || queryRun.question,
-        // The question is the body only when it isn't already the title —
-        // otherwise the pinned card prints the same sentence twice.
-        body: graph?.title ? queryRun.question : "",
+        title: query.graph?.title || queryRun.question,
+        body: query.graph?.title ? queryRun.question : "",
         source_surface: "global-ask",
         source_run_id: queryRun.id,
         evidence: { result: queryRun.result, source_ids: queryRun.authority.source_ids },
       });
-      if (
-        generation === pinGeneration.current
-        && activeContextIdRef.current === contextId
-        && activeQueryRunIdRef.current === queryRunId
-      ) setPinned(true);
+      if (generation === pinGeneration.current && activeContextIdRef.current === contextId && activeQueryRunIdRef.current === queryRunId) {
+        setPinned(true);
+      }
     } catch (error) {
-      if (
-        generation === pinGeneration.current
-        && activeContextIdRef.current === contextId
-        && activeQueryRunIdRef.current === queryRunId
-      ) setPinError(toErrorMessage(error, "Finding was not pinned"));
+      if (generation === pinGeneration.current && activeContextIdRef.current === contextId && activeQueryRunIdRef.current === queryRunId) {
+        setPinError(toErrorMessage(error, "Finding was not pinned"));
+      }
     } finally {
       if (generation === pinGeneration.current) {
         pinningRef.current = false;
         setPinning(false);
       }
     }
-  }, [contextState.context, graph?.title, pinned, queryRun]);
+  }, [contextState.context, pinned, query.graph?.title, query.queryRun]);
 
-  const submit = useCallback(() => {
-    const q = text.trim().toLowerCase();
-    if (!q) return;
-    const allCaps = caps?.groups.flatMap((g) => g.capabilities) ?? [];
-    const scored = rankQueryCapabilities(q, allCaps);
+  return { pinned, pinning, pinError, resetPinState, pinQueryFinding };
+}
 
-    const runnable = scored.filter((x) => x.c.enabled).map((x) => x.c);
-    if (scored.length === 0) {
-      setHasQueried(true);
-      setNote("No capability matched. Try one of these:");
-      setSuggest(allCaps.filter((c) => c.enabled).slice(0, 4));
+type AskPinning = ReturnType<typeof useAskPinning>;
+
+function queryRunFailure(run: QueryRun) {
+  if (run.status === "ready" || run.status === "observed-empty") return null;
+  const missing = Array.isArray(run.result.missing_dependencies)
+    ? " Missing: " + run.result.missing_dependencies.join(", ") + "."
+    : "";
+  return run.error || "Query " + run.status + "." + missing;
+}
+
+function useAskRun(
+  contextState: AskAnalysisContext,
+  capabilities: AskCapabilities,
+  query: AskQueryState,
+  pinning: AskPinning,
+) {
+  const runSeq = useRef(0);
+  const resetPinState = pinning.resetPinState;
+  return useCallback((capId: string) => {
+    const seq = ++runSeq.current;
+    resetPinState();
+    query.setHasQueried(true);
+    query.setRunning(true);
+    query.setGraphErr(null);
+    query.setNote(null);
+    query.setSuggest([]);
+    query.setSelectedNode(null);
+    query.setReaderOpen(false);
+
+    const context = contextState.context;
+    if (!context) {
+      query.setGraphErr(contextState.error || "Analysis context is not ready.");
+      query.setRunning(false);
+      return;
+    }
+    const question = query.text.trim() || capabilities.capById.get(capId)?.label || capId;
+    analysisApi.createQueryRun({
+      context_id: context.id,
+      question,
+      selected_lane: "graph",
+      capability_id: capId,
+    })
+      .then((savedRun) => {
+        if (seq !== runSeq.current) return;
+        query.setQueryRun(savedRun);
+        const failure = queryRunFailure(savedRun);
+        if (failure) throw new Error(failure);
+        const graph = savedRun.result as unknown as GraphResult;
+        query.setGraph(graph);
+        query.setLayout(nativeView(graph.capability_id, graph.mode));
+      })
+      .catch((error) => {
+        if (seq !== runSeq.current) return;
+        const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+          || (error as Error)?.message || "could not run query";
+        query.setGraphErr(String(detail));
+      })
+      .finally(() => {
+        if (seq === runSeq.current) query.setRunning(false);
+      });
+  }, [capabilities.capById, contextState.context, contextState.error, query, resetPinState]);
+}
+
+function useAskSubmit(capabilities: AskCapabilities, query: AskQueryState, run: (capabilityId: string) => void) {
+  return useCallback(() => {
+    const question = query.text.trim().toLowerCase();
+    if (!question) return;
+    const allCapabilities = capabilities.caps?.groups.flatMap((group) => group.capabilities) ?? [];
+    const scored = rankQueryCapabilities(question, allCapabilities);
+    const runnable = scored.filter((candidate) => candidate.c.enabled).map((candidate) => candidate.c);
+    if (!scored.length) {
+      query.setHasQueried(true);
+      query.setNote("No capability matched. Try one of these:");
+      query.setSuggest(allCapabilities.filter((capability) => capability.enabled).slice(0, 4));
       return;
     }
     const best = scored[0].c;
@@ -474,348 +505,319 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
       run(best.id);
       return;
     }
-    setHasQueried(true);
-    setNote(`${best.label} — ${best.reason}. Runnable instead:`);
-    setSuggest(runnable.slice(0, 4));
-  }, [text, caps, run]);
+    query.setHasQueried(true);
+    query.setNote(best.label + " — " + best.reason + ". Runnable instead:");
+    query.setSuggest(runnable.slice(0, 4));
+  }, [capabilities.caps, query, run]);
+}
 
+function useAskModalController(pathname: string, onClose: () => void) {
+  const contextState = useAnalysisContext({ name: "Global ASK investigation" });
+  const panelRef = useModalA11y<HTMLDivElement>(onClose);
+  const { prefill } = useAsk();
+  const query = useAskQueryState(prefill);
+  const capabilities = useAskCapabilities(conceptFor(pathname));
+  const pinning = useAskPinning(contextState, query);
+  const run = useAskRun(contextState, capabilities, query, pinning);
+  const submit = useAskSubmit(capabilities, query, run);
+  return { ...query, ...capabilities, ...pinning, panelRef, run, submit };
+}
+
+type AskModalController = ReturnType<typeof useAskModalController>;
+
+function AskQueryInput({
+  state, compact,
+}: {
+  state: AskModalController;
+  compact: boolean;
+}) {
   return (
-    <ModalBackdrop onClose={onClose} align="end">
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Ask with Query"
-        onClick={(e) => e.stopPropagation()}
-        className={`caos-enter bg-caos-panel border-l border-caos-border h-full w-full flex flex-col overflow-hidden ${
-          hasQueried
-            ? "max-w-4xl"
-            : "max-w-md p-4 gap-3.5"
-        }`}
-        style={{ boxShadow: "var(--shadow-modal)" }}
+    <div className={(compact ? "flex items-center gap-2 bg-caos-elevated px-3 py-2" : "flex-1 flex items-center gap-2 bg-caos-panel px-2.5 py-1") + " border border-caos-border rounded focus-within:border-caos-accent/70 transition-caos"}>
+      <AskMark />
+      <input
+        value={state.text}
+        onChange={(event) => state.setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") state.submit();
+        }}
+        placeholder={compact ? "Ask across coverage…" : "Type your query..."}
+        aria-label="Query coverage"
+        className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
+      />
+      <button
+        onClick={state.submit}
+        className={(compact ? "px-3 py-1" : "px-2.5 py-0.5") + " tabular text-caos-xs rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"}
       >
-        {!hasQueried ? (
-          /* Compact initial layout */
-          <>
-            <div className="flex items-center justify-between pb-1.5 border-b border-caos-border/50">
-              <div className="flex items-center gap-2">
-                <AskMark />
-                <span className="tabular text-caos-xs text-caos-muted uppercase tracking-wider font-mono">Ask CAOS</span>
-              </div>
-              <CloseButton onClick={onClose} title="Close (Esc)" />
-            </div>
+        Run
+      </button>
+    </div>
+  );
+}
 
-            <div className="flex items-center gap-2 bg-caos-elevated border border-caos-border rounded px-3 py-2 focus-within:border-caos-accent/70 transition-caos">
-              <AskMark />
-              <input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submit();
-                }}
-                placeholder="Ask across coverage…"
-                aria-label="Query coverage"
-                className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
-              />
+function AskInitialView({ state, onClose }: { state: AskModalController; onClose: () => void }) {
+  return (
+    <>
+      <div className="flex items-center justify-between pb-1.5 border-b border-caos-border/50">
+        <div className="flex items-center gap-2">
+          <AskMark />
+          <span className="tabular text-caos-xs text-caos-muted uppercase tracking-wider font-mono">Ask CAOS</span>
+        </div>
+        <CloseButton onClick={onClose} title="Close (Esc)" />
+      </div>
+      <AskQueryInput state={state} compact />
+      {state.prompts.length > 0 && (
+        <div className="mt-1 flex flex-col gap-2">
+          <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted font-mono">Suggested queries</div>
+          <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
+            {state.prompts.map((prompt) => (
               <button
-                onClick={submit}
-                className="tabular text-caos-xs px-3 py-1 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"
+                key={prompt.id}
+                onClick={() => state.run(prompt.id)}
+                className="text-left bg-caos-elevated border border-caos-border hover:border-caos-accent/50 rounded p-2 transition-caos focus-ring flex flex-col justify-between h-full cursor-pointer"
               >
-                Run
+                <span className="tabular text-caos-sm text-caos-text leading-tight">{prompt.text}</span>
+                <span className="tabular text-caos-3xs text-caos-muted font-mono mt-1">→ {prompt.sub}</span>
               </button>
-            </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
-            {prompts.length > 0 && (
-              <div className="mt-1 flex flex-col gap-2">
-                <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted font-mono">
-                  Suggested queries
-                </div>
-                <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
-                  {prompts.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => run(p.id)}
-                      className="text-left bg-caos-elevated border border-caos-border hover:border-caos-accent/50 rounded p-2 transition-caos focus-ring flex flex-col justify-between h-full cursor-pointer"
-                    >
-                      <span className="tabular text-caos-sm text-caos-text leading-tight">{p.text}</span>
-                      <span className="tabular text-caos-3xs text-caos-muted font-mono mt-1">→ {p.sub}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          /* Expanded query output layout */
-          <>
-            {/* Top search bar area */}
-            <div className="flex items-center gap-3 p-3 border-b border-caos-border bg-caos-elevated/70 shrink-0">
-              <button
-                onClick={() => {
-                  setHasQueried(false);
-                  setGraph(null);
-                  setGraphErr(null);
-                  setNote(null);
-                  setSuggest([]);
-                  setText("");
-                }}
-                title="Back to search"
-                className="text-caos-muted hover:text-caos-text text-caos-xs px-2.5 py-1 rounded border border-caos-border bg-caos-panel font-mono uppercase tracking-wider transition-caos cursor-pointer"
-              >
-                ← Back
-              </button>
-              <div className="flex-1 flex items-center gap-2 bg-caos-panel border border-caos-border rounded px-2.5 py-1 focus-within:border-caos-accent/70 transition-caos">
-                <AskMark />
-                <input
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") submit();
-                  }}
-                  placeholder="Type your query..."
-                  aria-label="Query coverage"
-                  className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
-                />
-                <button
-                  onClick={submit}
-                  className="tabular text-caos-xs px-2.5 py-0.5 rounded bg-caos-accent text-caos-bg font-medium hover:opacity-90 transition-caos focus-ring"
-                >
-                  Run
-                </button>
-              </div>
-              <div className="h-6 w-px bg-caos-border" />
-              <CloseButton onClick={onClose} title="Close (Esc)" />
-            </div>
+function AskExpandedHeader({ state, onClose }: { state: AskModalController; onClose: () => void }) {
+  return (
+    <div className="flex items-center gap-3 p-3 border-b border-caos-border bg-caos-elevated/70 shrink-0">
+      <button
+        onClick={state.resetSearch}
+        title="Back to search"
+        className="text-caos-muted hover:text-caos-text text-caos-xs px-2.5 py-1 rounded border border-caos-border bg-caos-panel font-mono uppercase tracking-wider transition-caos cursor-pointer"
+      >
+        ← Back
+      </button>
+      <AskQueryInput state={state} compact={false} />
+      <div className="h-6 w-px bg-caos-border" />
+      <CloseButton onClick={onClose} title="Close (Esc)" />
+    </div>
+  );
+}
 
-            {/* Content body area */}
-            <div className="flex-1 min-h-0 flex overflow-hidden">
-              {/* Main graph panel */}
-              <main className="flex-1 min-w-0 min-h-0 flex flex-col p-4 gap-3 overflow-hidden">
-                {note && (
-                  <div className="-mt-1 flex items-center gap-2 flex-wrap">
-                    <span className="tabular text-caos-sm text-caos-warning">{note}</span>
-                    {suggest.map((c) => (
-                      <button
-                        key={c.id}
-                        onClick={() => run(c.id)}
-                        className="tabular text-caos-2xs px-2 py-0.5 rounded border border-caos-accent/50 text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring cursor-pointer"
-                      >
-                        {c.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+function AskSuggestionNotice({ state }: { state: AskModalController }) {
+  if (!state.note) return null;
+  return (
+    <div className="-mt-1 flex items-center gap-2 flex-wrap">
+      <span className="tabular text-caos-sm text-caos-warning">{state.note}</span>
+      {state.suggest.map((capability) => (
+        <button
+          key={capability.id}
+          onClick={() => state.run(capability.id)}
+          className="tabular text-caos-2xs px-2 py-0.5 rounded border border-caos-accent/50 text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring cursor-pointer"
+        >
+          {capability.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
-                {graph && !graphErr && (
-                  <div className="flex items-center justify-between gap-2 flex-wrap shrink-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 bg-caos-accent/10 rounded px-1.5 py-px">
-                        {graph.mode}
-                      </span>
-                      <span className="tabular text-caos-md text-caos-text">{graph.title}</span>
-                      {running && <span className="tabular text-caos-2xs text-caos-muted caos-running">running…</span>}
-                    </div>
+function AskLayoutSwitcher({ state }: { state: AskModalController }) {
+  const graph = state.graph;
+  if (!graph) return null;
+  return (
+    <div className="flex border border-caos-border rounded bg-caos-panel/40 p-0.5">
+      {viewsFor(graph.capability_id, graph.mode).map((view) => (
+        <button
+          key={view}
+          onClick={() => state.setLayout(view)}
+          className={"tabular text-caos-3xs uppercase tracking-wider px-2 py-0.5 rounded transition-caos cursor-pointer font-mono " + (state.layout === view ? "bg-caos-accent text-caos-bg font-semibold" : "text-caos-muted hover:text-caos-text hover:bg-caos-elevated/40")}
+        >
+          {VIEW_LABELS[view]}
+        </button>
+      ))}
+    </div>
+  );
+}
 
-                    <div className="flex items-center gap-3">
-                      {/* Layout switcher — only the views valid for this graph shape */}
-                      <div className="flex border border-caos-border rounded bg-caos-panel/40 p-0.5">
-                        {viewsFor(graph.capability_id, graph.mode).map((v) => (
-                          <button
-                            key={v}
-                            onClick={() => setLayout(v)}
-                            className={`tabular text-caos-3xs uppercase tracking-wider px-2 py-0.5 rounded transition-caos cursor-pointer font-mono ${
-                              layout === v
-                                ? "bg-caos-accent text-caos-bg font-semibold"
-                                : "text-caos-muted hover:text-caos-text hover:bg-caos-elevated/40"
-                            }`}
-                          >
-                            {VIEW_LABELS[v]}
-                          </button>
-                        ))}
-                      </div>
+function pinButtonLabel(state: AskModalController) {
+  if (state.pinned) return "PINNED";
+  if (state.pinning) return "PINNING…";
+  if (state.pinError) return "RETRY PIN";
+  return "PIN FINDING";
+}
 
-                      <div className="h-4 w-px bg-caos-border hidden sm:block" />
+function AskResultActions({ state }: { state: AskModalController }) {
+  const graph = state.graph;
+  if (!graph) return null;
+  return (
+    <div className="flex items-center gap-3">
+      <AskLayoutSwitcher state={state} />
+      <div className="h-4 w-px bg-caos-border hidden sm:block" />
+      {graph.meta.map((item, index) => (
+        <span key={index} className="tabular text-caos-2xs text-caos-muted font-mono whitespace-nowrap hidden sm:inline">
+          {item}{index < graph.meta.length - 1 ? " ·" : ""}
+        </span>
+      ))}
+      <div className="flex gap-1.5 ml-2">
+        <button
+          type="button"
+          onClick={() => void state.pinQueryFinding()}
+          disabled={!state.queryRun || state.pinned || state.pinning}
+          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer focus-ring disabled:opacity-40"
+        >
+          {pinButtonLabel(state)}
+        </button>
+        {state.pinError ? <span role="alert" className="self-center text-caos-2xs text-caos-critical">{state.pinError}</span> : null}
+        <button onClick={() => downloadQueryCsv(graph)} className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer">CSV</button>
+        <button onClick={() => window.print()} className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos cursor-pointer">PDF</button>
+      </div>
+    </div>
+  );
+}
 
-                      {graph.meta.map((m, i) => (
-                        <span key={i} className="tabular text-caos-2xs text-caos-muted font-mono whitespace-nowrap hidden sm:inline">
-                          {m}
-                          {i < graph.meta.length - 1 ? " ·" : ""}
-                        </span>
-                      ))}
+function AskResultHeader({ state }: { state: AskModalController }) {
+  if (!state.graph || state.graphErr) return null;
+  return (
+    <div className="flex items-center justify-between gap-2 flex-wrap shrink-0">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 bg-caos-accent/10 rounded px-1.5 py-px">{state.graph.mode}</span>
+        <span className="tabular text-caos-md text-caos-text">{state.graph.title}</span>
+        {state.running && <span className="tabular text-caos-2xs text-caos-muted caos-running">running…</span>}
+      </div>
+      <AskResultActions state={state} />
+    </div>
+  );
+}
 
-                      <div className="flex gap-1.5 ml-2">
-                        <button
-                          type="button"
-                          onClick={() => void pinQueryFinding()}
-                          disabled={!queryRun || pinned || pinning}
-                          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer focus-ring disabled:opacity-40"
-                        >
-                          {pinned ? "PINNED" : pinning ? "PINNING…" : pinError ? "RETRY PIN" : "PIN FINDING"}
-                        </button>
-                        {pinError ? <span role="alert" className="self-center text-caos-2xs text-caos-critical">{pinError}</span> : null}
-                        <button
-                          onClick={() => downloadQueryCsv(graph)}
-                          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos cursor-pointer"
-                        >
-                          CSV
-                        </button>
-                        <button
-                          onClick={() => window.print()}
-                          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos cursor-pointer"
-                        >
-                          PDF
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
+function AskCenteredStatus({ children, warning = false }: { children: React.ReactNode; warning?: boolean }) {
+  return (
+    <div className="flex-1 flex items-center justify-center text-center px-6">
+      <div className={"tabular text-caos-md " + (warning ? "text-caos-warning" : "text-caos-muted")}>{children}</div>
+    </div>
+  );
+}
 
-                <div className="flex-1 min-h-0 flex flex-col bg-caos-bg border border-caos-border rounded-md p-2 relative">
-                  {capsErr ? (
-                    <div className="flex-1 flex items-center justify-center text-center px-6">
-                      <div className="tabular text-caos-md text-caos-warning">Couldn&apos;t load capabilities — {capsErr}</div>
-                    </div>
-                  ) : graphErr ? (
-                    <div className="flex-1 flex items-center justify-center text-center px-6">
-                      <div className="tabular text-caos-md text-caos-warning">Query failed — {graphErr}</div>
-                    </div>
-                  ) : running && !graph ? (
-                    <div className="flex-1 flex items-center justify-center text-center px-6">
-                      <div className="tabular text-caos-md text-caos-muted caos-running">Walking the graph…</div>
-                    </div>
-                  ) : !graph ? (
-                    <div className="flex-1 flex items-center justify-center text-center px-6">
-                      <div className="tabular text-caos-md text-caos-muted">Submit a query to view results.</div>
-                    </div>
-                  ) : layout === "rv" ? (
-                    <RelativeValueTable
-                      graph={graph}
-                      selectedNodeId={selectedNode?.id}
-                      onSelectNode={(node) => {
-                        setSelectedNode(node);
-                        setReaderOpen(true);
-                      }}
-                    />
-                  ) : layout === "scatter" ? (
-                    <ScatterCanvas
-                      graph={graph}
-                      selectedNodeId={selectedNode?.id}
-                      onSelectNode={(node) => {
-                        setSelectedNode(node);
-                        setReaderOpen(true);
-                      }}
-                    />
-                  ) : layout === "trace" ? (
-                    <LineageFlow
-                      graph={graph}
-                      selectedNodeId={selectedNode?.id}
-                      onSelectNode={(node) => {
-                        setSelectedNode(node);
-                        setReaderOpen(true);
-                      }}
-                    />
-                  ) : (
-                    <GraphCanvas
-                      graph={graph}
-                      onOpenChunk={(id, label) => setCite({ id, label })}
-                      onSelectNode={(node) => {
-                        setSelectedNode(node);
-                        setReaderOpen(true);
-                      }}
-                    />
-                  )}
-                </div>
+function AskGraphView({ state }: { state: AskModalController }) {
+  const graph = state.graph!;
+  if (state.layout === "rv") {
+    return <RelativeValueTable graph={graph} selectedNodeId={state.selectedNode?.id} onSelectNode={state.openNode} />;
+  }
+  if (state.layout === "scatter") {
+    return <ScatterCanvas graph={graph} selectedNodeId={state.selectedNode?.id} onSelectNode={state.openNode} />;
+  }
+  if (state.layout === "trace") {
+    return <LineageFlow graph={graph} selectedNodeId={state.selectedNode?.id} onSelectNode={state.openNode} />;
+  }
+  return <GraphCanvas graph={graph} onOpenChunk={(id, label) => state.setCite({ id, label })} onSelectNode={state.openNode} />;
+}
 
-                {graph && graph.caveats.length > 0 && (
-                  <div className="tabular text-caos-3xs text-caos-muted font-mono flex items-start gap-1.5 shrink-0">
-                    <span aria-hidden>ⓘ</span>
-                    <span>{graph.caveats.join(" · ")}</span>
-                  </div>
-                )}
-              </main>
+function AskResultSurface({ state }: { state: AskModalController }) {
+  let content: React.ReactNode;
+  if (state.capsErr) content = <AskCenteredStatus warning>Couldn&apos;t load capabilities — {state.capsErr}</AskCenteredStatus>;
+  else if (state.graphErr) content = <AskCenteredStatus warning>Query failed — {state.graphErr}</AskCenteredStatus>;
+  else if (state.running && !state.graph) content = <AskCenteredStatus>Walking the graph…</AskCenteredStatus>;
+  else if (!state.graph) content = <AskCenteredStatus>Submit a query to view results.</AskCenteredStatus>;
+  else content = <AskGraphView state={state} />;
+  return <div className="flex-1 min-h-0 flex flex-col bg-caos-bg border border-caos-border rounded-md p-2 relative">{content}</div>;
+}
 
-              {/* Split-Screen Reader Panel */}
-              {readerOpen && selectedNode && (
-                <aside
-                  className="w-[380px] border-l border-caos-border bg-caos-panel flex flex-col p-4 gap-4 overflow-y-auto shrink-0 relative transition-caos"
-                  aria-label="Node detail reader"
-                >
-                  <div className="flex items-start justify-between pb-2 border-b border-caos-border">
-                    <div>
-                      <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-accent font-mono">
-                        {selectedNode.kind.replace("-", " ")}
-                      </span>
-                      <h2 className="tabular text-caos-md font-mono text-caos-text mt-0.5 leading-snug break-all">
-                        {selectedNode.label}
-                      </h2>
-                    </div>
-                    <button
-                      onClick={() => setReaderOpen(false)}
-                      className="text-caos-muted hover:text-caos-text text-caos-xl font-bold px-1.5 focus-ring cursor-pointer"
-                      aria-label="Close panel"
-                    >
-                      &times;
-                    </button>
-                  </div>
+function AskCaveats({ state }: { state: AskModalController }) {
+  if (!state.graph?.caveats.length) return null;
+  return (
+    <div className="tabular text-caos-3xs text-caos-muted font-mono flex items-start gap-1.5 shrink-0">
+      <span aria-hidden>ⓘ</span>
+      <span>{state.graph.caveats.join(" · ")}</span>
+    </div>
+  );
+}
 
-                  <div className="flex-1 flex flex-col gap-3 min-h-0">
-                    {selectedNode.sub && (
-                      <div>
-                        <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Description</div>
-                        <div className="text-caos-sm text-caos-text leading-relaxed font-sans">{selectedNode.sub}</div>
-                      </div>
-                    )}
+function AskResultMain({ state }: { state: AskModalController }) {
+  return (
+    <main className="flex-1 min-w-0 min-h-0 flex flex-col p-4 gap-3 overflow-hidden">
+      <AskSuggestionNotice state={state} />
+      <AskResultHeader state={state} />
+      <AskResultSurface state={state} />
+      <AskCaveats state={state} />
+    </main>
+  );
+}
 
-                    {selectedNode.title && (
-                      <div>
-                        <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Summary / Detail</div>
-                        <div className="text-caos-xs text-caos-text/90 leading-relaxed bg-caos-bg/50 border border-caos-border rounded p-2 font-mono whitespace-pre-wrap">
-                          {selectedNode.title}
-                        </div>
-                      </div>
-                    )}
+function AskReaderField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">{label}</div>
+      {children}
+    </div>
+  );
+}
 
-                    {selectedNode.group && (
-                      <div>
-                        <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Category Group</div>
-                        <span className="tabular text-caos-3xs text-caos-text bg-caos-bg border border-caos-border rounded px-1.5 py-0.5 inline-block">
-                          {selectedNode.group}
-                        </span>
-                      </div>
-                    )}
-
-                    {selectedNode.confidence && (
-                      <div>
-                        <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-0.5">Confidence</div>
-                        <span
-                          className="tabular text-caos-3xs font-semibold px-2 py-0.5 rounded border"
-                          style={sevSurface(selectedNode.confidence === "High" ? "ok" : "warning", { border: 33, wash: 7 })}
-                        >
-                          {selectedNode.confidence}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {selectedNode.obsidian_url && (
-                    <div className="pt-3 border-t border-caos-border shrink-0">
-                      <a
-                        href={selectedNode.obsidian_url}
-                        className="w-full flex items-center justify-center gap-1.5 tabular text-caos-xs font-semibold py-2 px-3 rounded bg-caos-accent text-caos-bg hover:opacity-90 transition-caos text-center focus-ring"
-                      >
-                        <span>REVEAL IN OBSIDIAN WIKI</span>
-                        <span aria-hidden className="text-caos-2xs">↗</span>
-                      </a>
-                    </div>
-                  )}
-                </aside>
-              )}
-            </div>
-          </>
+function AskReader({ state }: { state: AskModalController }) {
+  const node = state.selectedNode;
+  if (!state.readerOpen || !node) return null;
+  return (
+    <aside className="w-[380px] border-l border-caos-border bg-caos-panel flex flex-col p-4 gap-4 overflow-y-auto shrink-0 relative transition-caos" aria-label="Node detail reader">
+      <div className="flex items-start justify-between pb-2 border-b border-caos-border">
+        <div>
+          <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-accent font-mono">{node.kind.replace("-", " ")}</span>
+          <h2 className="tabular text-caos-md font-mono text-caos-text mt-0.5 leading-snug break-all">{node.label}</h2>
+        </div>
+        <button onClick={() => state.setReaderOpen(false)} className="text-caos-muted hover:text-caos-text text-caos-xl font-bold px-1.5 focus-ring cursor-pointer" aria-label="Close panel">&times;</button>
+      </div>
+      <div className="flex-1 flex flex-col gap-3 min-h-0">
+        {node.sub && <AskReaderField label="Description"><div className="text-caos-sm text-caos-text leading-relaxed font-sans">{node.sub}</div></AskReaderField>}
+        {node.title && <AskReaderField label="Summary / Detail"><div className="text-caos-xs text-caos-text/90 leading-relaxed bg-caos-bg/50 border border-caos-border rounded p-2 font-mono whitespace-pre-wrap">{node.title}</div></AskReaderField>}
+        {node.group && <AskReaderField label="Category Group"><span className="tabular text-caos-3xs text-caos-text bg-caos-bg border border-caos-border rounded px-1.5 py-0.5 inline-block">{node.group}</span></AskReaderField>}
+        {node.confidence && (
+          <AskReaderField label="Confidence">
+            <span className="tabular text-caos-3xs font-semibold px-2 py-0.5 rounded border" style={sevSurface(node.confidence === "High" ? "ok" : "warning", { border: 33, wash: 7 })}>{node.confidence}</span>
+          </AskReaderField>
         )}
       </div>
+      {node.obsidian_url && (
+        <div className="pt-3 border-t border-caos-border shrink-0">
+          <a href={node.obsidian_url} className="w-full flex items-center justify-center gap-1.5 tabular text-caos-xs font-semibold py-2 px-3 rounded bg-caos-accent text-caos-bg hover:opacity-90 transition-caos text-center focus-ring">
+            <span>REVEAL IN OBSIDIAN WIKI</span><span aria-hidden className="text-caos-2xs">↗</span>
+          </a>
+        </div>
+      )}
+    </aside>
+  );
+}
 
-      {cite && <CitationViewer chunkId={cite.id} label={cite.label} onClose={() => setCite(null)} />}
+function AskExpandedView({ state, onClose }: { state: AskModalController; onClose: () => void }) {
+  return (
+    <>
+      <AskExpandedHeader state={state} onClose={onClose} />
+      <div className="flex-1 min-h-0 flex overflow-hidden">
+        <AskResultMain state={state} />
+        <AskReader state={state} />
+      </div>
+    </>
+  );
+}
+
+function AskPanel({ state, onClose }: { state: AskModalController; onClose: () => void }) {
+  return (
+    <div
+      ref={state.panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Ask with Query"
+      onClick={(event) => event.stopPropagation()}
+      className={"caos-enter bg-caos-panel border-l border-caos-border h-full w-full flex flex-col overflow-hidden " + (state.hasQueried ? "max-w-4xl" : "max-w-md p-4 gap-3.5")}
+      style={{ boxShadow: "var(--shadow-modal)" }}
+    >
+      {state.hasQueried ? <AskExpandedView state={state} onClose={onClose} /> : <AskInitialView state={state} onClose={onClose} />}
+    </div>
+  );
+}
+
+function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void }) {
+  const state = useAskModalController(pathname, onClose);
+  return (
+    <ModalBackdrop onClose={onClose} align="end">
+      <AskPanel state={state} onClose={onClose} />
+      {state.cite && <CitationViewer chunkId={state.cite.id} label={state.cite.label} onClose={() => state.setCite(null)} />}
     </ModalBackdrop>
   );
 }

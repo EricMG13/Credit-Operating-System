@@ -23,17 +23,17 @@ describe("Phase 1D surface freshness contracts", () => {
     const page = source("./pipeline/page.tsx");
     expect(page).toContain("resolvePipelineFreshnessRunId(runParam, live?.runId)");
     expect(page).toContain("useIssuerFreshness({ runId: freshnessRunId })");
-    expect(page).toContain("freshnessRunId ? <FreshnessIndicator evaluation={selectedRunFreshness} /> : null");
+    expect(page).toContain("model.live.freshnessRunId ? <FreshnessIndicator evaluation={model.live.selectedRunFreshness} /> : null");
     expect(page).toContain("<RunFreshnessCell runId={item.id} />");
     expect(page).toContain("selectedFreshnessRead.run?.evaluation");
   });
 
   it("Model maps current to ready, due and unknown to partial, and stale to stale", () => {
     const page = source("./model/page.tsx");
-    expect(page).toContain('modelFreshness?.state === "stale" ? "stale"');
-    expect(page).toContain('modelFreshness?.state === "current" ? "ready" : "partial"');
-    expect(page).toContain('modelFreshness.state === "due" ? ["anchor run refresh due"]');
-    expect(page).toContain("toProvFreshness(modelFreshness)");
+    expect(page).toContain('freshness?.state === "stale" ? "stale"');
+    expect(page).toContain('freshness?.state === "current" ? "ready" : "partial"');
+    expect(page).toContain('freshness.state === "due" ? ["anchor run refresh due"]');
+    expect(page).toContain("toProvFreshness(freshness)");
   });
 
   it("Report binds a selected immutable version to its own report and run ids", () => {
@@ -45,6 +45,6 @@ describe("Phase 1D surface freshness contracts", () => {
     expect(page).toContain("<FreshnessIndicator evaluation={reportFreshness} />");
     expect(page).toContain("freshness: toProvFreshness(reportFreshness)");
     expect(document).toContain("freshness?: ProvFreshness");
-    expect(document).toContain("<AuthorityBlock {...authority} />");
+    expect(document).toContain("<ReportAuthority {...authority} />");
   });
 });

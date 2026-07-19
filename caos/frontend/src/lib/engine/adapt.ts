@@ -82,48 +82,60 @@ function adaptCp0(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
   };
 }
 
+function reportedCp1Basis(basis: unknown): boolean {
+  return basis === "reported_gaap_xbrl" || basis === "reported_disclosure";
+}
+
+function cp1Currency(runtime: Record<string, unknown>): string {
+  return typeof runtime.currency === "string" && runtime.currency ? runtime.currency : "$";
+}
+
+function cp1FinancialSection(periods: string[], revenue: Record<string, unknown>, ebitda: Record<string, unknown>, reported: boolean, currency: string, ebitdaLabel: string): OutSection | null {
+  if (!periods.length) return null;
+  return {
+    type: "table",
+    title: reported ? `CP-1 · Reported financials (${currency}M, GAAP proxy)` : `CP-1 · Normalized financials (${currency}M)`,
+    cols: ["", ...periods.map(humanize)],
+    align: [0, ...periods.map(() => 1)],
+    rows: [
+      ["Revenue", ...periods.map((period) => num(revenue[period]))],
+      [ebitdaLabel, ...periods.map((period) => num(ebitda[period]))],
+    ],
+  };
+}
+
+function cp1ConflictSection(conflicts: Array<Record<string, string>>): OutSection | null {
+  if (!conflicts.length) return null;
+  return { type: "flags", title: "CP-1 · Definition conflict register", items: conflicts.map((conflict) => ({ sev: "warning", text: conflict.text })) };
+}
+
+function multipleValue(value: unknown): string {
+  return value == null ? "—" : `${num(value)}x`;
+}
+
 function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
   const fin = (rt.normalized_financials as Record<string, unknown>) || {};
   const conflicts = (rt.definition_conflicts as Array<Record<string, string>>) || [];
-  const sections: OutSection[] = [];
   const rev = (fin.revenue as Record<string, unknown>) || {};
   const eb = (fin.adj_ebitda as Record<string, unknown>) || {};
   // An EDGAR-grounded CP-1 carries a REPORTED GAAP proxy — and the issuer-
   // disclosed lane (reported_cp1.py, basis "reported_disclosure") carries figures
   // "taken as reported — not covenant-adjusted" — in the same keys the fixture/
   // LLM use for covenant-adjusted figures. Neither may be labeled 'Adj.'. (#15)
-  const reported = rt.basis === "reported_gaap_xbrl" || rt.basis === "reported_disclosure";
+  const reported = reportedCp1Basis(rt.basis);
   const ebLabel = reported ? "EBITDA (reported proxy)" : "Adj. EBITDA";
   const levLabel = reported ? "Net leverage (reported)" : "Net leverage (adj.)";
   // Currency symbol from the engine (reported-disclosure CP-1 carries £/€/$ for a
   // non-US issuer). EDGAR (us-gaap, USD) and the demo/LLM CP-1 omit it → default $.
   // Without this, a £/€ issuer's figures rendered under a hardcoded "$M" — a
   // material currency mislabel on the non-US reported-disclosure path.
-  const cur = (typeof rt.currency === "string" && rt.currency) || "$";
+  const cur = cp1Currency(rt);
   const periods = Object.keys(rev);
-  if (periods.length) {
-    sections.push({
-      type: "table",
-      title: reported ? `CP-1 · Reported financials (${cur}M, GAAP proxy)` : `CP-1 · Normalized financials (${cur}M)`,
-      // Humanize the period LABELS ("LTM_Q1_26" → "LTM Q1-26"); the raw key `p`
-      // is still used below to index the data. (critique: machine keys in tables)
-      cols: ["", ...periods.map(humanize)], align: [0, ...periods.map(() => 1)],
-      rows: [
-        ["Revenue", ...periods.map((p) => num(rev[p]))],
-        [ebLabel, ...periods.map((p) => num(eb[p]))],
-      ],
-    });
-  }
-  if (conflicts.length) {
-    sections.push({
-      type: "flags", title: "CP-1 · Definition conflict register",
-      items: conflicts.map((c) => ({ sev: "warning", text: c.text })),
-    });
-  }
+  const sections = [cp1FinancialSection(periods, rev, eb, reported, cur, ebLabel), cp1ConflictSection(conflicts)].filter((section): section is OutSection => section !== null);
   return {
     kpis: [
       // Unit suffix only on a real figure — "—x" reads as a broken render.
-      { l: levLabel, v: fin.net_leverage_adj_ltm == null ? "—" : `${num(fin.net_leverage_adj_ltm)}x`, sev: "warning" },
+      { l: levLabel, v: multipleValue(fin.net_leverage_adj_ltm), sev: "warning" },
       // Derive from the emitted financial periods so a LIVE/EDGAR run (which
       // carries normalized_financials but not the demo-fixture's pre-counted
       // periods_normalized) shows the real count, not "—". (mock↔live seam)
@@ -133,7 +145,7 @@ function adaptCp1(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { s
       // normalized_financials) but NOT the demo-only coverage_gate GREEN/RED.
       // Show the real coverage figure; the adaptModule "—" filter drops it (and
       // "KPIs registered") on a run that lacks the value. (mock↔live seam)
-      { l: "Interest coverage", v: fin.interest_coverage_ltm == null ? "—" : `${num(fin.interest_coverage_ltm)}x`, sev: "ok" },
+      { l: "Interest coverage", v: multipleValue(fin.interest_coverage_ltm), sev: "ok" },
     ],
     sections,
   };
@@ -187,27 +199,22 @@ function isFlagArray(arr: Record<string, unknown>[]): boolean {
   return arr.every((o) => typeof o.text === "string" && ("severity" in o || "sev" in o || "id" in o));
 }
 
+function toOutFlag(o: Record<string, unknown>): OutFlag {
+  const ev = o.ev as unknown;
+  return {
+    sev: String(o.severity ?? o.sev ?? "low"),
+    text: o.id ? `${o.id}: ${o.text}` : String(o.text),
+    ev: Array.isArray(ev) ? ev.map(String) : undefined,
+  };
+}
+
 function flagsFrom(title: string, arr: Record<string, unknown>[]): OutSection {
-  const items: OutFlag[] = arr.slice(0, INITIAL_DISCLOSURE_ROWS).map((o) => {
-    const ev = o.ev as unknown;
-    return {
-      sev: String(o.severity ?? o.sev ?? "low"),
-      text: o.id ? `${o.id}: ${o.text}` : String(o.text),
-      ev: Array.isArray(ev) ? ev.map(String) : undefined,
-    };
-  });
+  const items = arr.slice(0, INITIAL_DISCLOSURE_ROWS).map(toOutFlag);
   // Keep bounded first paint, but retain every persisted adverse item. OutSections
   // owns the exact +N more disclosure using this additive metadata.
   return Object.assign(
     { type: "flags" as const, title, items },
-    arr.length > INITIAL_DISCLOSURE_ROWS ? { overflowItems: arr.slice(INITIAL_DISCLOSURE_ROWS).map((o) => {
-      const ev = o.ev as unknown;
-      return {
-        sev: String(o.severity ?? o.sev ?? "low"),
-        text: o.id ? `${o.id}: ${o.text}` : String(o.text),
-        ev: Array.isArray(ev) ? ev.map(String) : undefined,
-      } satisfies OutFlag;
-    }) } : {},
+    arr.length > INITIAL_DISCLOSURE_ROWS ? { overflowItems: arr.slice(INITIAL_DISCLOSURE_ROWS).map(toOutFlag) } : {},
   ) as OutSection;
 }
 
@@ -249,7 +256,7 @@ function kvTable(title: string, obj: Record<string, unknown>): OutSection | null
 // mapping: scalars → KPIs, object-arrays → flags/tables, nested scalar objects →
 // key/value tables, long strings → notes. Good enough to render real engine
 // output with provenance for every module, not just CP-0/CP-1.
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Heterogeneous module shapes require one provenance-preserving dispatch pass.
 function adaptGeneric(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
   const kpis = Object.entries(rt)
     .filter(([, v]) => isKpiScalar(v) && v !== "")
@@ -366,8 +373,12 @@ function adaptSpecialized(
   moduleId: "CP-2G" | "CP-4D",
   rt: Record<string, unknown>,
 ): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
-  const keys = moduleId === "CP-2G"
-    ? [
+  const keys = specializedKeys(moduleId);
+  return { kpis: specializedKpis(moduleId, rt, keys), sections: specializedSections(moduleId, rt, keys) };
+}
+
+function specializedKeys(moduleId: "CP-2G" | "CP-4D"): string[] {
+  return moduleId === "CP-2G" ? [
         "source_register", "transition_risks", "social_event_risks",
         "materiality_assessments", "sustainability_linked_instruments",
         "demand_access_implications", "credit_implications", "gaps",
@@ -377,6 +388,9 @@ function adaptSpecialized(
         "collateral_matrix", "structural_priority", "leakage_routes",
         "priming_exposures", "gaps",
       ];
+}
+
+function specializedSections(moduleId: "CP-2G" | "CP-4D", rt: Record<string, unknown>, keys: string[]): OutSection[] {
   const sections: OutSection[] = [];
   const basis = typeof rt.status_basis === "string" ? rt.status_basis : null;
   if (basis) sections.push({ type: "text", title: `${moduleId} · Source-gate basis`, body: basis });
@@ -391,28 +405,41 @@ function adaptSpecialized(
   if (typeof rt[overallKey] === "string") {
     sections.push({ type: "text", title: `${moduleId} · ${humanize(overallKey)}`, body: String(rt[overallKey]) });
   }
+  return sections;
+}
+
+function specializedStatusSeverity(status: string): string {
+  if (status === "Blocked") return "critical";
+  if (status === "Completed with Limitations") return "warning";
+  return "ok";
+}
+
+function specializedKpis(moduleId: "CP-2G" | "CP-4D", rt: Record<string, unknown>, keys: string[]) {
   const status = typeof rt.module_status === "string" ? rt.module_status : "Unavailable";
-  const statusSev = status === "Blocked" ? "critical" : status === "Completed with Limitations" ? "warning" : "ok";
   const sourceRows = rt[keys[0]];
-  const kpis = [
-    { l: "Module status", v: status, sev: statusSev },
+  return [
+    { l: "Module status", v: status, sev: specializedStatusSeverity(status) },
     { l: "Source rows", v: num(Array.isArray(sourceRows) ? sourceRows.length : 0) },
     { l: "Open gaps", v: num(Array.isArray(rt.gaps) ? rt.gaps.length : 0), sev: Array.isArray(rt.gaps) && rt.gaps.length ? "warning" : undefined },
   ];
-  return { kpis, sections };
+}
+
+function adaptRuntime(moduleId: string, runtime: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
+  switch (moduleId) {
+    case "CP-0": return adaptCp0(runtime);
+    case "CP-1": return adaptCp1(runtime);
+    case "CP-2G": return adaptSpecialized("CP-2G", runtime);
+    case "CP-4D": return adaptSpecialized("CP-4D", runtime);
+    case "CP-4C": return adaptCp4c(runtime);
+    case "CP-5B": return adaptCp5b(runtime);
+    default: return adaptGeneric(runtime);
+  }
 }
 
 /** Map a canonical module payload into the existing ModuleOutput shape. */
 export function adaptModule(detail: ModuleDetailDTO): ModuleOutput {
   const rt = detail.runtime_output || {};
-  const base =
-    detail.module_id === "CP-0" ? adaptCp0(rt) :
-    detail.module_id === "CP-1" ? adaptCp1(rt) :
-    detail.module_id === "CP-2G" ? adaptSpecialized("CP-2G", rt) :
-    detail.module_id === "CP-4D" ? adaptSpecialized("CP-4D", rt) :
-    detail.module_id === "CP-4C" ? adaptCp4c(rt) :
-    detail.module_id === "CP-5B" ? adaptCp5b(rt) :
-    adaptGeneric(rt);
+  const base = adaptRuntime(detail.module_id, rt);
 
   const sections = [...base.sections];
   const claims = claimsSection(detail.claims || []);

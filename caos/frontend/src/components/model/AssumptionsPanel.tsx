@@ -153,18 +153,22 @@ function Cell({ spec, model, modified, accent, label, clearLabel, onChange, onRe
   );
 }
 
-function DriverRow({ spec, caseKey, ca, yearsOv, accent, onChange, onChangeYear, onResetYearCell, onScrub, onScrubEnd }: {
-  spec: DriverSpec;
-  caseKey: "base" | "down";
-  ca: CaseAssumptions;
-  yearsOv: YearOverrides;
-  accent: string;
+type DriverCallbacks = {
   onChange: (caseKey: "base" | "down", field: keyof CaseAssumptions, value: number) => void;
   onChangeYear: (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions, value: number) => void;
   onResetYearCell: (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions) => void;
   onScrub?: (caseKey: "base" | "down", field: keyof CaseAssumptions, scope: "all" | FY) => void;
   onScrubEnd?: () => void;
-}) {
+};
+
+type DriverContext = DriverCallbacks & {
+  caseKey: "base" | "down";
+  ca: CaseAssumptions;
+  yearsOv: YearOverrides;
+  accent: string;
+};
+
+function DriverRow({ spec, caseKey, ca, yearsOv, accent, onChange, onChangeYear, onResetYearCell, onScrub, onScrubEnd }: DriverContext & { spec: DriverSpec }) {
   return (
     <div className={GRID}>
       <span className="flex items-baseline gap-1 min-w-0">
@@ -204,6 +208,138 @@ function DriverRow({ spec, caseKey, ca, yearsOv, accent, onChange, onChangeYear,
   );
 }
 
+const useCaseReset = (
+  caseKey: "base" | "down",
+  onResetCase: (caseKey: "base" | "down") => void,
+) => {
+  const [armedReset, setArmedReset] = useState<"base" | "down" | null>(null);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarm = () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+    resetTimer.current = null;
+    setArmedReset(null);
+  };
+  const request = () => {
+    if (armedReset === caseKey) {
+      disarm();
+      onResetCase(caseKey);
+      return;
+    }
+    setArmedReset(caseKey);
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+    resetTimer.current = setTimeout(() => setArmedReset(null), 3000);
+  };
+  useEffect(() => { disarm(); }, [caseKey]);
+  useEffect(() => () => {
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+  }, []);
+  return { armed: armedReset === caseKey, disarm, request };
+};
+
+const caseTabClass = (active: boolean) =>
+  "flex-1 flex items-center justify-center gap-1.5 tabular text-caos-2xs uppercase tracking-wider py-1 rounded border transition-caos "
+  + (active ? "bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text");
+
+function CaseToggle({ caseKey, onChange }: { caseKey: "base" | "down"; onChange: (key: "base" | "down") => void }) {
+  return (
+    <div className="flex gap-1.5">
+      <button onClick={() => onChange("base")} aria-pressed={caseKey === "base"} className={caseTabClass(caseKey === "base")} style={caseKey === "base" ? { borderColor: "var(--caos-success)", color: "var(--caos-success)" } : undefined}>
+        <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-success)" }} /> Base
+      </button>
+      <button onClick={() => onChange("down")} aria-pressed={caseKey === "down"} className={caseTabClass(caseKey === "down")} style={caseKey === "down" ? { borderColor: "var(--caos-warning)", color: "var(--caos-warning)" } : undefined}>
+        <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-warning)" }} /> Downside
+      </button>
+    </div>
+  );
+}
+
+function CaseResetControl({
+  changed,
+  caseKey,
+  armed,
+  onRequest,
+  onDisarm,
+}: {
+  changed: number;
+  caseKey: "base" | "down";
+  armed: boolean;
+  onRequest: () => void;
+  onDisarm: () => void;
+}) {
+  if (changed === 0) return null;
+  const resetLabel = `Reset ${changed} ${caseKey} change${changed > 1 ? "s" : ""} to the agent's forecast`;
+  const label = armed ? `Confirm reset ${caseKey} case` : resetLabel;
+  return (
+    <button
+      onClick={onRequest}
+      onBlur={armed ? onDisarm : undefined}
+      aria-label={label}
+      title={armed ? `Confirm reset ${caseKey} case` : `Reset ${changed} change${changed > 1 ? "s" : ""} to the agent's forecast`}
+      className={"tabular text-caos-3xs px-1.5 py-px rounded border transition-caos whitespace-nowrap " + (armed ? "text-caos-critical" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")}
+      style={armed ? { borderColor: "var(--caos-critical)" } : undefined}
+    >
+      {armed ? `confirm reset ${caseKey}?` : `↶ ${changed}`}
+    </button>
+  );
+}
+
+function AssumptionsColumns({
+  changed,
+  caseKey,
+  reset,
+}: {
+  changed: number;
+  caseKey: "base" | "down";
+  reset: ReturnType<typeof useCaseReset>;
+}) {
+  return (
+    <div className={GRID + " sticky top-0 bg-caos-panel z-10 py-0.5 border-b border-caos-border/40"}>
+      <span className="flex items-center">
+        <CaseResetControl changed={changed} caseKey={caseKey} armed={reset.armed} onRequest={reset.request} onDisarm={reset.disarm} />
+      </span>
+      <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted text-right pr-1">All</span>
+      {([0, 1, 2] as FY[]).map((year) => (
+        <span key={year} className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted text-right pr-1">
+          {FORECAST_LABELS[year].replace("FY", "")}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function AssumptionGroup({
+  group,
+  expanded,
+  caseKey,
+  ca,
+  yearsOv,
+  accent,
+  onToggle,
+  onChange,
+  onChangeYear,
+  onResetYearCell,
+  onScrub,
+  onScrubEnd,
+}: DriverContext & {
+  group: (typeof GROUPS)[number];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <button onClick={onToggle} aria-expanded={expanded} aria-label={`${expanded ? "Collapse" : "Expand"} ${group.title} drivers`} className="flex items-center justify-between w-full text-left py-1 hover:text-caos-text transition-caos border-b border-caos-border/40 select-none group">
+        <span className="tabular text-caos-3xs uppercase tracking-wider font-semibold text-caos-muted group-hover:text-caos-text transition-caos">{group.title}</span>
+        <span className="tabular text-caos-3xs text-caos-accent font-bold">{expanded ? "−" : "+"}</span>
+      </button>
+      {expanded ? (
+        <div className="flex flex-col gap-1.5 mt-1">
+          {group.items.map((spec) => <DriverRow key={spec.key} spec={spec} caseKey={caseKey} ca={ca} yearsOv={yearsOv} accent={accent} onChange={onChange} onChangeYear={onChangeYear} onResetYearCell={onResetYearCell} onScrub={onScrub} onScrubEnd={onScrubEnd} />)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetCase, onResetYearCell, onScrub, onScrubEnd, onCollapse }: {
   assumptions: Assumptions;
   onChange: (caseKey: "base" | "down", field: keyof CaseAssumptions, value: number) => void;
@@ -216,14 +352,7 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
 }) {
   const [caseKey, setCaseKey] = useState<"base" | "down">("base");
   const [expanded, setExpanded] = useState<Set<string>>(new Set(GROUPS.map((g) => g.title)));
-  // Inline two-step reset: first click arms (holds the armed case), second click
-  // within the window commits; auto-disarms on timeout. No modal, keyboard-operable.
-  const [armedReset, setArmedReset] = useState<"base" | "down" | null>(null);
-  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const disarmReset = () => {
-    if (resetTimer.current) { clearTimeout(resetTimer.current); resetTimer.current = null; }
-    setArmedReset(null);
-  };
+  const reset = useCaseReset(caseKey, onResetCase);
 
   const toggleGroup = (title: string) => {
     setExpanded((prev) => {
@@ -233,18 +362,10 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
     });
   };
 
-  // Switching case cancels a pending reset arm; clear the timer on unmount.
-  useEffect(() => { disarmReset(); }, [caseKey]);
-  useEffect(() => () => { if (resetTimer.current) clearTimeout(resetTimer.current); }, []);
-
   const ca = assumptions[caseKey];
   const yearsOv = (caseKey === "base" ? assumptions.baseYears : assumptions.downYears) ?? {};
   const accent = caseKey === "base" ? "var(--caos-success)" : "var(--caos-warning)";
   const changed = caseModifiedCount(ca) + ([0, 1, 2] as FY[]).reduce<number>((s, y) => s + yearModifiedCount(yearsOv[y]), 0);
-
-  const tab = (key: "base" | "down") =>
-    "flex-1 flex items-center justify-center gap-1.5 tabular text-caos-2xs uppercase tracking-wider py-1 rounded border transition-caos " +
-    (caseKey === key ? "bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text");
 
   return (
     <Panel
@@ -260,99 +381,12 @@ export function AssumptionsPanel({ assumptions, onChange, onChangeYear, onResetC
         </p>
 
         {/* case toggle */}
-        <div className="flex gap-1.5">
-          <button
-            onClick={() => setCaseKey("base")}
-            aria-pressed={caseKey === "base"}
-            className={tab("base")}
-            style={caseKey === "base" ? { borderColor: "var(--caos-success)", color: "var(--caos-success)" } : undefined}
-          >
-            <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-success)" }} />
-            Base
-          </button>
-          <button
-            onClick={() => setCaseKey("down")}
-            aria-pressed={caseKey === "down"}
-            className={tab("down")}
-            style={caseKey === "down" ? { borderColor: "var(--caos-warning)", color: "var(--caos-warning)" } : undefined}
-          >
-            <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-warning)" }} />
-            Downside
-          </button>
-        </div>
+        <CaseToggle caseKey={caseKey} onChange={setCaseKey} />
 
         {/* column headers */}
-        <div className={GRID + " sticky top-0 bg-caos-panel z-10 py-0.5 border-b border-caos-border/40"}>
-          <span className="flex items-center">
-            {changed > 0 ? (() => {
-              const armed = armedReset === caseKey;
-              return (
-                <button
-                  onClick={() => {
-                    if (armed) { disarmReset(); onResetCase(caseKey); return; }
-                    setArmedReset(caseKey);
-                    if (resetTimer.current) clearTimeout(resetTimer.current);
-                    resetTimer.current = setTimeout(() => setArmedReset(null), 3000);
-                  }}
-                  onBlur={armed ? disarmReset : undefined}
-                  aria-label={armed ? `Confirm reset ${caseKey} case` : `Reset ${changed} ${caseKey} change${changed > 1 ? "s" : ""} to the agent's forecast`}
-                  title={armed ? `Confirm reset ${caseKey} case` : `Reset ${changed} change${changed > 1 ? "s" : ""} to the agent's forecast`}
-                  className={
-                    "tabular text-caos-3xs px-1.5 py-px rounded border transition-caos whitespace-nowrap " +
-                    (armed
-                      ? "text-caos-critical"
-                      : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
-                  }
-                  style={armed ? { borderColor: "var(--caos-critical)" } : undefined}
-                >
-                  {armed ? `confirm reset ${caseKey}?` : `↶ ${changed}`}
-                </button>
-              );
-            })() : null}
-          </span>
-          <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted text-right pr-1">All</span>
-          {([0, 1, 2] as FY[]).map((y) => (
-            <span key={y} className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted text-right pr-1">
-              {FORECAST_LABELS[y].replace("FY", "")}
-            </span>
-          ))}
-        </div>
+        <AssumptionsColumns changed={changed} caseKey={caseKey} reset={reset} />
 
-        {GROUPS.map((g) => {
-          const isExpanded = expanded.has(g.title);
-          return (
-            <div key={g.title} className="flex flex-col gap-1.5">
-              <button
-                onClick={() => toggleGroup(g.title)}
-                aria-expanded={isExpanded}
-                aria-label={`${isExpanded ? "Collapse" : "Expand"} ${g.title} drivers`}
-                className="flex items-center justify-between w-full text-left py-1 hover:text-caos-text transition-caos border-b border-caos-border/40 select-none group"
-              >
-                <span className="tabular text-caos-3xs uppercase tracking-wider font-semibold text-caos-muted group-hover:text-caos-text transition-caos">{g.title}</span>
-                <span className="tabular text-caos-3xs text-caos-accent font-bold">{isExpanded ? "−" : "+"}</span>
-              </button>
-              {isExpanded ? (
-                <div className="flex flex-col gap-1.5 mt-1">
-                  {g.items.map((spec) => (
-                    <DriverRow
-                      key={spec.key}
-                      spec={spec}
-                      caseKey={caseKey}
-                      ca={ca}
-                      yearsOv={yearsOv}
-                      accent={accent}
-                      onChange={onChange}
-                      onChangeYear={onChangeYear}
-                      onResetYearCell={onResetYearCell}
-                      onScrub={onScrub}
-                      onScrubEnd={onScrubEnd}
-                    />
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
+        {GROUPS.map((group) => <AssumptionGroup key={group.title} group={group} expanded={expanded.has(group.title)} caseKey={caseKey} ca={ca} yearsOv={yearsOv} accent={accent} onToggle={() => toggleGroup(group.title)} onChange={onChange} onChangeYear={onChangeYear} onResetYearCell={onResetYearCell} onScrub={onScrub} onScrubEnd={onScrubEnd} />)}
       </div>
     </Panel>
   );

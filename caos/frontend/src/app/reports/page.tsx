@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { createPortal } from "react-dom";
+import { usePrintPortalElement } from "@/lib/use-print-portal";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
@@ -48,6 +49,41 @@ const PAPERS = [
   { v: "#eef0f3", label: "Cool" },
 ];
 
+type ReportKeyAction =
+  | { kind: "zoom"; value: number }
+  | { kind: "fit" }
+  | { kind: "report"; id: string };
+
+const reportShortcutBlocked = (target: EventTarget | null): boolean => {
+  const element = target as HTMLElement | null;
+  return Boolean(element?.isContentEditable || element?.tagName === "INPUT" || element?.tagName === "TEXTAREA");
+};
+
+const lowerZoom = (zoom: number): number | null => {
+  const below = ZOOMS.filter((candidate) => candidate < zoom);
+  return below.at(-1) ?? null;
+};
+
+const reportKeyAction = (
+  key: string,
+  zoom: number,
+  reports: readonly { id: string }[],
+): ReportKeyAction | null => {
+  if (key === "+" || key === "=") {
+    const value = ZOOMS.find((candidate) => candidate > zoom);
+    return value == null ? null : { kind: "zoom", value };
+  }
+  if (key === "-" || key === "_") {
+    const value = lowerZoom(zoom);
+    return value == null ? null : { kind: "zoom", value };
+  }
+  if (key === "f") return { kind: "fit" };
+  const index = Number(key) - 1;
+  return index >= 0 && index < 9 && reports[index]
+    ? { kind: "report", id: reports[index].id }
+    : null;
+};
+
 /* ---------- print portal (document only, un-scaled) ---------- */
 function PrintPortal({
   rep,
@@ -66,14 +102,7 @@ function PrintPortal({
   hideAddbacks?: boolean;
   authority?: Parameters<typeof ReportDoc>[0]["authority"];
 }) {
-  const [el, setEl] = useState<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const d = document.createElement("div");
-    d.className = "print-root";
-    document.body.appendChild(d);
-    setEl(d);
-    return () => d.remove();
-  }, []);
+  const el = usePrintPortalElement();
   if (!el) return null;
   return createPortal(
     <ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} editableSectionCount={editableSectionCount} hideAddbacks={hideAddbacks} authority={authority} />,
@@ -91,7 +120,7 @@ export default function ReportsPage() {
   );
 }
 
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Context-bound report lifecycle is coordinated at the route boundary.
 function ReportStudio() {
   const searchParams = useSearchParams();
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
@@ -228,7 +257,7 @@ function ReportStudio() {
   const deepLinkedVersionId = reportParam && versions.some((version) => version.id === reportParam)
     ? reportParam
     : null;
-  // fallow-ignore-next-line complexity
+  // fallow-ignore-next-line complexity -- Preference hydration degrades safely within one storage effect.
   useEffect(() => {
     try {
       const z = parseFloat(localStorage.getItem("caos-e-zoom") || "");
@@ -345,21 +374,11 @@ function ReportStudio() {
   // Keyboard shortcuts for power users: +/- step zoom, f fits, 1..9 pick a report.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && (t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-      const k = e.key;
-      if (k === "+" || k === "=") {
-        const next = ZOOMS.find((z) => z > zoom);
-        if (next != null) setZoom(next);
-      } else if (k === "-" || k === "_") {
-        const below = ZOOMS.filter((z) => z < zoom);
-        if (below.length) setZoom(below[below.length - 1]);
-      } else if (k === "f") {
-        fitToWidth();
-      } else if (k >= "1" && k <= "9") {
-        const d = Number(k);
-        if (reports.length && reports[d - 1]) setActiveId(reports[d - 1].id);
-      }
+      if (reportShortcutBlocked(e.target)) return;
+      const action = reportKeyAction(e.key, zoom, reports);
+      if (action?.kind === "zoom") setZoom(action.value);
+      if (action?.kind === "fit") fitToWidth();
+      if (action?.kind === "report") setActiveId(action.id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

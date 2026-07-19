@@ -49,6 +49,9 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
+const canSaveSettings = (analystLoaded: boolean, saving: boolean): boolean =>
+  analystLoaded && !saving;
+
 // Maps the WorkspaceSettings snapshot → display groups. `hint` is the env var
 // (or code location) that controls each value. Built per-render from `cfg`.
 function configGroups(cfg: WorkspaceSettings) {
@@ -174,10 +177,62 @@ function applyNestedDelta(base: Record<string, unknown>, delta: Record<string, u
   return next;
 }
 
+const QUERY_MODELS = [
+  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", reqKey: "ANTHROPIC_API_KEY", configuredKey: "llm_configured" as const },
+  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", reqKey: "GEMINI_API_KEY", configuredKey: "gemini_configured" as const },
+  { id: "deepseek/deepseek-chat", name: "DeepSeek V3/V4", reqKey: "OPENROUTER_API_KEY", configuredKey: "openrouter_configured" as const },
+];
+
+const modelReadiness = (configured: boolean | null, cfgError: boolean, requiredKey: string) => {
+  if (configured === true) return { title: "API key configured", label: "ready", color: "var(--caos-success)", dot: "var(--caos-success)" };
+  if (configured === false) return { title: `Requires ${requiredKey} in the environment`, label: "no key", color: "var(--caos-muted)", dot: "var(--caos-idle)" };
+  if (cfgError) return { title: "Key posture unavailable while the environment snapshot is offline", label: "unavailable", color: "var(--caos-muted)", dot: "var(--caos-idle)" };
+  return { title: "Checking environment key posture", label: "checking", color: "var(--caos-muted)", dot: "var(--caos-idle)" };
+};
+
+function QueryModelOption({
+  model,
+  configured,
+  cfgError,
+  active,
+  onSelect,
+}: {
+  model: (typeof QUERY_MODELS)[number];
+  configured: boolean | null;
+  cfgError: boolean;
+  active: boolean;
+  onSelect: (id: string) => void;
+}) {
+  const readiness = modelReadiness(configured, cfgError, model.reqKey);
+  return (
+    <button
+      onClick={() => onSelect(model.id)}
+      aria-pressed={active}
+      className={"flex-1 text-left p-3 rounded border transition-caos focus-ring " + (active ? "bg-caos-accent/10 border-caos-accent text-caos-accent font-semibold" : "bg-caos-panel border-caos-border text-caos-text hover:border-caos-accent/50")}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="tabular text-caos-md font-semibold flex items-center gap-1.5">
+          {active ? <span aria-hidden="true" className="h-2 w-2 rounded-full bg-caos-accent shrink-0" /> : null}
+          {model.name}
+        </span>
+        <span className="flex items-center gap-2 shrink-0">
+          {active ? <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-accent">Active</span> : null}
+          <span className="flex items-center gap-1 tabular text-caos-3xs uppercase tracking-wider" title={readiness.title} style={{ color: readiness.color }}>
+            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: readiness.dot }} />
+            {readiness.label}
+          </span>
+        </span>
+      </div>
+      <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1 select-none">{model.id}</div>
+      {configured === false ? <div className="tabular text-caos-3xs text-caos-warning mt-1.5">Requires {model.reqKey} in env</div> : null}
+    </button>
+  );
+}
+
 // Dense analyst page (browser-local defaults + server config mirror); same
 // structural shape as ModelBuilder/ReportStudio. Splitting it would only
 // prop-drill state for no readability gain.
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Cross-panel settings state stays centralized to avoid prop-drilling write state.
 function Settings() {
   // ── Active tab, synced to ?tab= so reload/back restores the section ──
   const router = useRouter();
@@ -405,7 +460,7 @@ function Settings() {
   }, []);
 
   const saveAll = async () => {
-    if (!analystLoaded || savingRef.current) return;
+    if (!canSaveSettings(analystLoaded, savingRef.current)) return;
     savingRef.current = true;
     setSaving(true);
     try {
@@ -548,64 +603,7 @@ function Settings() {
                 natural language questions into metric graphs and semantic lookups. Applies to this browser.
               </p>
               <div className="flex flex-col sm:flex-row gap-2">
-                {[
-                  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", configured: cfg ? cfg.llm_configured : null, reqKey: "ANTHROPIC_API_KEY" },
-                  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", configured: cfg ? cfg.gemini_configured : null, reqKey: "GEMINI_API_KEY" },
-                  { id: "deepseek/deepseek-chat", name: "DeepSeek V3/V4", configured: cfg ? cfg.openrouter_configured : null, reqKey: "OPENROUTER_API_KEY" },
-                ].map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => changeQueryModel(m.id)}
-                    aria-pressed={queryModel === m.id}
-                    className={
-                      "flex-1 text-left p-3 rounded border transition-caos focus-ring " +
-                      (queryModel === m.id
-                        ? "bg-caos-accent/10 border-caos-accent text-caos-accent font-semibold"
-                        : "bg-caos-panel border-caos-border text-caos-text hover:border-caos-accent/50")
-                    }
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="tabular text-caos-md font-semibold flex items-center gap-1.5">
-                        {queryModel === m.id ? (
-                          <span
-                            aria-hidden="true"
-                            className="h-2 w-2 rounded-full bg-caos-accent shrink-0"
-                          />
-                        ) : null}
-                        {m.name}
-                      </span>
-                      <span className="flex items-center gap-2 shrink-0">
-                        {queryModel === m.id ? (
-                          <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-accent">
-                            Active
-                          </span>
-                        ) : null}
-                        {/* Readiness never carried by color alone: pair the dot
-                            with a text label + title (colorblind-safe). */}
-                        <span
-                          className="flex items-center gap-1 tabular text-caos-3xs uppercase tracking-wider"
-                          title={m.configured === true ? "API key configured" : m.configured === false ? `Requires ${m.reqKey} in the environment` : cfgErr ? "Key posture unavailable while the environment snapshot is offline" : "Checking environment key posture"}
-                          style={{ color: m.configured === true ? "var(--caos-success)" : "var(--caos-muted)" }}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className="h-1.5 w-1.5 rounded-full shrink-0"
-                            style={{ background: m.configured === true ? "var(--caos-success)" : "var(--caos-idle)" }}
-                          />
-                          {m.configured === true ? "ready" : m.configured === false ? "no key" : cfgErr ? "unavailable" : "checking"}
-                        </span>
-                      </span>
-                    </div>
-                    <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1 select-none">
-                      {m.id}
-                    </div>
-                    {m.configured === false && (
-                      <div className="tabular text-caos-3xs text-caos-warning mt-1.5">
-                        Requires {m.reqKey} in env
-                      </div>
-                    )}
-                  </button>
-                ))}
+                {QUERY_MODELS.map((model) => <QueryModelOption key={model.id} model={model} configured={cfg ? cfg[model.configuredKey] : null} cfgError={cfgErr} active={queryModel === model.id} onSelect={changeQueryModel} />)}
               </div>
             </div>
           </Panel>

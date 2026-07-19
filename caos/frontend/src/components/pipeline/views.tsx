@@ -44,6 +44,142 @@ const MODULES_BY_LAYER = (() => {
   return groups;
 })();
 const NW = 128, NH = 44;
+type PipelineModule = (typeof MODULES)[number];
+
+function openSelectedModule(event: React.KeyboardEvent<HTMLButtonElement>, selected: boolean, moduleId: string, onOpen?: (id: string) => void) {
+  if (event.key !== "Enter" || !selected || !onOpen) return;
+  event.preventDefault();
+  onOpen(moduleId);
+}
+
+function edgeConnected(nodeId: string, selected: string, related: Set<string>) {
+  return nodeId === selected || related.has(nodeId);
+}
+
+function graphEdgeKind(source: string, target: string, selected: string | null, up: Set<string>, down: Set<string>): "up" | "down" | "idle" {
+  if (!selected) return "idle";
+  if (edgeConnected(source, selected, up) && edgeConnected(target, selected, up) && (up.has(source) || source === selected)) return "up";
+  if (edgeConnected(source, selected, down) && edgeConnected(target, selected, down)) return "down";
+  return "idle";
+}
+
+function graphEdgeOpacity(outOfScope: boolean, selected: string | null, active: boolean) {
+  if (outOfScope) return 0.07;
+  if (!selected) return 0.62;
+  return active ? 0.95 : 0.16;
+}
+
+function GraphEdgePath({ edge, index, selected, scope, up, down }: { edge: (typeof EDGES)[number]; index: number; selected: string | null; scope: Set<string>; up: Set<string>; down: Set<string> }) {
+  const [source, target] = edge;
+  const start = NODE_POS[source], end = NODE_POS[target];
+  if (!start || !end) return null;
+  const x1 = start.x + NW / 2, y1 = start.y, x2 = end.x - NW / 2, y2 = end.y;
+  const midpoint = (x1 + x2) / 2;
+  const kind = graphEdgeKind(source, target, selected, up, down);
+  const active = kind !== "idle";
+  const stroke = { up: "var(--caos-accent)", down: "#a855f7", idle: "#4a4a60" }[kind];
+  const opacity = graphEdgeOpacity(!scope.has(source) || !scope.has(target), selected, active);
+  return <path key={index} d={`M ${x1} ${y1} C ${midpoint} ${y1}, ${midpoint} ${y2}, ${x2} ${y2}`} fill="none" stroke={stroke} strokeWidth={active ? 1.6 : 1.2} opacity={opacity} />;
+}
+
+function GraphEdges({ selected, scope, up, down }: { selected: string | null; scope: Set<string>; up: Set<string>; down: Set<string> }) {
+  return <svg width={GW} height={GH} className="absolute inset-0">{EDGES.map((edge, index) => <GraphEdgePath key={index} edge={edge} index={index} selected={selected} scope={scope} up={up} down={down} />)}</svg>;
+}
+
+function GraphNodeBadges({ inScope, moduleId, state }: { inScope: boolean; moduleId: string; state: string }) {
+  return (
+    <>
+      {inScope && NODE_QA[moduleId] ? <span role="img" aria-label="QA Finding" className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>⛨</span> : null}
+      {inScope && NODE_LIMITS[moduleId] ? <span role="img" aria-label="Has limitations" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
+      {state === "held" ? <span role="img" aria-label="Held" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Held"><StatusGlyph kind="locked" /></span> : null}
+    </>
+  );
+}
+
+function moduleBorderColor(selected: boolean, state: string, color: string, strength: number) {
+  if (selected) return "var(--caos-accent)";
+  if (state === "idle") return "var(--caos-border)";
+  return `color-mix(in srgb, ${color} ${strength}%, transparent)`;
+}
+
+function moduleTitle(module: PipelineModule, inScope: boolean) {
+  if (!inScope) return module.name + " — out of scope for this route plan";
+  return module.name + " — Enter to select, Enter again (or double-click) to open outputs";
+}
+
+function graphModuleOpacity(inScope: boolean, related: boolean, dimmed: boolean) {
+  if (!inScope) return 0.22;
+  return related && !dimmed ? 1 : 0.32;
+}
+
+function moduleProgress(inScope: boolean, state: string, progress: number) {
+  return inScope && state !== "idle" ? progress * 100 : 0;
+}
+
+function moduleRuntime(module: PipelineModule, selected: string | null, scope: Set<string>, sim: Sim) {
+  const state = sim.mods[module.id]?.state || "idle";
+  return {
+    state,
+    progress: sim.mods[module.id]?.prog || 0,
+    isSelected: selected === module.id,
+    inScope: scope.has(module.id),
+    color: sevVar(state),
+  };
+}
+
+function GraphModuleNode({ dim, down, module, onDoubleClick, onSelect, scope, selected, sim, up }: { dim: boolean; down: Set<string>; module: PipelineModule; onDoubleClick?: (id: string) => void; onSelect: (id: string | null) => void; scope: Set<string>; selected: string | null; sim: Sim; up: Set<string> }) {
+  const position = NODE_POS[module.id];
+  const runtime = moduleRuntime(module, selected, scope, sim);
+  const related = !selected || runtime.isSelected || up.has(module.id) || down.has(module.id);
+  const dimmed = dim && runtime.state === "pass" && !runtime.isSelected;
+  const className = "absolute text-left rounded border bg-caos-panel transition-caos hover:border-caos-accent/70 focus-ring " + (runtime.isSelected ? "caos-selected z-10" : "");
+  return (
+    <button type="button" onClick={() => onSelect(runtime.isSelected ? null : module.id)} onDoubleClick={() => onDoubleClick?.(module.id)} onKeyDown={(event) => openSelectedModule(event, runtime.isSelected, module.id, onDoubleClick)} title={moduleTitle(module, runtime.inScope)} aria-pressed={runtime.isSelected} className={className} style={{ left: position.x - NW / 2, top: position.y - NH / 2, width: NW, height: NH, borderColor: moduleBorderColor(runtime.isSelected, runtime.state, runtime.color, 40), borderStyle: runtime.inScope ? "solid" : "dashed", opacity: graphModuleOpacity(runtime.inScope, related, dimmed) }}>
+      <div className="flex items-center gap-1.5 px-2 pt-1.5 whitespace-nowrap">
+        <Dot sev={runtime.state} pulse={runtime.state === "running"} glyph />
+        <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{module.id}</span>
+        <GraphNodeBadges inScope={runtime.inScope} moduleId={module.id} state={runtime.state} />
+      </div>
+      <div className="px-2 text-caos-xs font-medium text-caos-text/90 truncate leading-tight">{module.name}</div>
+      <div className="px-2 pt-[3px]"><Bar pct={moduleProgress(runtime.inScope, runtime.state, runtime.progress)} color={runtime.color} h={2} /></div>
+    </button>
+  );
+}
+
+function swimlaneOpacity(inScope: boolean, state: string) {
+  if (!inScope) return 0.25;
+  return state === "idle" ? 0.55 : 1;
+}
+
+function swimlaneStateLabel(inScope: boolean, state: string) {
+  if (!inScope) return "skip";
+  return state === "idle" ? "queued" : state;
+}
+
+function SwimlaneModuleNode({ module, onDoubleClick, onSelect, scope, selected, sim }: { module: PipelineModule; onDoubleClick?: (id: string) => void; onSelect: (id: string | null) => void; scope: Set<string>; selected: string | null; sim: Sim }) {
+  const runtime = moduleRuntime(module, selected, scope, sim);
+  const className = "text-left rounded border bg-caos-panel px-2 py-1.5 transition-caos hover:border-caos-accent/70 focus-ring " + (runtime.isSelected ? "caos-selected" : "");
+  return (
+    <button type="button" onClick={() => onSelect(runtime.isSelected ? null : module.id)} onDoubleClick={() => onDoubleClick?.(module.id)} onKeyDown={(event) => openSelectedModule(event, runtime.isSelected, module.id, onDoubleClick)} title={moduleTitle(module, runtime.inScope)} aria-pressed={runtime.isSelected} className={className} style={{ borderColor: moduleBorderColor(runtime.isSelected, runtime.state, runtime.color, 33), borderStyle: runtime.inScope ? "solid" : "dashed", opacity: swimlaneOpacity(runtime.inScope, runtime.state) }}>
+      <div className="flex items-center gap-1.5"><Dot sev={runtime.state} pulse={runtime.state === "running"} /><span className="tabular text-caos-md text-caos-text">{module.id}</span><span className="tabular text-caos-2xs ml-auto" style={{ color: runtime.inScope ? runtime.color : "var(--caos-muted)" }}>{swimlaneStateLabel(runtime.inScope, runtime.state)}</span></div>
+      <div className="text-caos-xs text-caos-muted leading-tight mt-0.5">{module.name}</div>
+      <div className="mt-1"><Bar pct={moduleProgress(runtime.inScope, runtime.state, runtime.progress)} color={runtime.color} h={2} /></div>
+      {runtime.inScope && NODE_QA[module.id] ? <div className="mt-1"><Tag sev="critical">QA {NODE_QA[module.id].id}</Tag></div> : null}
+      {runtime.inScope && NODE_LIMITS[module.id] ? <div className="mt-1"><Tag sev="warning">LIMIT L-04</Tag></div> : null}
+    </button>
+  );
+}
+
+function SwimlaneColumn({ layer, onDoubleClick, onSelect, scope, selected, sim }: { layer: string; onDoubleClick?: (id: string) => void; onSelect: (id: string | null) => void; scope: Set<string>; selected: string | null; sim: Sim }) {
+  const meta = LAYERS.find((value) => value.id === layer);
+  const sequenceNote = layer === "L5" || layer === "L6" ? "Execution order — L6 Debate feeds L5 Governance sign-off" : undefined;
+  return (
+    <div className="flex flex-col min-h-0 rounded border border-caos-border bg-caos-bg/50">
+      <div className="px-2 py-1.5 border-b border-caos-border shrink-0" title={sequenceNote}><div className="tabular text-caos-sm uppercase tracking-widest text-caos-text">{layer}</div><div className="text-caos-2xs text-caos-muted">{meta?.label ?? ""}{layer === "L5" ? " · after L6" : ""}</div></div>
+      <div className="flex-1 min-h-0 overflow-auto p-1.5 flex flex-col gap-1.5">{(MODULES_BY_LAYER[layer] || []).map((module) => <SwimlaneModuleNode key={module.id} module={module} onDoubleClick={onDoubleClick} onSelect={onSelect} scope={scope} selected={selected} sim={sim} />)}</div>
+    </div>
+  );
+}
 
 /* ---------- DAG view ---------- */
 export function GraphView({
@@ -75,9 +211,6 @@ export function GraphView({
   // controlled two-axis canvas instead of shrinking analytical labels until
   // they are technically present but physically unreadable.
   const scale = Math.max(0.86, Math.min(1, box.w / GW, box.h / GH));
-  const inUp = (n: string) => n === selected || up.has(n);
-  const inDown = (n: string) => n === selected || down.has(n);
-
   const scaledW = GW * scale;
   const scaledH = GH * scale;
 
@@ -91,29 +224,7 @@ export function GraphView({
     >
       <div className="relative overflow-hidden" style={{ width: scaledW, height: scaledH }}>
         <div className="absolute left-0 top-0 origin-top-left" style={{ width: GW, height: GH, transform: `scale(${scale})` }}>
-          <svg width={GW} height={GH} className="absolute inset-0">
-        {EDGES.map(([a, b], i) => {
-          const pa = NODE_POS[a], pb = NODE_POS[b];
-          if (!pa || !pb) return null;
-          const x1 = pa.x + NW / 2, y1 = pa.y, x2 = pb.x - NW / 2, y2 = pb.y;
-          const mx = (x1 + x2) / 2;
-          const upEdge = selected != null && inUp(a) && inUp(b) && (up.has(a) || a === selected);
-          const downEdge = selected != null && inDown(a) && inDown(b);
-          const active = upEdge || downEdge;
-          const off = !scope.has(a) || !scope.has(b);
-          const stroke = upEdge ? "var(--caos-accent)" : downEdge ? "#a855f7" : "#4a4a60";
-          return (
-            <path
-              key={i}
-              d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
-              fill="none"
-              stroke={stroke}
-              strokeWidth={active ? 1.6 : 1.2}
-              opacity={off ? 0.07 : selected ? (active ? 0.95 : 0.16) : 0.62}
-            />
-          );
-        })}
-      </svg>
+          <GraphEdges selected={selected} scope={scope} up={up} down={down} />
       {COL_ORDER.map((l, ci) => {
         const meta = LAYERS.find((x) => x.id === l);
         const seqNote = l === "L5" || l === "L6" ? "Execution order — L6 Debate feeds L5 Governance sign-off" : undefined;
@@ -124,53 +235,7 @@ export function GraphView({
           </div>
         );
       })}
-      {MODULES.map((m) => {
-        const p = NODE_POS[m.id];
-        const st = sim.mods[m.id]?.state || "idle";
-        const prog = sim.mods[m.id]?.prog || 0;
-        const sel = selected === m.id;
-        const inScope = scope.has(m.id);
-        const related = !selected || sel || up.has(m.id) || down.has(m.id);
-        const doneDim = dim && st === "pass" && !sel;
-        const color = sevVar(st);
-        return (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => onSelect(sel ? null : m.id)}
-            onDoubleClick={() => onDoubleClick && onDoubleClick(m.id)}
-            onKeyDown={(e) => {
-              // Keyboard parity for the mouse's double-click-to-open: once a node
-              // is selected, a second Enter opens its outputs (WCAG 2.1.1). Space
-              // still toggles selection. First Enter on an unselected node selects.
-              if (e.key === "Enter" && sel && onDoubleClick) {
-                e.preventDefault();
-                onDoubleClick(m.id);
-              }
-            }}
-            title={inScope ? m.name + " — Enter to select, Enter again (or double-click) to open outputs" : m.name + " — out of scope for this route plan"}
-            aria-pressed={sel}
-            className={"absolute text-left rounded border bg-caos-panel transition-caos hover:border-caos-accent/70 focus-ring " + (sel ? "caos-selected z-10" : "")}
-            style={{
-              left: p.x - NW / 2, top: p.y - NH / 2, width: NW, height: NH,
-              borderColor: sel ? "var(--caos-accent)" : st === "idle" ? "var(--caos-border)" : `color-mix(in srgb, ${color} 40%, transparent)`,
-              borderStyle: inScope ? "solid" : "dashed",
-              opacity: !inScope ? 0.22 : related && !doneDim ? 1 : 0.32,
-            }}
-          >
-            <div className="flex items-center gap-1.5 px-2 pt-1.5 whitespace-nowrap">
-              {/* glyph: a terminal warning-vs-pass node otherwise differs by hue alone (the swimlane view prints the state as text; the DAG node doesn't) */}
-              <Dot sev={st} pulse={st === "running"} glyph />
-              <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{m.id}</span>
-              {inScope && NODE_QA[m.id] ? <span role="img" aria-label="QA Finding" className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>⛨</span> : null}
-              {inScope && NODE_LIMITS[m.id] ? <span role="img" aria-label="Has limitations" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
-              {st === "held" ? <span role="img" aria-label="Held" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Held"><StatusGlyph kind="locked" /></span> : null}
-            </div>
-            <div className="px-2 text-caos-xs font-medium text-caos-text/90 truncate leading-tight">{m.name}</div>
-            <div className="px-2 pt-[3px]"><Bar pct={!inScope || st === "idle" ? 0 : prog * 100} color={color} h={2} /></div>
-          </button>
-        );
-      })}
+      {MODULES.map((module) => <GraphModuleNode key={module.id} dim={dim} down={down} module={module} onDoubleClick={onDoubleClick} onSelect={onSelect} scope={scope} selected={selected} sim={sim} up={up} />)}
         </div>
       </div>
     </div>
@@ -190,63 +255,7 @@ export function SwimlaneView({
   return (
     <div className="h-full overflow-x-auto">
       <div className="grid h-full gap-1.5 p-2 min-w-[1100px]" style={{ gridTemplateColumns: "repeat(9, 1fr)" }}>
-        {COL_ORDER.map((l) => {
-          const meta = LAYERS.find((x) => x.id === l);
-          const mods = MODULES_BY_LAYER[l] || [];
-          return (
-            <div key={l} className="flex flex-col min-h-0 rounded border border-caos-border bg-caos-bg/50">
-            <div className="px-2 py-1.5 border-b border-caos-border shrink-0" title={l === "L5" || l === "L6" ? "Execution order — L6 Debate feeds L5 Governance sign-off" : undefined}>
-              <div className="tabular text-caos-sm uppercase tracking-widest text-caos-text">{l}</div>
-              <div className="text-caos-2xs text-caos-muted">{meta ? meta.label : ""}{l === "L5" ? " · after L6" : ""}</div>
-            </div>
-            <div className="flex-1 min-h-0 overflow-auto p-1.5 flex flex-col gap-1.5">
-              {mods.map((m) => {
-                const st = sim.mods[m.id]?.state || "idle";
-                const prog = sim.mods[m.id]?.prog || 0;
-                const sel = selected === m.id;
-                const inScope = scope.has(m.id);
-                const color = sevVar(st);
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => onSelect(sel ? null : m.id)}
-                    onDoubleClick={() => onDoubleClick && onDoubleClick(m.id)}
-                    onKeyDown={(e) => {
-                      // Keyboard parity with double-click-to-open: a second Enter on
-                      // an already-selected node opens its outputs (WCAG 2.1.1).
-                      if (e.key === "Enter" && sel && onDoubleClick) {
-                        e.preventDefault();
-                        onDoubleClick(m.id);
-                      }
-                    }}
-                    title={inScope ? m.name + " — Enter to select, Enter again (or double-click) to open outputs" : m.name + " — out of scope for this route plan"}
-                    aria-pressed={sel}
-                    className={"text-left rounded border bg-caos-panel px-2 py-1.5 transition-caos hover:border-caos-accent/70 focus-ring " + (sel ? "caos-selected" : "")}
-                    style={{
-                      borderColor: sel ? "var(--caos-accent)" : st === "idle" ? "var(--caos-border)" : `color-mix(in srgb, ${color} 33%, transparent)`,
-                      borderStyle: inScope ? "solid" : "dashed",
-                      opacity: !inScope ? 0.25 : st === "idle" ? 0.55 : 1,
-                    }}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <Dot sev={st} pulse={st === "running"} />
-                      <span className="tabular text-caos-md text-caos-text">{m.id}</span>
-                      <span className="tabular text-caos-2xs ml-auto" style={{ color: inScope ? color : "var(--caos-muted)" }}>
-                        {!inScope ? "skip" : st === "idle" ? "queued" : st}
-                      </span>
-                    </div>
-                    <div className="text-caos-xs text-caos-muted leading-tight mt-0.5">{m.name}</div>
-                    <div className="mt-1"><Bar pct={!inScope || st === "idle" ? 0 : prog * 100} color={color} h={2} /></div>
-                    {inScope && NODE_QA[m.id] ? <div className="mt-1"><Tag sev="critical">QA {NODE_QA[m.id].id}</Tag></div> : null}
-                    {inScope && NODE_LIMITS[m.id] ? <div className="mt-1"><Tag sev="warning">LIMIT L-04</Tag></div> : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        );
-        })}
+        {COL_ORDER.map((layer) => <SwimlaneColumn key={layer} layer={layer} onDoubleClick={onDoubleClick} onSelect={onSelect} scope={scope} selected={selected} sim={sim} />)}
       </div>
     </div>
   );
@@ -260,9 +269,7 @@ const REQ_TAG_COLOR: Record<string, string> = {
   gated: "var(--caos-muted)",
 };
 
-export function Inspector({
-  sim, selected, plan, scope, modeLabel, isLive = false, onOpen,
-}: {
+interface InspectorProps {
   sim: Sim;
   selected: string | null;
   plan: PlanStep[];
@@ -278,132 +285,164 @@ export function Inspector({
   // surface — "show me this module's evidence" — which was previously double-
   // click-only on the graph nodes (mouse-only, undiscoverable). (a11y H3)
   onOpen?: (id: string) => void;
-}) {
-  const m = selected ? MODULES.find((x) => x.id === selected) : undefined;
-  const planEntry = selected ? plan.find((x) => x.id === selected) : undefined;
-  const base = selected ? SIM_PLAN.find((x) => x.id === selected) : undefined;
-  const inScope = selected ? scope.has(selected) : false;
+}
+
+function selectedById<T extends { id: string }>(selected: string | null, values: readonly T[]): T | undefined {
+  return selected ? values.find((value) => value.id === selected) : undefined;
+}
+
+function seededInspectorFixture<T>(available: boolean, selected: string | null, fixtures: Record<string, T>): T | null {
+  if (!available || !selected) return null;
+  return fixtures[selected] ?? null;
+}
+
+function inspectorModel({ sim, selected, plan, scope, isLive = false }: InspectorProps) {
+  const m = selectedById(selected, MODULES);
+  const planEntry = selectedById(selected, plan);
+  const base = selectedById(selected, SIM_PLAN);
+  const inScope = Boolean(selected && scope.has(selected));
   const st = selected ? (sim.mods[selected]?.state || "idle") : "idle";
-  const deps = planEntry ? planEntry.deps : base ? base.deps : [];
-  const consumers = selected ? EDGES.filter(([a]) => a === selected).map(([, b]) => b) : [];
+  const deps = planEntry?.deps ?? base?.deps ?? [];
+  const consumers = selected ? EDGES.filter(([source]) => source === selected).map(([, target]) => target) : [];
   // Seeded ATLF fixtures (keyed by module id) — only valid for the offline demo.
   // Suppress under a live run so they don't read as this run's QA / limitations.
-  const qa = inScope && !isLive && selected ? NODE_QA[selected] : null;
-  const lim = inScope && !isLive && selected ? NODE_LIMITS[selected] : null;
   const degraded = ["warning", "held", "blocked"].includes(st);
-  const reqs = inScope && !isLive && degraded && selected ? NODE_REQS[selected] : null;
+  const fixtureAvailable = inScope && !isLive;
+  const qa = seededInspectorFixture(fixtureAvailable, selected, NODE_QA);
+  const lim = seededInspectorFixture(fixtureAvailable, selected, NODE_LIMITS);
+  const reqs = seededInspectorFixture(fixtureAvailable && degraded, selected, NODE_REQS);
+  return { consumers, deps, inScope, lim, m, planEntry, qa, reqs, selected, st };
+}
 
-  if (!selected || !m) {
-    return (
-      <div className="p-4 text-caos-xl text-caos-muted leading-relaxed max-w-[50ch]">
-        <h2 className="text-caos-text font-medium mb-2 text-balance">Module Inspector</h2>
-        Select a module in the route graph or swimlanes to trace its <span style={{ color: "var(--caos-accent)" }}>upstream data lineage</span>, review <span style={{ color: "var(--caos-consumer)" }}>downstream consumers</span>, inspect execution payload logs, and view QA findings or limitations.
-        <div className="mt-3 tabular text-caos-sm text-caos-muted">
-          {modeLabel} route · {planCounts(plan).total} modules in scope.
-        </div>
+type InspectorModel = ReturnType<typeof inspectorModel>;
+
+function EmptyInspector({ modeLabel, plan }: Pick<InspectorProps, "modeLabel" | "plan">) {
+  return (
+    <div className="p-4 text-caos-xl text-caos-muted leading-relaxed max-w-[50ch]">
+      <h2 className="text-caos-text font-medium mb-2 text-balance">Module Inspector</h2>
+      Select a module in the route graph or swimlanes to trace its <span style={{ color: "var(--caos-accent)" }}>upstream data lineage</span>, review <span style={{ color: "var(--caos-consumer)" }}>downstream consumers</span>, inspect execution payload logs, and view QA findings or limitations.
+      <div className="mt-3 tabular text-caos-sm text-caos-muted">{modeLabel} route · {planCounts(plan).total} modules in scope.</div>
+    </div>
+  );
+}
+
+function InspectorHeader({ model, onOpen }: { model: InspectorModel; onOpen?: (id: string) => void }) {
+  if (!model.m || !model.selected) return null;
+  const destination = model.m.id === "CP-0" ? " · Document Intake" : model.m.layer === "INFRA" ? " · Report Studio" : " · Deep-Dive";
+  return (
+    <div className="px-3 py-2.5 border-b border-caos-border">
+      <div className="flex items-center gap-2">
+        <Dot sev={model.st} pulse={model.st === "running"} />
+        <span className="tabular text-caos-xl text-caos-text">{model.m.id}</span>
+        <Tag sev={model.st}>{model.st === "idle" ? "queued" : model.st}</Tag>
+        {onOpen ? <button type="button" onClick={() => onOpen(model.selected!)} title={`Open ${model.m.id} outputs${destination}`} className="ml-auto tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-accent hover:bg-caos-accent hover:text-caos-bg hover:border-caos-accent transition-caos whitespace-nowrap shrink-0 focus-ring">OPEN →</button> : null}
       </div>
-    );
-  }
+      <h2 className="text-caos-2xl text-caos-text mt-1 font-medium text-balance">{model.m.name}</h2>
+      <div className="text-caos-md text-caos-muted mt-1 leading-snug max-w-[55ch]">{model.m.desc}</div>
+    </div>
+  );
+}
+
+function InspectorScopeNotice({ inScope, modeLabel }: { inScope: boolean; modeLabel: string }) {
+  if (inScope) return null;
+  return (
+    <div className="px-3 py-2 border-b border-caos-border flex items-start gap-2" style={{ background: "color-mix(in srgb, var(--caos-muted) 6%, transparent)" }}>
+      <span aria-hidden="true" className="text-caos-md text-caos-muted mt-px">⊘</span>
+      <span className="text-caos-md text-caos-muted leading-snug">Out of scope for the {modeLabel} route — CP-X skipped this module; registers inherit from the last full-committee run (#2641).</span>
+    </div>
+  );
+}
+
+function InspectorPayload({ model }: { model: InspectorModel }) {
+  if (!model.planEntry?.event || !["pass", "warning", "held", "blocked"].includes(model.st)) return null;
+  return (
+    <div className="px-3 py-2 border-b border-caos-border">
+      <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">{model.st === "blocked" ? "Persisted block status" : "Latest payload"}</div>
+      <div className="text-caos-lg text-caos-text leading-snug">{model.planEntry.event}</div>
+    </div>
+  );
+}
+
+function InspectorQaFinding({ model }: { model: InspectorModel }) {
+  if (!model.qa) return null;
+  return (
+    <div className="px-3 py-2 border-b border-caos-border">
+      <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-critical-bright)" }}>QA finding · CP-5</div>
+      <div className="flex items-center gap-2 mb-1"><Tag sev="critical">{model.qa.sev}</Tag><span className="tabular text-caos-md text-caos-accent">{model.qa.id}</span></div>
+      <div className="text-caos-lg text-caos-text leading-snug max-w-[55ch]">{model.qa.text}</div>
+    </div>
+  );
+}
+
+function InspectorLimitation({ limitation }: { limitation: string | null | undefined }) {
+  if (!limitation) return null;
+  return (
+    <div className="px-3 py-2 border-b border-caos-border">
+      <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-warning)" }}>Propagated limitation · CP-X-06</div>
+      <div className="text-caos-lg text-caos-text leading-snug max-w-[55ch]">{limitation}</div>
+    </div>
+  );
+}
+
+function InspectorRequirements({ model }: { model: InspectorModel }) {
+  if (!model.reqs?.length) return null;
+  return (
+    <div className="px-3 py-2 border-b border-caos-border">
+      <div className="tabular text-caos-xs uppercase tracking-wider mb-1.5" style={{ color: "var(--caos-warning)" }}>{model.st === "warning" ? "Required to clear warning" : "Required to release hold"} · documents & information</div>
+      <div className="flex flex-col gap-1.5">
+        {model.reqs.map((requirement) => (
+          <div key={requirement.doc} className="flex items-start gap-1.5">
+            <span aria-hidden="true" className="text-caos-xs mt-px shrink-0" style={{ color: "var(--caos-warning)" }}>▦</span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-caos-lg text-caos-text leading-snug">{requirement.doc}</span>
+                <span className="tabular text-caos-3xs uppercase tracking-wider px-1 py-px rounded border whitespace-nowrap" style={{ color: REQ_TAG_COLOR[requirement.tag], borderColor: `color-mix(in srgb, ${REQ_TAG_COLOR[requirement.tag]} 33%, transparent)`, background: `color-mix(in srgb, ${REQ_TAG_COLOR[requirement.tag]} 8%, transparent)` }}>{requirement.tag}</span>
+              </div>
+              <div className="text-caos-sm text-caos-muted leading-snug max-w-[50ch]">{requirement.why}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function InspectorDependencies({ deps, sim }: { deps: string[]; sim: Sim }) {
+  return (
+    <div className="px-3 py-2 border-b border-caos-border">
+      <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Upstream inputs · {deps.length}</div>
+      <div className="flex flex-wrap gap-1">
+        {deps.length ? deps.map((dependency) => <span key={dependency} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg"><Dot sev={sim.mods[dependency]?.state || "idle"} glyph />{dependency}</span>) : <span className="text-caos-md text-caos-muted">— root node (source intake)</span>}
+      </div>
+    </div>
+  );
+}
+
+function InspectorConsumers({ consumers }: { consumers: string[] }) {
+  return (
+    <div className="px-3 py-2 border-b border-caos-border">
+      <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Downstream consumers · {consumers.length}</div>
+      <div className="flex flex-wrap gap-1">
+        {consumers.length ? consumers.map((consumer) => <span key={consumer} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg text-caos-consumer">{consumer}</span>) : <span className="text-caos-md text-caos-muted">— terminal node</span>}
+      </div>
+    </div>
+  );
+}
+
+export function Inspector(props: InspectorProps) {
+  const model = inspectorModel(props);
+
+  if (!model.selected || !model.m) return <EmptyInspector modeLabel={props.modeLabel} plan={props.plan} />;
   return (
     <div className="text-caos-xl">
-      <div className="px-3 py-2.5 border-b border-caos-border">
-        <div className="flex items-center gap-2">
-          <Dot sev={st} pulse={st === "running"} />
-          <span className="tabular text-caos-xl text-caos-text">{m.id}</span>
-          <Tag sev={st}>{st === "idle" ? "queued" : st}</Tag>
-          {onOpen ? (
-            <button
-              type="button"
-              onClick={() => onOpen(selected)}
-              title={`Open ${m.id} outputs${m.id === "CP-0" ? " · Document Intake" : m.layer === "INFRA" ? " · Report Studio" : " · Deep-Dive"}`}
-              className="ml-auto tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-accent hover:bg-caos-accent hover:text-caos-bg hover:border-caos-accent transition-caos whitespace-nowrap shrink-0 focus-ring"
-            >
-              OPEN →
-            </button>
-          ) : null}
-        </div>
-        <h2 className="text-caos-2xl text-caos-text mt-1 font-medium text-balance">{m.name}</h2>
-        <div className="text-caos-md text-caos-muted mt-1 leading-snug max-w-[55ch]">{m.desc}</div>
-      </div>
-      {!inScope ? (
-        <div className="px-3 py-2 border-b border-caos-border flex items-start gap-2" style={{ background: "color-mix(in srgb, var(--caos-muted) 6%, transparent)" }}>
-          <span aria-hidden="true" className="text-caos-md text-caos-muted mt-px">⊘</span>
-          <span className="text-caos-md text-caos-muted leading-snug">
-            Out of scope for the {modeLabel} route — CP-X skipped this module; registers inherit from the last
-            full-committee run (#2641).
-          </span>
-        </div>
-      ) : null}
-      {planEntry && planEntry.event && ["pass", "warning", "held", "blocked"].includes(st) ? (
-        <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">{st === "blocked" ? "Persisted block status" : "Latest payload"}</div>
-          <div className="text-caos-lg text-caos-text leading-snug">{planEntry.event}</div>
-        </div>
-      ) : null}
-      {qa ? (
-        <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-critical-bright)" }}>QA finding · CP-5</div>
-          <div className="flex items-center gap-2 mb-1"><Tag sev="critical">{qa.sev}</Tag><span className="tabular text-caos-md text-caos-accent">{qa.id}</span></div>
-          <div className="text-caos-lg text-caos-text leading-snug max-w-[55ch]">{qa.text}</div>
-        </div>
-      ) : null}
-      {lim ? (
-        <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-caos-xs uppercase tracking-wider mb-1" style={{ color: "var(--caos-warning)" }}>Propagated limitation · CP-X-06</div>
-          <div className="text-caos-lg text-caos-text leading-snug max-w-[55ch]">{lim}</div>
-        </div>
-      ) : null}
-      {reqs && reqs.length ? (
-        <div className="px-3 py-2 border-b border-caos-border">
-          <div className="tabular text-caos-xs uppercase tracking-wider mb-1.5" style={{ color: "var(--caos-warning)" }}>
-            {st === "warning" ? "Required to clear warning" : "Required to release hold"} · documents & information
-          </div>
-          <div className="flex flex-col gap-1.5">
-            {reqs.map((r) => (
-              <div key={r.doc} className="flex items-start gap-1.5">
-                <span aria-hidden="true" className="text-caos-xs mt-px shrink-0" style={{ color: "var(--caos-warning)" }}>▦</span>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-caos-lg text-caos-text leading-snug">{r.doc}</span>
-                    <span
-                      className="tabular text-caos-3xs uppercase tracking-wider px-1 py-px rounded border whitespace-nowrap"
-                      style={{
-                        color: REQ_TAG_COLOR[r.tag],
-                        borderColor: `color-mix(in srgb, ${REQ_TAG_COLOR[r.tag]} 33%, transparent)`,
-                        background: `color-mix(in srgb, ${REQ_TAG_COLOR[r.tag]} 8%, transparent)`,
-                      }}
-                    >
-                      {r.tag}
-                    </span>
-                  </div>
-                  <div className="text-caos-sm text-caos-muted leading-snug max-w-[50ch]">{r.why}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      <div className="px-3 py-2 border-b border-caos-border">
-        <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Upstream inputs · {deps.length}</div>
-        <div className="flex flex-wrap gap-1">
-          {deps.length ? deps.map((d) => (
-            <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg">
-              {/* glyph: the dot is the sole status carrier here (the id text says nothing) — never color-alone */}
-              <Dot sev={sim.mods[d]?.state || "idle"} glyph />{d}
-            </span>
-          )) : <span className="text-caos-md text-caos-muted">— root node (source intake)</span>}
-        </div>
-      </div>
-      <div className="px-3 py-2 border-b border-caos-border">
-        <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Downstream consumers · {consumers.length}</div>
-        <div className="flex flex-wrap gap-1">
-          {consumers.length ? consumers.map((d) => (
-            <span key={d} className="flex items-center gap-1 tabular text-caos-sm px-1.5 py-0.5 rounded border border-caos-border bg-caos-bg text-caos-consumer">
-              {d}
-            </span>
-          )) : <span className="text-caos-md text-caos-muted">— terminal node</span>}
-        </div>
-      </div>
+      <InspectorHeader model={model} onOpen={props.onOpen} />
+      <InspectorScopeNotice inScope={model.inScope} modeLabel={props.modeLabel} />
+      <InspectorPayload model={model} />
+      <InspectorQaFinding model={model} />
+      <InspectorLimitation limitation={model.lim} />
+      <InspectorRequirements model={model} />
+      <InspectorDependencies deps={model.deps} sim={props.sim} />
+      <InspectorConsumers consumers={model.consumers} />
     </div>
   );
 }

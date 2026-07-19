@@ -1,6 +1,6 @@
 // AUTO-PORTED from the Credit OS design bundle (shared/step-outputs-l1/l2/l3/l456.js).
 // ATLF demo data — replace with live module outputs when CP backend persistence lands.
-import { PEER_CREDIT_METRIC_ROWS } from "./module-outputs";
+import { NORMALIZED_FINANCIAL_ROWS, PEER_CREDIT_METRIC_ROWS } from "./module-outputs";
 import type { OutSection, OutFlag } from "./module-outputs";
 
 export interface StepOutput { ref?: string; out?: string; sections: OutSection[] }
@@ -262,17 +262,7 @@ const O0: Record<string, StepOutput> = {
       X("Coverage note", "Full coverage all periods; the net debt build reconciles to the facility-level schedule consumed by CP-3B. Negative book equity is LBO-structural (goodwill amortization + dividend at 2021 close), not a deterioration signal."),
     ]},
     "CP-1:Normalized Financials Table": { ref: "REF_CP-1_07 · T4.7", out: "Normalized financials (canonical)", sections: [
-      T("T4.7 · Normalized financials ($M)", ["", "FY23", "FY24", "FY25", "LTM Q1-26"], [0,1,1,1,1], [
-        ["Revenue", "2,410", "2,588", "2,742", "2,801"],
-        ["Adj. EBITDA", "358", "392", "415", "421"],
-        ["Adj. EBITDA margin", "14.9%", "15.1%", "15.1%", "15.0%"],
-        ["Reported EBITDA (pre add-back)", "318", "329", "341", "344"],
-        ["Capex", "(96)", "(108)", "(118)", "(121)"],
-        ["Free cash flow", "142", "158", "169", "172"],
-        ["Net debt", "2,392", "2,371", "2,380", "2,391"],
-        ["Net leverage (adj.)", "6.7x", "6.0x", "5.7x", "5.7x"],
-        ["Interest coverage", "1.9x", "2.0x", "2.1x", "2.1x"],
-      ]),
+      T("T4.7 · Normalized financials ($M)", ["", "FY23", "FY24", "FY25", "LTM Q1-26"], [0,1,1,1,1], NORMALIZED_FINANCIAL_ROWS),
       X("Status", "Canonical table — these are the figures every downstream module consumes. Any module quoting different values is a CP-5 consistency defect.", ["E-103"]),
     ]},
     "CP-1:Derived Period Register": { ref: "REF_CP-1_08 · T4.8", out: "Derived period register", sections: [

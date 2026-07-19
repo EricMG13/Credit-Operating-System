@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const userRef = useRef<AuthUser | null>(null);
   userRef.current = user;
 
-  // fallow-ignore-next-line complexity
+  // fallow-ignore-next-line complexity -- Principal revalidation and workspace clearing must remain one atomic callback.
   const refresh = useCallback(async (workspaceAlreadyCleared = false) => {
     const generation = ++refreshGeneration.current;
     if (loginBypassEnabled()) {

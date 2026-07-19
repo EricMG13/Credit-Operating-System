@@ -7,7 +7,8 @@
 // when STALE (warning); method chips stay monochrome. An omitted axis renders
 // nothing — never a fabricated CURRENT.
 
-import type { Provenance, ProvOrigin } from "@/lib/provenance";
+import type { CSSProperties } from "react";
+import type { Provenance, ProvFreshness, ProvOrigin } from "@/lib/provenance";
 
 const ORIGIN_VAR: Record<ProvOrigin, string> = {
   LIVE: "var(--caos-success)",
@@ -18,6 +19,38 @@ const ORIGIN_VAR: Record<ProvOrigin, string> = {
 const CHIP =
   "inline-flex items-center gap-1 tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap";
 
+const originStyle = (origin: ProvOrigin, color: string): CSSProperties => ({
+  color: origin === "DEMO" ? "var(--caos-muted)" : color,
+  borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
+  background: `color-mix(in srgb, ${color} 8%, transparent)`,
+});
+
+const freshnessStyle = (freshness: ProvFreshness): CSSProperties => {
+  if (freshness !== "STALE" && freshness !== "DUE") {
+    return { color: "var(--caos-muted)", borderColor: "var(--caos-border)" };
+  }
+  const color = freshness === "STALE" ? "var(--caos-critical)" : "var(--caos-warning)";
+  return {
+    color,
+    borderColor: `color-mix(in srgb, ${color} 40%, transparent)`,
+    background: `color-mix(in srgb, ${color} 8%, transparent)`,
+  };
+};
+
+function FreshnessChip({ freshness }: { freshness?: ProvFreshness }) {
+  if (!freshness) return null;
+  return <span className={CHIP} style={freshnessStyle(freshness)}>{freshness}</span>;
+}
+
+function MethodChip({ method }: { method?: string }) {
+  if (!method) return null;
+  return (
+    <span className={CHIP} style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}>
+      {method}
+    </span>
+  );
+}
+
 export function ProvenanceChip({ prov, className = "" }: { prov: Provenance; className?: string }) {
   const originColor = ORIGIN_VAR[prov.origin];
   const title =
@@ -26,11 +59,7 @@ export function ProvenanceChip({ prov, className = "" }: { prov: Provenance; cla
     <span className={"inline-flex items-center gap-1 shrink-0 " + className} title={title}>
       <span
         className={CHIP}
-        style={{
-          color: prov.origin === "DEMO" ? "var(--caos-muted)" : originColor,
-          borderColor: `color-mix(in srgb, ${originColor} 40%, transparent)`,
-          background: `color-mix(in srgb, ${originColor} 8%, transparent)`,
-        }}
+        style={originStyle(prov.origin, originColor)}
       >
         <span
           aria-hidden="true"
@@ -39,27 +68,8 @@ export function ProvenanceChip({ prov, className = "" }: { prov: Provenance; cla
         />
         {prov.origin}
       </span>
-      {prov.freshness ? (
-        <span
-          className={CHIP}
-          style={
-            prov.freshness === "STALE" || prov.freshness === "DUE"
-              ? {
-                  color: prov.freshness === "STALE" ? "var(--caos-critical)" : "var(--caos-warning)",
-                  borderColor: `color-mix(in srgb, ${prov.freshness === "STALE" ? "var(--caos-critical)" : "var(--caos-warning)"} 40%, transparent)`,
-                  background: `color-mix(in srgb, ${prov.freshness === "STALE" ? "var(--caos-critical)" : "var(--caos-warning)"} 8%, transparent)`,
-                }
-              : { color: "var(--caos-muted)", borderColor: "var(--caos-border)" }
-          }
-        >
-          {prov.freshness}
-        </span>
-      ) : null}
-      {prov.method ? (
-        <span className={CHIP} style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}>
-          {prov.method}
-        </span>
-      ) : null}
+      <FreshnessChip freshness={prov.freshness} />
+      <MethodChip method={prov.method} />
     </span>
   );
 }

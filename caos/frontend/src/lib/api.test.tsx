@@ -9,7 +9,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it, expect, afterEach } from "vitest";
 import { AxiosError } from "axios";
 
-import { api, toErrorMessage, getResearchStatus, edgarVaultUrls, updateAnalystWorkspace } from "./api";
+import {
+  api,
+  toErrorMessage,
+  getResearchStatus,
+  edgarVaultUrls,
+  updateAnalystWorkspace,
+  resumeResearch,
+  isResearchGone,
+} from "./api";
 
 const err422 = {
   response: {
@@ -90,6 +98,28 @@ describe("getResearchStatus (M-11)", () => {
     const result = await getResearchStatus("job-1").catch((e) => ({ threw: true, e }));
     expect(result).not.toEqual({ state: "gone" });
     expect((result as { threw?: boolean }).threw).toBe(true);
+  });
+});
+
+describe("resumeResearch polling failures", () => {
+  const origAdapter = api.defaults.adapter;
+  afterEach(() => {
+    api.defaults.adapter = origAdapter;
+  });
+
+  it("stops immediately with the research-gone sentinel when the durable job returns 404", async () => {
+    api.defaults.adapter = ((config: unknown) => Promise.reject(
+      new AxiosError("gone", "ERR_BAD_REQUEST", config as never, null, {
+        status: 404,
+        statusText: "Not Found",
+        headers: {},
+        config: config as never,
+        data: null,
+      } as never),
+    )) as never;
+
+    const reason = await resumeResearch("missing-job").catch((error) => error as unknown);
+    expect(isResearchGone(reason)).toBe(true);
   });
 });
 

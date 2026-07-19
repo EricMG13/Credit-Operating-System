@@ -1631,3 +1631,62 @@ Reopen if the launcher overlaps a painted focusable target; opening Ask changes
 route height; Query or signed-out surfaces reserve an empty dock; Model Builder
 loses column alignment or control reachability; or the full rendered route matrix
 reports any target-size, clipping, overflow, or overlay failure.
+
+## 2026-07-18 — Whole-suite database isolation critic pass
+
+Decision under review: establish the existing throwaway CAOS database, vault,
+key, and static-export test environment in the suite-root conftest before any
+cohort, performance, server, or stress module can import cached server settings.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-440 | Production-safety reviewer | `get_settings` is a CRITICAL hub; changing it to accommodate pytest could alter 238 direct dependents and 58 execution flows. | Critical | Resolved in boundary | Do not edit production configuration or database symbols. Move only the existing pytest environment bootstrap one conftest level upward, before collection imports. |
+| RT-2026-07-18-441 | Integration-test reviewer | Unconditionally replacing `DATABASE_URL` would silently turn the Postgres worker lane into SQLite and make its locking assertions vacuous. | Critical | Resolved in override contract | Preserve the existing `setdefault` contract: an explicitly supplied Postgres URL remains authoritative, while an unset local run gets a throwaway SQLite database. |
+| RT-2026-07-18-442 | Credential-safety reviewer | Broadening the key blanking to all test packages could either spend real tokens unexpectedly or prevent a deliberately live test lane. | Critical | Resolved in existing opt-in | Retain the existing force-blank behavior and its `CAOS_TEST_LIVE=1` opt-in exactly; the only change is that it now takes effect before the earliest test import. |
+| RT-2026-07-18-443 | Fixture-isolation reviewer | Leaving both bootstrap blocks active could allocate split temp roots so cleanup snapshots one database while server code binds another. | High | Resolved in single ownership | Make `caos/tests/conftest.py` the sole environment owner. Keep rate-limit, issuer-baseline, seeded-DB, and helper fixtures nested under `tests/server`, consuming the already-established environment. |
+
+### Critic reopen conditions (whole-suite database isolation)
+
+Reopen if any production module changes; an explicit Postgres test URL is
+overridden; `CAOS_TEST_LIVE=1` no longer preserves supplied provider keys; nested
+fixtures resolve a different database path than the imported engine; or a
+whole-tree collection can bind `server/data/caos.db` before test isolation.
+
+## 2026-07-18 — Fallow suppression-governance critic pass
+
+Decision under review: give every active Fallow suppression a machine-readable
+reason and enable the repository rule that rejects future unreasoned markers.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-444 | Code-health reviewer | Adding prose can cosmetically legitimize unresolved complexity instead of reducing it. | High | Resolved in evidence contract | Keep every suppression line-scoped, preserve Fallow's normal thresholds, require zero unsuppressed findings, and require every marker to remain non-stale. Reasons must name the concrete orchestration, render, dynamic-entry, or trust boundary. |
+| RT-2026-07-18-445 | Security reviewer | A generic reason on `security-sink` could conceal a genuine path, TLS, or command-injection candidate. | Critical | Resolved in per-site trust boundary | Tie each runner suppression to its checked-in `import.meta.url`, separator-free `readdir` name, loopback-only TLS target, or fixed executable/argument constants; rerun the full security candidate scan at repository root. |
+| RT-2026-07-18-446 | Tooling reviewer | Enabling `require-suppression-reason` can break CI or misparse JSX comments even when the source is legitimate. | High | Resolved in parser verification | Use the tool's verified `-- reason` syntax, inventory all TS/TSX/MJS markers afterward, and require `without_reason=0`, `stale=0`, and zero dead-code/governance findings. |
+| RT-2026-07-18-447 | Coverage reviewer | Suppressing Playwright CRAP estimates could hide actual untested production branches. | High | Resolved in scope | Suppress only the six E2E harness functions whose execution is outside the Vitest Istanbul map; production functions continue to consume exact coverage and remain at zero findings. |
+
+### Critic reopen conditions (Fallow suppression governance)
+
+Reopen if a reason is generic or false; a security marker lacks a fixed trust
+boundary; any marker becomes stale or unreasoned; Playwright suppression expands
+into production source; or the root dead-code, complexity, or security scan is
+non-zero after enforcement.
+
+## 2026-07-18 — Local CI scanner isolation critic pass
+
+Decision under review: make the repository's Vulture and Bandit CI commands
+reproducible in a working tree that contains the designated `.venv311` runtime
+and the legacy `.venv`, without narrowing either scanner's application-source
+coverage.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-18-448 | Security reviewer | A broad virtual-environment exclusion could hide first-party Python placed under a source directory named `venv`. | High | Resolved in exact scope | Exclude only `caos/server/.venv` and `caos/server/.venv311`; keep all other `caos/server` and `caos/scripts` paths in Bandit's recursive scan. |
+| RT-2026-07-18-449 | Dead-code reviewer | Vulture glob semantics could accidentally omit a sibling source path or fail to match site-packages consistently across platforms. | High | Resolved in verified patterns | Use absolute-path-matched suffix patterns `*/.venv/*,*/.venv311/*`, then rerun the exact repository-root command and require zero findings. |
+| RT-2026-07-18-450 | CI-parity reviewer | Fixing only local documentation would leave the checked workflow command unreproducible and allow it to drift again. | Moderate | Resolved in canonical command | Put the exclusions directly in `.github/workflows/ci.yml`; clean CI runners retain identical first-party coverage while local agents can execute the same gate. |
+
+### Critic reopen conditions (local CI scanner isolation)
+
+Reopen if either exclusion expands beyond the two designated environment roots;
+first-party code moves under an excluded root; a clean checkout and a local
+`.venv311` checkout produce different first-party findings; or either scanner no
+longer covers all of `caos/server` and `caos/scripts`.

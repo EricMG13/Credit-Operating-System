@@ -274,6 +274,116 @@ const EXPORT_REPORT: Record<string, string> = {
   "CP-6E": "memo",
 };
 
+type StepOutputData = (typeof STEP_OUTPUTS)[string] | undefined;
+type StepNarrative = (typeof STEP_NOTES)[string] | undefined;
+
+function collectStepEvidence(data: StepOutputData, narrative: StepNarrative): string[] {
+  const evidence = new Set<string>();
+  data?.sections.forEach((section: OutSection) => {
+    if ("ev" in section) section.ev?.forEach((id) => evidence.add(id));
+    if (section.type === "flags") section.items.forEach((flag) => flag.ev?.forEach((id) => evidence.add(id)));
+  });
+  narrative?.ev?.forEach((id) => evidence.add(id));
+  return [...evidence];
+}
+
+function StepModalHeader({ id, code, name, status, severity, moduleName, onClose }: {
+  id: string; code: string; name: string; status: string; severity: string; moduleName?: string; onClose: () => void;
+}) {
+  return (
+    <div className="h-10 shrink-0 px-3 flex items-center gap-2.5 border-b border-caos-border bg-caos-elevated/60">
+      <span className="tabular text-caos-2xl text-caos-text whitespace-nowrap">{id}{code !== "—" ? " · " + code : ""}</span>
+      <span className="text-caos-2xl font-semibold text-caos-text whitespace-nowrap">{name}</span>
+      <Tag sev={severity}>{STEP_STATUS_TEXT[status] || status}</Tag>
+      <span className="text-caos-md text-caos-muted truncate">{moduleName}</span>
+      <div className="flex-1" />
+      <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap" title="Seeded ATLF reference register — not a database run">ATLF · SEEDED RUN #2641</span>
+      <CloseButton onClick={onClose} size="md" className="ml-2" />
+    </div>
+  );
+}
+
+function StepNarrativeBlock({ narrative, onOpenEvidence }: { narrative: StepNarrative; onOpenEvidence: (id: string) => void }) {
+  if (!narrative) return null;
+  return (
+    <div className="rounded border px-3 py-2.5" style={{ borderColor: "color-mix(in srgb, var(--tranche-2l) 35%, transparent)", background: "color-mix(in srgb, var(--tranche-2l) 6%, transparent)" }}>
+      <div className="tabular text-caos-xs uppercase tracking-wider text-caos-accent mb-1">Analyst narrative</div>
+      <div className="text-caos-xl text-caos-text leading-relaxed">
+        {narrative.body}
+        {narrative.ev?.length ? <span className="inline-flex gap-1 ml-1.5 align-middle">{narrative.ev.map((evidenceId) => <EvChip key={evidenceId} id={evidenceId} onOpen={onOpenEvidence} />)}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function StepAnalyticalOutput({ id, name, stepNote, data, narrative, onOpenEvidence }: {
+  id: string; name: string; stepNote?: string; data: StepOutputData; narrative: StepNarrative; onOpenEvidence: (id: string) => void;
+}) {
+  const fallback = stepNote ? `${name} — ${stepNote}. Registered to the ${id} output set.` : `${name} registered to the ${id} output set; no findings attached.`;
+  return (
+    <div className="min-h-0 overflow-auto border-r border-caos-border bg-caos-bg p-3 flex flex-col gap-3">
+      <StepNarrativeBlock narrative={narrative} onOpenEvidence={onOpenEvidence} />
+      {data ? <OutSections sections={data.sections} onOpenEvidence={onOpenEvidence} /> : <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5 text-caos-lg text-caos-muted leading-relaxed">{fallback}</div>}
+    </div>
+  );
+}
+
+function MetadataRow({ label, value, accent = false }: { label: string; value: React.ReactNode; accent?: boolean }) {
+  return <div className="flex justify-between gap-2"><span className="text-caos-muted">{label}</span><span className={`tabular text-right ${accent ? "text-caos-accent" : ""}`}>{value}</span></div>;
+}
+
+function TemplateMetadata({ id, code, name, data }: { id: string; code: string; name: string; data: StepOutputData }) {
+  return (
+    <div className="px-3 py-2.5 border-b border-caos-border">
+      <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Template</div>
+      <div className="text-caos-md text-caos-text leading-relaxed">
+        <MetadataRow label="REF file" value={data?.ref || "REF_" + id} accent />
+        <MetadataRow label="Required output" value={data?.out || name} />
+        <MetadataRow label="Workflow step" value={code !== "—" ? code : "unnumbered"} />
+      </div>
+    </div>
+  );
+}
+
+function ProductionMetadata({ id, status, severity, stepNote }: { id: string; status: string; severity: string; stepNote?: string }) {
+  return (
+    <div className="px-3 py-2.5 border-b border-caos-border">
+      <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Production</div>
+      <div className="text-caos-md text-caos-text leading-relaxed">
+        <MetadataRow label="Module" value={id} accent />
+        <div className="flex justify-between gap-2"><span className="text-caos-muted">Status</span><span className="tabular whitespace-nowrap" style={{ color: SEV_COLOR[severity] }}>{(STEP_STATUS_TEXT[status] || status).toUpperCase()}</span></div>
+        {stepNote ? <MetadataRow label="Note" value={stepNote} /> : null}
+        <MetadataRow label="Run" value="#2641 · Jun 10 · seeded" />
+      </div>
+    </div>
+  );
+}
+
+function StepEvidenceList({ evidence, onOpenEvidence }: { evidence: string[]; onOpenEvidence: (id: string) => void }) {
+  return (
+    <div className="px-3 py-2.5 border-b border-caos-border">
+      <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Evidence cited · {evidence.length}</div>
+      {evidence.length ? <div className="flex flex-wrap gap-1">{evidence.map((id) => <EvChip key={id} id={id} onOpen={onOpenEvidence} />)}</div> : <div className="text-caos-sm text-caos-muted">No registered citations — synthesis or process output.</div>}
+    </div>
+  );
+}
+
+function StepMetadataRail({ id, code, name, status, severity, stepNote, data, evidence, onOpenEvidence }: {
+  id: string; code: string; name: string; status: string; severity: string; stepNote?: string; data: StepOutputData; evidence: string[]; onOpenEvidence: (id: string) => void;
+}) {
+  return (
+    <div className="min-h-0 overflow-auto">
+      <TemplateMetadata id={id} code={code} name={name} data={data} />
+      <ProductionMetadata id={id} status={status} severity={severity} stepNote={stepNote} />
+      <StepEvidenceList evidence={evidence} onOpenEvidence={onOpenEvidence} />
+      <div className="px-3 py-2.5 flex flex-col gap-1.5">
+        <Link href={`/reports?report=${EXPORT_REPORT[id] || "snapshot"}`} className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring text-center" title={`Open the ${id} output in its Report Studio exhibit`}>OPEN IN MODULE EXPORT</Link>
+        <FlagToQa moduleId={id} stepRef={(code !== "—" ? code + " " : "") + name} />
+      </div>
+    </div>
+  );
+}
+
 /* ---------- step output viewer (full analytical output per REF template) ---------- */
 export function StepOutputModal({
   id,
@@ -291,14 +401,7 @@ export function StepOutputModal({
   const narr = STEP_NOTES[id + ":" + name];
   const meta = MODULES.find((m) => m.id === id);
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
-
-  const evs: string[] = [];
-  const addEv = (a?: string[]) => a && a.forEach((e) => { if (!evs.includes(e)) evs.push(e); });
-  if (data) data.sections.forEach((s: OutSection) => {
-    if ("ev" in s) addEv(s.ev);
-    if (s.type === "flags") s.items.forEach((f) => addEv(f.ev));
-  });
-  if (narr) addEv(narr.ev);
+  const evs = collectStepEvidence(data, narr);
   const sevKey = status === "gap" ? "critical" : status;
 
   return (
@@ -312,73 +415,10 @@ export function StepOutputModal({
         style={{ width: 1080, maxWidth: "94vw", maxHeight: "min(840px, 92vh)", boxShadow: "var(--shadow-modal)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="h-10 shrink-0 px-3 flex items-center gap-2.5 border-b border-caos-border bg-caos-elevated/60">
-          <span className="tabular text-caos-2xl text-caos-text whitespace-nowrap">{id}{code !== "—" ? " · " + code : ""}</span>
-          <span className="text-caos-2xl font-semibold text-caos-text whitespace-nowrap">{name}</span>
-          <Tag sev={sevKey}>{STEP_STATUS_TEXT[status] || status}</Tag>
-          <span className="text-caos-md text-caos-muted truncate">{meta?.name}</span>
-          <div className="flex-1"></div>
-          <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap" title="Seeded ATLF reference register — not a database run">ATLF · SEEDED RUN #2641</span>
-          <CloseButton onClick={onClose} size="md" className="ml-2" />
-        </div>
+        <StepModalHeader id={id} code={code} name={name} status={status} severity={sevKey} moduleName={meta?.name} onClose={onClose} />
         <div className="flex-1 min-h-0 grid grid-cols-[1fr_272px]">
-          <div className="min-h-0 overflow-auto border-r border-caos-border bg-caos-bg p-3 flex flex-col gap-3">
-            {narr ? (
-              <div className="rounded border px-3 py-2.5" style={{ borderColor: "color-mix(in srgb, var(--tranche-2l) 35%, transparent)", background: "color-mix(in srgb, var(--tranche-2l) 6%, transparent)" }}>
-                <div className="tabular text-caos-xs uppercase tracking-wider text-caos-accent mb-1">Analyst narrative</div>
-                <div className="text-caos-xl text-caos-text leading-relaxed">
-                  {narr.body}
-                  {narr.ev && narr.ev.length ? (
-                    <span className="inline-flex gap-1 ml-1.5 align-middle">
-                      {narr.ev.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-            {data ? <OutSections sections={data.sections} onOpenEvidence={onOpenEvidence} /> : (
-              <div className="rounded border border-caos-border bg-caos-bg px-3 py-2.5 text-caos-lg text-caos-muted leading-relaxed">
-                {stepNote ? `${name} — ${stepNote}. Registered to the ${id} output set.` : `${name} registered to the ${id} output set; no findings attached.`}
-              </div>
-            )}
-          </div>
-          <div className="min-h-0 overflow-auto">
-            <div className="px-3 py-2.5 border-b border-caos-border">
-              <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Template</div>
-              <div className="text-caos-md text-caos-text leading-relaxed">
-                <div className="flex justify-between gap-2"><span className="text-caos-muted">REF file</span><span className="tabular whitespace-nowrap text-caos-accent">{data?.ref || "REF_" + id}</span></div>
-                <div className="flex justify-between gap-2"><span className="text-caos-muted">Required output</span><span className="tabular text-right">{data?.out || name}</span></div>
-                <div className="flex justify-between gap-2"><span className="text-caos-muted">Workflow step</span><span className="tabular whitespace-nowrap">{code !== "—" ? code : "unnumbered"}</span></div>
-              </div>
-            </div>
-            <div className="px-3 py-2.5 border-b border-caos-border">
-              <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Production</div>
-              <div className="text-caos-md text-caos-text leading-relaxed">
-                <div className="flex justify-between gap-2"><span className="text-caos-muted">Module</span><span className="tabular whitespace-nowrap text-caos-accent">{id}</span></div>
-                <div className="flex justify-between gap-2"><span className="text-caos-muted">Status</span><span className="tabular whitespace-nowrap" style={{ color: SEV_COLOR[sevKey] }}>{(STEP_STATUS_TEXT[status] || status).toUpperCase()}</span></div>
-                {stepNote ? <div className="flex justify-between gap-2"><span className="text-caos-muted shrink-0">Note</span><span className="tabular text-right">{stepNote}</span></div> : null}
-                <div className="flex justify-between gap-2"><span className="text-caos-muted">Run</span><span className="tabular whitespace-nowrap">#2641 · Jun 10 · seeded</span></div>
-              </div>
-            </div>
-            <div className="px-3 py-2.5 border-b border-caos-border">
-              <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Evidence cited · {evs.length}</div>
-              {evs.length ? (
-                <div className="flex flex-wrap gap-1">{evs.map((e) => <EvChip key={e} id={e} onOpen={onOpenEvidence} />)}</div>
-              ) : (
-                <div className="text-caos-sm text-caos-muted">No registered citations — synthesis or process output.</div>
-              )}
-            </div>
-            <div className="px-3 py-2.5 flex flex-col gap-1.5">
-              <Link
-                href={`/reports?report=${EXPORT_REPORT[id] || "snapshot"}`}
-                className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring text-center"
-                title={`Open the ${id} output in its Report Studio exhibit`}
-              >
-                OPEN IN MODULE EXPORT
-              </Link>
-              <FlagToQa moduleId={id} stepRef={(code !== "—" ? code + " " : "") + name} />
-            </div>
-          </div>
+          <StepAnalyticalOutput id={id} name={name} stepNote={stepNote} data={data} narrative={narr} onOpenEvidence={onOpenEvidence} />
+          <StepMetadataRail id={id} code={code} name={name} status={status} severity={sevKey} stepNote={stepNote} data={data} evidence={evs} onOpenEvidence={onOpenEvidence} />
         </div>
       </div>
     </ModalBackdrop>

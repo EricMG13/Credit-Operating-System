@@ -37,12 +37,14 @@ import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
-import { analysisApi, contextHref, type InsightArtifact, useAnalysisContext } from "@/lib/analysis-workbench";
+import { contextHref, useAnalysisContext, type InsightArtifact } from "@/lib/analysis-workbench";
 import { useTypedUrlState, type TypedUrlUpdate } from "@/lib/typed-url-state";
 import { getPortfolios, type FreshnessState, type PortfolioSummary } from "@/lib/api";
 import { portfolioLabApi, type CommandPortfolioSnapshot } from "@/lib/portfolio-lab";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
+import { GovernanceSummary } from "@/components/shared/GovernanceSummary";
+import { useSurfaceInsight } from "@/lib/use-surface-insight";
 
 const COMMAND_URL_KEYS = ["dataset", "selected", "portfolio"] as const;
 type CommandUrlKey = (typeof COMMAND_URL_KEYS)[number];
@@ -138,32 +140,14 @@ function useDefaultPortfolioUrl(portfolioId: string | null, requestedId: string 
 }
 
 function useCommandInsight(contextId: string | null | undefined, selected: string | null) {
-  const [insight, setInsight] = useState<InsightArtifact | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  useEffect(() => {
-    if (!contextId) return;
-    let alive = true;
-    analysisApi.listInsights(contextId, { surface: "command", kind: "decision-brief", limit: 20 })
-      .then((page) => { if (alive) setInsight(page.current); })
-      .catch(() => { if (alive) setMessage("No cited decision brief is available."); });
-    return () => { alive = false; };
-  }, [contextId]);
-  const generate = async () => {
-    if (!contextId) return;
-    setMessage("Generating cited decision brief…");
-    try {
-      const created = await analysisApi.createInsight(contextId, { surface: "command", kind: "decision-brief", subject_refs: { alert_event_id: selected }, force: Boolean(insight) });
-      if (created.status === "ready" || created.status === "ratified") {
-        setInsight(created);
-        setMessage(null);
-      } else {
-        setMessage(`Brief is ${created.status}.`);
-      }
-    } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "Cited decision brief is unavailable.");
-    }
-  };
-  return { insight, message, generate };
+  return useSurfaceInsight(contextId, {
+    surface: "command",
+    kind: "decision-brief",
+    subjectRefs: { alert_event_id: selected },
+    loadingMessage: "Generating cited decision brief…",
+    emptyMessage: "No cited decision brief is available.",
+    errorMessage: "Cited decision brief is unavailable.",
+  });
 }
 
 function useCommandContextSync(analysis: ReturnType<typeof useAnalysisContext>, dataset: CommandDataset, roleView: ReturnType<typeof useRoleView>["roleView"], selected: string | null, portfolioId: string | null, directoryLoading: boolean) {
@@ -435,7 +419,7 @@ function CitedBriefPanel({ view }: { view: CommandViewProps }) {
 }
 
 function CommandInspector({ view }: { view: CommandViewProps }) {
-  return <div className="grid gap-2"><CommandGovernanceSummary coldStart={!view.portfolio.live && !view.portfolio.error && !view.portfolio.loading} qa={view.liveQa?.length} failed={view.liveFailed?.length} gaps={view.liveGapsItems?.length} mixed={view.liveMixed?.length} stale={view.digestLive ? view.digest?.stale?.length ?? 0 : undefined} onOpen={() => view.updateUrlState({ dataset: "governance" })} /><CitedBriefPanel view={view} /></div>;
+  return <div className="grid gap-2"><GovernanceSummary coldStart={!view.portfolio.live && !view.portfolio.error && !view.portfolio.loading} qa={view.liveQa?.length} failed={view.liveFailed?.length} gaps={view.liveGapsItems?.length} mixed={view.liveMixed?.length} stale={view.digestLive ? view.digest?.stale?.length ?? 0 : undefined} onOpen={() => view.updateUrlState({ dataset: "governance" })} /><CitedBriefPanel view={view} /></div>;
 }
 
 function CommandDecisionPanel({ view }: { view: CommandViewProps }) {
@@ -603,11 +587,6 @@ function useCommandCenterView() {
 function CommandCenter() {
   const view = useCommandCenterView();
   return <CommandView view={view} />;
-}
-
-function CommandGovernanceSummary({ qa, failed, gaps, mixed, stale, coldStart = false, onOpen }: { qa?: number; failed?: number; gaps?: number; mixed?: number; stale?: number; coldStart?: boolean; onOpen: () => void }) {
-  const rows = [["CP-5 findings", qa], ["Failed gates", failed], ["Source gaps", gaps], ["Mixed origin", mixed], ["Stale sources", stale]] as const;
-  return <PanelShell title="Governance summary"><dl className="grid gap-1 p-2">{rows.map(([label, value]) => <div key={label} className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">{label}</dt><dd className="tabular text-caos-sm text-caos-text">{value ?? "Unavailable"}</dd></div>)}</dl>{coldStart ? <p className="px-2 pb-1 text-caos-2xs leading-snug text-caos-muted">Queues are observed-empty — the first completed run populates them.</p> : null}<button type="button" onClick={onOpen} className="caos-action-secondary focus-ring m-2">Open governance queue</button></PanelShell>;
 }
 
 function CommandContext({ digest }: { digest: ReturnType<typeof useDigest>["digest"] | null }) {

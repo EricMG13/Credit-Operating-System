@@ -1,10 +1,9 @@
 "use client";
 
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState } from "react";
 import type { GraphResult, GraphNode } from "@/lib/query/graph";
 import { nodeStyle } from "./node-style";
-import { zoomIdentity, type ZoomTransform } from "d3-zoom";
-import { useGraphZoom } from "./useGraphZoom";
+import { GRAPH_HEIGHT as H, GRAPH_WIDTH as W, graphX as px, graphY as py, useGraphViewport } from "./useGraphViewport";
 
 interface ScatterCanvasProps {
   graph: GraphResult;
@@ -12,43 +11,71 @@ interface ScatterCanvasProps {
   onSelectNode?: (node: GraphNode) => void;
 }
 
-const W = 1000;
-const H = 600;
-const PAD = 78;
+type ScatterStyle = ReturnType<typeof nodeStyle>;
+
+function scatterOpacity(focused: boolean, selected: boolean, dimmed: boolean): number {
+  if (focused) return 1;
+  if (selected) return 0.95;
+  return dimmed ? 0.15 : 0.75;
+}
+
+function ScatterFocusRing({ x, y, style, focused }: { x: number; y: number; style: ScatterStyle; focused: boolean }) {
+  return <circle cx={x} cy={y} r={style.r + (focused ? 6 : 4)} fill="none" stroke="var(--caos-accent)" strokeWidth={1.5} strokeDasharray={focused ? "2 2" : undefined} />;
+}
+
+function ScatterNodeShape({ x, y, style }: { x: number; y: number; style: ScatterStyle }) {
+  if (style.shape === "circle") return <circle cx={x} cy={y} r={style.r} fill={style.fill} stroke={style.stroke} strokeWidth={style.sw} />;
+  if (style.shape === "rect") return <rect x={x - style.r} y={y - style.r} width={style.r * 2} height={style.r * 2} rx={3} fill={style.fill} stroke={style.stroke} strokeWidth={style.sw} />;
+  return <rect x={x - style.r * 1.5} y={y - style.r * 0.8} width={style.r * 3} height={style.r * 1.6} rx={6} fill={style.fill} stroke={style.stroke} strokeWidth={style.sw} />;
+}
+
+function ScatterLabel({ node, x, y, radius, emphasized }: { node: GraphNode; x: number; y: number; radius: number; emphasized: boolean }) {
+  if (node.compact && !emphasized) return null;
+  return <text x={x} y={y - radius - 5} textAnchor="middle" fill="var(--caos-text)" fontSize="10px" fontWeight={emphasized ? "bold" : "normal"} fontFamily="var(--font-sans), sans-serif" paintOrder="stroke" stroke="#0a0a0f" strokeWidth={3} strokeLinejoin="round">{node.label}</text>;
+}
+
+function ScatterPoint({ node, focusId, selectedNodeId, connectedNodeIds, toX, toY, onSelect, onHover }: {
+  node: GraphNode; focusId?: string | null; selectedNodeId?: string | null; connectedNodeIds: Set<string>; toX: (value: number) => number; toY: (value: number) => number;
+  onSelect?: (node: GraphNode) => void; onHover: (id: string | null) => void;
+}) {
+  const style = nodeStyle(node);
+  const focused = node.id === focusId;
+  const selected = node.id === selectedNodeId;
+  const emphasized = focused || selected;
+  const dimmed = Boolean(focusId) && !connectedNodeIds.has(node.id);
+  const x = toX(node.x);
+  const y = toY(node.y);
+  const activateFromKeyboard = (event: React.KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onSelect?.(node);
+  };
+  return (
+    <g
+      tabIndex={0}
+      role="button"
+      style={{ opacity: scatterOpacity(focused, selected, dimmed), transition: "opacity 160ms ease-out" }}
+      className="cursor-pointer focus-ring outline-none"
+      aria-label={`Select ${node.label}${node.kind ? ` (${node.kind})` : ""}`}
+      onFocus={() => onHover(node.id)} onBlur={() => onHover(null)} onMouseEnter={() => onHover(node.id)} onMouseLeave={() => onHover(null)}
+      onClick={() => onSelect?.(node)} onKeyDown={activateFromKeyboard}
+    >
+      {emphasized ? <ScatterFocusRing x={x} y={y} style={style} focused={focused} /> : null}
+      <ScatterNodeShape x={x} y={y} style={style} />
+      <ScatterLabel node={node} x={x} y={y} radius={style.r} emphasized={emphasized} />
+    </g>
+  );
+}
 
 export function ScatterCanvas({
   graph,
   selectedNodeId,
   onSelectNode,
 }: ScatterCanvasProps) {
-  const px = (x: number) => PAD + x * (W - 2 * PAD);
-  const py = (y: number) => PAD + y * (H - 2 * PAD);
-
-  const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity);
-  const svgRef = useRef<SVGSVGElement | null>(null);
+  const { byId, handleResetZoom, svgRef, transform } = useGraphViewport(graph);
 
   // Hovered node tracking for highlighting edges
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-
-  // Fit the initial view to the node bounding box (as GraphCanvas does) — points
-  // clustered in one corner should fill the plot, not float in empty dark.
-  const fitTransform = useMemo(() => {
-    if (graph.nodes.length === 0) return zoomIdentity;
-    const xs = graph.nodes.map((n) => px(n.x));
-    const ys = graph.nodes.map((n) => py(n.y));
-    const M = 110; // labels render above nodes
-    const bw = Math.max(...xs) - Math.min(...xs);
-    const bh = Math.max(...ys) - Math.min(...ys);
-    const k = Math.max(0.3, Math.min(1.5, (W - 2 * M) / Math.max(bw, 1), (H - 2 * M) / Math.max(bh, 1)));
-    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
-    const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
-    return zoomIdentity.translate(W / 2 - k * cx, H / 2 - k * cy).scale(k);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph]);
-
-  const handleResetZoom = useGraphZoom(svgRef, fitTransform, graph, setTransform);
-
-  const byId = useMemo(() => Object.fromEntries(graph.nodes.map((n) => [n.id, n])), [graph]);
 
   // Real metric-unit ticks when the builder emits domains (xdomain/ydomain in
   // meta); otherwise the honest normalized 0→1 scale. Positions mirror the
@@ -179,107 +206,7 @@ export function ScatterCanvas({
           })}
 
           {/* Plotted nodes */}
-          {graph.nodes.map((n) => {
-            const style = nodeStyle(n);
-            const isFocused = n.id === activeFocusId;
-            const isSelected = n.id === selectedNodeId;
-
-            // Highlight connections or dim unassociated points
-            const isDimmed = activeFocusId && !activeConnectedNodeIds.has(n.id);
-            const opacity = isFocused ? 1.0 : isSelected ? 0.95 : isDimmed ? 0.15 : 0.75;
-            
-            const cx = px(n.x);
-            const cy = py(n.y);
-
-            return (
-              <g
-                key={n.id}
-                tabIndex={0}
-                role="button"
-                style={{ opacity, transition: "opacity 160ms ease-out" }}
-                className="cursor-pointer focus-ring outline-none"
-                aria-label={`Select ${n.label}${n.kind ? ` (${n.kind})` : ""}`}
-                onFocus={() => setHoveredNodeId(n.id)}
-                onBlur={() => setHoveredNodeId(null)}
-                onMouseEnter={() => setHoveredNodeId(n.id)}
-                onMouseLeave={() => setHoveredNodeId(null)}
-                onClick={() => onSelectNode?.(n)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    onSelectNode?.(n);
-                  }
-                }}
-              >
-                {/* Visual anchor / Ring for selected or focused state */}
-                {(isFocused || isSelected) && (
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={style.r + (isFocused ? 6 : 4)}
-                    fill="none"
-                    stroke="var(--caos-accent)"
-                    strokeWidth={1.5}
-                    strokeDasharray={isFocused ? "2 2" : undefined}
-                  />
-                )}
-
-                {/* Node symbol */}
-                {style.shape === "circle" ? (
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={style.r}
-                    fill={style.fill}
-                    stroke={style.stroke}
-                    strokeWidth={style.sw}
-                  />
-                ) : style.shape === "rect" ? (
-                  <rect
-                    x={cx - style.r}
-                    y={cy - style.r}
-                    width={style.r * 2}
-                    height={style.r * 2}
-                    rx={3}
-                    fill={style.fill}
-                    stroke={style.stroke}
-                    strokeWidth={style.sw}
-                  />
-                ) : (
-                  // Pill or custom node shape
-                  <rect
-                    x={cx - style.r * 1.5}
-                    y={cy - style.r * 0.8}
-                    width={style.r * 3}
-                    height={style.r * 1.6}
-                    rx={6}
-                    fill={style.fill}
-                    stroke={style.stroke}
-                    strokeWidth={style.sw}
-                  />
-                )}
-
-                {/* Text Label (shown for active / non-compact nodes, or hovered/selected states) */}
-                {(!n.compact || isFocused || isSelected) && (
-                  <text
-                    x={cx}
-                    y={cy - style.r - 5}
-                    textAnchor="middle"
-                    fill="var(--caos-text)"
-                    fontSize="10px"
-                    fontWeight={isFocused || isSelected ? "bold" : "normal"}
-                    fontFamily="var(--font-sans), sans-serif"
-                    paintOrder="stroke"
-                    stroke="#0a0a0f"
-                    strokeWidth={3}
-                    strokeLinejoin="round"
-                  >
-                    {n.label}
-                  </text>
-                )}
-              </g>
-            );
-          })}
+          {graph.nodes.map((node) => <ScatterPoint key={node.id} node={node} focusId={activeFocusId} selectedNodeId={selectedNodeId} connectedNodeIds={activeConnectedNodeIds} toX={px} toY={py} onSelect={onSelectNode} onHover={setHoveredNodeId} />)}
         </g>
       </svg>
     </div>

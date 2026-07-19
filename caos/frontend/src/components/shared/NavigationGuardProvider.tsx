@@ -46,68 +46,20 @@ function withHistoryIndex(state: unknown, index: number): Record<string, unknown
     : { [HISTORY_INDEX_KEY]: index };
 }
 
-/**
- * Root navigation guard. Routes opt in through useNavigationGuard; clean routes
- * pay no beforeunload cost and every in-app confirmation remains user-driven.
- */
-export function NavigationGuardProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const registrations = useRef(new Map<symbol, GuardRegistration>());
-  const pendingRef = useRef<PendingNavigation | null>(null);
-  const [pending, setPending] = useState<PendingNavigation | null>(null);
-  const [activeGuardCount, setActiveGuardCount] = useState(0);
+type ActiveGuards = () => GuardRegistration[];
 
-  const activeGuards = useCallback(
-    () => Array.from(registrations.current.values()).filter((guard) => guard.enabled && guard.dirty),
-    [],
-  );
+const guardedAnchorUrl = (event: MouseEvent, hasActiveGuards: boolean): URL | null => {
+  if (!hasActiveGuards || event.defaultPrevented || event.button !== 0) return null;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return null;
+  const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+  if (!anchor || anchor.hasAttribute("download")) return null;
+  if (anchor.target && anchor.target.toLowerCase() !== "_self") return null;
+  const url = new URL(anchor.href, window.location.href);
+  if (url.origin !== window.location.origin) return null;
+  return url.pathname === window.location.pathname && url.search === window.location.search ? null : url;
+};
 
-  const syncActiveCount = useCallback(() => {
-    setActiveGuardCount(activeGuards().length);
-  }, [activeGuards]);
-
-  const registerGuard = useCallback((id: symbol, registration: GuardRegistration) => {
-    registrations.current.set(id, registration);
-    syncActiveCount();
-    return () => {
-      if (registrations.current.get(id) === registration) registrations.current.delete(id);
-      syncActiveCount();
-    };
-  }, [syncActiveCount]);
-
-  const queueAttempt = useCallback((proceed: () => void): boolean => {
-    const guards = activeGuards();
-    if (guards.length === 0) {
-      proceed();
-      return true;
-    }
-    if (pendingRef.current) return false;
-    const request = { proceed, guards };
-    pendingRef.current = request;
-    setPending(request);
-    return false;
-  }, [activeGuards]);
-
-  const stay = useCallback(() => {
-    pendingRef.current = null;
-    setPending(null);
-  }, []);
-
-  const discardAndLeave = useCallback(() => {
-    const request = pendingRef.current;
-    if (!request) return;
-    pendingRef.current = null;
-    setPending(null);
-    // Discard is deliberately synchronous and never autosaves. A route may clear
-    // its local draft before navigation; a faulty callback must not trap the user.
-    request.guards.forEach((guard) => {
-      try { guard.onDiscard(); } catch { /* navigation remains the user's choice */ }
-    });
-    request.proceed();
-  }, []);
-
-  // Browser refresh/close (and full-document navigation) uses the browser-owned
-  // confirmation. Install it only while an enabled route is actually dirty.
+const useBeforeUnloadGuard = (activeGuardCount: number) => {
   useEffect(() => {
     if (activeGuardCount === 0) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -117,22 +69,17 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [activeGuardCount]);
+};
 
-  // Catch ordinary same-origin Link/anchor activation. Modified clicks, downloads,
-  // new-window links and same-document hash jumps retain native behavior.
+const useAnchorNavigationGuard = (
+  activeGuards: ActiveGuards,
+  queueAttempt: (proceed: () => void) => boolean,
+  router: ReturnType<typeof useRouter>,
+) => {
   useEffect(() => {
     const onClick = (event: MouseEvent) => {
-      if (
-        event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey ||
-        event.shiftKey || event.altKey || activeGuards().length === 0
-      ) return;
-      const element = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
-      if (!element || element.hasAttribute("download")) return;
-      if (element.target && element.target.toLowerCase() !== "_self") return;
-      const url = new URL(element.href, window.location.href);
-      if (url.origin !== window.location.origin) return;
-      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
-
+      const url = guardedAnchorUrl(event, activeGuards().length > 0);
+      if (!url) return;
       event.preventDefault();
       event.stopPropagation();
       queueAttempt(() => router.push(`${url.pathname}${url.search}${url.hash}`));
@@ -140,10 +87,13 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
   }, [activeGuards, queueAttempt, router]);
+};
 
-  // Tag SPA history entries so both Back and Forward direction are known. A
-  // guarded pop is immediately bounced to the current entry; the dialog opens
-  // only after that bounce completes, preserving the browser's forward stack.
+const useHistoryNavigationGuard = (
+  activeGuards: ActiveGuards,
+  pendingRef: { current: PendingNavigation | null },
+  setPending: (pending: PendingNavigation | null) => void,
+) => {
   useEffect(() => {
     const history = window.history;
     const originalPushState = history.pushState;
@@ -151,18 +101,15 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
     const originalIndex = historyIndex(history.state) ?? 0;
     const currentIndex = { value: originalIndex };
     originalReplaceState.call(history, withHistoryIndex(history.state, originalIndex), "", window.location.href);
-
     const wrappedPushState: History["pushState"] = (data, unused, url) => {
       const next = currentIndex.value + 1;
       currentIndex.value = next;
       return originalPushState.call(history, withHistoryIndex(data, next), unused, url);
     };
-    const wrappedReplaceState: History["replaceState"] = (data, unused, url) => {
-      return originalReplaceState.call(history, withHistoryIndex(data, currentIndex.value), unused, url);
-    };
+    const wrappedReplaceState: History["replaceState"] = (data, unused, url) =>
+      originalReplaceState.call(history, withHistoryIndex(data, currentIndex.value), unused, url);
     history.pushState = wrappedPushState;
     history.replaceState = wrappedReplaceState;
-
     let allowNextPop = false;
     let bounce: { origin: number; delta: number; guards: GuardRegistration[] } | null = null;
     const onPopState = (event: PopStateEvent) => {
@@ -179,17 +126,13 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
         if (!pendingRef.current) {
           const request: PendingNavigation = {
             guards: resumed.guards,
-            proceed: () => {
-              allowNextPop = true;
-              history.go(resumed.delta);
-            },
+            proceed: () => { allowNextPop = true; history.go(resumed.delta); },
           };
           pendingRef.current = request;
           setPending(request);
         }
         return;
       }
-
       const delta = destination == null ? -1 : destination - currentIndex.value;
       if (delta === 0) return;
       const guards = activeGuards();
@@ -206,19 +149,100 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
       if (history.pushState === wrappedPushState) history.pushState = originalPushState;
       if (history.replaceState === wrappedReplaceState) history.replaceState = originalReplaceState;
     };
+  }, [activeGuards, pendingRef, setPending]);
+};
+
+const useGuardRegistrations = () => {
+  const registrations = useRef(new Map<symbol, GuardRegistration>());
+  const [activeGuardCount, setActiveGuardCount] = useState(0);
+  const activeGuards = useCallback(
+    () => Array.from(registrations.current.values()).filter((guard) => guard.enabled && guard.dirty),
+    [],
+  );
+  const syncActiveCount = useCallback(() => setActiveGuardCount(activeGuards().length), [activeGuards]);
+  const registerGuard = useCallback((id: symbol, registration: GuardRegistration) => {
+    registrations.current.set(id, registration);
+    syncActiveCount();
+    return () => {
+      if (registrations.current.get(id) === registration) registrations.current.delete(id);
+      syncActiveCount();
+    };
+  }, [syncActiveCount]);
+  return { activeGuards, activeGuardCount, registerGuard };
+};
+
+const usePendingNavigation = (activeGuards: ActiveGuards) => {
+  const pendingRef = useRef<PendingNavigation | null>(null);
+  const [pending, setPending] = useState<PendingNavigation | null>(null);
+  const queueAttempt = useCallback((proceed: () => void): boolean => {
+    const guards = activeGuards();
+    if (guards.length === 0) {
+      proceed();
+      return true;
+    }
+    if (pendingRef.current) return false;
+    const request = { proceed, guards };
+    pendingRef.current = request;
+    setPending(request);
+    return false;
   }, [activeGuards]);
+  const stay = useCallback(() => {
+    pendingRef.current = null;
+    setPending(null);
+  }, []);
+  const discardAndLeave = useCallback(() => {
+    const request = pendingRef.current;
+    if (!request) return;
+    pendingRef.current = null;
+    setPending(null);
+    request.guards.forEach((guard) => {
+      try { guard.onDiscard(); } catch { /* navigation remains the user's choice */ }
+    });
+    request.proceed();
+  }, []);
+  return { pendingRef, pending, setPending, queueAttempt, stay, discardAndLeave };
+};
+
+function NavigationGuardFrame({
+  value,
+  children,
+  pending,
+  onStay,
+  onDiscard,
+}: {
+  value: NavigationGuardContextValue;
+  children: ReactNode;
+  pending: PendingNavigation | null;
+  onStay: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <NavigationGuardContext.Provider value={value}>
+      {children}
+      {pending ? <NavigationConfirmDialog onStay={onStay} onDiscard={onDiscard} /> : null}
+    </NavigationGuardContext.Provider>
+  );
+}
+
+/**
+ * Root navigation guard. Routes opt in through useNavigationGuard; clean routes
+ * pay no beforeunload cost and every in-app confirmation remains user-driven.
+ */
+export function NavigationGuardProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const { activeGuards, activeGuardCount, registerGuard } = useGuardRegistrations();
+  const { pendingRef, pending, setPending, queueAttempt, stay, discardAndLeave } = usePendingNavigation(activeGuards);
+
+  useBeforeUnloadGuard(activeGuardCount);
+  useAnchorNavigationGuard(activeGuards, queueAttempt, router);
+  useHistoryNavigationGuard(activeGuards, pendingRef, setPending);
 
   const value = useMemo<NavigationGuardContextValue>(
     () => ({ registerGuard, attemptNavigation: queueAttempt }),
     [queueAttempt, registerGuard],
   );
 
-  return (
-    <NavigationGuardContext.Provider value={value}>
-      {children}
-      {pending ? <NavigationConfirmDialog onStay={stay} onDiscard={discardAndLeave} /> : null}
-    </NavigationGuardContext.Provider>
-  );
+  return <NavigationGuardFrame value={value} pending={pending} onStay={stay} onDiscard={discardAndLeave}>{children}</NavigationGuardFrame>;
 }
 
 /** Register one route's dirty state. Registration alone never saves or navigates. */

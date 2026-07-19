@@ -55,38 +55,48 @@ function contagion(g: GraphResult): string {
   return `${exposed} of ${issuers.length} issuers in coverage link to the ${driver.label} driver — a shared-exposure overlay.`;
 }
 
+function genuineSectorMember(edge: GraphResult["edges"][number], sectorIds: Set<string>, byId: Map<string, GraphNode>): string | null {
+  if (edge.kind !== "member") return null;
+  const sectorId = sectorIds.has(edge.source) ? edge.source : sectorIds.has(edge.target) ? edge.target : null;
+  if (!sectorId) return null;
+  const otherId = sectorId === edge.source ? edge.target : edge.source;
+  return byId.get(otherId)?.kind === "issuer" ? sectorId : null;
+}
+
+function sectorMemberCounts(g: GraphResult, sectors: GraphNode[]): Map<string, number> {
+  const sectorIds = new Set(sectors.map((sector) => sector.id));
+  const byId = new Map(g.nodes.map((node) => [node.id, node]));
+  const members = new Map(sectors.map((sector) => [sector.id, 0]));
+  for (const edge of g.edges) {
+    const sectorId = genuineSectorMember(edge, sectorIds, byId);
+    if (sectorId) members.set(sectorId, (members.get(sectorId) ?? 0) + 1);
+  }
+  return members;
+}
+
+function concentrationSummary(sectors: GraphNode[], members: Map<string, number>): string {
+  const counts = sectors.map((sector) => members.get(sector.id) ?? 0);
+  const max = Math.max(...counts);
+  const clusters = `Coverage splits into ${sectors.length} ${sectors.length === 1 ? "cluster" : "clusters"}`;
+  if (max === 0) return `${clusters}.`;
+  const leaders = sectors.filter((sector) => (members.get(sector.id) ?? 0) === max);
+  if (leaders.length > 1) return `${clusters}${counts.every((count) => count === max) ? " — evenly split" : ""}.`;
+  const top = stripCount(leaders[0].label);
+  return `${clusters}; the largest is ${top} with ${max} ${max === 1 ? "name" : "names"}.`;
+}
+
 function concentration(g: GraphResult): string {
   const sectors = g.nodes.filter((n) => n.kind === "sector");
   if (sectors.length === 0) return fallback(g);
-  const sectorIds = new Set(sectors.map((s) => s.id));
-  const byId = new Map(g.nodes.map((n) => [n.id, n]));
   // Count only genuine issuer members of each sector: a "member" edge whose one
   // endpoint is a sector and whose *other* endpoint is an issuer node. This
   // excludes hub↔sector edges (the wiki walk hangs sectors off a "center"), which
   // otherwise inflated every cluster by one; the sector's own "· N" label suffix
   // is likewise never read as a count.
-  const members = new Map<string, number>(sectors.map((s) => [s.id, 0]));
-  for (const e of g.edges) {
-    if (e.kind !== "member") continue;
-    const s = sectorIds.has(e.source) ? e.source : sectorIds.has(e.target) ? e.target : null;
-    if (!s) continue;
-    const other = byId.get(s === e.source ? e.target : e.source);
-    if (other?.kind === "issuer") members.set(s, (members.get(s) ?? 0) + 1);
-  }
-  const counts = sectors.map((s) => members.get(s.id) ?? 0);
-  const max = Math.max(...counts);
-  const clusters = `Coverage splits into ${sectors.length} ${sectors.length === 1 ? "cluster" : "clusters"}`;
   // A superlative is only honest with a strict maximum (no tie for first) and a
   // grounded count. On a tie or an ungrounded count, stay neutral — and call an
   // even split what it is.
-  if (max === 0) return `${clusters}.`;
-  const leaders = sectors.filter((s) => (members.get(s.id) ?? 0) === max);
-  if (leaders.length > 1) {
-    const even = counts.every((c) => c === max);
-    return `${clusters}${even ? " — evenly split" : ""}.`;
-  }
-  const top = stripCount(leaders[0].label);
-  return `${clusters}; the largest is ${top} with ${max} ${max === 1 ? "name" : "names"}.`;
+  return concentrationSummary(sectors, sectorMemberCounts(g, sectors));
 }
 
 function provenance(g: GraphResult): string {

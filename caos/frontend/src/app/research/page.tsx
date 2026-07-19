@@ -67,7 +67,7 @@ const _storeJobId = (analystId: string, contextId: string | undefined, id: strin
 // Dense analyst page (the brief form drives the report pane); same structural
 // shape as ModelBuilder/ReportStudio. The report states already live in
 // ReportPane — splitting the form further would prop-drill 13 state fields.
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Page orchestration shares thirteen state fields with the report pane.
 function Research() {
   const analysis = useAnalysisContext({ name: "Deep research" });
   const [mode, setMode] = useState<"sector" | "issuer">("sector");

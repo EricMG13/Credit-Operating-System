@@ -142,483 +142,375 @@ const COL_TITLES: Record<string, string> = {
   QA: "QA clearance status",
   "⚑": "Open alerts",
 };
-export function PortfolioTable({
-  selected, onSelect,
-}: {
-  selected: string | null;
-  onSelect: (code: string | null) => void;
-}) {
-  const th = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const rowRefs = useRef(new Map<string, HTMLDivElement>());
-  const pendingFocusId = useRef<string | null>(null);
+
+type SeedPosition = (typeof PORTFOLIO)[number];
+type CellSelect = (code: string | null) => void;
+
+const SIMPLE_CELL_RENDERERS: Record<string, (position: SeedPosition) => React.ReactNode> = {
+  sector: (position) => <span key="sector" className="text-caos-muted text-caos-md truncate">{position.sector}</span>,
+  subSector: (position) => <span key="subSector" className="text-caos-muted text-caos-md truncate">{position.subSector || "—"}</span>,
+  figi: (position) => <span key="figi" className="tabular text-caos-muted text-caos-xs truncate">{position.figi || "—"}</span>,
+  rank: (position) => <span key="rank" className="tabular text-caos-md text-caos-muted">{position.rank || "—"}</span>,
+  rating: (position) => <span key="rating" className="tabular text-caos-md text-caos-muted">{cleanRating(position.rating)}</span>,
+  size: (position) => <span key="size" className="tabular text-caos-md text-caos-text text-right truncate w-full">{position.size || "$—"}</span>,
+  margin: (position) => <span key="margin" className="tabular text-right w-full">S+{position.margin}</span>,
+  maturity: (position) => <span key="maturity" className="tabular text-right text-caos-muted">{position.maturity || position.inst.match(/'\d+/)?.[0] || "—"}</span>,
+  bid: (position) => <span key="bid" className="tabular text-right">{position.bid == null ? "—" : position.bid.toFixed(1)}</span>,
+  ask: (position) => <span key="ask" className="tabular text-right">{position.ask == null ? "—" : position.ask.toFixed(1)}</span>,
+  lev: (position) => <span key="lev" className="tabular text-right">{fmtLevX(position.lev)}</span>,
+  snrLev: (position) => <span key="snrLev" className="tabular text-right">{fmtLevX(position.snrLev)}</span>,
+  totalLev: (position) => <span key="totalLev" className="tabular text-right">{fmtLevX(position.totalLev)}</span>,
+  cov: (position) => <span key="cov" className="tabular text-right">{fmtLevX(position.cov)}</span>,
+  posture: (position) => <span key="posture" className="tabular text-caos-md truncate" style={{ color: POSTURE_COLOR[position.posture] }}>{position.posture}</span>,
+  conv: (position) => <span key="conv" className="tabular text-right text-caos-text">{position.conv}</span>,
+  qa: (position) => <Tag key="qa" sev={position.qa}>{position.qa}</Tag>,
+  alerts: (position) => <span key="alerts" className="tabular text-right" style={{ color: position.alerts ? "var(--caos-warning)" : "var(--caos-muted)" }}>{position.alerts ? `⚑${position.alerts}` : "—"}</span>,
+};
+
+function renderIdentityCell(key: string, position: SeedPosition, selected: boolean, onSelect: CellSelect) {
+  const stickyBg = selected ? "bg-caos-elevated" : "bg-caos-bg";
+  const hoverBg = "group-hover:bg-caos-elevated/60";
+  const borrower = position.borrower || position.name;
+  if (key === "expand") {
+    return <button key="expand" type="button" onClick={() => onSelect(selected ? null : (position.id || position.figi || position.code))} aria-label={selected ? `Collapse details for ${borrower}` : `Expand details for ${borrower}`} className={`sticky left-0 z-20 flex h-5 w-5 items-center justify-center rounded hover:bg-caos-elevated text-caos-muted hover:text-caos-text transition-caos focus-ring cursor-pointer ${stickyBg} ${hoverBg}`}><span className="text-[10px]" aria-hidden="true">{selected ? "▼" : "▶"}</span></button>;
+  }
+  if (key === "code") return <IssuerLink key="code" query={position.code} className={`sticky left-[32px] z-20 inline-flex items-center min-h-[18px] tabular text-caos-accent transition-caos ${stickyBg} ${hoverBg}`} title={`Open ${position.code} profile`}>{position.code}</IssuerLink>;
+  if (key === "name") return <IssuerLink key="name" query={borrower} className={`sticky left-[98px] z-20 inline-flex items-center gap-1.5 min-h-[18px] text-caos-text truncate transition-caos ${stickyBg} ${hoverBg}`} title={`Open ${borrower} profile — ${position.name}, ${position.size}`}><span className="truncate">{borrower}</span><span className="tabular text-caos-2xs text-caos-muted shrink-0" aria-hidden="true">{position.size}</span></IssuerLink>;
+  return undefined;
+}
+
+function sparkTone(delta: number) {
+  if (delta > 5) return "var(--caos-critical)";
+  if (delta < -2) return "var(--caos-success)";
+  return "var(--caos-muted)";
+}
+
+function deltaTone(delta: number) {
+  if (delta > 0) return { color: "var(--caos-critical-bright)", background: "color-mix(in srgb, var(--caos-critical) 6%, transparent)", prefix: "+" };
+  if (delta < 0) return { color: "var(--caos-success-bright)", background: "color-mix(in srgb, var(--caos-success) 6%, transparent)", prefix: "" };
+  return { color: "var(--caos-muted)", background: undefined, prefix: "" };
+}
+
+function renderMarketSignalCell(key: string, position: SeedPosition) {
+  const sparkColor = sparkTone(position.dd);
+  if (key === "dd") {
+    const tone = deltaTone(position.dd);
+    return <span key="dd" className="tabular text-right rounded px-0.5" style={{ color: tone.color, background: tone.background }}>{tone.prefix}{position.dd.toFixed(2)}</span>;
+  }
+  if (key === "spark") return <Spark key="spark" data={position.spark} color={sparkColor} w={76} h={16} />;
+  if (key === "ytdSpark") return position.ytdSpark ? <Spark key="ytdSpark" data={position.ytdSpark} color={sparkColor} w={76} h={16} /> : <span key="ytdSpark" className="tabular text-caos-muted">—</span>;
+  return undefined;
+}
+
+function renderCell(key: string, position: SeedPosition, selected: boolean, onSelect: CellSelect) {
+  const identity = renderIdentityCell(key, position, selected, onSelect);
+  if (identity !== undefined) return identity;
+  const signal = renderMarketSignalCell(key, position);
+  if (signal !== undefined) return signal;
+  const renderer = SIMPLE_CELL_RENDERERS[key];
+  return renderer ? renderer(position) : null;
+}
+
+type PortfolioFilterKey = "code" | "name" | "sector" | "subSector" | "figi" | "rank" | "rating" | "size" | "margin" | "maturity" | "bid" | "ask" | "dd" | "spark" | "ytdSpark" | "lev" | "snrLev" | "totalLev" | "cov" | "posture" | "conv" | "qa" | "alerts";
+type PortfolioPreset = "full" | "credit" | "market";
+
+const PORTFOLIO_VALUE_GETTERS: Record<PortfolioFilterKey, (position: SeedPosition) => string | number | null | undefined> = {
+  code: (p) => p.code, name: (p) => p.borrower || p.name, sector: (p) => p.sector,
+  subSector: (p) => p.subSector, figi: (p) => p.figi, rank: (p) => p.rank, rating: (p) => p.rating,
+  size: (p) => p.size, margin: (p) => p.margin, maturity: (p) => p.maturity, bid: (p) => p.bid,
+  ask: (p) => p.ask, dd: (p) => p.dd, spark: () => "chart", ytdSpark: () => "chart",
+  lev: (p) => p.lev, snrLev: (p) => p.snrLev, totalLev: (p) => p.totalLev, cov: (p) => p.cov,
+  posture: (p) => p.posture, conv: (p) => p.conv, qa: (p) => p.qa, alerts: (p) => p.alerts,
+};
+
+const PORTFOLIO_PRESET_KEYS = {
+  full: ["expand", "code", "name", "sector", "subSector", "figi", "rank", "rating", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "lev", "snrLev", "totalLev", "cov", "posture", "conv", "qa", "alerts"],
+  // Seed leverage fields are absent, so the credit default hides them while the
+  // full lens keeps them available for sleeves with real engine coverage.
+  credit: ["expand", "code", "name", "sector", "rank", "rating", "posture", "conv", "qa", "alerts"],
+  market: ["expand", "code", "name", "sector", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "posture", "alerts"],
+} as const;
+
+// Signal columns lead taxonomy and market detail; presets only filter this order.
+const PORTFOLIO_COLUMNS = [
+  { key: "expand", head: "", width: "24px", sticky: "sticky left-0 z-30" },
+  { key: "code", head: "Ticker", width: "58px", sticky: "sticky left-[32px] z-30" },
+  { key: "name", head: "Company", width: "170px", sticky: "sticky left-[98px] z-30" },
+  { key: "sector", head: "Sector", width: "220px" }, { key: "rating", head: "Ratings", width: "74px" },
+  { key: "posture", head: "Posture", width: "92px" }, { key: "conv", head: "Conv.", width: "48px" },
+  { key: "qa", head: "QA", width: "74px" }, { key: "alerts", head: "⚑", width: "36px" },
+  { key: "lev", head: "NetLev", width: "54px" }, { key: "snrLev", head: "SnrLev", width: "54px" },
+  { key: "totalLev", head: "TotLev", width: "54px" }, { key: "cov", head: "IntCov", width: "54px" },
+  { key: "subSector", head: "Sub-sector", width: "240px" }, { key: "figi", head: "FIGI", width: "90px" },
+  { key: "rank", head: "Rank", width: "110px" }, { key: "size", head: "Size", width: "70px" },
+  { key: "margin", head: "Margin", width: "58px" }, { key: "maturity", head: "Maturity", width: "70px" },
+  { key: "bid", head: "Bid", width: "44px" }, { key: "ask", head: "Ask", width: "44px" },
+  { key: "dd", head: "Δ 1D", width: "54px" }, { key: "spark", head: "30D Chart", width: "86px" },
+  { key: "ytdSpark", head: "YTD Chart", width: "86px" },
+] as const;
+
+const RIGHT_ALIGNED_COLUMNS = new Set(["size", "margin", "maturity", "bid", "ask", "dd", "lev", "snrLev", "totalLev", "cov", "conv", "alerts"]);
+const FIXED_COLUMNS = new Set(["expand", "code", "name"]);
+
+function matchingPortfolioPreset(visibleCols: string[]): PortfolioPreset | "custom" {
+  const matches = (keys: readonly string[]) => keys.length === visibleCols.length && keys.every((key) => visibleCols.includes(key));
+  if (matches(PORTFOLIO_PRESET_KEYS.full)) return "full";
+  if (matches(PORTFOLIO_PRESET_KEYS.credit)) return "credit";
+  if (matches(PORTFOLIO_PRESET_KEYS.market)) return "market";
+  return "custom";
+}
+
+function useColumnCustomizer() {
   const customizerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!customizerRef.current?.contains(event.target as Node) && !buttonRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    window.addEventListener("pointerdown", closeOutside);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+  return { buttonRef, customizerRef, open, setOpen };
+}
+
+function usePortfolioColumns() {
   const [filters, setFilters] = useState<FilterState>({});
-  const [actionRowId, setActionRowId] = useState<string | null>(null);
-  const setFilter = (col: string, values: string[] | undefined) =>
-    setFilters((filters) => updateColumnFilter(filters, col, values));
-
-  type PortfolioFilterKey = "code" | "name" | "sector" | "subSector" | "figi" | "rank" | "rating" | "size" | "margin" | "maturity" | "bid" | "ask" | "dd" | "spark" | "ytdSpark" | "lev" | "snrLev" | "totalLev" | "cov" | "posture" | "conv" | "qa" | "alerts";
-  const vals = useMemo<Record<PortfolioFilterKey, (p: (typeof PORTFOLIO)[number]) => string | number | null | undefined>>(() => ({
-    code: (p) => p.code, name: (p) => p.borrower || p.name, sector: (p) => p.sector,
-    subSector: (p) => p.subSector, figi: (p) => p.figi, rank: (p) => p.rank, rating: (p) => p.rating,
-    size: (p) => p.size, margin: (p) => p.margin, maturity: (p) => p.maturity, bid: (p) => p.bid,
-    ask: (p) => p.ask, dd: (p) => p.dd, spark: () => "chart", ytdSpark: () => "chart",
-    lev: (p) => p.lev, snrLev: (p) => p.snrLev, totalLev: (p) => p.totalLev, cov: (p) => p.cov,
-    posture: (p) => p.posture, conv: (p) => p.conv, qa: (p) => p.qa, alerts: (p) => p.alerts,
-  }), []);
-  const shown = useColumnFilters(PORTFOLIO, filters, vals);
-
-  const { startIndex, endIndex, paddingTop, paddingBottom } = useVirtualScroll({
-    itemCount: shown.length,
-    estimateHeight: 33,
-    overscan: 10,
-    containerRef: scrollerRef,
+  const [visibleCols, setVisibleCols] = useState<string[]>(() => [...PORTFOLIO_PRESET_KEYS.credit]);
+  const customizer = useColumnCustomizer();
+  const shown = useColumnFilters(PORTFOLIO, filters, PORTFOLIO_VALUE_GETTERS);
+  const activeCols = PORTFOLIO_COLUMNS.filter((column) => visibleCols.includes(column.key));
+  const setFilter = (column: string, values: string[] | undefined) => setFilters((current) => updateColumnFilter(current, column, values));
+  const setPreset = (preset: PortfolioPreset) => setVisibleCols([...PORTFOLIO_PRESET_KEYS[preset]]);
+  const setColumnVisible = (key: string, visible: boolean) => setVisibleCols((current) => {
+    if (!visible) return current.filter((column) => column !== key);
+    const next = [...current, key];
+    return PORTFOLIO_COLUMNS.map((column) => column.key).filter((column) => next.includes(column));
   });
+  const gridTemplateColumns = activeCols.map((column) => column.width).join(" ");
+  const minWidth = activeCols.reduce((sum, column) => sum + parseInt(column.width), 0) + (activeCols.length - 1) * 8 + 24;
+  return { activeCols, colPreset: matchingPortfolioPreset(visibleCols), customizer, filters, gridTemplateColumns, minWidth, setColumnVisible, setFilter, setPreset, shown, visibleCols };
+}
 
-  const visibleItems = useMemo(() => shown.slice(startIndex, endIndex + 1), [shown, startIndex, endIndex]);
-  const visibleRowIds = useMemo(() => visibleItems.map((position) => position.id || position.figi || position.code), [visibleItems]);
-  const rowIds = useMemo(() => shown.map((position) => position.id || position.figi || position.code), [shown]);
-  const { activeId, getItemProps: getRowFocusProps, setActiveId: setActiveRowId } = useRovingFocus(rowIds);
-
+function useSelectedRowFocus(selected: string | null, visibleRowIds: string[], setActiveRowId: (id: string) => void) {
   useEffect(() => {
     if (selected && visibleRowIds.includes(selected)) setActiveRowId(selected);
   }, [selected, setActiveRowId, visibleRowIds]);
+}
 
+function useRowActionTabStops(rowRefs: { current: Map<string, HTMLDivElement> }, actionRowId: string | null, rowIds: string[], visibleRowIds: string[], setActionRowId: (id: string | null) => void) {
   useEffect(() => {
     if (actionRowId && !visibleRowIds.includes(actionRowId)) setActionRowId(null);
     for (const [id, row] of rowRefs.current) syncRowActionTabStops(row, actionRowId === id);
-  }, [actionRowId, rowIds, visibleRowIds]);
+  }, [actionRowId, rowIds, rowRefs, setActionRowId, visibleRowIds]);
+}
 
+function usePendingRowFocus(rowRefs: { current: Map<string, HTMLDivElement> }, pendingFocusId: { current: string | null }, activeId: string | null, visibleRowIds: string[], setActiveRowId: (id: string) => void) {
   useEffect(() => {
     const pending = pendingFocusId.current;
-    if (pending) {
-      const row = rowRefs.current.get(pending);
-      if (row) {
-        row.focus();
-        pendingFocusId.current = null;
-      }
+    const row = pending ? rowRefs.current.get(pending) : undefined;
+    if (row) {
+      row.focus();
+      pendingFocusId.current = null;
       return;
     }
-    if (activeId && !visibleRowIds.includes(activeId) && visibleRowIds[0]) setActiveRowId(visibleRowIds[0]);
-  }, [activeId, setActiveRowId, visibleRowIds]);
+    if (!pending && activeId && !visibleRowIds.includes(activeId) && visibleRowIds[0]) setActiveRowId(visibleRowIds[0]);
+  }, [activeId, pendingFocusId, rowRefs, setActiveRowId, visibleRowIds]);
+}
 
-  const presetKeys = {
-    full: ["expand", "code", "name", "sector", "subSector", "figi", "rank", "rating", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "lev", "snrLev", "totalLev", "cov", "posture", "conv", "qa", "alerts"],
-    // lev/snrLev/totalLev/cov aren't populated in this sample sleeve (all rows
-    // read "—") — dropped from the default view, still reachable via COLUMNS
-    // for coverage where they're real. (critique P2)
-    credit: ["expand", "code", "name", "sector", "rank", "rating", "posture", "conv", "qa", "alerts"],
-    market: ["expand", "code", "name", "sector", "size", "margin", "maturity", "bid", "ask", "dd", "spark", "ytdSpark", "posture", "alerts"],
-  } as const;
-
-  // Order front-loads the "what needs me" signal (posture · conviction · QA ·
-  // alerts) right after identity, then leverage, then market/taxonomy detail —
-  // so the columns that answer the CIO lens are reachable without scrolling past
-  // the analyst firehose. Render order follows this array; presets only filter.
-  const ALL_COLS = [
-    { key: "expand", head: "", width: "24px", sticky: "sticky left-0 z-30" },
-    { key: "code", head: "Ticker", width: "58px", sticky: "sticky left-[32px] z-30" },
-    { key: "name", head: "Company", width: "170px", sticky: "sticky left-[98px] z-30" },
-    { key: "sector", head: "Sector", width: "220px" },
-    { key: "rating", head: "Ratings", width: "74px" },
-    { key: "posture", head: "Posture", width: "92px" },
-    { key: "conv", head: "Conv.", width: "48px" },
-    { key: "qa", head: "QA", width: "74px" },
-    { key: "alerts", head: "⚑", width: "36px" },
-    { key: "lev", head: "NetLev", width: "54px" },
-    { key: "snrLev", head: "SnrLev", width: "54px" },
-    { key: "totalLev", head: "TotLev", width: "54px" },
-    { key: "cov", head: "IntCov", width: "54px" },
-    { key: "subSector", head: "Sub-sector", width: "240px" },
-    { key: "figi", head: "FIGI", width: "90px" },
-    { key: "rank", head: "Rank", width: "110px" },
-    { key: "size", head: "Size", width: "70px" },
-    { key: "margin", head: "Margin", width: "58px" },
-    { key: "maturity", head: "Maturity", width: "70px" },
-    { key: "bid", head: "Bid", width: "44px" },
-    { key: "ask", head: "Ask", width: "44px" },
-    { key: "dd", head: "Δ 1D", width: "54px" },
-    { key: "spark", head: "30D Chart", width: "86px" },
-    { key: "ytdSpark", head: "YTD Chart", width: "86px" },
-  ] as const;
-
-  const [visibleCols, setVisibleCols] = useState<string[]>(() => [...presetKeys.credit]);
-  // Derived, not stored: keeping a separate colPreset state drifted (uncheck +
-  // re-check a column restores the preset's exact column set, but the stored
-  // preset stayed "custom", so the Lens highlight lied). Order-insensitive —
-  // preset clicks apply presetKeys order, checkbox re-checks ALL_COLS order.
-  const matchPreset = (keys: readonly string[]) =>
-    keys.length === visibleCols.length && keys.every((k) => visibleCols.includes(k));
-  const colPreset: "full" | "credit" | "market" | "custom" =
-    matchPreset(presetKeys.full) ? "full"
-    : matchPreset(presetKeys.credit) ? "credit"
-    : matchPreset(presetKeys.market) ? "market"
-    : "custom";
-  const [customizerOpen, setCustomizerOpen] = useState(false);
-
-  useEffect(() => {
-    if (!customizerOpen) return;
-    const onPointer = (e: PointerEvent) => {
-      if (customizerRef.current?.contains(e.target as Node)) return;
-      if (buttonRef.current?.contains(e.target as Node)) return;
-      setCustomizerOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setCustomizerOpen(false);
-        buttonRef.current?.focus();
-      }
-    };
-    window.addEventListener("pointerdown", onPointer);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointer);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [customizerOpen]);
-
-  const activeCols = ALL_COLS.filter((c) => visibleCols.includes(c.key));
-  const gridTemplateColumns = activeCols.map((c) => c.width).join(" ");
-  const minWidth = activeCols.reduce((sum, c) => sum + parseInt(c.width), 0) + (activeCols.length - 1) * 8 + 24;
-
-  const renderCell = (key: string, p: (typeof PORTFOLIO)[number], sel: boolean) => {
-    const stickyBg = sel ? "bg-caos-elevated" : "bg-caos-bg";
-    const hoverBg = "group-hover:bg-caos-elevated/60";
-    const sparkColor = p.dd > 5 ? "var(--caos-critical)" : p.dd < -2 ? "var(--caos-success)" : "var(--caos-muted)";
-    
-    switch (key) {
-      case "expand":
-        return (
-          <button
-            key="expand"
-            type="button"
-            onClick={() => onSelect(sel ? null : (p.id || p.figi || p.code))}
-            aria-label={sel ? `Collapse details for ${p.borrower || p.name}` : `Expand details for ${p.borrower || p.name}`}
-            className={`sticky left-0 z-20 flex h-5 w-5 items-center justify-center rounded hover:bg-caos-elevated text-caos-muted hover:text-caos-text transition-caos focus-ring cursor-pointer ${stickyBg} ${hoverBg}`}
-          >
-            <span className="text-[10px]" aria-hidden="true">{sel ? "▼" : "▶"}</span>
-          </button>
-        );
-      case "code":
-        return (
-          <IssuerLink
-            key="code"
-            query={p.code}
-            className={`sticky left-[32px] z-20 inline-flex items-center min-h-[18px] tabular text-caos-accent transition-caos ${stickyBg} ${hoverBg}`}
-            title={`Open ${p.code} profile`}
-          >
-            {p.code}
-          </IssuerLink>
-        );
-      case "name":
-        return (
-          <IssuerLink
-            key="name"
-            query={p.borrower || p.name}
-            className={`sticky left-[98px] z-20 inline-flex items-center gap-1.5 min-h-[18px] text-caos-text truncate transition-caos ${stickyBg} ${hoverBg}`}
-            title={`Open ${p.borrower || p.name} profile — ${p.name}, ${p.size}`}
-          >
-            <span className="truncate">{p.borrower || p.name}</span>
-            {/* One borrower can hold multiple tranches (e.g. two Acrisure TLs at
-                different sizes/maturities) — size distinguishes rows that would
-                otherwise look like duplicates in the credit-column preset. */}
-            <span className="tabular text-caos-2xs text-caos-muted shrink-0" aria-hidden="true">{p.size}</span>
-          </IssuerLink>
-        );
-      case "sector":
-        return <span key="sector" className="text-caos-muted text-caos-md truncate">{p.sector}</span>;
-      case "subSector":
-        return <span key="subSector" className="text-caos-muted text-caos-md truncate">{p.subSector || "—"}</span>;
-      case "figi":
-        return <span key="figi" className="tabular text-caos-muted text-caos-xs truncate">{p.figi || "—"}</span>;
-      case "rank":
-        return <span key="rank" className="tabular text-caos-md text-caos-muted">{p.rank || "—"}</span>;
-      case "rating":
-        return <span key="rating" className="tabular text-caos-md text-caos-muted">{cleanRating(p.rating)}</span>;
-      case "size":
-        return <span key="size" className="tabular text-caos-md text-caos-text text-right truncate w-full">{p.size || "$—"}</span>;
-      case "margin":
-        return <span key="margin" className="tabular text-right w-full">S+{p.margin}</span>;
-      case "maturity":
-        return <span key="maturity" className="tabular text-right text-caos-muted">{p.maturity || p.inst.match(/'\d+/)?.[0] || "—"}</span>;
-      case "bid":
-        return <span key="bid" className="tabular text-right">{p.bid == null ? "—" : p.bid.toFixed(1)}</span>;
-      case "ask":
-        return <span key="ask" className="tabular text-right">{p.ask == null ? "—" : p.ask.toFixed(1)}</span>;
-      case "dd":
-        return (
-          <span
-            key="dd"
-            className="tabular text-right rounded px-0.5"
-            style={{
-              // Δ 1D is a DM-spread delta in bps: positive = widening = deterioration (critical),
-              // negative = tightening = improvement (success). Matches the sparkline rule (:223) and moveColor.
-              color: p.dd > 0 ? "var(--caos-critical-bright)" : p.dd < 0 ? "var(--caos-success-bright)" : "var(--caos-muted)",
-              background: p.dd > 0 ? "color-mix(in srgb, var(--caos-critical) 6%, transparent)" : p.dd < 0 ? "color-mix(in srgb, var(--caos-success) 6%, transparent)" : undefined,
-            }}
-          >
-            {p.dd > 0 ? "+" : ""}{p.dd.toFixed(2)}
-          </span>
-        );
-      case "spark":
-        return <Spark key="spark" data={p.spark} color={sparkColor} w={76} h={16} />;
-      case "ytdSpark":
-        // Only render a YTD spark when we actually have YTD data; falling back to
-        // the 30-day `spark` here would mislabel it under the "YTD Chart" header.
-        return p.ytdSpark
-          ? <Spark key="ytdSpark" data={p.ytdSpark} color={sparkColor} w={76} h={16} />
-          : <span key="ytdSpark" className="tabular text-caos-muted">—</span>;
-      case "lev":
-        return <span key="lev" className="tabular text-right">{fmtLevX(p.lev)}</span>;
-      case "snrLev":
-        return <span key="snrLev" className="tabular text-right">{fmtLevX(p.snrLev)}</span>;
-      case "totalLev":
-        return <span key="totalLev" className="tabular text-right">{fmtLevX(p.totalLev)}</span>;
-      case "cov":
-        return <span key="cov" className="tabular text-right">{fmtLevX(p.cov)}</span>;
-      case "posture":
-        return <span key="posture" className="tabular text-caos-md truncate" style={{ color: POSTURE_COLOR[p.posture] }}>{p.posture}</span>;
-      case "conv":
-        return <span key="conv" className="tabular text-right text-caos-text">{p.conv}</span>;
-      case "qa":
-        return <Tag key="qa" sev={p.qa}>{p.qa}</Tag>;
-      case "alerts":
-        return (
-          <span key="alerts" className="tabular text-right" style={{ color: p.alerts ? "var(--caos-warning)" : "var(--caos-muted)" }}>
-            {p.alerts ? "⚑" + p.alerts : "—"}
-          </span>
-        );
-      default:
-        return null;
+function usePortfolioRows(shown: SeedPosition[], selected: string | null) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const pendingFocusId = useRef<string | null>(null);
+  const [actionRowId, setActionRowId] = useState<string | null>(null);
+  const virtual = useVirtualScroll({ itemCount: shown.length, estimateHeight: 33, overscan: 10, containerRef: scrollerRef });
+  const visibleItems = useMemo(() => shown.slice(virtual.startIndex, virtual.endIndex + 1), [shown, virtual.endIndex, virtual.startIndex]);
+  const visibleRowIds = useMemo(() => visibleItems.map((position) => position.id || position.figi || position.code), [visibleItems]);
+  const rowIds = useMemo(() => shown.map((position) => position.id || position.figi || position.code), [shown]);
+  const { activeId, getItemProps: getRowFocusProps, setActiveId: setActiveRowId } = useRovingFocus(rowIds);
+  useSelectedRowFocus(selected, visibleRowIds, setActiveRowId);
+  useRowActionTabStops(rowRefs, actionRowId, rowIds, visibleRowIds, setActionRowId);
+  usePendingRowFocus(rowRefs, pendingFocusId, activeId, visibleRowIds, setActiveRowId);
+  const moveFocus = (targetId: string, targetIndex: number) => {
+    setActionRowId(null);
+    setActiveRowId(targetId);
+    const targetRow = rowRefs.current.get(targetId);
+    if (targetRow) targetRow.focus();
+    else if (scrollerRef.current) {
+      pendingFocusId.current = targetId;
+      scrollerRef.current.scrollTop = targetIndex * 33;
+      scrollerRef.current.dispatchEvent(new Event("scroll"));
     }
   };
+  return { actionRowId, getRowFocusProps, moveFocus, rowIds, rowRefs, scrollerRef, setActionRowId, visibleItems, ...virtual };
+}
 
+type PortfolioRowsModel = ReturnType<typeof usePortfolioRows>;
+type PortfolioColumnsModel = ReturnType<typeof usePortfolioColumns>;
+
+function portfolioNavigationIndex(key: string, rowId: string, rowIds: string[]) {
+  if (!rowIds.length) return null;
+  if (key === "Home") return 0;
+  if (key === "End") return rowIds.length - 1;
+  if (key !== "ArrowUp" && key !== "ArrowDown") return null;
+  const offset = key === "ArrowDown" ? 1 : -1;
+  return Math.max(0, Math.min(rowIds.length - 1, rowIds.indexOf(rowId) + offset));
+}
+
+type PortfolioKeyActions = {
+  actionMode: boolean;
+  activate: () => void;
+  enterActionMode: (row: HTMLDivElement) => boolean;
+  exitActionMode: () => void;
+  moveFocus: (targetId: string, targetIndex: number) => void;
+  rowId: string;
+  rowIds: string[];
+};
+
+function handlePortfolioRowKeyDown(event: React.KeyboardEvent<HTMLDivElement>, actions: PortfolioKeyActions) {
+  if (event.key === "Escape" && actions.actionMode) {
+    event.preventDefault();
+    actions.exitActionMode();
+    event.currentTarget.focus();
+    return;
+  }
+  if (event.currentTarget !== event.target) return;
+  if (event.key === "F2") {
+    if (actions.enterActionMode(event.currentTarget)) event.preventDefault();
+    return;
+  }
+  const targetIndex = portfolioNavigationIndex(event.key, actions.rowId, actions.rowIds);
+  if (targetIndex !== null) {
+    event.preventDefault();
+    actions.moveFocus(actions.rowIds[targetIndex], targetIndex);
+    return;
+  }
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    actions.activate();
+  }
+}
+
+function PortfolioColumnCustomizer({ columns }: { columns: PortfolioColumnsModel }) {
+  if (!columns.customizer.open) return null;
+  return (
+    <div role="dialog" aria-label="Customize columns" ref={columns.customizer.customizerRef} className="absolute right-0 top-[calc(100%+4px)] z-overlay w-48 rounded border border-caos-border bg-caos-panel p-2 shadow-lg max-h-80 overflow-auto" style={{ boxShadow: "var(--shadow-pop)" }}>
+      <div className="text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5 px-1 font-semibold">Toggle Columns</div>
+      <div className="flex flex-col gap-0.5">
+        {PORTFOLIO_COLUMNS.filter((column) => !FIXED_COLUMNS.has(column.key)).map((column) => (
+          <label key={column.key} className="flex items-center gap-2 px-1 py-0.5 hover:bg-caos-elevated/70 rounded cursor-pointer select-none">
+            <input type="checkbox" checked={columns.visibleCols.includes(column.key)} onChange={(event) => columns.setColumnVisible(column.key, event.target.checked)} className="accent-[var(--caos-accent)] cursor-pointer focus-ring" />
+            <span className="tabular text-caos-xs text-caos-text">{column.head || column.key}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PortfolioToolbar({ columns }: { columns: PortfolioColumnsModel }) {
+  const lenses = [["Desk", "full"], ["Credit", "credit"], ["Market", "market"]] as const;
+  return (
+    <div className="flex shrink-0 items-center overflow-visible whitespace-nowrap border-b border-caos-border px-3 h-9">
+      <div className="flex items-center gap-1">
+        <span className="shrink-0 tabular text-caos-2xs uppercase tracking-wider text-caos-muted mr-2">View</span>
+        <div className="flex items-center bg-caos-bg border border-caos-border/80 rounded p-[2px] gap-0.5">
+          {lenses.map(([label, preset]) => (
+            <button key={preset} type="button" onClick={() => columns.setPreset(preset)} className={"shrink-0 tabular text-caos-2xs px-2.5 py-0.5 rounded-sm transition-caos focus-ring cursor-pointer " + (columns.colPreset === preset ? "bg-caos-elevated text-caos-text font-medium" : "text-caos-muted hover:text-caos-text")}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <span className="ml-auto shrink-0 tabular text-caos-2xs text-caos-muted mr-3">{columns.shown.length} / {PORTFOLIO.length} shown</span>
+      <div className="relative shrink-0 flex items-center">
+        <button ref={columns.customizer.buttonRef} type="button" onClick={() => columns.customizer.setOpen(!columns.customizer.open)} className="shrink-0 tabular text-caos-2xs px-2 py-1 rounded border border-caos-border/80 text-caos-muted hover:text-caos-text hover:bg-caos-elevated/40 hover:border-caos-accent/40 transition-caos focus-ring flex items-center gap-1 cursor-pointer" aria-haspopup="dialog" aria-expanded={columns.customizer.open}>
+          <span>COLUMNS</span>
+          <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 3h8M2 6h8M2 9h8" /></svg>
+        </button>
+        <PortfolioColumnCustomizer columns={columns} />
+      </div>
+    </div>
+  );
+}
+
+function PortfolioHeader({ columns }: { columns: PortfolioColumnsModel }) {
+  const headerClass = "tabular text-caos-xs uppercase tracking-wider text-caos-muted";
+  return (
+    <div role="row" aria-rowindex={1} className="px-3 h-8.5 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns: columns.gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
+      {columns.activeCols.map((column) => {
+        if (column.key === "expand") return <div key="expand" role="columnheader" className={headerClass + " sticky left-0 z-30 bg-caos-panel flex items-center justify-center"} style={{ width: column.width }} />;
+        const getter = PORTFOLIO_VALUE_GETTERS[column.key as PortfolioFilterKey];
+        const sticky = "sticky" in column ? ` ${column.sticky} bg-caos-panel` : "";
+        if (!getter) return <div key={column.key} role="columnheader" className={headerClass + sticky} style={{ width: column.width }}>{column.head}</div>;
+        return (
+          <FilterHeader key={column.key} label={COL_TITLES[column.head] || column.head} col={column.key} rows={PORTFOLIO} getValue={getter} selected={columns.filters[column.key]} onChange={columns.setFilter} asHeaderCell className={headerClass + (RIGHT_ALIGNED_COLUMNS.has(column.key) ? " justify-end text-right w-full" : "") + sticky}>
+            {column.head}
+          </FilterHeader>
+        );
+      })}
+    </div>
+  );
+}
+
+function PortfolioRow({ columns, onSelect, position, rowIndex, rows, selected }: { columns: PortfolioColumnsModel; onSelect: CellSelect; position: SeedPosition; rowIndex: number; rows: PortfolioRowsModel; selected: string | null }) {
+  const rowId = position.id || position.figi || position.code;
+  const isSelected = selected === rowId;
+  const focusProps = rows.getRowFocusProps(rowId);
+  const activate = () => onSelect(isSelected ? null : rowId);
+  const actionMode = rows.actionRowId === rowId;
+  const registerRow = (element: HTMLDivElement | null) => {
+    focusProps.ref(element);
+    if (!element) return void rows.rowRefs.current.delete(rowId);
+    rows.rowRefs.current.set(rowId, element);
+    syncRowActionTabStops(element, actionMode);
+  };
+  const actions: PortfolioKeyActions = {
+    actionMode, activate, rowId, rowIds: rows.rowIds, moveFocus: rows.moveFocus,
+    enterActionMode: (row) => {
+      if (!focusFirstRowAction(row)) return false;
+      rows.setActionRowId(rowId);
+      return true;
+    },
+    exitActionMode: () => rows.setActionRowId(null),
+  };
+  const rowTone = isSelected ? "bg-caos-elevated/30 hover:bg-caos-elevated/55" : "bg-caos-bg hover:bg-caos-elevated/35";
+  return (
+    <div role="row" ref={registerRow} tabIndex={actionMode ? -1 : focusProps.tabIndex} onFocus={focusProps.onFocus} onBlur={(event) => { if (actionMode && !event.currentTarget.contains(event.relatedTarget as Node | null)) rows.setActionRowId(null); }} aria-rowindex={rows.startIndex + rowIndex + 2} aria-selected={isSelected} aria-keyshortcuts="F2" aria-describedby="coverage-positions-grid-help" aria-label={`${position.borrower || position.name} position details`} onClick={(event) => { if (!(event.target as HTMLElement).closest("a, button, input, select, textarea, [role='button'], [role='link']")) activate(); }} onKeyDown={(event) => handlePortfolioRowKeyDown(event, actions)} className={`group relative px-3 py-[5px] border-b border-caos-border/40 transition-caos items-center outline-none focus-ring ${rowTone} z-0`} style={{ gridTemplateColumns: columns.gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
+      {columns.activeCols.map((column) => <div key={column.key} role={column.key === "code" ? "rowheader" : "gridcell"} className="contents">{renderCell(column.key, position, isSelected, onSelect)}</div>)}
+    </div>
+  );
+}
+
+function PortfolioGrid({ columns, onSelect, rows, selected }: { columns: PortfolioColumnsModel; onSelect: CellSelect; rows: PortfolioRowsModel; selected: string | null }) {
+  return (
+    <div ref={rows.scrollerRef} role="grid" aria-label="Coverage positions" aria-rowcount={columns.shown.length + 1} className="flex-1 min-h-0 overflow-auto">
+      <div style={{ minWidth: columns.minWidth }}>
+        <PortfolioHeader columns={columns} />
+        <div style={{ paddingTop: rows.paddingTop, paddingBottom: rows.paddingBottom }}>
+          {rows.visibleItems.map((position, index) => <PortfolioRow key={position.id || position.figi || position.code} columns={columns} onSelect={onSelect} position={position} rowIndex={index} rows={rows} selected={selected} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function PortfolioTable({ selected, onSelect }: { selected: string | null; onSelect: CellSelect }) {
+  const columns = usePortfolioColumns();
+  const rows = usePortfolioRows(columns.shown, selected);
   return (
     <div className="flex h-full min-h-0 flex-col text-caos-md">
-      <p id="coverage-positions-grid-help" className="sr-only">
-        Use Up and Down Arrow to move between position rows. Press Enter or Space to open row details. Press F2 to enter row actions; press Escape to return to the row.
-      </p>
-      <div className="flex shrink-0 items-center overflow-visible whitespace-nowrap border-b border-caos-border px-3 h-9">
-        <div className="flex items-center gap-1">
-          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-wider text-caos-muted mr-2">View</span>
-          <div className="flex items-center bg-caos-bg border border-caos-border/80 rounded p-[2px] gap-0.5">
-            {([
-              ["Desk", "full"],
-              ["Credit", "credit"],
-              ["Market", "market"],
-            ] as const).map(([label, preset]) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => {
-                  setVisibleCols([...presetKeys[preset]]);
-                }}
-                className={
-                  "shrink-0 tabular text-caos-2xs px-2.5 py-0.5 rounded-sm transition-caos focus-ring cursor-pointer " +
-                  (colPreset === preset
-                    ? "bg-caos-elevated text-caos-text font-medium"
-                    : "text-caos-muted hover:text-caos-text")
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        
-        <span className="ml-auto shrink-0 tabular text-caos-2xs text-caos-muted mr-3">
-          {shown.length} / {PORTFOLIO.length} shown
-        </span>
-        <div className="relative shrink-0 flex items-center">
-          <button
-            ref={buttonRef}
-            type="button"
-            onClick={() => setCustomizerOpen(!customizerOpen)}
-            className="shrink-0 tabular text-caos-2xs px-2 py-1 rounded border border-caos-border/80 text-caos-muted hover:text-caos-text hover:bg-caos-elevated/40 hover:border-caos-accent/40 transition-caos focus-ring flex items-center gap-1 cursor-pointer"
-            aria-haspopup="dialog"
-            aria-expanded={customizerOpen}
-          >
-            <span>COLUMNS</span>
-            <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M2 3h8M2 6h8M2 9h8" />
-            </svg>
-          </button>
-          {customizerOpen && (
-            <div
-              role="dialog"
-              aria-label="Customize columns"
-              ref={customizerRef}
-              className="absolute right-0 top-[calc(100%+4px)] z-overlay w-48 rounded border border-caos-border bg-caos-panel p-2 shadow-lg max-h-80 overflow-auto"
-              style={{ boxShadow: "var(--shadow-pop)" }}
-            >
-              <div className="text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5 px-1 font-semibold">Toggle Columns</div>
-              <div className="flex flex-col gap-0.5">
-                {ALL_COLS.filter(c => !["expand", "code", "name"].includes(c.key)).map(c => {
-                  const checked = visibleCols.includes(c.key);
-                  return (
-                    <label key={c.key} className="flex items-center gap-2 px-1 py-0.5 hover:bg-caos-elevated/70 rounded cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setVisibleCols(prev => {
-                              const next = [...prev, c.key];
-                              return ALL_COLS.map(col => col.key).filter(k => next.includes(k));
-                            });
-                          } else {
-                            setVisibleCols(prev => prev.filter(k => k !== c.key));
-                          }
-                        }}
-                        className="accent-[var(--caos-accent)] cursor-pointer focus-ring"
-                      />
-                      <span className="tabular text-caos-xs text-caos-text">{c.head || c.key}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-      <div ref={scrollerRef} role="grid" aria-label="Coverage positions" aria-rowcount={shown.length + 1} className="flex-1 min-h-0 overflow-auto">
-        <div style={{ minWidth }}>
-          <div role="row" aria-rowindex={1} className="px-3 h-8.5 border-b border-caos-border sticky top-0 bg-caos-panel z-20 items-center" style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}>
-            {activeCols.map((col) => {
-              const alignsRight = ["size", "margin", "maturity", "bid", "ask", "dd", "lev", "snrLev", "totalLev", "cov", "conv", "alerts"].includes(col.key);
-              if (col.key === "expand") {
-                return (
-                  <div
-                    key="expand"
-                    role="columnheader"
-                    className={th + " sticky left-0 z-30 bg-caos-panel flex items-center justify-center"}
-                    style={{ width: col.width }}
-                  />
-                );
-              }
-              const getter = vals[col.key as PortfolioFilterKey];
-              if (!getter) {
-                return (
-                  <div
-                    key={col.key}
-                    role="columnheader"
-                    className={th + ((col as { sticky?: string }).sticky ? " " + (col as { sticky?: string }).sticky + " bg-caos-panel" : "")}
-                    style={{ width: col.width }}
-                  >
-                    {col.head}
-                  </div>
-                );
-              }
-              return (
-                <FilterHeader
-                  key={col.key}
-                  label={COL_TITLES[col.head] || col.head}
-                  col={col.key}
-                  rows={PORTFOLIO}
-                  getValue={getter}
-                  selected={filters[col.key]}
-                  onChange={setFilter}
-                  asHeaderCell
-                  className={th + (alignsRight ? " justify-end text-right w-full" : "") + ((col as { sticky?: string }).sticky ? " " + (col as { sticky?: string }).sticky + " bg-caos-panel" : "")}
-                >
-                  {col.head}
-                </FilterHeader>
-              );
-            })}
-          </div>
-          {/* fallow-ignore-next-line complexity */}
-          <div style={{ paddingTop, paddingBottom }}>
-            {visibleItems.map((p, visibleIndex) => {
-              const key = p.id || p.figi || p.code;
-              const sel = selected === key;
-              const focusProps = getRowFocusProps(key);
-              const activate = () => onSelect(sel ? null : key);
-              const rowBg = sel ? "bg-caos-elevated/30" : "bg-caos-bg";
-              const rowHoverBg = sel ? "hover:bg-caos-elevated/55" : "hover:bg-caos-elevated/35";
-              return (
-                <div
-                  key={key}
-                  role="row"
-                  ref={(element) => {
-                    focusProps.ref(element);
-                    if (element) {
-                      rowRefs.current.set(key, element);
-                      syncRowActionTabStops(element, actionRowId === key);
-                    } else rowRefs.current.delete(key);
-                  }}
-                  tabIndex={actionRowId === key ? -1 : focusProps.tabIndex}
-                  onFocus={focusProps.onFocus}
-                  onBlur={(event) => {
-                    if (actionRowId === key && !event.currentTarget.contains(event.relatedTarget as Node | null)) setActionRowId(null);
-                  }}
-                  aria-rowindex={startIndex + visibleIndex + 2}
-                  aria-selected={sel}
-                  aria-keyshortcuts="F2"
-                  aria-describedby="coverage-positions-grid-help"
-                  aria-label={`${p.borrower || p.name} position details`}
-                  onClick={(event) => {
-                    const target = event.target as HTMLElement;
-                    if (target.closest("a, button, input, select, textarea, [role='button'], [role='link']")) return;
-                    activate();
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape" && actionRowId === key) {
-                      event.preventDefault();
-                      setActionRowId(null);
-                      event.currentTarget.focus();
-                      return;
-                    }
-                    if (event.currentTarget !== event.target) return;
-                    if (event.key === "F2") {
-                      if (focusFirstRowAction(event.currentTarget)) {
-                        event.preventDefault();
-                        setActionRowId(key);
-                      }
-                      return;
-                    }
-                    if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
-                      event.preventDefault();
-                      const currentIndex = rowIds.indexOf(key);
-                      const targetIndex = event.key === "Home"
-                        ? 0
-                        : event.key === "End"
-                          ? rowIds.length - 1
-                          : Math.max(0, Math.min(rowIds.length - 1, currentIndex + (event.key === "ArrowDown" ? 1 : -1)));
-                      const targetId = rowIds[targetIndex];
-                      setActionRowId(null);
-                      setActiveRowId(targetId);
-                      const targetRow = rowRefs.current.get(targetId);
-                      if (targetRow) targetRow.focus();
-                      else {
-                        pendingFocusId.current = targetId;
-                        if (scrollerRef.current) {
-                          scrollerRef.current.scrollTop = targetIndex * 33;
-                          scrollerRef.current.dispatchEvent(new Event("scroll"));
-                        }
-                      }
-                      return;
-                    }
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      activate();
-                    }
-                  }}
-                  className={`group relative px-3 py-[5px] border-b border-caos-border/40 transition-caos items-center outline-none focus-ring ${rowBg} ${rowHoverBg} z-0`}
-                  style={{ gridTemplateColumns, display: "grid", gap: "0 0.5rem" }}
-                >
-                  {activeCols.map((col) => (
-                    <div key={col.key} role={col.key === "code" ? "rowheader" : "gridcell"} className="contents">
-                      {renderCell(col.key, p, sel)}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+      <p id="coverage-positions-grid-help" className="sr-only">Use Up and Down Arrow to move between position rows. Press Enter or Space to open row details. Press F2 to enter row actions; press Escape to return to the row.</p>
+      <PortfolioToolbar columns={columns} />
+      <PortfolioGrid columns={columns} onSelect={onSelect} rows={rows} selected={selected} />
     </div>
   );
 }
@@ -1034,101 +926,78 @@ export function GapsList({ items }: { items?: GapItem[] }) {
 }
 
 /* ---------- footer detail strip ---------- */
-// `liveRow` (a live-coverage selection) takes precedence over the seeded fixture:
-// resolving a live ticker against PORTFOLIO either dead-ended (no match → null)
-// or, on a code collision, attributed seeded DM/leverage to the live issuer.
-export function IssuerStrip({ code, liveRow, onClose }: {
-  code: string;
-  liveRow?: PortfolioRowDTO | null;
-  onClose: () => void;
-}) {
-  const p = liveRow ? undefined : PORTFOLIO.find((x) => (x.id || x.figi || x.code) === code);
+function editableElement(element: HTMLElement | null) {
+  if (!element) return false;
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName) || element.isContentEditable;
+}
+
+function useIssuerStripEscape(onClose: () => void) {
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // Don't steal Escape from a field the user is typing in (e.g. the NL Query
-      // input) — only close the strip when focus isn't in an editable control.
-      const el = document.activeElement as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || editableElement(document.activeElement as HTMLElement | null)) return;
       onClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
+}
 
-  if (!liveRow && !p) return null;
-  const stat = (l: string, v: string, c?: string) => (
-    <span key={l} className="flex flex-col items-start">
-      <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</span>
-      <span className="tabular text-caos-xl" style={{ color: c }}>{v}</span>
-    </span>
-  );
+function StripStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return <span className="flex flex-col items-start"><span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{label}</span><span className="tabular text-caos-xl" style={{ color }}>{value}</span></span>;
+}
 
-  if (liveRow) {
-    const r = liveRow;
-    const rv = r.rv_recommendation;
-    const frag = r.downside_fragility;
-    return (
-      <div className="h-12 shrink-0 border-t border-caos-border bg-caos-panel flex items-center gap-6 px-4 caos-enter">
-        <span className="flex items-center gap-2">
-          <span className="tabular text-caos-xl text-caos-accent">{r.ticker || "—"}</span>
-          <span className="text-caos-xl text-caos-text font-medium">{r.name}</span>
-          <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: QA_COLOR[r.qa_status] ?? "var(--caos-muted)" }}>
-            {r.qa_status}
-          </span>
-          {/* Live-run provenance: glyph + word, per "color is signal" + no color-only meaning. */}
-          <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-success)" }}>● LIVE</span>
-          {r.as_of ? <span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">as of {r.as_of.slice(0, 10)}</span> : null}
-        </span>
-        {stat("Net Lev", fmtX(r.metrics.net_leverage))}
-        {stat("Int Cov", fmtX(r.metrics.interest_coverage))}
-        {stat("RV", rv ?? "—", rv ? RV_COLOR[rv] : undefined)}
-        {stat("Fragility", frag ? `${frag === "HIGH" ? "▲" : frag === "MODERATE" ? "■" : "●"} ${frag}` : "—",
-              frag ? FRAGILITY_COLOR[frag] : undefined)}
-        <div className="flex-1"></div>
-        {/* The one-click evidence path for the strip's numbers: the issuer's own run. */}
-        <Link
-          href={`/deepdive?issuer=${encodeURIComponent(r.issuer_id)}`}
-          className="no-underline tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-        >
-          OPEN DEEP-DIVE →
-        </Link>
-        <CloseButton onClick={onClose} title="Close (Esc)" />
-      </div>
-    );
-  }
-
-  if (!p) return null;
+function LiveIssuerStrip({ row, onClose }: { row: PortfolioRowDTO; onClose: () => void }) {
+  const recommendation = row.rv_recommendation;
+  const fragility = row.downside_fragility;
+  const fragilityGlyph = fragility === "HIGH" ? "▲" : fragility === "MODERATE" ? "■" : "●";
   return (
     <div className="h-12 shrink-0 border-t border-caos-border bg-caos-panel flex items-center gap-6 px-4 caos-enter">
       <span className="flex items-center gap-2">
-        <span className="tabular text-caos-xl text-caos-accent">{p.code}</span>
-        <span className="text-caos-xl text-caos-text font-medium">{p.name}</span>
-        <Tag sev={p.qa}>{p.qa}</Tag>
-        {/* Strip-level not-live marking: the page header's sample tag is hidden on
-            mobile, so the seeded figures must self-identify here. */}
-        <span
-          className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted border border-caos-border rounded px-1.5 py-px whitespace-nowrap"
-          title="Seeded sample figures for the Phase-1 showcase — not live positions."
-        >
-          Sample — not live
-        </span>
+        <span className="tabular text-caos-xl text-caos-accent">{row.ticker || "—"}</span>
+        <span className="text-caos-xl text-caos-text font-medium">{row.name}</span>
+        <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: QA_COLOR[row.qa_status] ?? "var(--caos-muted)" }}>{row.qa_status}</span>
+        <span className="tabular text-caos-2xs uppercase tracking-wider" style={{ color: "var(--caos-success)" }}>● LIVE</span>
+        {row.as_of ? <span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">as of {row.as_of.slice(0, 10)}</span> : null}
       </span>
-      {stat("3Y DM", p.dm + "bps")}
-      {stat("Margin", "S+" + p.margin)}
-      {stat("Net Lev", fmtLevX(p.lev))}
-      {stat("Int Cov", fmtLevX(p.cov))}
-      {stat("M2E", p.m2e.toFixed(1) + "mo", p.m2e < 12 ? "var(--caos-warning)" : undefined)}
-      {stat("Posture", p.posture, POSTURE_COLOR[p.posture])}
+      <StripStat label="Net Lev" value={fmtX(row.metrics.net_leverage)} />
+      <StripStat label="Int Cov" value={fmtX(row.metrics.interest_coverage)} />
+      <StripStat label="RV" value={recommendation ?? "—"} color={recommendation ? RV_COLOR[recommendation] : undefined} />
+      <StripStat label="Fragility" value={fragility ? `${fragilityGlyph} ${fragility}` : "—"} color={fragility ? FRAGILITY_COLOR[fragility] : undefined} />
       <div className="flex-1"></div>
-      {p.code === "ATLF" ? (
-        <Link href="/deepdive" className="no-underline tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">
-          OPEN DEEP-DIVE →
-        </Link>
-      ) : (
-        <span className="tabular text-caos-xs text-caos-muted">Deep-Dive available for ATLF in this preview</span>
-      )}
+      <Link href={`/deepdive?issuer=${encodeURIComponent(row.issuer_id)}`} className="no-underline tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">OPEN DEEP-DIVE →</Link>
       <CloseButton onClick={onClose} title="Close (Esc)" />
     </div>
   );
+}
+
+function SeededIssuerStrip({ position, onClose }: { position: SeedPosition; onClose: () => void }) {
+  return (
+    <div className="h-12 shrink-0 border-t border-caos-border bg-caos-panel flex items-center gap-6 px-4 caos-enter">
+      <span className="flex items-center gap-2">
+        <span className="tabular text-caos-xl text-caos-accent">{position.code}</span>
+        <span className="text-caos-xl text-caos-text font-medium">{position.name}</span>
+        <Tag sev={position.qa}>{position.qa}</Tag>
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted border border-caos-border rounded px-1.5 py-px whitespace-nowrap" title="Seeded sample figures for the Phase-1 showcase — not live positions.">Sample — not live</span>
+      </span>
+      <StripStat label="3Y DM" value={`${position.dm}bps`} />
+      <StripStat label="Margin" value={`S+${position.margin}`} />
+      <StripStat label="Net Lev" value={fmtLevX(position.lev)} />
+      <StripStat label="Int Cov" value={fmtLevX(position.cov)} />
+      <StripStat label="M2E" value={`${position.m2e.toFixed(1)}mo`} color={position.m2e < 12 ? "var(--caos-warning)" : undefined} />
+      <StripStat label="Posture" value={position.posture} color={POSTURE_COLOR[position.posture]} />
+      <div className="flex-1"></div>
+      {position.code === "ATLF" ? <Link href="/deepdive" className="no-underline tabular text-caos-md px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">OPEN DEEP-DIVE →</Link> : <span className="tabular text-caos-xs text-caos-muted">Deep-Dive available for ATLF in this preview</span>}
+      <CloseButton onClick={onClose} title="Close (Esc)" />
+    </div>
+  );
+}
+
+// `liveRow` (a live-coverage selection) takes precedence over the seeded fixture:
+// resolving a live ticker against PORTFOLIO either dead-ended (no match → null)
+// or, on a code collision, attributed seeded DM/leverage to the live issuer.
+export function IssuerStrip({ code, liveRow, onClose }: { code: string; liveRow?: PortfolioRowDTO | null; onClose: () => void }) {
+  useIssuerStripEscape(onClose);
+  if (liveRow) return <LiveIssuerStrip row={liveRow} onClose={onClose} />;
+  const position = PORTFOLIO.find((row) => (row.id || row.figi || row.code) === code);
+  return position ? <SeededIssuerStrip position={position} onClose={onClose} /> : null;
 }

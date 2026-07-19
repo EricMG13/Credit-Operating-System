@@ -64,50 +64,31 @@ if (profiles.length === 0) throw new Error("No matching performance profiles sel
 const observerSource = () => {
   const state = { cls: 0, lcp: 0, lcpElement: null, shifts: [], longTasks: [], maxEvent: 0 };
   globalThis.__caosPerformance = state;
-  try {
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        if (entry.startTime < state.lcp) continue;
-        state.lcp = entry.startTime;
-        state.lcpElement = entry.element ? {
-          tag: entry.element.tagName?.toLowerCase() || null,
-          id: entry.element.id || null,
-          className: typeof entry.element.className === "string" ? entry.element.className.slice(0, 160) : null,
-          text: (entry.element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 160),
-        } : null;
-      }
-    }).observe({ type: "largest-contentful-paint", buffered: true });
-  } catch {}
-  try {
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        if (!entry.hadRecentInput) {
-          state.cls += entry.value;
-          state.shifts.push({
-            value: entry.value,
-            sources: (entry.sources || []).slice(0, 6).map((source) => ({
-              tag: source.node?.tagName?.toLowerCase() || null,
-              id: source.node?.id || null,
-              className: typeof source.node?.className === "string" ? source.node.className.slice(0, 160) : null,
-              text: (source.node?.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120),
-              previousRect: source.previousRect,
-              currentRect: source.currentRect,
-            })),
-          });
-        }
-      }
-    }).observe({ type: "layout-shift", buffered: true });
-  } catch {}
-  try {
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) state.longTasks.push(entry.duration);
-    }).observe({ type: "longtask", buffered: true });
-  } catch {}
-  try {
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) state.maxEvent = Math.max(state.maxEvent, entry.duration);
-    }).observe({ type: "event", buffered: true, durationThreshold: 16 });
-  } catch {}
+  const text = (value, limit) => String(value || "").trim().replace(/\s+/g, " ").slice(0, limit);
+  const className = (node) => typeof node?.className === "string" ? node.className.slice(0, 160) : null;
+  const lcpElement = (element) => element ? { tag: element.tagName.toLowerCase(), id: element.id || null, className: className(element), text: text(element.textContent, 160) } : null;
+  const shiftSource = (source) => {
+    const node = source.node;
+    if (!node) return { tag: null, id: null, className: null, text: "", previousRect: source.previousRect, currentRect: source.currentRect };
+    return { tag: node.tagName.toLowerCase(), id: node.id || null, className: className(node), text: text(node.textContent, 120), previousRect: source.previousRect, currentRect: source.currentRect };
+  };
+  const observe = (options, handle) => {
+    try { new PerformanceObserver((list) => { for (const entry of list.getEntries()) handle(entry); }).observe(options); } catch {}
+  };
+  const recordLcp = (entry) => {
+    if (entry.startTime < state.lcp) return;
+    state.lcp = entry.startTime;
+    state.lcpElement = lcpElement(entry.element);
+  };
+  const recordShift = (entry) => {
+    if (entry.hadRecentInput) return;
+    state.cls += entry.value;
+    state.shifts.push({ value: entry.value, sources: Array.from(entry.sources || []).slice(0, 6).map(shiftSource) });
+  };
+  observe({ type: "largest-contentful-paint", buffered: true }, recordLcp);
+  observe({ type: "layout-shift", buffered: true }, recordShift);
+  observe({ type: "longtask", buffered: true }, (entry) => state.longTasks.push(entry.duration));
+  observe({ type: "event", buffered: true, durationThreshold: 16 }, (entry) => { state.maxEvent = Math.max(state.maxEvent, entry.duration); });
 };
 
 function round(value, digits = 1) {
@@ -121,20 +102,30 @@ function percentile(values, fraction) {
   return ordered[Math.min(ordered.length - 1, Math.ceil(ordered.length * fraction) - 1)];
 }
 
+function numericMetric(record, metric) {
+  return Number(record?.[metric]) || 0;
+}
+
+function worstMetricRecord(records, metric) {
+  let worst = null;
+  let maximum = -1;
+  for (const record of records) {
+    const value = numericMetric(record, metric);
+    if (value > maximum) { maximum = value; worst = record; }
+  }
+  return worst;
+}
+
+function summarizeMetric(records, metric) {
+  const values = records.map((record) => numericMetric(record, metric));
+  const worst = worstMetricRecord(records, metric);
+  const digits = metric === "cls" ? 3 : 1;
+  return { median: round(percentile(values, 0.5), digits), p75: round(percentile(values, 0.75), digits), p95: round(percentile(values, 0.95), digits), worstRoute: worst?.route || null };
+}
+
 function summarize(records) {
   const metrics = ["readyMs", "fcpMs", "lcpMs", "tbtMs", "cls", "encodedKb", "jsKb", "cssKb", "domNodes", "heapMb"];
-  return Object.fromEntries(metrics.map((metric) => {
-    const values = records.map((record) => Number(record[metric]) || 0);
-    const worst = records.reduce((current, record) => (
-      (Number(record[metric]) || 0) > (Number(current?.[metric]) || -1) ? record : current
-    ), null);
-    return [metric, {
-      median: round(percentile(values, 0.5), metric === "cls" ? 3 : 1),
-      p75: round(percentile(values, 0.75), metric === "cls" ? 3 : 1),
-      p95: round(percentile(values, 0.95), metric === "cls" ? 3 : 1),
-      worstRoute: worst?.route || null,
-    }];
-  }));
+  return Object.fromEntries(metrics.map((metric) => [metric, summarizeMetric(records, metric)]));
 }
 
 const browser = await chromium.launch();
@@ -177,36 +168,38 @@ try {
       const readyMs = performance.now() - startedAt;
 
       const browserMetrics = await page.evaluate(() => {
-        const navigation = performance.getEntriesByType("navigation")[0];
+        const numeric = (value) => Number(value) || 0;
+        const fallback = (value, defaultValue) => value ?? defaultValue;
+        const navigation = fallback(performance.getEntriesByType("navigation")[0], {});
         const resources = performance.getEntriesByType("resource");
         const paints = Object.fromEntries(
           performance.getEntriesByType("paint").map((entry) => [entry.name, entry.startTime]),
         );
-        const state = globalThis.__caosPerformance || { cls: 0, lcp: 0, longTasks: [], maxEvent: 0 };
+        const state = fallback(globalThis.__caosPerformance, { cls: 0, lcp: 0, longTasks: [], maxEvent: 0 });
         const resourceRows = resources.map((entry) => ({
           name: entry.name,
-          encodedBodySize: entry.encodedBodySize || 0,
-          transferSize: entry.transferSize || 0,
+          encodedBodySize: numeric(entry.encodedBodySize),
+          transferSize: numeric(entry.transferSize),
         }));
-        const encoded = resourceRows.reduce((sum, entry) => sum + entry.encodedBodySize, navigation?.encodedBodySize || 0);
-        const transferred = resourceRows.reduce((sum, entry) => sum + entry.transferSize, navigation?.transferSize || 0);
+        const encoded = resourceRows.reduce((sum, entry) => sum + entry.encodedBodySize, numeric(navigation.encodedBodySize));
+        const transferred = resourceRows.reduce((sum, entry) => sum + entry.transferSize, numeric(navigation.transferSize));
         const bytesFor = (extension) => resourceRows
           .filter((entry) => new URL(entry.name).pathname.includes(extension))
           .reduce((sum, entry) => sum + entry.encodedBodySize, 0);
-        const longTasks = state.longTasks || [];
+        const longTasks = Array.from(fallback(state.longTasks, []));
         return {
           url: location.pathname,
-          ttfbMs: navigation?.responseStart || 0,
-          domContentLoadedMs: navigation?.domContentLoadedEventEnd || 0,
-          loadMs: navigation?.loadEventEnd || 0,
-          fcpMs: paints["first-contentful-paint"] || 0,
-          lcpMs: state.lcp || 0,
-          lcpElement: state.lcpElement || null,
-          cls: state.cls || 0,
-          layoutShifts: (state.shifts || []).sort((a, b) => b.value - a.value).slice(0, 5),
+          ttfbMs: numeric(navigation.responseStart),
+          domContentLoadedMs: numeric(navigation.domContentLoadedEventEnd),
+          loadMs: numeric(navigation.loadEventEnd),
+          fcpMs: numeric(paints["first-contentful-paint"]),
+          lcpMs: numeric(state.lcp),
+          lcpElement: fallback(state.lcpElement, null),
+          cls: numeric(state.cls),
+          layoutShifts: fallback(state.shifts, []).sort((a, b) => b.value - a.value).slice(0, 5),
           tbtMs: longTasks.reduce((sum, duration) => sum + Math.max(0, duration - 50), 0),
           longestTaskMs: Math.max(0, ...longTasks),
-          maxEventMs: state.maxEvent || 0,
+          maxEventMs: numeric(state.maxEvent),
           requests: resources.length + 1,
           encodedKb: encoded / 1024,
           transferredKb: transferred / 1024,

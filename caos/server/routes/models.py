@@ -310,7 +310,7 @@ async def save_model(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Save rate limit reached — try again in a minute.")
     if len(json.dumps(body.payload)) > _MAX_PAYLOAD_BYTES:
         raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status.HTTP_413_CONTENT_TOO_LARGE,
             "Model payload too large to save.",
         )
     require_issuer(caller, await db.get(Issuer, issuer_id))

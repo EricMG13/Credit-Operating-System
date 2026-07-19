@@ -111,6 +111,7 @@ test.describe("Login (LoginLanding)", () => {
     const assertCurrentState = async () => {
       const layout = await page.evaluate(() => {
         const rootWidth = document.documentElement.clientWidth;
+        // fallow-ignore-next-line complexity -- Browser-evaluated layout probes cannot appear in Vitest Istanbul coverage.
         const visible = (element: Element) => {
           const style = getComputedStyle(element);
           const rect = element.getBoundingClientRect();

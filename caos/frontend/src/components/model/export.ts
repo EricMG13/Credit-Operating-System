@@ -232,7 +232,7 @@ export function buildWorkbook(
 }
 
 // Loaded dynamically by app/model/page.tsx to keep ExcelJS out of the initial bundle.
-// fallow-ignore-next-line unused-export
+// fallow-ignore-next-line unused-export -- Public dynamic import keeps ExcelJS out of the initial application bundle.
 export async function exportModel(
   model: Model,
   showQ: boolean,

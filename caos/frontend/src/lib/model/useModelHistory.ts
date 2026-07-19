@@ -80,12 +80,67 @@ export interface UseModelHistory {
   persistenceError: string | null;
 }
 
-export function useModelHistory(issuerId: string): UseModelHistory {
+const useOverrideHistory = () => {
   const [overrides, setOverridesState] = useState<Overrides>({});
   const past = useRef<Overrides[]>([]);
   const future = useRef<Overrides[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const syncFlags = () => {
+    setCanUndo(past.current.length > 0);
+    setCanRedo(future.current.length > 0);
+  };
+  const clearHistory = useCallback((next: Overrides = {}) => {
+    setOverridesState(next);
+    past.current = [];
+    future.current = [];
+    syncFlags();
+  }, []);
+  const setOverrides = useCallback((updater: Overrides | ((prev: Overrides) => Overrides)) => {
+    setOverridesState((previous) => {
+      const next = typeof updater === "function"
+        ? (updater as (value: Overrides) => Overrides)(previous)
+        : updater;
+      if (next === previous) return previous;
+      past.current = [...past.current, previous].slice(-MAX_UNDO_DEPTH);
+      future.current = [];
+      syncFlags();
+      return next;
+    });
+  }, []);
+  const undo = useCallback(() => {
+    setOverridesState((current) => {
+      if (!past.current.length) return current;
+      const previous = past.current.at(-1)!;
+      past.current = past.current.slice(0, -1);
+      future.current = [current, ...future.current];
+      syncFlags();
+      return previous;
+    });
+  }, []);
+  const redo = useCallback(() => {
+    setOverridesState((current) => {
+      if (!future.current.length) return current;
+      const [next, ...rest] = future.current;
+      future.current = rest;
+      past.current = [...past.current, current];
+      syncFlags();
+      return next;
+    });
+  }, []);
+  return {
+    overrides,
+    setOverrides,
+    replaceOverrides: clearHistory,
+    clearHistory,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  };
+};
+
+const useCheckpointStore = (issuerId: string, clearHistory: (next?: Overrides) => void) => {
   const [checkpoints, setCheckpoints] = useState<ModelCheckpoint[]>([]);
   const [persistenceState, setPersistenceState] = useState<UseModelHistory["persistenceState"]>("loading");
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
@@ -93,30 +148,19 @@ export function useModelHistory(issuerId: string): UseModelHistory {
   const persistenceBusy = useRef(false);
   const checkpointsRef = useRef<ModelCheckpoint[]>([]);
   checkpointsRef.current = checkpoints;
-
-  const syncFlags = () => {
-    setCanUndo(past.current.length > 0);
-    setCanRedo(future.current.length > 0);
-  };
-
-  // Each issuer's edit history and checkpoint list are independent — switching
-  // issuers must not let a Ctrl+Z on issuer B undo into issuer A's state.
   useEffect(() => {
     loadedIssuer.current = null;
     persistenceBusy.current = false;
-    setOverridesState({});
+    clearHistory();
     setCheckpoints([]);
     setPersistenceState("loading");
     setPersistenceError(null);
-    past.current = [];
-    future.current = [];
-    syncFlags();
     let alive = true;
     getAnalystSettings()
-      .then((s) => {
+      .then((settings) => {
         if (!alive) return;
         loadedIssuer.current = issuerId;
-        setCheckpoints(readCheckpoints(s.workspace, issuerId));
+        setCheckpoints(readCheckpoints(settings.workspace, issuerId));
         setPersistenceState("ready");
       })
       .catch((reason) => {
@@ -131,119 +175,121 @@ export function useModelHistory(issuerId: string): UseModelHistory {
         setPersistenceError(toErrorMessage(reason, "Model checkpoints could not be loaded."));
       });
     return () => { alive = false; };
-  }, [issuerId]);
+  }, [clearHistory, issuerId]);
+  return {
+    checkpoints,
+    setCheckpoints,
+    persistenceState,
+    setPersistenceState,
+    persistenceError,
+    setPersistenceError,
+    loadedIssuer,
+    persistenceBusy,
+    checkpointsRef,
+  };
+};
 
-  const setOverrides = useCallback((updater: Overrides | ((prev: Overrides) => Overrides)) => {
-    setOverridesState((prev) => {
-      const next = typeof updater === "function" ? (updater as (p: Overrides) => Overrides)(prev) : updater;
-      if (next === prev) return prev;
-      past.current = [...past.current, prev].slice(-MAX_UNDO_DEPTH);
-      future.current = [];
-      syncFlags();
-      return next;
-    });
-  }, []);
+type CheckpointStore = ReturnType<typeof useCheckpointStore>;
 
-  const replaceOverrides = useCallback((next: Overrides) => {
-    setOverridesState(next);
-    past.current = [];
-    future.current = [];
-    syncFlags();
-  }, []);
+const checkpointActionReady = (store: CheckpointStore, issuerId: string): boolean =>
+  store.loadedIssuer.current === issuerId
+  && !store.persistenceBusy.current
+  && store.persistenceState !== "loading";
 
-  const undo = useCallback(() => {
-    setOverridesState((prev) => {
-      if (past.current.length === 0) return prev;
-      const previous = past.current[past.current.length - 1];
-      past.current = past.current.slice(0, -1);
-      future.current = [prev, ...future.current];
-      syncFlags();
-      return previous;
-    });
-  }, []);
+const persistCheckpointMutation = async (
+  store: CheckpointStore,
+  issuerId: string,
+  update: Parameters<typeof updateAnalystWorkspace>[0],
+  errorMessage: string,
+): Promise<boolean> => {
+  store.persistenceBusy.current = true;
+  store.setPersistenceState("saving");
+  store.setPersistenceError(null);
+  try {
+    const saved = await updateAnalystWorkspace(update);
+    if (store.loadedIssuer.current !== issuerId) return false;
+    store.setCheckpoints(readCheckpoints(saved.workspace, issuerId));
+    store.persistenceBusy.current = false;
+    store.setPersistenceState("ready");
+    return true;
+  } catch (reason) {
+    if (store.loadedIssuer.current === issuerId) {
+      store.persistenceBusy.current = false;
+      store.setPersistenceState("error");
+      store.setPersistenceError(toErrorMessage(reason, errorMessage));
+    }
+    return false;
+  }
+};
 
-  const redo = useCallback(() => {
-    setOverridesState((prev) => {
-      if (future.current.length === 0) return prev;
-      const [next, ...rest] = future.current;
-      future.current = rest;
-      past.current = [...past.current, prev];
-      syncFlags();
-      return next;
-    });
-  }, []);
-
+const useCheckpointActions = (
+  issuerId: string,
+  overrides: Overrides,
+  setOverrides: UseModelHistory["setOverrides"],
+  store: CheckpointStore,
+) => {
   const checkpoint = useCallback(async (name: string) => {
     const trimmed = name.trim();
-    if (!trimmed || loadedIssuer.current !== issuerId || persistenceBusy.current || persistenceState === "loading") return false;
+    if (!trimmed || !checkpointActionReady(store, issuerId)) return false;
     const next: ModelCheckpoint = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       name: trimmed,
       at: new Date().toISOString(),
       overrides,
     };
-    persistenceBusy.current = true;
-    setPersistenceState("saving");
-    setPersistenceError(null);
-    try {
-      const saved = await updateAnalystWorkspace((ws) => {
-        const current = readCheckpoints(ws, issuerId);
+    return persistCheckpointMutation(
+      store,
+      issuerId,
+      (workspace) => {
+        const current = readCheckpoints(workspace, issuerId);
         const list = [next, ...current.filter((candidate) => candidate.id !== next.id)].slice(0, MAX_CHECKPOINTS);
-        return writeCheckpoints(ws, issuerId, list);
-      });
-      if (loadedIssuer.current !== issuerId) return false;
-      setCheckpoints(readCheckpoints(saved.workspace, issuerId));
-      persistenceBusy.current = false;
-      setPersistenceState("ready");
-      return true;
-    } catch (reason) {
-      if (loadedIssuer.current === issuerId) {
-        persistenceBusy.current = false;
-        setPersistenceState("error");
-        setPersistenceError(toErrorMessage(reason, "Checkpoint could not be saved."));
-      }
-      return false;
-    }
-  }, [issuerId, overrides, persistenceState]);
-
+        return writeCheckpoints(workspace, issuerId, list);
+      },
+      "Checkpoint could not be saved.",
+    );
+  }, [issuerId, overrides, store]);
   const restoreCheckpoint = useCallback((id: string) => {
-    if (loadedIssuer.current !== issuerId || persistenceBusy.current || persistenceState === "loading") return false;
-    const cp = checkpointsRef.current.find((candidate) => candidate.id === id);
-    if (!cp) return false;
-    setOverrides(cp.overrides); // itself a user-undoable action
+    if (!checkpointActionReady(store, issuerId)) return false;
+    const checkpoint = store.checkpointsRef.current.find((candidate) => candidate.id === id);
+    if (!checkpoint) return false;
+    setOverrides(checkpoint.overrides);
     return true;
-  }, [issuerId, persistenceState, setOverrides]);
-
+  }, [issuerId, setOverrides, store]);
   const deleteCheckpoint = useCallback(async (id: string) => {
-    if (loadedIssuer.current !== issuerId || persistenceBusy.current || persistenceState === "loading") return false;
-    if (!checkpointsRef.current.some((candidate) => candidate.id === id)) return false;
-    persistenceBusy.current = true;
-    setPersistenceState("saving");
-    setPersistenceError(null);
-    try {
-      const saved = await updateAnalystWorkspace((ws) => writeCheckpoints(
-        ws,
+    if (!checkpointActionReady(store, issuerId)) return false;
+    if (!store.checkpointsRef.current.some((candidate) => candidate.id === id)) return false;
+    return persistCheckpointMutation(
+      store,
+      issuerId,
+      (workspace) => writeCheckpoints(
+        workspace,
         issuerId,
-        readCheckpoints(ws, issuerId).filter((candidate) => candidate.id !== id),
-      ));
-      if (loadedIssuer.current !== issuerId) return false;
-      setCheckpoints(readCheckpoints(saved.workspace, issuerId));
-      persistenceBusy.current = false;
-      setPersistenceState("ready");
-      return true;
-    } catch (reason) {
-      if (loadedIssuer.current === issuerId) {
-        persistenceBusy.current = false;
-        setPersistenceState("error");
-        setPersistenceError(toErrorMessage(reason, "Checkpoint could not be deleted."));
-      }
-      return false;
-    }
-  }, [issuerId, persistenceState]);
+        readCheckpoints(workspace, issuerId).filter((candidate) => candidate.id !== id),
+      ),
+      "Checkpoint could not be deleted.",
+    );
+  }, [issuerId, store]);
+  return { checkpoint, restoreCheckpoint, deleteCheckpoint };
+};
+
+export function useModelHistory(issuerId: string): UseModelHistory {
+  const history = useOverrideHistory();
+  const store = useCheckpointStore(issuerId, history.clearHistory);
+  const actions = useCheckpointActions(issuerId, history.overrides, history.setOverrides, store);
 
   return {
-    overrides, setOverrides, replaceOverrides, undo, redo, canUndo, canRedo,
-    checkpoints, checkpoint, restoreCheckpoint, deleteCheckpoint,
-    persistenceState, persistenceError,
+    overrides: history.overrides,
+    setOverrides: history.setOverrides,
+    replaceOverrides: history.replaceOverrides,
+    undo: history.undo,
+    redo: history.redo,
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
+    checkpoints: store.checkpoints,
+    checkpoint: actions.checkpoint,
+    restoreCheckpoint: actions.restoreCheckpoint,
+    deleteCheckpoint: actions.deleteCheckpoint,
+    persistenceState: store.persistenceState,
+    persistenceError: store.persistenceError,
   };
 }

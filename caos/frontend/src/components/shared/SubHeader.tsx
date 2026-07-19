@@ -25,6 +25,74 @@ export function nextCollapseState(
   return s;
 }
 
+const useOverflowCollapse = (
+  contextualControls: React.ReactNode,
+  primaryAction: React.ReactNode,
+  status: React.ReactNode,
+) => {
+  const headerRef = useRef<HTMLElement>(null);
+  const [collapse, setCollapse] = useState<CollapseState>({ collapsed: false, neededWidth: null });
+  const measure = () => {
+    const element = headerRef.current;
+    if (!element) return;
+    setCollapse((current) => nextCollapseState(current, {
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }));
+  };
+  useLayoutEffect(() => {
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    if (headerRef.current) observer.observe(headerRef.current);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextualControls, primaryAction, status]);
+  return { headerRef, forceCollapsed: collapse.collapsed };
+};
+
+function SubHeaderStatus({ status }: { status?: React.ReactNode }) {
+  return status ? <div className="hidden lg:flex items-center gap-2 shrink-0">{status}</div> : null;
+}
+
+function InlineContext({ show, children }: { show: boolean; children?: React.ReactNode }) {
+  return show && children ? <div className="flex items-center gap-2 shrink-0">{children}</div> : null;
+}
+
+function HeaderDrawer({
+  showInline,
+  contextualControls,
+  utilityControls,
+  drawerOpen,
+  setDrawerOpen,
+  utilityLabel,
+}: {
+  showInline: boolean;
+  contextualControls?: React.ReactNode;
+  utilityControls?: React.ReactNode;
+  drawerOpen: boolean;
+  setDrawerOpen: (open: boolean) => void;
+  utilityLabel: string;
+}) {
+  const content = showInline ? utilityControls : (
+    <>
+      {contextualControls}
+      {contextualControls && utilityControls ? <div className="my-1 border-t border-caos-border" /> : null}
+      {utilityControls}
+    </>
+  );
+  if (!content) return null;
+  return (
+    <MoreDrawer open={drawerOpen} onOpenChange={setDrawerOpen} triggerLabel={utilityLabel}>
+      {content}
+    </MoreDrawer>
+  );
+}
+
+function PrimaryAction({ children }: { children?: React.ReactNode }) {
+  return children ? <div className="shrink-0" data-page-primary-action>{children}</div> : null;
+}
+
 /**
  * The 40px sub-header strip every concept page wears. Replaces the hand-rolled
  * bars that were copy-pasted across all ten surfaces.
@@ -76,33 +144,10 @@ export function SubHeader({
   // off-screen. Observe the header and force-collapse into the drawer when it
   // overflows, with hysteresis so it can't oscillate. This is the backstop —
   // per-page configs should still respect the ≤5 rule.
-  const headerRef = useRef<HTMLElement>(null);
-  const [collapse, setCollapse] = useState<CollapseState>({ collapsed: false, neededWidth: null });
-  const measure = () => {
-    const el = headerRef.current;
-    if (!el) return;
-    setCollapse((s) => nextCollapseState(s, { scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
-  };
-  useLayoutEffect(() => {
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(measure);
-    if (headerRef.current) ro.observe(headerRef.current);
-    return () => ro.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextualControls, primaryAction, status]);
+  const { headerRef, forceCollapsed } = useOverflowCollapse(contextualControls, primaryAction, status);
 
   // While hydrating, assume wide (SSR-safe — no layout flash on desktop).
-  const showInline = (!hydrated || breakpoint === "wide") && !collapse.collapsed;
-  const hasContextual = !!contextualControls;
-  const drawerContent = showInline ? utilityControls : (
-    <>
-      {contextualControls}
-      {contextualControls && utilityControls ? <div className="my-1 border-t border-caos-border" /> : null}
-      {utilityControls}
-    </>
-  );
-  const hasDrawer = !!drawerContent;
+  const showInline = (!hydrated || breakpoint === "wide") && !forceCollapsed;
 
   // Close the drawer when the breakpoint flips to wide — otherwise a stale
   // `drawerOpen=true` state re-opens the drawer if we cross back to narrow.
@@ -123,21 +168,15 @@ export function SubHeader({
 
       <div className="flex-1 min-w-0" />
 
-      {status ? <div className="hidden lg:flex items-center gap-2 shrink-0">{status}</div> : null}
+      <SubHeaderStatus status={status} />
 
       {/* Contextual controls: inline at ≥1280px, MoreDrawer below. */}
-      {hasContextual && showInline ? (
-        <div className="flex items-center gap-2 shrink-0">{contextualControls}</div>
-      ) : null}
+      <InlineContext show={showInline}>{contextualControls}</InlineContext>
 
-      {hasDrawer ? (
-        <MoreDrawer open={drawerOpen} onOpenChange={setDrawerOpen} triggerLabel={utilityLabel}>
-          {drawerContent}
-        </MoreDrawer>
-      ) : null}
+      <HeaderDrawer showInline={showInline} contextualControls={contextualControls} utilityControls={utilityControls} drawerOpen={drawerOpen} setDrawerOpen={setDrawerOpen} utilityLabel={utilityLabel} />
 
       {/* Primary action — always visible, rightmost. */}
-      {primaryAction && <div className="shrink-0" data-page-primary-action>{primaryAction}</div>}
+      <PrimaryAction>{primaryAction}</PrimaryAction>
     </header>
   );
 }

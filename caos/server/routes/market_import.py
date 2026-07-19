@@ -91,7 +91,7 @@ def _guard(caller: CallerIdentity) -> None:
 
 def _workbook_error(exc: MarketWorkbookError) -> HTTPException:
     return HTTPException(
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
         {"code": exc.code, "message": exc.message},
     )
 
@@ -119,23 +119,23 @@ class MarketWorkbookPreviewOut(WorkbookPreview):
 
 def _parse_issuer_mappings(raw: str) -> dict[str, str]:
     if len(raw) > _ISSUER_MAPPING_MAX_CHARS:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Issuer mapping is too large.")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Issuer mapping is too large.")
     try:
         payload = json.loads(raw or "{}")
     except json.JSONDecodeError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Issuer mapping must be valid JSON.") from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Issuer mapping must be valid JSON.") from exc
     if not isinstance(payload, dict) or len(payload) > 25_000:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Issuer mapping must be an object with at most 25,000 entries.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Issuer mapping must be an object with at most 25,000 entries.")
     normalized: dict[str, str] = {}
     for raw_key, raw_issuer_id in payload.items():
         if not isinstance(raw_key, str) or not raw_key.strip() or len(raw_key.strip()) > 160:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Issuer mapping keys must be stable instrument keys or FIGIs.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Issuer mapping keys must be stable instrument keys or FIGIs.")
         if not isinstance(raw_issuer_id, str) or not raw_issuer_id.strip() or len(raw_issuer_id.strip()) > 36:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Issuer mapping values must be issuer IDs.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Issuer mapping values must be issuer IDs.")
         key = raw_key.strip().upper()
         issuer_id = raw_issuer_id.strip()
         if key in normalized and normalized[key] != issuer_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Issuer mapping contains conflicting normalized keys.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Issuer mapping contains conflicting normalized keys.")
         normalized[key] = issuer_id
     return normalized
 
@@ -262,7 +262,7 @@ async def _resolve_issuer_links(
     unknown = sorted(set(explicit) - row_keys - figis)
     if unknown:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             {"code": "unknown_issuer_mapping_key", "keys": unknown[:25]},
         )
 
@@ -301,7 +301,7 @@ async def _resolve_issuer_links(
         }
         if len(explicit_ids) > 1:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 {"code": "conflicting_row_issuer_mapping", "row": row_number},
             )
         exact = exact_by_figi.get(figi, []) if figi else []
@@ -347,7 +347,7 @@ async def preview_market_snapshot_import(
     _guard(caller)
     filename = file.filename or ""
     if len(mapping) > _MAPPING_MAX_CHARS:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Workbook mapping is too large.")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Workbook mapping is too large.")
     try:
         require_xlsx_filename(filename)
         parsed_mapping = parse_mapping(mapping)
@@ -396,14 +396,14 @@ async def commit_market_snapshot_import(
     _guard(caller)
     filename = file.filename or ""
     if len(mapping) > _MAPPING_MAX_CHARS:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Workbook mapping is too large.")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Workbook mapping is too large.")
     label = source_label.strip()
     if not label or len(label) > 160:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Source label must be 1-160 characters.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source label must be 1-160 characters.")
     if len(preview_sha256) != 64 or any(char not in "0123456789abcdefABCDEF" for char in preview_sha256):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "preview_sha256 must be a SHA-256 hex digest.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "preview_sha256 must be a SHA-256 hex digest.")
     if not preview_token or len(preview_token) > 2_048:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "preview_token is invalid.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "preview_token is invalid.")
     explicit = _parse_issuer_mappings(issuer_mappings)
     try:
         require_xlsx_filename(filename)
@@ -438,7 +438,7 @@ async def commit_market_snapshot_import(
     )
     if parsed.blocking_count:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             {
                 "code": "blocking_preview_issues",
                 "blocking_count": parsed.blocking_count,
@@ -449,7 +449,7 @@ async def commit_market_snapshot_import(
             },
         )
     if parsed.as_of is None or not parsed.rows:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Workbook has no committable market rows.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Workbook has no committable market rows.")
 
     fingerprint = _import_fingerprint(
         analyst_id=caller.id,

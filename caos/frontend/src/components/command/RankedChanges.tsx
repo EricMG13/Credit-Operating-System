@@ -25,6 +25,82 @@ function issuerHref(row: AlertRow): string {
   return `/deepdive?issuer=${encodeURIComponent(q)}`;
 }
 
+const acknowledgementPresentation = (
+  acknowledging: boolean,
+  resolved: boolean,
+  acknowledged: boolean,
+): { reason: string | null; label: string } => {
+  if (acknowledging) return { reason: "Saving acknowledgement…", label: "Acknowledging…" };
+  if (resolved) return { reason: "Resolved on Monitor — this row is closed", label: "Resolved" };
+  if (acknowledged) return { reason: "Already acknowledged", label: "Acked" };
+  return { reason: null, label: "Ack" };
+};
+
+function RankedChangeRow({
+  row,
+  state,
+  ackError,
+  acknowledging,
+  onAck,
+}: {
+  row: AlertRow;
+  state?: AlertStateDTO;
+  ackError?: string;
+  acknowledging: boolean;
+  onAck: (key: string) => void;
+}) {
+  const acknowledged = state?.state === "ack";
+  const resolved = state?.state === "resolved";
+  const impact = formatImpact(row);
+  const acknowledgement = acknowledgementPresentation(acknowledging, resolved, acknowledged);
+  return (
+    <div className="px-3 py-[6px] border-b border-caos-border/50">
+      <div className="flex items-center gap-2">
+        <ConclusionAuthority prov={rowProvenance(row)} />
+        {impact ? (
+          <span
+            className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
+            title="Anomaly severity — standard deviations from the baseline/peer median, never a fabricated bp figure"
+            style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}
+          >
+            {impact}
+          </span>
+        ) : null}
+        <IssuerLink
+          query={row.issuerName}
+          title={`Open ${row.issuerName} profile`}
+          className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none"
+        >
+          {row.issuerName}
+        </IssuerLink>
+        <span className="tabular text-caos-xs text-caos-muted ml-auto">
+          {resolved ? "resolved" : state?.assignee || "unassigned"}
+        </span>
+      </div>
+      <div className="text-caos-md text-caos-text leading-snug mt-1">{row.event}</div>
+      <div className="flex items-center gap-2 mt-1">
+        <span className="tabular text-caos-xs text-caos-muted">{requiredActionFor(row)}</span>
+        <Link
+          href={issuerHref(row)}
+          title={`Open ${row.issuerName} in Deep-Dive`}
+          className="no-underline tabular text-caos-xs text-caos-accent hover:text-caos-text border border-caos-border/70 hover:border-caos-accent/60 rounded px-1.5 min-h-8 flex items-center transition-caos focus-ring outline-none caos-target"
+        >
+          Open →
+        </Link>
+        <ActionReason
+          type="button"
+          reason={acknowledgement.reason}
+          onClick={() => onAck(row.key)}
+          className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
+        >
+          {acknowledgement.label}
+        </ActionReason>
+      </div>
+      {ackError ? <p className="mt-1 text-caos-2xs text-caos-critical" role="alert">{ackError} Retry acknowledgement for this unchanged alert.</p> : null}
+    </div>
+  );
+}
+
 /** Self-fetching wrapper — kept for callsites that don't already hold the
  * draft. Command lifts the fetch to the page (it also gates OPEN TOP CHANGE
  * on the same state) and renders RankedChangesView directly, so the draft is
@@ -113,60 +189,16 @@ export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
         </span>
         <span className="tabular text-caos-2xs text-caos-muted ml-auto">{draft?.marking}</span>
       </div>
-      {rows.map((row) => {
-        const state = states.get(row.key);
-        const acked = state?.state === "ack";
-        const resolved = state?.state === "resolved";
-        const ackError = ackErrors.get(row.key);
-        const acknowledging = ackPending === row.key;
-        const impact = formatImpact(row);
-        return (
-          <div key={row.key} className="px-3 py-[6px] border-b border-caos-border/50">
-            <div className="flex items-center gap-2">
-              <ConclusionAuthority prov={rowProvenance(row)} />
-              {impact ? (
-                <span
-                  className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
-                  title="Anomaly severity — standard deviations from the baseline/peer median, never a fabricated bp figure"
-                  style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}
-                >
-                  {impact}
-                </span>
-              ) : null}
-              <IssuerLink
-                query={row.issuerName}
-                title={`Open ${row.issuerName} profile`}
-                className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none"
-              >
-                {row.issuerName}
-              </IssuerLink>
-              <span className="tabular text-caos-xs text-caos-muted ml-auto">
-                {resolved ? "resolved" : state?.assignee || "unassigned"}
-              </span>
-            </div>
-            <div className="text-caos-md text-caos-text leading-snug mt-1">{row.event}</div>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="tabular text-caos-xs text-caos-muted">{requiredActionFor(row)}</span>
-              <Link
-                href={issuerHref(row)}
-                title={`Open ${row.issuerName} in Deep-Dive`}
-                className="no-underline tabular text-caos-xs text-caos-accent hover:text-caos-text border border-caos-border/70 hover:border-caos-accent/60 rounded px-1.5 min-h-8 flex items-center transition-caos focus-ring outline-none caos-target"
-              >
-                Open →
-              </Link>
-              <ActionReason
-                type="button"
-                reason={acknowledging ? "Saving acknowledgement…" : resolved ? "Resolved on Monitor — this row is closed" : acked ? "Already acknowledged" : null}
-                onClick={() => ack(row.key)}
-                className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
-              >
-                {acknowledging ? "Acknowledging…" : resolved ? "Resolved" : acked ? "Acked" : "Ack"}
-              </ActionReason>
-            </div>
-            {ackError ? <p className="mt-1 text-caos-2xs text-caos-critical" role="alert">{ackError} Retry acknowledgement for this unchanged alert.</p> : null}
-          </div>
-        );
-      })}
+      {rows.map((row) => (
+        <RankedChangeRow
+          key={row.key}
+          row={row}
+          state={states.get(row.key)}
+          ackError={ackErrors.get(row.key)}
+          acknowledging={ackPending === row.key}
+          onAck={ack}
+        />
+      ))}
     </div>
   );
 }

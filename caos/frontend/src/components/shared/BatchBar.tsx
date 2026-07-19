@@ -24,6 +24,93 @@ export interface BatchOutcome {
   error?: string;
 }
 
+const batchActionLabel = (
+  action: BatchAction,
+  running: string | null,
+  armedActionId: string | null,
+): string => {
+  if (running === action.id) return `${action.label}…`;
+  return armedActionId === action.id ? `Confirm ${action.label}` : action.label;
+};
+
+function BatchActionControl({
+  action,
+  running,
+  armedActionId,
+  onArm,
+  onRun,
+}: {
+  action: BatchAction;
+  running: string | null;
+  armedActionId: string | null;
+  onArm: (id: string) => void;
+  onRun: (action: BatchAction) => void;
+}) {
+  const activate = () => {
+    if (action.confirmation && armedActionId !== action.id) {
+      onArm(action.id);
+      return;
+    }
+    onRun(action);
+  };
+  return (
+    <ActionReason
+      type="button"
+      reason={running !== null ? "Another batch action is already running" : null}
+      onClick={activate}
+      className="tabular text-caos-xs px-2 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
+    >
+      {batchActionLabel(action, running, armedActionId)}
+    </ActionReason>
+  );
+}
+
+function BatchFailures({
+  outcomes,
+  itemName,
+}: {
+  outcomes: BatchOutcome[];
+  itemName: (id: string) => string;
+}) {
+  const failed = outcomes.filter((outcome) => !outcome.ok);
+  if (!failed.length) return null;
+  return (
+    <details className="relative">
+      <summary className="cursor-pointer text-caos-2xs text-caos-warning focus-ring">
+        {failed.length} failed — details
+      </summary>
+      <ul className="absolute right-0 top-full z-30 mt-1 w-80 rounded-sm border border-caos-border bg-caos-elevated p-2 shadow-lg">
+        {failed.map((outcome) => (
+          <li key={outcome.id} className="text-caos-2xs text-caos-text">
+            <span className="font-semibold">{itemName(outcome.id)}</span>
+            <span className="text-caos-muted"> — {outcome.error || "Failed without a server reason."}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function BatchOutcomeSummary({ outcomes, itemName }: { outcomes: BatchOutcome[] | null; itemName: (id: string) => string }) {
+  if (!outcomes) return null;
+  const failCount = outcomes.filter((outcome) => !outcome.ok).length;
+  const summary = failCount > 0
+    ? `${outcomes.length - failCount}/${outcomes.length} succeeded`
+    : `${outcomes.length} succeeded`;
+  return (
+    <span className="flex items-center gap-2">
+      <span
+        className="tabular text-caos-2xs whitespace-nowrap"
+        style={{ color: failCount > 0 ? "var(--caos-warning)" : "var(--caos-success)" }}
+        role="status"
+      >
+        {summary}
+      </span>
+      <BatchFailures outcomes={outcomes} itemName={itemName} />
+    </span>
+  );
+}
+
 export function BatchBar({
   selected,
   onClear,
@@ -77,8 +164,6 @@ export function BatchBar({
     setOutcomes(results);
   };
 
-  const failCount = outcomes ? outcomes.filter((o) => !o.ok).length : 0;
-
   return (
     <div
       role="toolbar"
@@ -89,61 +174,22 @@ export function BatchBar({
         {selected.length} {itemLabel}
         {selected.length === 1 ? "" : "s"} selected
       </span>
-      {actions.map((a) => (
-        <ActionReason
-          key={a.id}
-          type="button"
-          reason={running !== null ? "Another batch action is already running" : null}
-          onClick={() => {
-            if (a.confirmation && armedActionId !== a.id) {
-              setArmedActionId(a.id);
-              setOutcomes(null);
-              return;
-            }
-            void runAction(a);
-          }}
-          className="tabular text-caos-xs px-2 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
-        >
-          {running === a.id
-            ? `${a.label}…`
-            : armedActionId === a.id
-              ? `Confirm ${a.label}`
-              : a.label}
-        </ActionReason>
+      {actions.map((action) => (
+        <BatchActionControl
+          key={action.id}
+          action={action}
+          running={running}
+          armedActionId={armedActionId}
+          onArm={(id) => { setArmedActionId(id); setOutcomes(null); }}
+          onRun={(selectedAction) => { void runAction(selectedAction); }}
+        />
       ))}
       {armedActionId ? (
         <span role="status" className="max-w-72 text-caos-2xs text-caos-warning">
           {actions.find((action) => action.id === armedActionId)?.confirmation}
         </span>
       ) : null}
-      {outcomes ? (
-        <span className="flex items-center gap-2">
-          <span
-            className="tabular text-caos-2xs whitespace-nowrap"
-            style={{ color: failCount > 0 ? "var(--caos-warning)" : "var(--caos-success)" }}
-            role="status"
-          >
-            {failCount > 0
-              ? `${outcomes.length - failCount}/${outcomes.length} succeeded`
-              : `${outcomes.length} succeeded`}
-          </span>
-          {failCount > 0 ? (
-            <details className="relative">
-              <summary className="cursor-pointer text-caos-2xs text-caos-warning focus-ring">
-                {failCount} failed — details
-              </summary>
-              <ul className="absolute right-0 top-full z-30 mt-1 w-80 rounded-sm border border-caos-border bg-caos-elevated p-2 shadow-lg">
-                {outcomes.filter((outcome) => !outcome.ok).map((outcome) => (
-                  <li key={outcome.id} className="text-caos-2xs text-caos-text">
-                    <span className="font-semibold">{itemName(outcome.id)}</span>
-                    <span className="text-caos-muted"> — {outcome.error || "Failed without a server reason."}</span>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-        </span>
-      ) : null}
+      <BatchOutcomeSummary outcomes={outcomes} itemName={itemName} />
       <button
         type="button"
         onClick={onClear}

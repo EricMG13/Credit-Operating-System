@@ -228,12 +228,7 @@ export function IssuerStep({
 }
 
 /* ---------- step 2: files + run mode ---------- */
-export function FileStep({
-  selectedIssuer, getRootProps, getInputProps, isDragActive,
-  files, onRemoveFile, runMode, setRunMode, uploading, progress, onUpload, onCancel, onBack,
-  origin, setOrigin, method, setMethod,
-  portfolios = [], portfolioId = "", setPortfolioId,
-}: {
+interface FileStepProps {
   selectedIssuer: Issuer | null;
   getRootProps: Dropzone["getRootProps"];
   getInputProps: Dropzone["getInputProps"];
@@ -257,186 +252,140 @@ export function FileStep({
   portfolios?: { id: string; name: string }[];
   portfolioId?: string;
   setPortfolioId?: (v: string) => void;
-}) {
-  return (
-    <Panel
-      title={"Files & run mode · " + (selectedIssuer?.name || "")}
-      right={
-        <button onClick={onBack} className="focus-ring rounded px-1 tabular text-caos-xs text-caos-muted hover:text-caos-text transition-caos">
-          ← BACK
-        </button>
-      }
-    >
-      <div className="p-3 flex flex-col gap-3">
-        <div
-          {...getRootProps()}
-          className="focus-ring rounded border border-dashed px-4 py-7 text-center cursor-pointer transition-caos"
-          style={{
-            borderColor: isDragActive ? "var(--caos-accent)" : files.length ? "color-mix(in srgb, var(--caos-success) 50%, transparent)" : "var(--caos-border)",
-            background: isDragActive ? "color-mix(in srgb, var(--tranche-2l) 6%, transparent)" : files.length ? "color-mix(in srgb, var(--caos-success) 4%, transparent)" : "var(--caos-bg)",
-          }}
-        >
-          <input {...getInputProps()} aria-label="Upload deal documents (PDF or XLSX)" />
-          <div className="text-caos-lg text-caos-text/85">
-            Drop all deal documents here, or click to browse
-          </div>
-          <div className="tabular text-caos-xs text-caos-muted mt-1">
-            PDF / XLSX · multiple files · documents are already dated — CP-0 classifies on ingest
-          </div>
-        </div>
+}
 
-        {files.length ? (
-          <div className="rounded border border-caos-border overflow-hidden">
-            {files.map((f) => (
-              <div key={f.name + f.size} className="grid grid-cols-[1fr_90px_60px] items-center gap-x-3 px-3 py-[6px] border-b border-caos-border/50 last:border-b-0">
-                <span className="text-caos-lg text-caos-text truncate">{f.name}</span>
-                <span className="tabular text-caos-xs text-caos-muted text-right">{(f.size / 1024 / 1024).toFixed(2)} MB</span>
-                <button
-                  onClick={() => onRemoveFile(f)}
-                  aria-label={"Remove " + f.name}
-                  className="focus-ring rounded tabular text-caos-xs text-caos-muted hover:text-caos-text text-right transition-caos"
-                >
-                  REMOVE
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
+function dropzoneStyle(props: FileStepProps) {
+  if (props.isDragActive) return { borderColor: "var(--caos-accent)", background: "color-mix(in srgb, var(--tranche-2l) 6%, transparent)" };
+  if (props.files.length) return { borderColor: "color-mix(in srgb, var(--caos-success) 50%, transparent)", background: "color-mix(in srgb, var(--caos-success) 4%, transparent)" };
+  return { borderColor: "var(--caos-border)", background: "var(--caos-bg)" };
+}
 
-        <div>
-          <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">Authority declaration</div>
-          <div className="grid gap-2 md:grid-cols-2">
-            <label className="grid gap-1 tabular text-caos-xs text-caos-muted">
-              Origin
-              <select
-                value={origin}
-                onChange={(e) => setOrigin(e.target.value as "live" | "reference" | "demo")}
-                className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-md text-caos-text focus-ring"
-              >
-                <option value="live">LIVE · analyst source</option>
-                <option value="reference">REFERENCE · template/comparison</option>
-                <option value="demo">DEMO · non-decision fixture</option>
-              </select>
-            </label>
-            <label className="grid gap-1 tabular text-caos-xs text-caos-muted">
-              Method{/* option vocabulary binds to ProvMethod/ProvOrigin in lib/provenance.ts — keep in sync */}
-              <select
-                value={method}
-                onChange={(e) => setMethod(e.target.value as "reported" | "derived" | "modelled")}
-                className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-md text-caos-text focus-ring"
-              >
-                <option value="reported">REPORTED · source disclosure</option>
-                <option value="derived">DERIVED · deterministic transform</option>
-                <option value="modelled">MODELLED · analytical estimate</option>
-              </select>
-            </label>
-          </div>
-          <p className="mt-1 text-caos-xs text-caos-muted">This declaration is written into the immutable source manifest and follows the evidence downstream.</p>
-        </div>
+function FileDropzone({ props }: { props: FileStepProps }) {
+  return <div {...props.getRootProps()} className="focus-ring rounded border border-dashed px-4 py-7 text-center cursor-pointer transition-caos" style={dropzoneStyle(props)}>
+    <input {...props.getInputProps()} aria-label="Upload deal documents (PDF or XLSX)" />
+    <div className="text-caos-lg text-caos-text/85">Drop all deal documents here, or click to browse</div>
+    <div className="tabular text-caos-xs text-caos-muted mt-1">PDF / XLSX · multiple files · documents are already dated — CP-0 classifies on ingest</div>
+  </div>;
+}
 
-        <div>
-          <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">Run mode</div>
-          <div className="rounded border border-caos-border overflow-hidden">
-            {RUN_MODES.map((m) => (
-              <button
-                key={m.k}
-                onClick={() => setRunMode(m.k)}
-                aria-pressed={runMode === m.k}
-                className={
-                  "focus-ring w-full grid grid-cols-[52px_150px_1fr_70px] items-center gap-x-3 px-3 py-[7px] border-b border-caos-border/50 last:border-b-0 text-left transition-caos hover:bg-caos-elevated/60 " +
-                  (runMode === m.k ? "bg-caos-elevated" : "")
-                }
-              >
-                <span className="tabular text-caos-xs text-caos-accent">{m.code}</span>
-                <span className="text-caos-text text-caos-lg">{m.label}</span>
-                <span className="text-caos-muted text-caos-sm truncate">{m.desc}</span>
-                <span className="tabular text-caos-xs text-right" style={{ color: runMode === m.k ? "var(--caos-success)" : "var(--caos-muted)" }}>
-                  {runMode === m.k ? "✓ SELECTED" : "SELECT"}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+function StagedFileRow({ file, onRemove }: { file: File; onRemove: (file: File) => void }) {
+  return <div className="grid grid-cols-[1fr_90px_60px] items-center gap-x-3 px-3 py-[6px] border-b border-caos-border/50 last:border-b-0">
+    <span className="text-caos-lg text-caos-text truncate">{file.name}</span>
+    <span className="tabular text-caos-xs text-caos-muted text-right">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
+    <button onClick={() => onRemove(file)} aria-label={`Remove ${file.name}`} className="focus-ring rounded tabular text-caos-xs text-caos-muted hover:text-caos-text text-right transition-caos">REMOVE</button>
+  </div>;
+}
 
-        {/* Primary Transaction runs the full IC route, but pricing + structure
-            only analyse if the deal terms are in the source materials — warn, don't gate. */}
-        {runMode === "primary" ? (
-          <div
-            role="note"
-            className="rounded border px-3 py-2 flex items-start gap-2"
-            style={{
-              borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)",
-              background: "color-mix(in srgb, var(--caos-warning) 7%, transparent)",
-            }}
-          >
-            <Dot sev="warning" />
-            <span className="text-caos-sm leading-snug" style={{ color: "var(--caos-warning)" }}>
-              Primary transaction — include the <span className="font-medium">new-loan price</span>,{" "}
-              <span className="font-medium">OID</span> and <span className="font-medium">cap table</span>{" "}
-              in your source materials so pricing and structure are analysed.
-            </span>
-          </div>
-        ) : null}
+function StagedFiles({ props }: { props: FileStepProps }) {
+  if (!props.files.length) return null;
+  return <div className="rounded border border-caos-border overflow-hidden">
+    {props.files.map((file) => <StagedFileRow key={file.name + file.size} file={file} onRemove={props.onRemoveFile} />)}
+  </div>;
+}
 
-        {portfolios.length && setPortfolioId ? (
-          <div>
-            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">
-              Portfolio context
-            </div>
-            <select
-              value={portfolioId}
-              onChange={(e) => setPortfolioId(e.target.value)}
-              aria-label="Portfolio to evaluate this issuer against"
-              className="w-full px-2.5 py-1.5 text-caos-lg rounded border border-caos-border bg-caos-bg text-caos-text focus-ring"
-            >
-              <option value="">Auto — the book holding this issuer</option>
-              {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            <div className="tabular text-caos-2xs text-caos-muted mt-1 leading-snug">
-              The book CP-3C evaluates the issuer against (concentration + headroom). Auto-binds when the issuer is held.
-            </div>
-          </div>
-        ) : null}
+function AuthorityDeclaration({ props }: { props: FileStepProps }) {
+  return <div>
+    <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">Authority declaration</div>
+    <div className="grid gap-2 md:grid-cols-2">
+      <label className="grid gap-1 tabular text-caos-xs text-caos-muted">Origin
+        <select value={props.origin} onChange={(event) => props.setOrigin(event.target.value as FileStepProps["origin"])} className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-md text-caos-text focus-ring">
+          <option value="live">LIVE · analyst source</option><option value="reference">REFERENCE · template/comparison</option><option value="demo">DEMO · non-decision fixture</option>
+        </select>
+      </label>
+      <label className="grid gap-1 tabular text-caos-xs text-caos-muted">Method
+        <select value={props.method} onChange={(event) => props.setMethod(event.target.value as FileStepProps["method"])} className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-md text-caos-text focus-ring">
+          <option value="reported">REPORTED · source disclosure</option><option value="derived">DERIVED · deterministic transform</option><option value="modelled">MODELLED · analytical estimate</option>
+        </select>
+      </label>
+    </div>
+    <p className="mt-1 text-caos-xs text-caos-muted">This declaration is written into the immutable source manifest and follows the evidence downstream.</p>
+  </div>;
+}
 
-        <div className="flex gap-2">
-          <ActionReason
-            onClick={onUpload}
-            reason={files.length === 0 ? "Add at least one file first" : uploading ? "Upload in progress…" : null}
-            className="focus-ring flex-1 min-w-0 h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md aria-disabled:opacity-40 aria-disabled:cursor-not-allowed flex items-center justify-center gap-2 px-3"
-          >
-            {uploading ? (
-              <>
-                <Dot sev="running" pulse />
-                <span className="whitespace-nowrap">
-                  UPLOADING <span className="tabular">{progress?.index ?? 0}/{progress?.total ?? files.length}</span>
-                </span>
-                {progress?.name ? <span className="text-caos-muted truncate min-w-0">— {progress.name}</span> : null}
-              </>
-            ) : (
-              `UPLOAD ${files.length || ""} FILE${files.length === 1 ? "" : "S"} & PROCESS`
-            )}
-          </ActionReason>
-          {uploading ? (
-            <button
-              onClick={onCancel}
-              className="focus-ring shrink-0 h-8 px-3 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-critical/60 transition-caos tabular text-caos-md"
-            >
-              CANCEL
-            </button>
-          ) : null}
-        </div>
-      </div>
-    </Panel>
-  );
+function RunModeRow({ active, mode, select }: { active: boolean; mode: RunMode; select: (key: string) => void }) {
+  const activeClass = active ? "bg-caos-elevated" : "";
+  return <button onClick={() => select(mode.k)} aria-pressed={active} className={`focus-ring w-full grid grid-cols-[52px_150px_1fr_70px] items-center gap-x-3 px-3 py-[7px] border-b border-caos-border/50 last:border-b-0 text-left transition-caos hover:bg-caos-elevated/60 ${activeClass}`}>
+    <span className="tabular text-caos-xs text-caos-accent">{mode.code}</span>
+    <span className="text-caos-text text-caos-lg">{mode.label}</span>
+    <span className="text-caos-muted text-caos-sm truncate">{mode.desc}</span>
+    <span className="tabular text-caos-xs text-right" style={{ color: active ? "var(--caos-success)" : "var(--caos-muted)" }}>{active ? "✓ SELECTED" : "SELECT"}</span>
+  </button>;
+}
+
+function RunModePicker({ props }: { props: FileStepProps }) {
+  return <div>
+    <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">Run mode</div>
+    <div className="rounded border border-caos-border overflow-hidden">
+      {RUN_MODES.map((mode) => <RunModeRow key={mode.k} active={props.runMode === mode.k} mode={mode} select={props.setRunMode} />)}
+    </div>
+  </div>;
+}
+
+function PrimaryModeWarning({ runMode }: { runMode: string }) {
+  if (runMode !== "primary") return null;
+  return <div role="note" className="rounded border px-3 py-2 flex items-start gap-2" style={{ borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 7%, transparent)" }}>
+    <Dot sev="warning" />
+    <span className="text-caos-sm leading-snug" style={{ color: "var(--caos-warning)" }}>Primary transaction — include the <span className="font-medium">new-loan price</span>,{" "}<span className="font-medium">OID</span> and <span className="font-medium">cap table</span>{" "}in your source materials so pricing and structure are analysed.</span>
+  </div>;
+}
+
+function PortfolioPicker({ props }: { props: FileStepProps }) {
+  const portfolios = props.portfolios ?? [];
+  const setPortfolioId = props.setPortfolioId;
+  if (!portfolios.length || !setPortfolioId) return null;
+  return <div>
+    <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">Portfolio context</div>
+    <select value={props.portfolioId ?? ""} onChange={(event) => setPortfolioId(event.target.value)} aria-label="Portfolio to evaluate this issuer against" className="w-full px-2.5 py-1.5 text-caos-lg rounded border border-caos-border bg-caos-bg text-caos-text focus-ring">
+      <option value="">Auto — the book holding this issuer</option>
+      {portfolios.map((portfolio) => <option key={portfolio.id} value={portfolio.id}>{portfolio.name}</option>)}
+    </select>
+    <div className="tabular text-caos-2xs text-caos-muted mt-1 leading-snug">The book CP-3C evaluates the issuer against (concentration + headroom). Auto-binds when the issuer is held.</div>
+  </div>;
+}
+
+function uploadReason(props: FileStepProps) {
+  if (!props.files.length) return "Add at least one file first";
+  return props.uploading ? "Upload in progress…" : null;
+}
+
+function UploadActionLabel({ props }: { props: FileStepProps }) {
+  if (!props.uploading) {
+    const count = props.files.length || "";
+    const suffix = props.files.length === 1 ? "" : "S";
+    return <>UPLOAD {count} FILE{suffix} &amp; PROCESS</>;
+  }
+  return <><Dot sev="running" pulse /><span className="whitespace-nowrap">UPLOADING <span className="tabular">{props.progress?.index ?? 0}/{props.progress?.total ?? props.files.length}</span></span>{props.progress?.name ? <span className="text-caos-muted truncate min-w-0">— {props.progress.name}</span> : null}</>;
+}
+
+function UploadControls({ props }: { props: FileStepProps }) {
+  return <div className="flex gap-2">
+    <ActionReason onClick={props.onUpload} reason={uploadReason(props)} className="focus-ring flex-1 min-w-0 h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md aria-disabled:opacity-40 aria-disabled:cursor-not-allowed flex items-center justify-center gap-2 px-3">
+      <UploadActionLabel props={props} />
+    </ActionReason>
+    {props.uploading ? <button onClick={props.onCancel} className="focus-ring shrink-0 h-8 px-3 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-critical/60 transition-caos tabular text-caos-md">CANCEL</button> : null}
+  </div>;
+}
+
+export function FileStep(props: FileStepProps) {
+  const issuerName = props.selectedIssuer?.name || "";
+  return <Panel
+    title={`Files & run mode · ${issuerName}`}
+    right={<button onClick={props.onBack} className="focus-ring rounded px-1 tabular text-caos-xs text-caos-muted hover:text-caos-text transition-caos">← BACK</button>}
+  >
+    <div className="p-3 flex flex-col gap-3">
+      <FileDropzone props={props} />
+      <StagedFiles props={props} />
+      <AuthorityDeclaration props={props} />
+      <RunModePicker props={props} />
+      <PrimaryModeWarning runMode={props.runMode} />
+      <PortfolioPicker props={props} />
+      <UploadControls props={props} />
+    </div>
+  </Panel>;
 }
 
 /* ---------- step 3: result ---------- */
-export function ResultStep({
-  outcomes, selectedIssuer, modeMeta, okCount, failCount, totalChunks,
-  uploading, progress, runOutcome, onReset, onRetryFailed,
-  runCreating, runCreated, runError, onCreateRun,
-  contextId,
-}: {
+interface ResultStepProps {
   outcomes: FileOutcome[];
   selectedIssuer: Issuer | null;
   modeMeta?: RunMode;
@@ -455,187 +404,173 @@ export function ResultStep({
   runError: string;
   onCreateRun: () => void;
   contextId?: string;
-}) {
-  const { openProfile } = useIssuerProfileOverlay();
-  // A vaulted doc that produced 0 chunks has no extractable text (scanned /
-  // encrypted PDF, or an image-only file) — it is stored but NOT searchable or
-  // analysed. Surface it as a warning so the analyst isn't silently working from
-  // a document the engine never read.
-  const zeroCount = outcomes.filter((o) => o.result && o.result.chunks_created === 0).length;
-  const noTextTitle = "No extractable text (scanned or encrypted PDF?) — vaulted but not searchable or analysed.";
-  return (
-    <Panel
-      title={uploading ? "Ingesting · CP-0 processing" : "Intake complete · CP-0 ready"}
-      right={
-        <span className="flex items-center gap-1.5">
-          <Dot sev={uploading ? "running" : failCount || zeroCount ? "warning" : "ok"} pulse={uploading} />
-          <span className="tabular text-caos-xs text-caos-muted">
-            {uploading && progress
-              ? `${progress.index}/${progress.total} processing`
-              : `${okCount}/${outcomes.length} vaulted · ${totalChunks} chunks`}
-          </span>
-        </span>
-      }
+}
+
+const NO_TEXT_TITLE = "No extractable text (scanned or encrypted PDF?) — vaulted but not searchable or analysed.";
+
+function zeroChunkCount(outcomes: FileOutcome[]) {
+  return outcomes.filter((outcome) => outcome.result?.chunks_created === 0).length;
+}
+
+function pipelineRunHref(issuerId: string, runId: string, contextId?: string) {
+  const context = contextId ? `&context=${encodeURIComponent(contextId)}` : "";
+  return `/pipeline?issuer=${encodeURIComponent(issuerId)}&run=${encodeURIComponent(runId)}&view=graph${context}`;
+}
+
+function resultSeverity(uploading: boolean, failCount: number, zeroCount: number) {
+  if (uploading) return "running" as const;
+  return failCount || zeroCount ? "warning" as const : "ok" as const;
+}
+
+function ResultPanelStatus({ props, zeroCount }: { props: ResultStepProps; zeroCount: number }) {
+  const text = props.uploading && props.progress
+    ? `${props.progress.index}/${props.progress.total} processing`
+    : `${props.okCount}/${props.outcomes.length} vaulted · ${props.totalChunks} chunks`;
+  return <span className="flex items-center gap-1.5">
+    <Dot sev={resultSeverity(props.uploading, props.failCount, zeroCount)} pulse={props.uploading} />
+    <span className="tabular text-caos-xs text-caos-muted">{text}</span>
+  </span>;
+}
+
+function RunOutcomeStatus({ outcome }: { outcome: RunQueueOutcome | null }) {
+  if (outcome?.state === "queued") return <> · run queued (full CP-X route) · RUN #{outcome.runId.slice(0, 8)}</>;
+  if (outcome?.state === "queuing") return <> · queuing run…</>;
+  if (outcome?.state === "active") return <> · a run for this issuer is already in progress — new documents are picked up on the next run</>;
+  if (outcome?.state === "failed") return <span style={{ color: "var(--caos-warning)" }}> · run not started ({outcome.message}) — start one from Pipeline</span>;
+  return null;
+}
+
+function ResultSummary({ props, zeroCount }: { props: ResultStepProps; zeroCount: number }) {
+  if (props.uploading && props.progress) return <div className="px-3 py-2.5 border-b border-caos-border flex items-center gap-2 text-caos-lg leading-snug">
+    <Dot sev="running" pulse />
+    <span className="tabular text-caos-text whitespace-nowrap">{props.progress.index}/{props.progress.total}</span>
+    <span className="text-caos-muted truncate min-w-0">— {props.progress.name}</span>
+  </div>;
+  const documentSuffix = props.okCount === 1 ? "" : "s";
+  return <div className="px-3 py-2.5 border-b border-caos-border text-caos-lg text-caos-text leading-snug">
+    {props.okCount} document{documentSuffix} vaulted for {props.selectedIssuer?.name}
+    {props.modeMeta ? <span className="text-caos-muted"> · {props.modeMeta.label} is intake metadata; runs use the full CP-X route</span> : null}
+    <RunOutcomeStatus outcome={props.runOutcome} />
+    {props.failCount ? <span style={{ color: "var(--caos-critical)" }}> · {props.failCount} failed</span> : null}
+    {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
+  </div>;
+}
+
+function QueuedRunLink({ props }: { props: ResultStepProps }) {
+  const outcome = props.runOutcome;
+  if (props.uploading || !props.selectedIssuer || outcome?.state !== "queued") return null;
+  return <div className="flex items-center gap-2 border-b border-caos-border px-3 py-2">
+    <span className="tabular text-caos-xs text-caos-muted">Exact run {outcome.runId.slice(0, 8)}</span>
+    <Link href={pipelineRunHref(props.selectedIssuer.id, outcome.runId, props.contextId)} className="caos-action-secondary ml-auto no-underline focus-ring">Open Execution Graph</Link>
+  </div>;
+}
+
+function CreatedRun({ props }: { props: ResultStepProps }) {
+  const run = props.runCreated;
+  const issuer = props.selectedIssuer;
+  if (!run || !issuer) return null;
+  return <>
+    <Dot sev={run.status === "failed" ? "critical" : "ok"} />
+    <span className="tabular text-caos-md text-caos-text">RUN {run.status.toUpperCase()} · {run.id.slice(0, 8)}</span>
+    <Link href={pipelineRunHref(issuer.id, run.id, props.contextId)} className="focus-ring ml-auto no-underline tabular text-caos-md px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">VIEW IN PIPELINE →</Link>
+  </>;
+}
+
+function ManualRunMessage({ props }: { props: ResultStepProps }) {
+  if (props.runError) return <span role="alert" className="text-caos-md" style={{ color: "var(--caos-critical-bright)" }}>{props.runError}</span>;
+  if (props.runOutcome?.state === "failed") return <span className="tabular text-caos-xs text-caos-muted">the automatic run attempt failed — retry above</span>;
+  return <span className="tabular text-caos-xs text-caos-muted">not started yet — vaulting a document doesn&apos;t queue a run</span>;
+}
+
+function PendingRun({ props }: { props: ResultStepProps }) {
+  return <>
+    <ActionReason
+      onClick={props.onCreateRun}
+      reason={props.runCreating ? "Queuing run…" : null}
+      className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos aria-disabled:opacity-40 flex items-center gap-1.5"
     >
-      {uploading && progress ? (
-        <div className="px-3 py-2.5 border-b border-caos-border flex items-center gap-2 text-caos-lg leading-snug">
-          <Dot sev="running" pulse />
-          <span className="tabular text-caos-text whitespace-nowrap">{progress.index}/{progress.total}</span>
-          <span className="text-caos-muted truncate min-w-0">— {progress.name}</span>
-        </div>
-      ) : (
-        <div className="px-3 py-2.5 border-b border-caos-border text-caos-lg text-caos-text leading-snug">
-          {okCount} document{okCount === 1 ? "" : "s"} vaulted for {selectedIssuer?.name}
-          {modeMeta ? <span className="text-caos-muted"> · {modeMeta.label} is intake metadata; runs use the full CP-X route</span> : null}
-          {/* Truthful run status (FE-1): report what POST /api/runs actually
-              returned — never assert "run queued" when nothing was queued. */}
-          {runOutcome?.state === "queued" ? (
-            // The picked mode is descriptive metadata only — the queued run
-            // is always the full CP-X route regardless of mode (see the
-            // comment below). Naming the mode here used to claim it had been
-            // honored; state only what actually happened.
-            <> · run queued (full CP-X route) · RUN #{runOutcome.runId.slice(0, 8)}</>
-          ) : runOutcome?.state === "queuing" ? (
-            <> · queuing run…</>
-          ) : runOutcome?.state === "active" ? (
-            <> · a run for this issuer is already in progress — new documents are picked up on the next run</>
-          ) : runOutcome?.state === "failed" ? (
-            <span style={{ color: "var(--caos-warning)" }}> · run not started ({runOutcome.message}) — start one from Pipeline</span>
-          ) : null}
-          {failCount ? <span style={{ color: "var(--caos-critical)" }}> · {failCount} failed</span> : null}
-          {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
-        </div>
-      )}
-      {!uploading && selectedIssuer && runOutcome?.state === "queued" ? (
-        <div className="flex items-center gap-2 border-b border-caos-border px-3 py-2">
-          <span className="tabular text-caos-xs text-caos-muted">Exact run {runOutcome.runId.slice(0, 8)}</span>
-          <Link
-            href={`/pipeline?issuer=${encodeURIComponent(selectedIssuer.id)}&run=${encodeURIComponent(runOutcome.runId)}&view=graph${contextId ? `&context=${encodeURIComponent(contextId)}` : ""}`}
-            className="caos-action-secondary ml-auto no-underline focus-ring"
-          >
-            Open Execution Graph
-          </Link>
-        </div>
-      ) : null}
-      {/* Vaulting a document never starts a run by itself — this is the explicit
-          trigger. modeMeta is descriptive metadata on the vaulted documents
-          today (not yet threaded into the engine route), so the run itself is
-          always the full CP-X route regardless of the mode picked in step 2. */}
-      {/* Gated on !runOutcome / "failed": runUpload's own auto-queue attempt
-          (FE-1, above) already fires a run for every vaulted batch — showing
-          this manual trigger too, unconditionally, would let the analyst
-          double-queue (and double-spend) a second run for the same documents.
-          It survives only as the retry path when the automatic attempt never
-          ran or failed. */}
-      {!uploading && okCount > 0 && selectedIssuer && (!runOutcome || runOutcome.state === "failed") ? (
-        <div className="px-3 py-2.5 border-b border-caos-border flex items-center gap-2.5">
-          {runCreated ? (
-            <>
-              <Dot sev={runCreated.status === "failed" ? "critical" : "ok"} />
-              <span className="tabular text-caos-md text-caos-text">
-                RUN {runCreated.status.toUpperCase()} · {runCreated.id.slice(0, 8)}
-              </span>
-              <Link
-                href={`/pipeline?issuer=${encodeURIComponent(selectedIssuer.id)}&run=${encodeURIComponent(runCreated.id)}&view=graph${contextId ? `&context=${encodeURIComponent(contextId)}` : ""}`}
-                className="focus-ring ml-auto no-underline tabular text-caos-md px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-              >
-                VIEW IN PIPELINE →
-              </Link>
-            </>
-          ) : (
-            <>
-              <ActionReason
-                onClick={onCreateRun}
-                reason={runCreating ? "Queuing run…" : null}
-                className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos aria-disabled:opacity-40 flex items-center gap-1.5"
-              >
-                {runCreating ? <Dot sev="running" pulse /> : null}
-                {runCreating ? "QUEUING RUN…" : "START FULL CP-X RUN"}
-              </ActionReason>
-              {runError ? (
-                <span role="alert" className="text-caos-md" style={{ color: "var(--caos-critical-bright)" }}>{runError}</span>
-              ) : runOutcome?.state === "failed" ? (
-                <span className="tabular text-caos-xs text-caos-muted">the automatic run attempt failed — retry above</span>
-              ) : (
-                <span className="tabular text-caos-xs text-caos-muted">not started yet — vaulting a document doesn&apos;t queue a run</span>
-              )}
-            </>
-          )}
-        </div>
-      ) : null}
-      <div className="text-caos-md">
-        {outcomes.map((o) => {
-          const noText = !!o.result && o.result.chunks_created === 0;
-          return (
-            <div key={o.name} className="grid grid-cols-[14px_minmax(0,1fr)_120px_110px] items-center gap-x-2 px-3 py-[6px] border-b border-caos-border/50">
-              <Dot sev={o.result ? (noText ? "warning" : "ok") : "critical"} />
-              <span className="text-caos-text truncate">{o.name}</span>
-              <span className="tabular text-caos-2xs text-caos-muted truncate" title={o.result?.source_manifest_id}>
-                {o.result ? (o.result.source_manifest_id ? `MANIFEST ${o.result.source_manifest_id.slice(0, 8)}` : "EDGAR VAULT") : "—"}
-              </span>
-              <span className="flex min-w-0 flex-col items-end text-right">
-                <span
-                  className="tabular text-caos-xs"
-                  title={noText ? noTextTitle : undefined}
-                  style={{ color: o.result ? (noText ? "var(--caos-warning)" : "var(--caos-muted)") : "var(--caos-critical)" }}
-                >
-                  {o.result ? (noText ? "0 chunks — no text" : `${o.result.chunks_created} chunks`) : o.error}
-                </span>
-                {o.result ? (
-                  <span
-                    className="tabular text-caos-3xs text-caos-muted"
-                    title={o.result.malware_scan ? "Persisted scanner verdict from intake" : "This intake response did not return a persisted scanner verdict."}
-                  >
-                    {o.result.malware_scan ? `scan ${o.result.malware_scan}` : "scan verdict unavailable"}
-                  </span>
-                ) : null}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <div className="p-3 flex gap-2">
-        {/* Retry only the failed files — issuer, run mode, and the rows that
-            already succeeded are all preserved, so a transient 5xx on 2 of 12
-            never forces re-selecting the issuer or re-dropping the batch. */}
-        {failCount > 0 && !uploading ? (
-          <button
-            onClick={onRetryFailed}
-            className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos flex items-center justify-center gap-1.5"
-          >
-            <Dot sev="critical" />
-            RETRY <span className="tabular">{failCount}</span> FAILED
-          </button>
-        ) : null}
-        <ActionReason
-          onClick={onReset}
-          reason={uploading ? "Upload in progress…" : null}
-          className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
-        >
-          UPLOAD ANOTHER
-        </ActionReason>
-        {selectedIssuer ? (
-          <button
-            onClick={() => openProfile(selectedIssuer.id)}
-            className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
-          >
-            OPEN ISSUER PROFILE →
-          </button>
-        ) : (
-          <Link
-            href="/issuers"
-            className="focus-ring flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos"
-          >
-            OPEN ISSUER PROFILE →
-          </Link>
-        )}
-        <Link
-          href="/issuers"
-          className="focus-ring flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos"
-        >
-          ISSUER REGISTER →
-        </Link>
-      </div>
-    </Panel>
-  );
+      {props.runCreating ? <Dot sev="running" pulse /> : null}
+      {props.runCreating ? "QUEUING RUN…" : "START FULL CP-X RUN"}
+    </ActionReason>
+    <ManualRunMessage props={props} />
+  </>;
+}
+
+function ManualRunGate({ props }: { props: ResultStepProps }) {
+  if (props.uploading || props.okCount <= 0 || !props.selectedIssuer) return null;
+  if (props.runOutcome && props.runOutcome.state !== "failed") return null;
+  return <div className="px-3 py-2.5 border-b border-caos-border flex items-center gap-2.5">
+    {props.runCreated ? <CreatedRun props={props} /> : <PendingRun props={props} />}
+  </div>;
+}
+
+function outcomeManifestLabel(result: UploadResult | undefined) {
+  if (!result) return "—";
+  return result.source_manifest_id ? `MANIFEST ${result.source_manifest_id.slice(0, 8)}` : "EDGAR VAULT";
+}
+
+function OutcomeScan({ result }: { result: UploadResult | undefined }) {
+  if (!result) return null;
+  const title = result.malware_scan ? "Persisted scanner verdict from intake" : "This intake response did not return a persisted scanner verdict.";
+  return <span className="tabular text-caos-3xs text-caos-muted" title={title}>{result.malware_scan ? `scan ${result.malware_scan}` : "scan verdict unavailable"}</span>;
+}
+
+function OutcomeStatus({ outcome, noText }: { outcome: FileOutcome; noText: boolean }) {
+  const color = outcome.result ? (noText ? "var(--caos-warning)" : "var(--caos-muted)") : "var(--caos-critical)";
+  const text = outcome.result ? (noText ? "0 chunks — no text" : `${outcome.result.chunks_created} chunks`) : outcome.error;
+  return <span className="flex min-w-0 flex-col items-end text-right">
+    <span className="tabular text-caos-xs" title={noText ? NO_TEXT_TITLE : undefined} style={{ color }}>{text}</span>
+    <OutcomeScan result={outcome.result} />
+  </span>;
+}
+
+function ResultOutcomeRow({ outcome }: { outcome: FileOutcome }) {
+  const noText = outcome.result?.chunks_created === 0;
+  const severity = outcome.result ? (noText ? "warning" : "ok") : "critical";
+  return <div className="grid grid-cols-[14px_minmax(0,1fr)_120px_110px] items-center gap-x-2 px-3 py-[6px] border-b border-caos-border/50">
+    <Dot sev={severity} />
+    <span className="text-caos-text truncate">{outcome.name}</span>
+    <span className="tabular text-caos-2xs text-caos-muted truncate" title={outcome.result?.source_manifest_id}>{outcomeManifestLabel(outcome.result)}</span>
+    <OutcomeStatus outcome={outcome} noText={noText} />
+  </div>;
+}
+
+function RetryFailedAction({ props }: { props: ResultStepProps }) {
+  if (props.failCount <= 0 || props.uploading) return null;
+  return <button onClick={props.onRetryFailed} className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos flex items-center justify-center gap-1.5">
+    <Dot sev="critical" />RETRY <span className="tabular">{props.failCount}</span> FAILED
+  </button>;
+}
+
+function IssuerProfileAction({ issuer }: { issuer: Issuer | null }) {
+  const { openProfile } = useIssuerProfileOverlay();
+  if (!issuer) return <Link href="/issuers" className="focus-ring flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos">OPEN ISSUER PROFILE →</Link>;
+  return <button onClick={() => openProfile(issuer.id)} className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos">OPEN ISSUER PROFILE →</button>;
+}
+
+function ResultActions({ props }: { props: ResultStepProps }) {
+  return <div className="p-3 flex gap-2">
+    <RetryFailedAction props={props} />
+    <ActionReason
+      onClick={props.onReset}
+      reason={props.uploading ? "Upload in progress…" : null}
+      className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
+    >UPLOAD ANOTHER</ActionReason>
+    <IssuerProfileAction issuer={props.selectedIssuer} />
+    <Link href="/issuers" className="focus-ring flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">ISSUER REGISTER →</Link>
+  </div>;
+}
+
+export function ResultStep(props: ResultStepProps) {
+  const zeroCount = zeroChunkCount(props.outcomes);
+  return <Panel
+    title={props.uploading ? "Ingesting · CP-0 processing" : "Intake complete · CP-0 ready"}
+    right={<ResultPanelStatus props={props} zeroCount={zeroCount} />}
+  >
+    <ResultSummary props={props} zeroCount={zeroCount} />
+    <QueuedRunLink props={props} />
+    <ManualRunGate props={props} />
+    <div className="text-caos-md">{props.outcomes.map((outcome) => <ResultOutcomeRow key={outcome.name} outcome={outcome} />)}</div>
+    <ResultActions props={props} />
+  </Panel>;
 }

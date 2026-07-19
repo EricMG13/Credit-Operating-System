@@ -4,6 +4,7 @@
 // narrower analyst layout.
 // Run: cd caos/frontend && [BASE=http://localhost:3010] node scripts/a11y-query.mjs
 import { createRequire } from 'module';
+import { summarizeAxeViolations } from './axe-results.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -43,24 +44,13 @@ if (!login.ok()) {
 const out = {};
 async function scan(name) {
   await page.addScriptTag({ path: axePath });
-  out[name] = await page.evaluate(async (tags) => {
+  const violations = await page.evaluate(async (tags) => {
     const result = await window.axe.run(document, {
       runOnly: { type: 'tag', values: tags },
     });
-    return {
-      violations: result.violations.map((violation) => ({
-        id: violation.id,
-        impact: violation.impact,
-        help: violation.help,
-        wcag: violation.tags.filter((tag) => tag.startsWith('wcag')),
-        n: violation.nodes.length,
-        nodes: violation.nodes.slice(0, 5).map((node) => ({
-          target: node.target,
-          summary: node.failureSummary,
-        })),
-      })),
-    };
+    return result.violations;
   }, TAGS);
+  out[name] = { violations: summarizeAxeViolations(violations, { nodeLimit: 5 }) };
 }
 
 await page.goto(BASE + '/query/', { waitUntil: 'domcontentloaded', timeout: 45000 });

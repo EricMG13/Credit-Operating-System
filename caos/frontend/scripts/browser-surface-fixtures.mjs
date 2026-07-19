@@ -54,6 +54,60 @@ const decisionItem = {
   reopen_alert_key: null, created_at: '2026-07-13T10:00:00Z', votes: [],
 };
 
+function agendaOperation(method, path) {
+  const resource = path.endsWith('/finalize') ? 'finalize' : path.endsWith('/agenda') ? 'agenda' : 'item';
+  return `${method}:${resource}`;
+}
+
+function createdAgenda(input) {
+  return { ...agendaItem, ...input, id: 'agenda-created', status: input.status ?? 'draft', revision: 1 };
+}
+
+function agendaRouteResult(operation, input, currentAgenda, currentDecision) {
+  const special = {
+    'POST:finalize': () => {
+    const agenda = { ...currentAgenda, status: 'decided', finalized_decision_id: currentDecision.id, revision: currentAgenda.revision + 1, snapshot_sha256: currentDecision.snapshot_sha256 };
+    return { agenda, body: { agenda, decision: currentDecision } };
+    },
+    'POST:agenda': () => ({ agenda: currentAgenda, body: createdAgenda(input) }),
+  }[operation];
+  if (operation.startsWith('PATCH:')) {
+    const agenda = { ...currentAgenda, ...input, revision: currentAgenda.revision + 1 };
+    return { agenda, body: agenda };
+  }
+  if (special) return special();
+  const body = operation.endsWith(':agenda') ? { items: [currentAgenda], next_cursor: null, total: 1 } : currentAgenda;
+  return { agenda: currentAgenda, body };
+}
+
+function portfolioFixtureBody(path) {
+  const authority = { origin: 'live', method: 'deterministic-portfolio-v1', freshness: 'current', as_of: '2026-06-30', source_ids: ['portfolio:portfolio-1'], run_id: null, version_id: null, confidence: 1, approval_state: 'draft', analyst_override: null };
+  const position = { id: 'position-1', portfolio_id: 'portfolio-1', issuer_id: 'iss-1', borrower_name: 'VMO2', ticker: 'VMO2', figi: null, loan_name: 'TLB 2029', sector: 'Telecom', sub_sector: null, ranking: '1L', rating_moody: 'B1', rating_sp: 'BB-', par_usd: 10000000, facility_musd: 500, margin_bps: 425, maturity: '2029', price: 98.5, ytm: 8.1, dm: 510, market_value: 9850000, created_at: '2026-06-30T00:00:00Z' };
+  const routes = [
+    ['/command', () => ({ portfolio: { id: 'portfolio-1', name: 'Credit Fund I', kind: 'Fund', as_of_date: '2026-06-30' }, positions: [{ ...position, posture: 'NEUTRAL', run_id: 'run-1', qa_status: 'Passed', committee_status: 'Committee Ready' }], posture_counts: { OVERWEIGHT: 0, NEUTRAL: 1, UNDERWEIGHT: 0, UNKNOWN: 0 }, position_count: 1, as_of: '2026-06-30', authority })],
+    ['/positions', () => ({ items: [position], total: 1, next_cursor: null, as_of: '2026-06-30', authority })],
+    ['/analytics', () => ({ as_of: '2026-06-30', concentration: { n_positions: 1, n_obligors: 1, total_nav: 9850000, total_par: 10000000, sectors: [{ sector: 'Telecom', mv: 9850000, pct_nav: 100, n_obligors: 1 }], rating_dist: [{ bucket: 'B', mv: 9850000, pct_nav: 100, n_obligors: 1 }], top10: [{ obligor: 'VMO2', mv: 9850000, pct_nav: 100 }], top10_pct_nav: 100, wa_rating: 'B1', wa_margin: 425, wa_price: 98.5, first_lien_pct: 100 }, rating_distribution: { B1: 100 }, maturity_wall: { 2029: 9850000 }, risk_budget: { status_counts: { Breach: 0, Watch: 1, Pass: 0, Info: 0 }, headroom: [] }, liquidity: { priced_nav_pct: 100, wa_price: 98.5, unpriced_positions: 0 }, compliance: [], authority, missing_dependencies: [], latest_stress_runs: [] })],
+    ['/stress-runs', () => ({ items: [], total: 0, authority })],
+  ];
+  const match = routes.find(([suffix]) => path.endsWith(suffix));
+  return match ? match[1]() : [{ id: 'portfolio-1', name: 'Credit Fund I', kind: 'Fund', as_of_date: '2026-06-30', n_positions: 1, total_nav: 10000000, total_par: 10000000, breaches: 0, watches: 1 }];
+}
+
+function decisionOperation(method, path) {
+  if (method !== 'POST') return null;
+  if (path.endsWith('/votes')) return 'votes';
+  if (path.endsWith('/reopen')) return 'reopen';
+  return null;
+}
+
+function decisionRouteResult(operation, input, currentDecision, identity) {
+  const updates = {
+    votes: () => ({ ...currentDecision, votes: [{ id: 'vote-1', member: identity.id, vote: input.vote, dissent_note: input.dissent_note ?? null, created_at: '2026-07-13T10:05:00Z' }] }),
+    reopen: () => ({ ...currentDecision, status: 'reopened', reopened_at: '2026-07-13T10:06:00Z', reopen_alert_key: input.trigger_alert_key }),
+  };
+  return operation ? updates[operation]() : currentDecision;
+}
+
 export async function installSurfaceStubs(target, identity) {
   let currentAgenda = { ...agendaItem };
   let currentDecision = { ...decisionItem };
@@ -71,14 +125,7 @@ export async function installSurfaceStubs(target, identity) {
   }));
   await target.route('**/api/portfolios**', (route) => {
     const path = new URL(route.request().url()).pathname;
-    const authority = { origin: 'live', method: 'deterministic-portfolio-v1', freshness: 'current', as_of: '2026-06-30', source_ids: ['portfolio:portfolio-1'], run_id: null, version_id: null, confidence: 1, approval_state: 'draft', analyst_override: null };
-    const position = { id: 'position-1', portfolio_id: 'portfolio-1', issuer_id: 'iss-1', borrower_name: 'VMO2', ticker: 'VMO2', figi: null, loan_name: 'TLB 2029', sector: 'Telecom', sub_sector: null, ranking: '1L', rating_moody: 'B1', rating_sp: 'BB-', par_usd: 10000000, facility_musd: 500, margin_bps: 425, maturity: '2029', price: 98.5, ytm: 8.1, dm: 510, market_value: 9850000, created_at: '2026-06-30T00:00:00Z' };
-    let body;
-    if (path.endsWith('/command')) body = { portfolio: { id: 'portfolio-1', name: 'Credit Fund I', kind: 'Fund', as_of_date: '2026-06-30' }, positions: [{ ...position, posture: 'NEUTRAL', run_id: 'run-1', qa_status: 'Passed', committee_status: 'Committee Ready' }], posture_counts: { OVERWEIGHT: 0, NEUTRAL: 1, UNDERWEIGHT: 0, UNKNOWN: 0 }, position_count: 1, as_of: '2026-06-30', authority };
-    else if (path.endsWith('/positions')) body = { items: [position], total: 1, next_cursor: null, as_of: '2026-06-30', authority };
-    else if (path.endsWith('/analytics')) body = { as_of: '2026-06-30', concentration: { n_positions: 1, n_obligors: 1, total_nav: 9850000, total_par: 10000000, sectors: [{ sector: 'Telecom', mv: 9850000, pct_nav: 100, n_obligors: 1 }], rating_dist: [{ bucket: 'B', mv: 9850000, pct_nav: 100, n_obligors: 1 }], top10: [{ obligor: 'VMO2', mv: 9850000, pct_nav: 100 }], top10_pct_nav: 100, wa_rating: 'B1', wa_margin: 425, wa_price: 98.5, first_lien_pct: 100 }, rating_distribution: { B1: 100 }, maturity_wall: { 2029: 9850000 }, risk_budget: { status_counts: { Breach: 0, Watch: 1, Pass: 0, Info: 0 }, headroom: [] }, liquidity: { priced_nav_pct: 100, wa_price: 98.5, unpriced_positions: 0 }, compliance: [], authority, missing_dependencies: [], latest_stress_runs: [] };
-    else if (path.endsWith('/stress-runs')) body = { items: [], total: 0, authority };
-    else body = [{ id: 'portfolio-1', name: 'Credit Fund I', kind: 'Fund', as_of_date: '2026-06-30', n_positions: 1, total_nav: 10000000, total_par: 10000000, breaches: 0, watches: 1 }];
+    const body = portfolioFixtureBody(path);
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
   await target.route('**/api/settings', (route) => route.fulfill({
@@ -139,38 +186,18 @@ export async function installSurfaceStubs(target, identity) {
   await target.route('**/api/committee/agenda**', (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
-    let body;
-    if (method === 'POST' && url.pathname.endsWith('/finalize')) {
-      currentAgenda = { ...currentAgenda, status: 'decided', finalized_decision_id: currentDecision.id, revision: currentAgenda.revision + 1, snapshot_sha256: currentDecision.snapshot_sha256 };
-      body = { agenda: currentAgenda, decision: currentDecision };
-    } else if (method === 'PATCH') {
-      const patch = route.request().postDataJSON();
-      currentAgenda = { ...currentAgenda, ...patch, revision: currentAgenda.revision + 1 };
-      body = currentAgenda;
-    } else if (method === 'POST' && url.pathname.endsWith('/agenda')) {
-      const input = route.request().postDataJSON();
-      body = { ...agendaItem, ...input, id: 'agenda-created', status: input.status ?? 'draft', revision: 1 };
-    } else if (url.pathname.endsWith('/agenda')) {
-      body = { items: [currentAgenda], next_cursor: null, total: 1 };
-    } else {
-      body = currentAgenda;
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    const input = method === 'POST' || method === 'PATCH' ? route.request().postDataJSON() ?? {} : {};
+    const result = agendaRouteResult(agendaOperation(method, url.pathname), input, currentAgenda, currentDecision);
+    currentAgenda = result.agenda;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(result.body) });
   });
   await target.route('**/api/decisions/**', (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
-    let body = currentDecision;
-    if (method === 'POST' && url.pathname.endsWith('/votes')) {
-      const input = route.request().postDataJSON();
-      currentDecision = { ...currentDecision, votes: [{ id: 'vote-1', member: identity.id, vote: input.vote, dissent_note: input.dissent_note ?? null, created_at: '2026-07-13T10:05:00Z' }] };
-      body = currentDecision;
-    } else if (method === 'POST' && url.pathname.endsWith('/reopen')) {
-      const input = route.request().postDataJSON();
-      currentDecision = { ...currentDecision, status: 'reopened', reopened_at: '2026-07-13T10:06:00Z', reopen_alert_key: input.trigger_alert_key };
-      body = currentDecision;
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    const operation = decisionOperation(method, url.pathname);
+    const input = operation ? route.request().postDataJSON() : {};
+    currentDecision = decisionRouteResult(operation, input, currentDecision, identity);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(currentDecision) });
   });
   await target.route('**/api/decisions?**', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ items: [currentDecision], next_cursor: null, total: 1 }),

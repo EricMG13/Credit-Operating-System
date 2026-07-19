@@ -25,6 +25,57 @@ interface ActionReasonProps
 const FLASH_MS = 4000;
 const FLASH_MAX_WIDTH = 280;
 
+const flashPosition = (button: HTMLButtonElement | null): CSSProperties => {
+  const rect = button?.getBoundingClientRect();
+  return rect
+    ? { position: "fixed", top: rect.bottom + 6, left: Math.max(8, rect.right - FLASH_MAX_WIDTH), maxWidth: FLASH_MAX_WIDTH }
+    : {};
+};
+
+const useReasonFlash = (reasonDisplay: "inline" | "hidden") => {
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [flashPos, setFlashPos] = useState<CSSProperties | null>(null);
+  const flashTimer = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+  }, []);
+  const reveal = () => {
+    if (reasonDisplay !== "hidden") return;
+    setFlashPos(flashPosition(buttonRef.current));
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlashPos(null), FLASH_MS);
+  };
+  return { buttonRef, flashPos, reveal };
+};
+
+function ActionReasonMessage({
+  inert,
+  reasonId,
+  reason,
+  flashPos,
+  reasonDisplay,
+}: {
+  inert: boolean;
+  reasonId: string;
+  reason?: string | null;
+  flashPos: CSSProperties | null;
+  reasonDisplay: "inline" | "hidden";
+}) {
+  if (!inert) return null;
+  const flash = flashPos !== null;
+  const showInline = reasonDisplay === "inline" || flash;
+  return (
+    <span
+      id={reasonId}
+      role={flash ? "status" : undefined}
+      className={showInline ? `caos-action-reason${flash ? " caos-action-reason-pop" : ""}` : "sr-only"}
+      style={flash ? flashPos ?? undefined : undefined}
+    >
+      {reason}
+    </span>
+  );
+}
+
 export function ActionReason({
   reason,
   reasonDisplay = "inline",
@@ -35,17 +86,13 @@ export function ActionReason({
 }: ActionReasonProps) {
   const reasonId = useId();
   const inert = Boolean(reason);
-  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const { buttonRef, flashPos, reveal } = useReasonFlash(reasonDisplay);
   // A guarded click must never look ignored: in the "hidden" variant the
   // reason surfaces for a few seconds after the attempt (announced via
   // role=status). It renders as a viewport-positioned popover under the
   // button — an inline block span is invisible exactly where "hidden" is
   // used (SubHeader's shrink-0 primary-action slot clips it).
-  const [flashPos, setFlashPos] = useState<CSSProperties | null>(null);
-  const flashTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (flashTimer.current !== null) window.clearTimeout(flashTimer.current); }, []);
-  const flash = flashPos !== null;
-  const showInline = reasonDisplay === "inline" || flash;
+  const handleClick = inert ? reveal : onClick;
   return (
     <>
       <button
@@ -54,34 +101,12 @@ export function ActionReason({
         aria-disabled={inert || undefined}
         title={reason || undefined}
         aria-describedby={inert ? reasonId : undefined}
-        onClick={() => {
-          if (!inert) {
-            onClick?.();
-            return;
-          }
-          if (reasonDisplay === "hidden") {
-            const rect = buttonRef.current?.getBoundingClientRect();
-            setFlashPos(rect
-              ? { position: "fixed", top: rect.bottom + 6, left: Math.max(8, rect.right - FLASH_MAX_WIDTH), maxWidth: FLASH_MAX_WIDTH }
-              : {});
-            if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
-            flashTimer.current = window.setTimeout(() => setFlashPos(null), FLASH_MS);
-          }
-        }}
+        onClick={handleClick}
         {...rest}
       >
         {children}
       </button>
-      {inert ? (
-        <span
-          id={reasonId}
-          role={flash ? "status" : undefined}
-          className={showInline ? `caos-action-reason${flash ? " caos-action-reason-pop" : ""}` : "sr-only"}
-          style={flash ? flashPos ?? undefined : undefined}
-        >
-          {reason}
-        </span>
-      ) : null}
+      <ActionReasonMessage inert={inert} reasonId={reasonId} reason={reason} flashPos={flashPos} reasonDisplay={reasonDisplay} />
     </>
   );
 }

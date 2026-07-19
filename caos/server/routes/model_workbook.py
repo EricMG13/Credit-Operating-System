@@ -114,14 +114,14 @@ def _guard(caller: CallerIdentity) -> None:
 def _mapping_json(raw: str) -> tuple[Any, dict[str, Any]]:
     if len(raw) > _MAPPING_MAX_CHARS:
         raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status.HTTP_413_CONTENT_TOO_LARGE,
             "Model workbook mapping is too large.",
         )
     try:
         parsed = parse_mapping(raw or None)
     except ModelWorkbookError as exc:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             {"code": exc.code, "message": exc.message},
         ) from exc
     return parsed, parsed.model_dump(mode="json") if parsed else {}
@@ -314,7 +314,7 @@ def _import_authority(
 
 def _workbook_error(exc: ModelWorkbookError) -> HTTPException:
     return HTTPException(
-        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
         {"code": exc.code, "message": exc.message},
     )
 
@@ -325,18 +325,18 @@ def _validated_filename(raw: Optional[str]) -> str:
     value = raw or ""
     if len(value) > 512 or len(value.encode("utf-8")) > 2_048:
         raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status.HTTP_413_CONTENT_TOO_LARGE,
             "Model workbook filename is too long.",
         )
     filename = value.replace("\\", "/").rsplit("/", 1)[-1].strip()
     if len(filename) > _MAX_FILENAME_CHARS:
         raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status.HTTP_413_CONTENT_TOO_LARGE,
             "Model workbook filename is too long.",
         )
     if any(ord(character) < 32 or ord(character) == 127 for character in filename):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Model workbook filename contains unsupported control characters.",
         )
     return filename
@@ -726,7 +726,7 @@ async def commit_model_workbook_import(
     await _authorized_issuer(db, caller, issuer_id)
     if any(character not in "0123456789abcdefABCDEF" for character in preview_sha256):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "preview_sha256 must be a SHA-256 hex digest.",
         )
     parsed_mapping, mapping_payload = _mapping_json(mapping)
@@ -773,7 +773,7 @@ async def commit_model_workbook_import(
         or not preview.calculation
     ):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             {
                 "code": "blocking_preview_issues",
                 "blocking_count": preview.blocking_count,

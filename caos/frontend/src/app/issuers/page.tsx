@@ -31,7 +31,8 @@ import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { addToWatchlistAction, exportCsvAction, runPipelineAction } from "@/components/issuers/batchActions";
 import { contextHref, useAnalysisContext, type AnalysisSurfaceStateEntry } from "@/lib/analysis-workbench";
 import { useRovingFocus } from "@/lib/useRovingFocus";
-import { focusFirstRowAction, syncRowActionTabStops } from "@/lib/rowActionMode";
+import { syncRowActionTabStops } from "@/lib/rowActionMode";
+import { handleRovingActionRowKeyDown } from "@/lib/row-action-keyboard";
 
 export default function IssuersPage() {
   return (
@@ -49,7 +50,7 @@ const EMPTY_FORM = { name: "", ticker: "", sector: "", sub_sector: "", country: 
 const COLS = "grid grid-cols-[28px_76px_minmax(200px,1.6fr)_78px_minmax(96px,1fr)_minmax(120px,1fr)_104px_84px] items-center gap-x-3";
 const FILTER_KEYS = ["ticker", "name", "rating", "sector", "sub_sector", "country"] as const;
 const SORTABLE = new Set<string>(["ticker", "name", "rating", "sector", "sub_sector", "country"]);
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Dense directory filters, batching, pagination, and context state share one route boundary.
 function IssuersDirectory() {
   const analysis = useAnalysisContext({ name: "Coverage universe" });
   const router = useRouter();
@@ -555,7 +556,7 @@ function IssuersDirectory() {
               {/* ponytail: native content-visibility skips paint/layout for off-screen rows
                   — covers tens-to-hundreds of issuers. Swap to `virtua` only if a single book
                   ever holds thousands. intrinsic-size ≈ one row height, avoids scrollbar CLS. */}
-              {/* fallow-ignore-next-line complexity */}
+              {/* fallow-ignore-next-line complexity -- Static virtualized row projection keeps selection and actions local. */}
               {shownIssuers.map((issuer, index) => {
                 const focusProps = getIssuerRowFocusProps(issuer.id);
                 const activate = () => openIssuer(issuer.id);
@@ -586,29 +587,7 @@ function IssuersDirectory() {
                       activate();
                     }}
                     onKeyDown={(event) => {
-                      if (event.key === "Escape" && actionRowId === issuer.id) {
-                        event.preventDefault();
-                        setActionRowId(null);
-                        event.currentTarget.focus();
-                        return;
-                      }
-                      if (event.currentTarget !== event.target) return;
-                      if (event.key === "F2") {
-                        if (focusFirstRowAction(event.currentTarget)) {
-                          event.preventDefault();
-                          setActionRowId(issuer.id);
-                        }
-                        return;
-                      }
-                      if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
-                        setActionRowId(null);
-                        focusProps.onKeyDown(event);
-                        return;
-                      }
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        activate();
-                      }
+                      handleRovingActionRowKeyDown(event, issuer.id, actionRowId, setActionRowId, focusProps.onKeyDown, activate);
                     }}
                     className={COLS + " relative px-3 py-[7px] border-b border-caos-border/50 cursor-pointer outline-none transition-caos hover:bg-caos-elevated/60 focus-ring group [content-visibility:auto] [contain-intrinsic-size:auto_32px]"}
                   >
@@ -710,7 +689,7 @@ function NewIssuerModal({
   const [createError, setCreateError] = useState<string | null>(null);
   const panelRef = useModalA11y<HTMLFormElement>(onClose);
 
-  // fallow-ignore-next-line complexity
+  // fallow-ignore-next-line complexity -- Submit validation and server-error normalization are one create transaction.
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (creating) return; // guard against double-submit (would register duplicate issuers)

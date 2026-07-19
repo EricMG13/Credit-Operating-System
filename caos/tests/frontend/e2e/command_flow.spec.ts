@@ -39,6 +39,7 @@ const portfolios = [
   },
 ];
 
+// fallow-ignore-next-line complexity -- Playwright fixture branch coverage is outside the Istanbul unit-coverage map.
 const position = (portfolioId: string, suffix: string) => ({
   id: `position-${suffix}`,
   portfolio_id: portfolioId,
@@ -67,6 +68,7 @@ const position = (portfolioId: string, suffix: string) => ({
   committee_status: "Committee Ready",
 });
 
+// fallow-ignore-next-line complexity -- Playwright fixture branch coverage is outside the Istanbul unit-coverage map.
 const snapshot = (portfolioId: string, empty = false) => {
   const isAlt = portfolioId === "portfolio-alt";
   const selected = portfolios.find((row) => row.id === portfolioId) ?? portfolios[0];

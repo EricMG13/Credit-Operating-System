@@ -5,7 +5,7 @@
 // price deltas), with US Leveraged Loan index statistics and per-rating
 // averages. Sector dropdown switches between sector tables.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useResizeObserver } from "@/lib/use-resize-observer";
 import { useRovingFocus, type RovingItemProps } from "@/lib/useRovingFocus";
@@ -326,9 +326,7 @@ function useSortState(initial: SortConfig = { col: null, asc: true }) {
   return { sort, handleSort };
 }
 
-function SortTh<T>({
-  label, align = "left", col, sort, onSort, rows, getValue, filters, onFilter,
-}: {
+type SortThProps<T> = {
   label: string;
   align?: "left" | "right";
   col: string;
@@ -338,9 +336,18 @@ function SortTh<T>({
   getValue?: (row: T) => SortVal;
   filters?: FilterState;
   onFilter?: (col: string, values: string[] | undefined) => void;
-}) {
-  const active = sort.col === col;
-  const filterNode = rows && getValue && filters && onFilter ? (
+};
+
+function SortIndicator({ active, asc }: { active: boolean; asc: boolean }) {
+  if (!active) {
+    return <span aria-hidden="true" className="text-caos-2xs text-caos-muted opacity-40">↕</span>;
+  }
+  return <span aria-hidden="true" className="text-caos-md text-caos-accent">{asc ? "↑" : "↓"}</span>;
+}
+
+function ColumnFilter<T>({ label, col, rows, getValue, filters, onFilter }: SortThProps<T>) {
+  if (!rows || !getValue || !filters || !onFilter) return null;
+  return (
     <FilterHeader
       label={label}
       col={col}
@@ -352,7 +359,14 @@ function SortTh<T>({
     >
       {label}
     </FilterHeader>
-  ) : null;
+  );
+}
+
+function SortTh<T>({
+  label, align = "left", col, sort, onSort, rows, getValue, filters, onFilter,
+}: SortThProps<T>) {
+  const active = sort.col === col;
+  const rightAligned = align === "right";
   return (
     // The clickable sort control is a real <button> (keyboard-operable, visible
     // focus ring); the <th> carries aria-sort so screen readers announce the
@@ -360,21 +374,20 @@ function SortTh<T>({
     <th
       scope="col"
       aria-sort={active ? (sort.asc ? "ascending" : "descending") : "none"}
-      className={`p-0 tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel select-none ${col === "company" ? "left-0 z-20" : "z-10"} ${align === "right" ? "text-right" : "text-left"}`}
+      className={`p-0 tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap sticky top-0 bg-caos-panel select-none ${col === "company" ? "left-0 z-20" : "z-10"} ${rightAligned ? "text-right" : "text-left"}`}
     >
-      <span className={`flex w-full items-center gap-1 px-2 py-[6px] ${align === "right" ? "justify-end" : "justify-start"}`}>
+      <span className={`flex w-full items-center gap-1 px-2 py-[6px] ${rightAligned ? "justify-end" : "justify-start"}`}>
         <button
           type="button"
           onClick={() => onSort(col)}
           title={`Sort by ${label}`}
-          className={`min-w-0 inline-flex items-center gap-1 hover:text-caos-text transition-caos focus-ring ${align === "right" ? "justify-end" : "justify-start"}`}
+          className={`min-w-0 inline-flex items-center gap-1 hover:text-caos-text transition-caos focus-ring ${rightAligned ? "justify-end" : "justify-start"}`}
         >
-          {align === "right" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+          {rightAligned && <SortIndicator active={active} asc={sort.asc} />}
           <span className="truncate">{label}</span>
-          {!active && <span aria-hidden="true" className="text-caos-2xs text-caos-muted opacity-40">↕</span>}
-          {align === "left" && active && <span aria-hidden="true" className="text-caos-md text-caos-accent">{sort.asc ? "↑" : "↓"}</span>}
+          {!rightAligned && <SortIndicator active={active} asc={sort.asc} />}
         </button>
-        {filterNode}
+        <ColumnFilter label={label} col={col} rows={rows} getValue={getValue} filters={filters} onFilter={onFilter} sort={sort} onSort={onSort} />
       </span>
     </th>
   );
@@ -397,12 +410,176 @@ const PEER_FILTER_VAL: Record<string, (r: RVRow) => SortVal> = {
   ...Object.fromEntries(DELTA_COLS.map((_, i) => [`d${i}`, (r: RVRow) => r.d[i]])),
 };
 
+type PeerPreset = "full" | "market" | "rv";
+
+type PeerColumnSpec = {
+  key: string;
+  label: string;
+  align?: "left" | "right";
+  render: ((row: RVRow) => React.ReactNode) | null;
+};
+
+const PEER_COLUMNS: PeerColumnSpec[] = [
+  { key: "company", label: "Company", render: null },
+  { key: "rv", label: "RV comp.", render: (r) => <td className={td}><CompoundRvChip r={r} /></td> },
+  { key: "cohort", label: "Cohort RV", align: "right", render: (r) => <td className={td + " text-right tabular text-caos-text"}>{r.rvBp === null ? "—" : (r.rvBp > 0 ? "+" : "") + Math.round(r.rvBp)}</td> },
+  { key: "inst", label: "Instrument", render: (r) => <td className={td + " text-caos-muted whitespace-nowrap"}><EvidenceBadge row={r} /></td> },
+  { key: "portf", label: "Portf. Held", render: (r) => <td className={td + " text-caos-muted"}>{r.portfolioRv.held ? <span className="text-caos-success-bright">held</span> : "—"}</td> },
+  { key: "carryRv", label: "Carry RV (bp/yr)", align: "right", render: (r) => <td className={td + " text-right tabular text-caos-text"}>{r.carryRv === null ? "—" : (r.carryRv > 0 ? "+" : "") + r.carryRv.toFixed(1)}</td> },
+  { key: "subSector", label: "Sub-Sector", render: (r) => <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subSector}</td> },
+  { key: "subGroup", label: "Sub-Group", render: (r) => <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subGroup}</td> },
+  { key: "loanType", label: "Loan Type", render: (r) => <td className={td + " text-caos-muted"}>{r.loanType}</td> },
+  { key: "figi", label: "FIGI", render: (r) => <td className={td + " text-caos-accent"}>{r.figi}</td> },
+  { key: "rank", label: "Ranking", render: (r) => <td className={td + " text-caos-muted"}>{r.rank}</td> },
+  { key: "rating", label: "Rating", render: (r) => <td className={td + " text-caos-text"}>{r.rating}</td> },
+  { key: "size", label: "Size ($Mn)", align: "right", render: (r) => <td className={td + " text-right text-caos-text"}>{r.size.toLocaleString()}</td> },
+  { key: "margin", label: "Margin", align: "right", render: (r) => <td className={td + " text-right text-caos-text"}>{r.margin}</td> },
+  { key: "maturity", label: "Maturity", align: "right", render: (r) => <td className={td + " text-right text-caos-muted"}>{r.maturity || "—"}</td> },
+  { key: "bid", label: "Bid", align: "right", render: (r) => <td className={td + " text-right text-caos-text"}>{r.bid.toFixed(2)}</td> },
+  { key: "ask", label: "Ask", align: "right", render: (r) => <td className={td + " text-right text-caos-text"}>{r.ask.toFixed(2)}</td> },
+  { key: "liq", label: "Liquidity", render: (r) => <td className={td}><Chip liq={r.liq} label={r.liq} /></td> },
+  ...DELTA_COLS.map((label, index) => ({
+    key: "d" + index,
+    label,
+    align: "right" as const,
+    render: (r: RVRow) => <DeltaCell v={r.d[index]} colLabel={label} />,
+  })),
+  { key: "ytm", label: "Mid YTM", align: "right", render: (r) => <td className={td + " text-right text-caos-text"}>{r.ytm.toFixed(1)}</td> },
+  { key: "dm", label: "Mid 3Y DM", align: "right", render: (r) => <td className={td + " text-right text-caos-text"}>{r.dm.toLocaleString()}</td> },
+];
+
+const PEER_PRESET_COLUMNS: Record<Exclude<PeerPreset, "full">, Set<string>> = {
+  market: new Set(["company", "subSector", "size", "margin", "maturity", "bid", "ask", "liq", "ytm", "dm"]),
+  rv: new Set(["company", "rating", "liq", "rv", "cohort", "inst", "portf", "carryRv", "d0", "d1", "dm"]),
+};
+
+function peerColumns(preset: PeerPreset) {
+  if (preset === "full") return PEER_COLUMNS;
+  return PEER_COLUMNS.filter((column) => PEER_PRESET_COLUMNS[preset].has(column.key));
+}
+
+function peerSortValue(row: RVRow, column: string): SortVal {
+  if (column.startsWith("d")) return row.d[parseInt(column.substring(1))];
+  if (column === "rv" || column === "cohort") return row.rvBp;
+  if (column === "absRv") return Math.abs(row.rvBp ?? 0);
+  if (column === "inst") return row.instrumentRv.status;
+  if (column === "portf") return row.portfolioRv.held ? 1 : 0;
+  if (column === "carryRv") return row.carryRv;
+  return field(row, column);
+}
+
+function PeerTableHeader({
+  columns, rows, sort, onSort, filters, onFilter,
+}: {
+  columns: PeerColumnSpec[];
+  rows: RVRow[];
+  sort: SortConfig;
+  onSort: (column: string) => void;
+  filters: FilterState;
+  onFilter: (column: string, values: string[] | undefined) => void;
+}) {
+  return (
+    <thead>
+      <tr className="border-b border-caos-border">
+        {columns.map((column) => (
+          <SortTh
+            key={column.key}
+            label={column.label}
+            col={column.key}
+            align={column.align}
+            sort={sort}
+            onSort={onSort}
+            rows={rows}
+            getValue={PEER_FILTER_VAL[column.key]}
+            filters={filters}
+            onFilter={onFilter}
+          />
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+function PeerCompanyCell({
+  row, selected, stickyBackground, onSelect, onHover,
+}: {
+  row: RVRow;
+  selected: boolean;
+  stickyBackground: string;
+  onSelect: (figi: string) => void;
+  onHover: (figi: string | null) => void;
+}) {
+  return (
+    <td className={td + " sticky left-0 z-10 text-caos-text transition-colors " + stickyBackground}>
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={"Select " + row.company + ", rating " + row.rating}
+        onClick={(event) => {
+          event.stopPropagation();
+          onSelect(row.figi);
+        }}
+        onFocus={() => onHover(row.figi)}
+        onBlur={() => onHover(null)}
+        className="w-full text-left focus-ring rounded px-1 -mx-1 outline-none cursor-pointer"
+      >
+        {row.company}
+      </button>
+    </td>
+  );
+}
+
+function peerRowBackground(selected: boolean, hovered: boolean) {
+  if (selected) return "bg-caos-accent/[0.12]";
+  if (hovered) return "bg-caos-elevated/60";
+  return "hover:bg-caos-elevated/50";
+}
+
+function peerStickyBackground(selected: boolean, hovered: boolean) {
+  if (selected || hovered) return "bg-caos-elevated";
+  return "bg-caos-panel group-hover:bg-caos-elevated/50";
+}
+
+function PeerTableRow({
+  row, columns, selected, hovered, rowRef, onSelect, onHover,
+}: {
+  row: RVRow;
+  columns: PeerColumnSpec[];
+  selected: boolean;
+  hovered: boolean;
+  rowRef?: React.Ref<HTMLTableRowElement>;
+  onSelect: (figi: string) => void;
+  onHover: (figi: string | null) => void;
+}) {
+  const rowBackground = peerRowBackground(selected, hovered);
+  const stickyBackground = peerStickyBackground(selected, hovered);
+  return (
+    <tr
+      ref={rowRef}
+      data-selected={selected ? "true" : undefined}
+      onClick={() => onSelect(row.figi)}
+      onMouseEnter={() => onHover(row.figi)}
+      onMouseLeave={() => onHover(null)}
+      className={"border-b border-caos-border/40 transition-caos group cursor-pointer " + rowBackground}
+      style={selected ? { boxShadow: "inset 2px 0 0 var(--caos-accent)" } : undefined}
+    >
+      {columns.map((column) => (
+        <Fragment key={column.key}>
+          {column.key === "company"
+            ? <PeerCompanyCell row={row} selected={selected} stickyBackground={stickyBackground} onSelect={onSelect} onHover={onHover} />
+            : column.render?.(row)}
+        </Fragment>
+      ))}
+    </tr>
+  );
+}
+
 function PeerTable({
   rows, filtered, preset = "full", filters, onFilter, selected, hovered, onSelect, onHover,
 }: {
   rows: RVRow[];
   filtered: RVRow[];
-  preset?: "full" | "market" | "rv";
+  preset?: PeerPreset;
   filters: FilterState;
   onFilter: (col: string, values: string[] | undefined) => void;
   selected: string | null;
@@ -410,148 +587,33 @@ function PeerTable({
   onSelect: (figi: string) => void;
   onHover: (figi: string | null) => void;
 }) {
-  // Default: absolute rvBp descending (safer default sort, reducing junk blast radius).
   const { sort, handleSort } = useSortState({ col: "absRv", asc: false });
-  // Scroll the selected row into view when selection is driven from the chart or
-  // Top-of-book (not when the user clicked the row itself, but scrollIntoView with
-  // block:"nearest" is a no-op if it's already visible, so it's harmless either way).
-  const selRef = useRef<HTMLTableRowElement>(null);
+  const selectedRowRef = useRef<HTMLTableRowElement>(null);
   useEffect(() => {
-    selRef.current?.scrollIntoView({ block: "nearest" });
+    selectedRowRef.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);
-  const filterVal = PEER_FILTER_VAL;
-  const setFilter = onFilter;
-  const sorted = useSort(filtered, sort, (r, c) => {
-    if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
-    if (c === "rv" || c === "cohort") return r.rvBp;
-    if (c === "absRv") return Math.abs(r.rvBp ?? 0);
-    if (c === "inst") return r.instrumentRv.status;
-    if (c === "portf") return r.portfolioRv.held ? 1 : 0;
-    if (c === "carryRv") return r.carryRv;
-    return field(r, c);
-  });
-
-  const showCol = (key: string) => {
-    if (preset === "full") return true;
-    if (preset === "market") {
-      return ["company", "subSector", "size", "margin", "maturity", "bid", "ask", "liq", "ytm", "dm"].includes(key);
-    }
-    if (preset === "rv") {
-      return ["company", "rating", "liq", "rv", "cohort", "inst", "portf", "carryRv", "d0", "d1", "dm"].includes(key);
-    }
-    return true;
-  };
-
-  const visibleColCount = [
-    "company", "rv", "cohort", "inst", "portf", "carryRv", "subSector", "subGroup", "loanType", "figi",
-    "rank", "rating", "size", "margin", "maturity", "bid", "ask", "liq", ...DELTA_COLS.map((_, i) => `d${i}`),
-    "ytm", "dm",
-  ].filter(showCol).length;
+  const sorted = useSort(filtered, sort, peerSortValue);
+  const columns = peerColumns(preset);
   const minWidthClass = preset === "full" ? "min-w-[1920px]" : "min-w-[1100px]";
-
   return (
-    <table aria-label="Sector relative value" className={`border-collapse text-caos-xs ${minWidthClass} w-full`}>
-      <thead>
-        <tr className="border-b border-caos-border">
-          {showCol("company") && <SortTh label="Company" col="company" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.company} filters={filters} onFilter={setFilter} />}
-          {showCol("rv") && <SortTh label="RV comp." col="rv" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rv} filters={filters} onFilter={setFilter} />}
-          {showCol("cohort") && <SortTh label="Cohort RV" col="cohort" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.cohort} filters={filters} onFilter={setFilter} />}
-          {showCol("inst") && <SortTh label="Instrument" col="inst" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.inst} filters={filters} onFilter={setFilter} />}
-          {showCol("portf") && <SortTh label="Portf. Held" col="portf" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.portf} filters={filters} onFilter={setFilter} />}
-          {showCol("carryRv") && <SortTh label="Carry RV (bp/yr)" col="carryRv" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.carryRv} filters={filters} onFilter={setFilter} />}
-          {showCol("subSector") && <SortTh label="Sub-Sector" col="subSector" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subSector} filters={filters} onFilter={setFilter} />}
-          {showCol("subGroup") && <SortTh label="Sub-Group" col="subGroup" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.subGroup} filters={filters} onFilter={setFilter} />}
-          {showCol("loanType") && <SortTh label="Loan Type" col="loanType" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.loanType} filters={filters} onFilter={setFilter} />}
-          {showCol("figi") && <SortTh label="FIGI" col="figi" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.figi} filters={filters} onFilter={setFilter} />}
-          {showCol("rank") && <SortTh label="Ranking" col="rank" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rank} filters={filters} onFilter={setFilter} />}
-          {showCol("rating") && <SortTh label="Rating" col="rating" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.rating} filters={filters} onFilter={setFilter} />}
-          {showCol("size") && <SortTh label="Size ($Mn)" col="size" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.size} filters={filters} onFilter={setFilter} />}
-          {showCol("margin") && <SortTh label="Margin" col="margin" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.margin} filters={filters} onFilter={setFilter} />}
-          {showCol("maturity") && <SortTh label="Maturity" col="maturity" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.maturity} filters={filters} onFilter={setFilter} />}
-          {showCol("bid") && <SortTh label="Bid" col="bid" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.bid} filters={filters} onFilter={setFilter} />}
-          {showCol("ask") && <SortTh label="Ask" col="ask" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.ask} filters={filters} onFilter={setFilter} />}
-          {showCol("liq") && <SortTh label="Liquidity" col="liq" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.liq} filters={filters} onFilter={setFilter} />}
-          {DELTA_COLS.map((c, i) => (
-            showCol(`d${i}`) && <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal[`d${i}`]} filters={filters} onFilter={setFilter} />
-          ))}
-          {showCol("ytm") && <SortTh label="Mid YTM" col="ytm" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.ytm} filters={filters} onFilter={setFilter} />}
-          {showCol("dm") && <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sort} onSort={handleSort} rows={rows} getValue={filterVal.dm} filters={filters} onFilter={setFilter} />}
-        </tr>
-      </thead>
+    <table aria-label="Sector relative value" className={"border-collapse text-caos-xs " + minWidthClass + " w-full"}>
+      <PeerTableHeader columns={columns} rows={rows} sort={sort} onSort={handleSort} filters={filters} onFilter={onFilter} />
       <tbody>
-        {sorted.map((r) => {
-          const isSel = selected === r.figi;
-          const isHov = hovered === r.figi;
-          // Selected row: accent tint + inset accent bar (position + tint, so the
-          // highlight isn't colour-alone). Hover mirror stays subtle. The sticky
-          // company cell has its own background, so it gets the matching tint too.
-          const rowBg = isSel
-            ? "bg-caos-accent/[0.12]"
-            : isHov
-              ? "bg-caos-elevated/60"
-              : "hover:bg-caos-elevated/50";
-          const stickyBg = isSel
-            ? "bg-caos-elevated"
-            : isHov
-              ? "bg-caos-elevated"
-              : "bg-caos-panel group-hover:bg-caos-elevated/50";
-          return (
-            <tr
-              key={loanKey(r)}
-              ref={isSel ? selRef : undefined}
-              data-selected={isSel ? "true" : undefined}
-              onClick={() => onSelect(r.figi)}
-              onMouseEnter={() => onHover(r.figi)}
-              onMouseLeave={() => onHover(null)}
-              className={`border-b border-caos-border/40 transition-caos group cursor-pointer ${rowBg}`}
-              style={isSel ? { boxShadow: "inset 2px 0 0 var(--caos-accent)" } : undefined}
-            >
-              {showCol("company") && (
-                <td className={td + ` sticky left-0 z-10 text-caos-text transition-colors ${stickyBg}`}>
-                  <button
-                    type="button"
-                    aria-pressed={isSel}
-                    aria-label={`Select ${r.company}, rating ${r.rating}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelect(r.figi);
-                    }}
-                    onFocus={() => onHover(r.figi)}
-                    onBlur={() => onHover(null)}
-                    className="w-full text-left focus-ring rounded px-1 -mx-1 outline-none cursor-pointer"
-                  >
-                    {r.company}
-                  </button>
-                </td>
-              )}
-              {showCol("rv") && <td className={td}><CompoundRvChip r={r} /></td>}
-              {showCol("cohort") && <td className={td + " text-right tabular text-caos-text"}>{r.rvBp !== null ? (r.rvBp > 0 ? "+" : "") + Math.round(r.rvBp) : "—"}</td>}
-              {showCol("inst") && <td className={td + " text-caos-muted whitespace-nowrap"}><EvidenceBadge row={r} /></td>}
-              {showCol("portf") && <td className={td + " text-caos-muted"}>{r.portfolioRv.held ? <span className="text-caos-success-bright">held</span> : "—"}</td>}
-              {showCol("carryRv") && <td className={td + " text-right tabular text-caos-text"}>{r.carryRv !== null ? (r.carryRv > 0 ? "+" : "") + r.carryRv.toFixed(1) : "—"}</td>}
-              {showCol("subSector") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subSector}</td>}
-              {showCol("subGroup") && <td className={td + " text-caos-muted max-w-[260px] truncate"}>{r.subGroup}</td>}
-              {showCol("loanType") && <td className={td + " text-caos-muted"}>{r.loanType}</td>}
-              {showCol("figi") && <td className={td + " text-caos-accent"}>{r.figi}</td>}
-              {showCol("rank") && <td className={td + " text-caos-muted"}>{r.rank}</td>}
-              {showCol("rating") && <td className={td + " text-caos-text"}>{r.rating}</td>}
-              {showCol("size") && <td className={td + " text-right text-caos-text"}>{r.size.toLocaleString()}</td>}
-              {showCol("margin") && <td className={td + " text-right text-caos-text"}>{r.margin}</td>}
-              {showCol("maturity") && <td className={td + " text-right text-caos-muted"}>{r.maturity || "—"}</td>}
-              {showCol("bid") && <td className={td + " text-right text-caos-text"}>{r.bid.toFixed(2)}</td>}
-              {showCol("ask") && <td className={td + " text-right text-caos-text"}>{r.ask.toFixed(2)}</td>}
-              {showCol("liq") && <td className={td}><Chip liq={r.liq} label={r.liq} /></td>}
-              {r.d.map((v, j) => (
-                showCol(`d${j}`) && <DeltaCell key={DELTA_COLS[j]} v={v} colLabel={DELTA_COLS[j]} />
-              ))}
-              {showCol("ytm") && <td className={td + " text-right text-caos-text"}>{r.ytm.toFixed(1)}</td>}
-              {showCol("dm") && <td className={td + " text-right text-caos-text"}>{r.dm.toLocaleString()}</td>}
-            </tr>
-          );
-        })}
+        {sorted.map((row) => (
+          <PeerTableRow
+            key={loanKey(row)}
+            row={row}
+            columns={columns}
+            selected={selected === row.figi}
+            hovered={hovered === row.figi}
+            rowRef={selected === row.figi ? selectedRowRef : undefined}
+            onSelect={onSelect}
+            onHover={onHover}
+          />
+        ))}
         {sorted.length === 0 && (
           <tr>
-            <td colSpan={visibleColCount} className="px-3 py-8 text-center tabular text-caos-xs text-caos-muted">
+            <td colSpan={columns.length} className="px-3 py-8 text-center tabular text-caos-xs text-caos-muted">
               No loans match the current column filters — clear a filter to repopulate the peer table.
             </td>
           </tr>
@@ -820,9 +882,7 @@ function Point({
 // hover mirrors softly. In the categorical/continuous scatter modes each point is
 // a real keyboard-operable control (Enter/Space selects). Bar/Box are aggregate
 // views with no per-loan point, so selection simply doesn't apply there.
-function RVScatter({
-  rows, color, xMeasure, chartType, selected, hovered, onSelect, onHover, width: W, height: H,
-}: {
+type RVScatterProps = {
   rows: RVRow[];
   color: string;
   xMeasure: XMeasure;
@@ -833,220 +893,402 @@ function RVScatter({
   onHover: (figi: string | null) => void;
   width: number;
   height: number;
-}) {
+};
+
+type ScatterGeometry = {
+  width: number;
+  height: number;
+  padL: number;
+  padR: number;
+  padT: number;
+  plotW: number;
+  plotH: number;
+  bandW: number;
+  bandX: (index: number) => number;
+  scaleX: (value: number) => number;
+  scaleY: (value: number) => number;
+  xLo: number;
+  xHi: number;
+  gridValues: number[];
+};
+
+type ScatterInteractions = {
+  selected: string | null;
+  hovered: string | null;
+  onSelect: (figi: string) => void;
+  onHover: (figi: string | null) => void;
+};
+type ScatterRoving = ReturnType<typeof useRovingFocus>;
+
+function scatterCategories(rows: RVRow[], xMeasure: XMeasure) {
+  if (!isCategorical(xMeasure)) return [];
+  if (xMeasure === "rating") return BUCKETS.filter((bucket) => rows.some((row) => row.bucket === bucket));
+  return [...new Set(rows.map((row) => row.subSector))].sort();
+}
+
+function scatterPointIds(rows: RVRow[], categories: string[], xMeasure: XMeasure, chartType: ChartType) {
+  if (chartType !== "scatter") return [];
+  if (!isCategorical(xMeasure)) return rows.map((row) => row.figi);
+  return categories.flatMap((category) =>
+    rows.filter((row) => categoryOf(row, xMeasure) === category).map((row) => row.figi),
+  );
+}
+
+function scatterYDomain(rows: RVRow[]) {
+  const sorted = rows.map((row) => row.dm).sort((a, b) => a - b);
+  const min = percentileSorted(sorted, 0.05);
+  const max = percentileSorted(sorted, 0.95);
+  const pad = (max - min || 1) * 0.08;
+  return { lo: min - pad, hi: max + pad };
+}
+
+function scatterXDomain(rows: RVRow[], xMeasure: XMeasure) {
+  const values = rows.map((row) => continuousValue(row, xMeasure));
+  const min = values.length ? Math.min(...values) : 0;
+  const max = values.length ? Math.max(...values) : 1;
+  const pad = (max - min || 1) * 0.08;
+  return { lo: min - pad, hi: max + pad };
+}
+
+function scatterGeometry(rows: RVRow[], categories: string[], xMeasure: XMeasure, width: number, height: number): ScatterGeometry {
   const padL = 46, padR = 14, padT = 14, padB = 30;
-  const plotW = Math.max(1, W - padL - padR);
-  const plotH = Math.max(1, H - padT - padB);
+  const plotW = Math.max(1, width - padL - padR);
+  const plotH = Math.max(1, height - padT - padB);
+  const y = scatterYDomain(rows);
+  const x = scatterXDomain(rows, xMeasure);
+  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+  const scaleY = (value: number) => clamp(padT + ((y.hi - value) / (y.hi - y.lo || 1)) * plotH, padT, padT + plotH);
+  const scaleX = (value: number) => padL + ((value - x.lo) / (x.hi - x.lo || 1)) * plotW;
+  const bandW = categories.length ? plotW / categories.length : plotW;
+  return {
+    width, height, padL, padR, padT, plotW, plotH, bandW, scaleX, scaleY,
+    bandX: (index) => padL + (index + 0.5) * bandW,
+    xLo: x.lo,
+    xHi: x.hi,
+    gridValues: [y.hi, (y.hi + y.lo) / 2, y.lo],
+  };
+}
 
-  const cat = isCategorical(xMeasure);
-  // Ordered category list — keep BUCKETS order for Rating; A→Z for Sub-sector.
-  const cats = cat
-    ? (xMeasure === "rating"
-      ? BUCKETS.filter((b) => rows.some((r) => r.bucket === b))
-      : [...new Set(rows.map((r) => r.subSector))].sort())
-    : [];
+function scatterAriaLabel(chartType: ChartType, xMeasure: XMeasure) {
+  const label = X_LABEL[xMeasure].toLowerCase();
+  if (chartType === "bar") return "Average three-year discount margin per " + label;
+  if (chartType === "box") return "Three-year discount margin distribution per " + label + ", each with min-to-max whisker, interquartile box and median tick";
+  if (!isCategorical(xMeasure)) return "Three-year discount margin against " + label;
+  const category = xMeasure === "rating" ? "bucket" : "category";
+  return "Three-year discount margin by " + label + ", with each " + category + "'s median marked";
+}
 
-  // Roving-tabindex order for the plotted points (G7) — MUST match the exact
-  // render order below (continuous: `rows` order; categorical: flattened by
-  // category then member) so arrow keys move in the same direction the eye
-  // reads left-to-right across the plot. Called unconditionally, before the
-  // early returns just below — a hook can't follow a conditional return.
-  const pointIds = chartType === "scatter"
-    ? (cat ? cats.flatMap((c) => rows.filter((r) => categoryOf(r, xMeasure) === c).map((r) => r.figi)) : rows.map((r) => r.figi))
-    : [];
-  const roving = useRovingFocus(pointIds);
+function ScatterFrame({ geometry, color }: { geometry: ScatterGeometry; color: string }) {
+  const { width, padL, padR, padT, plotH, scaleY, gridValues } = geometry;
+  return (
+    <>
+      {gridValues.map((value, index) => (
+        <g key={index}>
+          <line x1={padL} y1={scaleY(value)} x2={width - padR} y2={scaleY(value)} stroke="var(--caos-border)" strokeWidth={1} strokeOpacity={0.3} strokeDasharray="3 3" />
+          <text x={padL - 6} y={scaleY(value) + 3} textAnchor="end" fontSize={9} fill="var(--caos-muted)" className="tabular">{Math.round(value)}</text>
+        </g>
+      ))}
+      <text x={13} y={padT + plotH / 2} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" transform={"rotate(-90 13 " + (padT + plotH / 2) + ")"} className="uppercase tracking-wider">3Y DM (bp)</text>
+      <line x1={padL} y1={padT + plotH} x2={width - padR} y2={padT + plotH} stroke={color} strokeWidth={1.5} strokeOpacity={0.6} />
+    </>
+  );
+}
 
-  if (!rows.length) return null;
-  if (cat && !cats.length) return null;
+function ContinuousAxis({ geometry, xMeasure }: { geometry: ScatterGeometry; xMeasure: XMeasure }) {
+  const { height, padL, padT, plotW, plotH, scaleX, xLo, xHi } = geometry;
+  return (
+    <>
+      {[0, 0.25, 0.5, 0.75, 1].map((fraction, index) => {
+        const value = xLo + (xHi - xLo) * fraction;
+        const x = scaleX(value);
+        return (
+          <g key={"gx" + index}>
+            <line x1={x} y1={padT} x2={x} y2={padT + plotH} stroke="var(--caos-border)" strokeWidth={1} strokeOpacity={0.15} strokeDasharray="3 3" />
+            <text x={x} y={height - 14} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{xMeasure === "price" ? value.toFixed(1) : Math.round(value)}</text>
+          </g>
+        );
+      })}
+      <text x={padL + plotW / 2} y={height - 2} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="uppercase tracking-wider">{X_LABEL[xMeasure]}</text>
+    </>
+  );
+}
 
-  // Robust Y domain: clamp to the 5th–95th percentile so a single junk DM value
-  // (the feed carries a few, e.g. 579,028bp) can't flatten the distribution.
-  // Out-of-range dots pin to the plot edge; the real value stays in the tooltip.
-  const sortedDm = rows.map((r) => r.dm).sort((a, b) => a - b);
-  const yMin = percentileSorted(sortedDm, 0.05), yMax = percentileSorted(sortedDm, 0.95);
-  const yPad = (yMax - yMin || 1) * 0.08;
-  const lo = yMin - yPad, hi = yMax + yPad;
-  const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
-  const scaleY = (v: number) => clamp(padT + ((hi - v) / (hi - lo || 1)) * plotH, padT, padT + plotH);
-  const gridVals = [hi, (hi + lo) / 2, lo];
+function ContinuousPoint({
+  row, xMeasure, geometry, roving, selected, hovered, onSelect, onHover,
+}: {
+  row: RVRow;
+  xMeasure: XMeasure;
+  geometry: ScatterGeometry;
+  roving: ScatterRoving;
+} & ScatterInteractions) {
+  const xValue = continuousValue(row, xMeasure);
+  const xLabel = xMeasure === "price" ? xValue.toFixed(2) : Math.round(xValue);
+  return (
+    <Point
+      cx={geometry.scaleX(xValue)}
+      cy={geometry.scaleY(row.dm)}
+      fill={RV_STYLE[row.rv].fg}
+      isSel={selected === row.figi}
+      isHov={hovered === row.figi}
+      label={"Position " + row.company + ", rating " + row.rating + ", discount margin " + row.dm + " basis points, " + row.rv}
+      title={row.company + " · DM " + row.dm + " · " + X_LABEL[xMeasure] + " " + xLabel + " · " + row.rv}
+      onSelect={() => onSelect(row.figi)}
+      onHover={(active) => onHover(active ? row.figi : null)}
+      roving={roving.getItemProps(row.figi)}
+    />
+  );
+}
 
-  // Categorical band geometry.
-  const bandW = cat && cats.length ? plotW / cats.length : plotW;
-  const bandX = (i: number) => padL + (i + 0.5) * bandW;
+function ContinuousPoints({
+  rows, xMeasure, geometry, roving, ...interactions
+}: {
+  rows: RVRow[];
+  xMeasure: XMeasure;
+  geometry: ScatterGeometry;
+  roving: ScatterRoving;
+} & ScatterInteractions) {
+  return rows.map((row) => (
+    <ContinuousPoint
+      key={loanKey(row)}
+      row={row}
+      xMeasure={xMeasure}
+      geometry={geometry}
+      roving={roving}
+      {...interactions}
+    />
+  ));
+}
 
-  // Continuous X domain (Size / Price) with an 8% pad, mirroring the Y clamp pad.
-  const xs = cat ? [] : rows.map((r) => continuousValue(r, xMeasure));
-  const xMinRaw = xs.length ? Math.min(...xs) : 0;
-  const xMaxRaw = xs.length ? Math.max(...xs) : 1;
-  const xPad = (xMaxRaw - xMinRaw || 1) * 0.08;
-  const xLo = xMinRaw - xPad, xHi = xMaxRaw + xPad;
-  const scaleX = (v: number) => padL + ((v - xLo) / (xHi - xLo || 1)) * plotW;
+function CategoryLabel({ category, x, height }: { category: string; x: number; height: number }) {
+  const label = category.length > 9 ? category.slice(0, 8) + "…" : category;
+  return <text x={x} y={height - 8} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{label}</text>;
+}
 
-  const ariaLabel =
-    chartType === "bar"
-      ? `Average three-year discount margin per ${X_LABEL[xMeasure].toLowerCase()}`
-      : chartType === "box"
-        ? `Three-year discount margin distribution per ${X_LABEL[xMeasure].toLowerCase()}, each with min-to-max whisker, interquartile box and median tick`
-        : cat
-          ? `Three-year discount margin by ${X_LABEL[xMeasure].toLowerCase()}, with each ${xMeasure === "rating" ? "bucket" : "category"}'s median marked`
-          : `Three-year discount margin against ${X_LABEL[xMeasure].toLowerCase()}`;
+function CategoryBar({ category, members, x, geometry }: { category: string; members: RVRow[]; x: number; geometry: ScatterGeometry }) {
+  const average = mean(members.map((row) => row.dm));
+  if (average === null) return <CategoryLabel category={category} x={x} height={geometry.height} />;
+  const width = Math.min(geometry.bandW * 0.5, 44);
+  const y = geometry.scaleY(average);
+  const baseline = geometry.padT + geometry.plotH;
+  return (
+    <g>
+      <rect x={x - width / 2} y={y} width={width} height={Math.max(0, baseline - y)} fill="var(--caos-accent)" fillOpacity={0.55} rx={1.5}>
+        <title>{category + " · avg 3Y DM " + Math.round(average) + "bp · n=" + members.length}</title>
+      </rect>
+      <text x={x} y={y - 3} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{Math.round(average)}</text>
+      <CategoryLabel category={category} x={x} height={geometry.height} />
+    </g>
+  );
+}
 
+function CategoryBox({ category, members, x, geometry }: { category: string; members: RVRow[]; x: number; geometry: ScatterGeometry }) {
+  const values = members.map((row) => row.dm).sort((a, b) => a - b);
+  if (!values.length) return <CategoryLabel category={category} x={x} height={geometry.height} />;
+  const min = values[0], max = values[values.length - 1];
+  const q1 = percentileSorted(values, 0.25), q3 = percentileSorted(values, 0.75), medianValue = percentileSorted(values, 0.5);
+  const yMin = geometry.scaleY(min), yMax = geometry.scaleY(max);
+  const yQ1 = geometry.scaleY(q1), yQ3 = geometry.scaleY(q3), yMedian = geometry.scaleY(medianValue);
+  const width = Math.min(geometry.bandW * 0.42, 40);
+  return (
+    <g>
+      <title>{category + " · DM min " + Math.round(min) + " / med " + Math.round(medianValue) + " / max " + Math.round(max) + "bp · n=" + members.length}</title>
+      <line x1={x} y1={yMax} x2={x} y2={yMin} stroke="var(--caos-muted)" strokeWidth={1.2} strokeOpacity={0.7} />
+      <line x1={x - width * 0.3} y1={yMax} x2={x + width * 0.3} y2={yMax} stroke="var(--caos-muted)" strokeWidth={1.2} />
+      <line x1={x - width * 0.3} y1={yMin} x2={x + width * 0.3} y2={yMin} stroke="var(--caos-muted)" strokeWidth={1.2} />
+      <rect x={x - width / 2} y={yQ3} width={width} height={Math.max(1, yQ1 - yQ3)} fill="var(--caos-accent)" fillOpacity={0.16} stroke="var(--caos-accent)" strokeWidth={1.2} rx={1.5} />
+      <line x1={x - width / 2} y1={yMedian} x2={x + width / 2} y2={yMedian} stroke="var(--caos-text)" strokeWidth={2} strokeOpacity={0.85} />
+      <CategoryLabel category={category} x={x} height={geometry.height} />
+    </g>
+  );
+}
+
+function categoryPointOffset(index: number, count: number, bandWidth: number) {
+  if (count <= 1) return 0;
+  return (index / (count - 1) - 0.5) * bandWidth * 0.62;
+}
+
+function rvBasisPointLabel(value: number | null) {
+  if (value === null) return "";
+  return " " + (value > 0 ? "+" : "") + Math.round(value) + "bp";
+}
+
+function CategoryPointStem({
+  x, row, medianValue, geometry, active,
+}: {
+  x: number;
+  row: RVRow;
+  medianValue: number | null;
+  geometry: ScatterGeometry;
+  active: boolean;
+}) {
+  if (medianValue === null) return null;
+  const cheap = row.dm >= medianValue;
+  return (
+    <line
+      x1={x}
+      y1={geometry.scaleY(medianValue)}
+      x2={x}
+      y2={geometry.scaleY(row.dm)}
+      stroke={cheap ? "var(--caos-success-bright)" : "var(--caos-critical-bright)"}
+      strokeWidth={active ? 2.4 : 1.8}
+      strokeOpacity={active ? 0.9 : 0.5}
+    />
+  );
+}
+
+function CategoryPoint({
+  row, index, count, medianValue, x, geometry, roving, selected, hovered, onSelect, onHover,
+}: {
+  row: RVRow;
+  index: number;
+  count: number;
+  medianValue: number | null;
+  x: number;
+  geometry: ScatterGeometry;
+  roving: ScatterRoving;
+} & ScatterInteractions) {
+  const pointX = x + categoryPointOffset(index, count, geometry.bandW);
+  const isSelected = selected === row.figi;
+  const isHovered = hovered === row.figi;
+  const active = isSelected || isHovered;
+  return (
+    <g>
+      <CategoryPointStem x={pointX} row={row} medianValue={medianValue} geometry={geometry} active={active} />
+      <Point
+        cx={pointX}
+        cy={geometry.scaleY(row.dm)}
+        fill={RV_STYLE[row.rv].fg}
+        isSel={isSelected}
+        isHov={isHovered}
+        label={"Position " + row.company + ", rating " + row.rating + ", discount margin " + row.dm + " basis points, " + row.rv}
+        title={row.company + " · DM " + row.dm + " · " + row.rv + rvBasisPointLabel(row.rvBp)}
+        onSelect={() => onSelect(row.figi)}
+        onHover={(active) => onHover(active ? row.figi : null)}
+        roving={roving.getItemProps(row.figi)}
+      />
+    </g>
+  );
+}
+
+function CategoryScatter({
+  category, members, x, geometry, roving, ...interactions
+}: {
+  category: string;
+  members: RVRow[];
+  x: number;
+  geometry: ScatterGeometry;
+  roving: ScatterRoving;
+} & ScatterInteractions) {
+  const medianValue = bucketMedian(members.map((row) => row.dm));
+  return (
+    <g>
+      {medianValue !== null && (
+        <line x1={x - geometry.bandW * 0.36} y1={geometry.scaleY(medianValue)} x2={x + geometry.bandW * 0.36} y2={geometry.scaleY(medianValue)} stroke="var(--caos-muted)" strokeWidth={1.5} strokeDasharray="4 3" strokeOpacity={0.75}>
+          <title>{category + " · median 3Y DM " + Math.round(medianValue) + "bp"}</title>
+        </line>
+      )}
+      {members.map((row, index) => (
+        <CategoryPoint
+          key={loanKey(row)}
+          row={row}
+          index={index}
+          count={members.length}
+          medianValue={medianValue}
+          x={x}
+          geometry={geometry}
+          roving={roving}
+          {...interactions}
+        />
+      ))}
+      <CategoryLabel category={category} x={x} height={geometry.height} />
+    </g>
+  );
+}
+
+function CategoryPlot({
+  category, members, x, chartType, geometry, roving, ...interactions
+}: {
+  category: string;
+  members: RVRow[];
+  x: number;
+  chartType: ChartType;
+  geometry: ScatterGeometry;
+  roving: ScatterRoving;
+} & ScatterInteractions) {
+  if (chartType === "bar") return <CategoryBar category={category} members={members} x={x} geometry={geometry} />;
+  if (chartType === "box") return <CategoryBox category={category} members={members} x={x} geometry={geometry} />;
+  return <CategoryScatter category={category} members={members} x={x} geometry={geometry} roving={roving} {...interactions} />;
+}
+
+function CategoricalPlots({
+  rows, categories, xMeasure, chartType, geometry, roving, ...interactions
+}: {
+  rows: RVRow[];
+  categories: string[];
+  xMeasure: XMeasure;
+  chartType: ChartType;
+  geometry: ScatterGeometry;
+  roving: ScatterRoving;
+} & ScatterInteractions) {
+  return categories.map((category, index) => (
+    <CategoryPlot
+      key={category}
+      category={category}
+      members={rows.filter((row) => categoryOf(row, xMeasure) === category)}
+      x={geometry.bandX(index)}
+      chartType={chartType}
+      geometry={geometry}
+      roving={roving}
+      {...interactions}
+    />
+  ));
+}
+
+function ScatterSvg({
+  rows, color, categories, xMeasure, chartType, geometry, roving, ...interactions
+}: RVScatterProps & { categories: string[]; geometry: ScatterGeometry; roving: ScatterRoving }) {
+  const categorical = isCategorical(xMeasure);
   return (
     <svg
-      viewBox={`0 0 ${W} ${H}`}
+      viewBox={"0 0 " + geometry.width + " " + geometry.height}
       className="w-full h-full"
       preserveAspectRatio="xMidYMid meet"
       role="group"
-      aria-label={ariaLabel}
+      aria-label={scatterAriaLabel(chartType, xMeasure)}
     >
-      {gridVals.map((v, i) => (
-        <g key={i}>
-          <line x1={padL} y1={scaleY(v)} x2={W - padR} y2={scaleY(v)} stroke="var(--caos-border)" strokeWidth={1} strokeOpacity={0.3} strokeDasharray="3 3" />
-          <text x={padL - 6} y={scaleY(v) + 3} textAnchor="end" fontSize={9} fill="var(--caos-muted)" className="tabular">{Math.round(v)}</text>
-        </g>
-      ))}
-      <text x={13} y={padT + plotH / 2} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" transform={`rotate(-90 13 ${padT + plotH / 2})`} className="uppercase tracking-wider">3Y DM (bp)</text>
-      {/* baseline carries the active-sector color — the one place the sector hue does real work */}
-      <line x1={padL} y1={padT + plotH} x2={W - padR} y2={padT + plotH} stroke={color} strokeWidth={1.5} strokeOpacity={0.6} />
-
-      {/* Continuous scatter (Size / Price): linear x-axis + vertical gridlines, labels, title, plain coloured points */}
-      {!cat && [0, 0.25, 0.5, 0.75, 1].map((f, i) => {
-        const xv = xLo + (xHi - xLo) * f;
-        const gx = scaleX(xv);
-        return (
-          <g key={`gx${i}`}>
-            <line x1={gx} y1={padT} x2={gx} y2={padT + plotH} stroke="var(--caos-border)" strokeWidth={1} strokeOpacity={0.15} strokeDasharray="3 3" />
-            <text x={gx} y={H - 14} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{xMeasure === "price" ? xv.toFixed(1) : Math.round(xv)}</text>
-          </g>
-        );
-      })}
-      {!cat && (
-        <text x={padL + plotW / 2} y={H - 2} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="uppercase tracking-wider">{X_LABEL[xMeasure]}</text>
-      )}
-      {!cat && rows.map((r) => {
-        const isSel = selected === r.figi, isHov = hovered === r.figi;
-        return (
-          <Point
-            key={loanKey(r)}
-            cx={scaleX(continuousValue(r, xMeasure))}
-            cy={scaleY(r.dm)}
-            fill={RV_STYLE[r.rv].fg}
-            isSel={isSel}
-            isHov={isHov}
-            label={`Position ${r.company}, rating ${r.rating}, discount margin ${r.dm} basis points, ${r.rv}`}
-            title={`${r.company} · DM ${r.dm} · ${X_LABEL[xMeasure]} ${xMeasure === "price" ? continuousValue(r, xMeasure).toFixed(2) : Math.round(continuousValue(r, xMeasure))} · ${r.rv}`}
-            onSelect={() => onSelect(r.figi)}
-            onHover={(on) => onHover(on ? r.figi : null)}
-            roving={roving.getItemProps(r.figi)}
-          />
-        );
-      })}
-
-      {/* Categorical modes: Scatter (banded points + median tick) / Bar (avg DM) / Box (whisker + IQR + median) */}
-      {cat && cats.map((c, i) => {
-        const members = rows.filter((r) => categoryOf(r, xMeasure) === c);
-        const cx = bandX(i);
-        const label = c.length > 9 ? c.slice(0, 8) + "…" : c;
-
-        if (chartType === "bar") {
-          const avg = mean(members.map((r) => r.dm));
-          return (
-            <g key={c}>
-              {avg !== null && (() => {
-                const bw = Math.min(bandW * 0.5, 44);
-                const y0 = scaleY(avg), y1 = padT + plotH;
-                return (
-                  <>
-                    <rect x={cx - bw / 2} y={y0} width={bw} height={Math.max(0, y1 - y0)} fill="var(--caos-accent)" fillOpacity={0.55} rx={1.5}>
-                      <title>{`${c} · avg 3Y DM ${Math.round(avg)}bp · n=${members.length}`}</title>
-                    </rect>
-                    <text x={cx} y={y0 - 3} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{Math.round(avg)}</text>
-                  </>
-                );
-              })()}
-              <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{label}</text>
-            </g>
-          );
-        }
-
-        if (chartType === "box") {
-          const v = members.map((r) => r.dm).sort((a, b) => a - b);
-          const bw = Math.min(bandW * 0.42, 40);
-          return (
-            <g key={c}>
-              {v.length > 0 && (() => {
-                const mn = v[0], mx = v[v.length - 1];
-                const q1 = percentileSorted(v, 0.25), q3 = percentileSorted(v, 0.75), md = percentileSorted(v, 0.5);
-                const yMn = scaleY(mn), yMx = scaleY(mx), yQ1 = scaleY(q1), yQ3 = scaleY(q3), yMd = scaleY(md);
-                return (
-                  <>
-                    <title>{`${c} · DM min ${Math.round(mn)} / med ${Math.round(md)} / max ${Math.round(mx)}bp · n=${members.length}`}</title>
-                    {/* min→max whisker */}
-                    <line x1={cx} y1={yMx} x2={cx} y2={yMn} stroke="var(--caos-muted)" strokeWidth={1.2} strokeOpacity={0.7} />
-                    <line x1={cx - bw * 0.3} y1={yMx} x2={cx + bw * 0.3} y2={yMx} stroke="var(--caos-muted)" strokeWidth={1.2} />
-                    <line x1={cx - bw * 0.3} y1={yMn} x2={cx + bw * 0.3} y2={yMn} stroke="var(--caos-muted)" strokeWidth={1.2} />
-                    {/* IQR box */}
-                    <rect x={cx - bw / 2} y={yQ3} width={bw} height={Math.max(1, yQ1 - yQ3)} fill="var(--caos-accent)" fillOpacity={0.16} stroke="var(--caos-accent)" strokeWidth={1.2} rx={1.5} />
-                    {/* median tick */}
-                    <line x1={cx - bw / 2} y1={yMd} x2={cx + bw / 2} y2={yMd} stroke="var(--caos-text)" strokeWidth={2} strokeOpacity={0.85} />
-                  </>
-                );
-              })()}
-              <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{label}</text>
-            </g>
-          );
-        }
-
-        // Categorical scatter (default). For Rating this is byte-for-byte the
-        // original behavior; Sub-sector reuses the same banded geometry.
-        const med = bucketMedian(members.map((r) => r.dm));
-        const m = members.length;
-        return (
-          <g key={c}>
-            {med !== null && (
-              <line x1={cx - bandW * 0.36} y1={scaleY(med)} x2={cx + bandW * 0.36} y2={scaleY(med)} stroke="var(--caos-muted)" strokeWidth={1.5} strokeDasharray="4 3" strokeOpacity={0.75}>
-                <title>{`${c} · median 3Y DM ${Math.round(med)}bp`}</title>
-              </line>
-            )}
-            {members.map((r, j) => {
-              const off = m > 1 ? (j / (m - 1) - 0.5) * bandW * 0.62 : 0;
-              const px = cx + off;
-              const isSel = selected === r.figi, isHov = hovered === r.figi;
-              // Prototype design: a coloured stem from the bucket median to each
-              // point makes the cheap/rich magnitude read at a glance — green
-              // above the median (wide/cheap), red below (tight/rich). Vertical
-              // length encodes rvBp; hue doubles the signal for colourblind users.
-              const cheap = med === null ? true : r.dm >= med;
-              return (
-                <g key={loanKey(r)}>
-                  {med !== null && (
-                    <line
-                      x1={px} y1={scaleY(med)} x2={px} y2={scaleY(r.dm)}
-                      stroke={cheap ? "var(--caos-success-bright)" : "var(--caos-critical-bright)"}
-                      strokeWidth={isSel || isHov ? 2.4 : 1.8}
-                      strokeOpacity={isSel || isHov ? 0.9 : 0.5}
-                    />
-                  )}
-                  <Point
-                    cx={px}
-                    cy={scaleY(r.dm)}
-                    fill={RV_STYLE[r.rv].fg}
-                    isSel={isSel}
-                    isHov={isHov}
-                    label={`Position ${r.company}, rating ${r.rating}, discount margin ${r.dm} basis points, ${r.rv}`}
-                    title={`${r.company} · DM ${r.dm} · ${r.rv}${r.rvBp === null ? "" : ` ${r.rvBp > 0 ? "+" : ""}${Math.round(r.rvBp)}bp`}`}
-                    onSelect={() => onSelect(r.figi)}
-                    onHover={(on) => onHover(on ? r.figi : null)}
-                    roving={roving.getItemProps(r.figi)}
-                  />
-                </g>
-              );
-            })}
-            <text x={cx} y={H - 8} textAnchor="middle" fontSize={9} fill="var(--caos-muted)" className="tabular">{label}</text>
-          </g>
-        );
-      })}
+      <ScatterFrame geometry={geometry} color={color} />
+      {categorical
+        ? <CategoricalPlots rows={rows} categories={categories} xMeasure={xMeasure} chartType={chartType} geometry={geometry} roving={roving} {...interactions} />
+        : (
+          <>
+            <ContinuousAxis geometry={geometry} xMeasure={xMeasure} />
+            <ContinuousPoints rows={rows} xMeasure={xMeasure} geometry={geometry} roving={roving} {...interactions} />
+          </>
+        )}
     </svg>
+  );
+}
+
+function RVScatter({
+  rows, xMeasure, chartType, width, height, ...rest
+}: RVScatterProps) {
+  const categories = scatterCategories(rows, xMeasure);
+  const pointIds = scatterPointIds(rows, categories, xMeasure, chartType);
+  const roving = useRovingFocus(pointIds);
+  if (!rows.length || (isCategorical(xMeasure) && !categories.length)) return null;
+  const geometry = scatterGeometry(rows, categories, xMeasure, width, height);
+  return (
+    <ScatterSvg
+      rows={rows}
+      xMeasure={xMeasure}
+      chartType={chartType}
+      width={width}
+      height={height}
+      categories={categories}
+      geometry={geometry}
+      roving={roving}
+      {...rest}
+    />
   );
 }
 
@@ -1244,484 +1486,547 @@ function FocusReadout({ row, onClear }: { row: RVRow | null; onClear: () => void
   );
 }
 
-export function SectorRV({ holdings }: { holdings?: Map<string, RVHolding> } = {}) {
-  const rvRows = useMemo(() => (holdings ? buildRVRows(holdings) : SEED_ROWS), [holdings]);
-  const rvSectors = useMemo(() => (holdings ? buildRVSectors(rvRows) : SEED_RV_SECTORS), [holdings, rvRows]);
-  const indexStats = useMemo(() => (holdings ? buildIndexStats(rvSectors) : SEED_INDEX_STATS), [holdings, rvSectors]);
+type RVSector = ReturnType<typeof buildRVSectors>[number];
+type RatingAverageRow = ReturnType<typeof ratingAverages>[number];
+type SubSectorAverageRow = ReturnType<typeof subSectorAverages>[number];
+type IndexStatRow = ReturnType<typeof buildIndexStats>[number];
+type StatsTab = "ratings" | "subsectors" | "indexes";
 
-  const [chartRef, dimensions] = useResizeObserver<HTMLDivElement>();
+function statsSortValue(row: { d: Array<number | null> }, column: string): SortVal {
+  if (column.startsWith("d")) return row.d[parseInt(column.substring(1))];
+  return field(row, column);
+}
+
+function useSectorUniverse(holdings?: Map<string, RVHolding>) {
+  const rows = useMemo(() => (holdings ? buildRVRows(holdings) : SEED_ROWS), [holdings]);
+  const sectors = useMemo(() => (holdings ? buildRVSectors(rows) : SEED_RV_SECTORS), [holdings, rows]);
+  const indexes = useMemo(() => (holdings ? buildIndexStats(sectors) : SEED_INDEX_STATS), [holdings, sectors]);
   const [active, setActive] = useState(0);
   useEffect(() => {
-    if (active >= rvSectors.length) setActive(0);
-  }, [active, rvSectors.length]);
-  const sector = rvSectors[active] ?? rvSectors[0]!;
+    if (active >= sectors.length) setActive(0);
+  }, [active, sectors.length]);
+  const sector = sectors[active] ?? sectors[0]!;
   const averages = useMemo(() => ratingAverages(sector.rows), [sector]);
   const subSectorAvgs = useMemo(() => subSectorAverages(sector.rows), [sector]);
+  return { rows, sectors, indexes, active, setActive, sector, averages, subSectorAvgs };
+}
 
-  const [colPreset, setColPreset] = useState<"full" | "market" | "rv">("rv");
-
-  // Bottom averages stats tab control
-  const [statsTab, setStatsTab] = useState<"ratings" | "subsectors" | "indexes">("ratings");
-
-  // Chart controls: Y is always 3Y DM; X and chart-type are analyst-chosen.
+function useSectorControls() {
+  const [chartRef, dimensions] = useResizeObserver<HTMLDivElement>();
+  const [colPreset, setColPreset] = useState<PeerPreset>("rv");
+  const [statsTab, setStatsTab] = useState<StatsTab>("ratings");
   const [xMeasure, setXMeasure] = useState<XMeasure>("rating");
   const [chartType, setChartType] = useState<ChartType>("scatter");
-
-  // Prevent illegal continuous chart type configurations
   useEffect(() => {
-    if ((xMeasure === "size" || xMeasure === "price") && chartType !== "scatter") {
-      setChartType("scatter");
-    }
+    if ((xMeasure === "size" || xMeasure === "price") && chartType !== "scatter") setChartType("scatter");
   }, [xMeasure, chartType]);
+  return { chartRef, dimensions, colPreset, setColPreset, statsTab, setStatsTab, xMeasure, setXMeasure, chartType, setChartType };
+}
 
-  // Column filters live HERE (lifted out of PeerTable) so the RV distribution
-  // chart renders from the SAME filtered set as the table. Sector selection is
-  // already applied upstream (sector.rows); column filters compose on top.
+function useSectorFilterState(sector: RVSector) {
   const [filters, setFilters] = useState<FilterState>({});
   const filtered = useColumnFilters(sector.rows, filters, PEER_FILTER_VAL);
-  const setFilter = (col: string, values: string[] | undefined) =>
-    setFilters((filters) => updateColumnFilter(filters, col, values));
+  const setFilter = (column: string, values: string[] | undefined) =>
+    setFilters((current) => updateColumnFilter(current, column, values));
+  return { filters, setFilters, filtered, setFilter };
+}
 
-  // Bar/Box need a categorical X; on a continuous X they are disabled.
-
-  // Cross-pane selection lifted here: a clicked scatter point, Top-of-book pick,
-  // or peer-table row selects one loan (by figi); hover mirrors softly. Toggling
-  // the same figi deselects. RVScatter enlarges + rings the selected point;
-  // PeerTable tints + scrolls its row into view.
+function useSectorSelection(sector: RVSector) {
   const [selected, setSelected] = useState<string | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
-  const handleSelect = (figi: string) => setSelected((cur) => (cur === figi ? null : figi));
-
-  // A selection is only meaningful within the active sector's rows; switching
-  // sector (or column-filtering the selected loan out) clears it so no stale
-  // highlight or focus readout survives. Read the row from the sector universe so
-  // a filtered-out-but-selected loan still resolves for the readout until cleared.
+  const handleSelect = (figi: string) => setSelected((current) => (current === figi ? null : figi));
   useEffect(() => {
-    if (selected && !sector.rows.some((r) => r.figi === selected)) setSelected(null);
+    if (selected && !sector.rows.some((row) => row.figi === selected)) setSelected(null);
   }, [sector, selected]);
-  const selectedRow = selected ? sector.rows.find((r) => r.figi === selected) ?? null : null;
+  const selectedRow = selected ? sector.rows.find((row) => row.figi === selected) ?? null : null;
+  return { selected, setSelected, hovered, setHovered, handleSelect, selectedRow };
+}
 
-  // Deterministic top-half reads, computed from the SAME filtered set the chart
-  // and peer table render (sector rows + column filters). No LLM, no fabrication.
+function useSectorReads(filtered: RVRow[], sectorName: string) {
   const book = useMemo(() => topOfBook(filtered), [filtered]);
-  const readLines = useMemo(() => sectorRead(filtered, sector.name), [filtered, sector.name]);
+  const readLines = useMemo(() => sectorRead(filtered, sectorName), [filtered, sectorName]);
+  return { book, readLines };
+}
 
-  const { sort: sortIdx, handleSort: handleSortIdx } = useSortState();
-  const sortedIdx = useSort(indexStats, sortIdx, (r, c) => {
-    if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
-    return field(r, c);
-  });
+function useSectorSorts(indexes: IndexStatRow[], subSectors: SubSectorAverageRow[], averages: RatingAverageRow[]) {
+  const { sort: indexSort, handleSort: sortIndexes } = useSortState();
+  const sortedIndexes = useSort(indexes, indexSort, statsSortValue);
+  const { sort: subSectorSort, handleSort: sortSubSectors } = useSortState();
+  const sortedSubSectors = useSort(subSectors, subSectorSort, statsSortValue);
+  const { sort: averageSort, handleSort: sortAverages } = useSortState();
+  const sortedAverages = useSort(averages, averageSort, statsSortValue);
+  return {
+    indexSort, sortIndexes, sortedIndexes,
+    subSectorSort, sortSubSectors, sortedSubSectors,
+    averageSort, sortAverages, sortedAverages,
+  };
+}
 
-  const { sort: sortSub, handleSort: handleSortSub } = useSortState();
-  const sortedSub = useSort(subSectorAvgs, sortSub, (r, c) => {
-    if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
-    return field(r, c);
-  });
+function useSectorRVController(holdings?: Map<string, RVHolding>) {
+  const universe = useSectorUniverse(holdings);
+  const controls = useSectorControls();
+  const filters = useSectorFilterState(universe.sector);
+  const selection = useSectorSelection(universe.sector);
+  const reads = useSectorReads(filters.filtered, universe.sector.name);
+  const sorts = useSectorSorts(universe.indexes, universe.subSectorAvgs, universe.averages);
+  return { ...universe, ...controls, ...filters, ...selection, ...reads, ...sorts };
+}
 
-  const { sort: sortAvg, handleSort: handleSortAvg } = useSortState();
-  const sortedAvg = useSort(averages, sortAvg, (r, c) => {
-    if (c.startsWith("d")) return r.d[parseInt(c.substring(1))];
-    return field(r, c);
-  });
+type SectorRVController = ReturnType<typeof useSectorRVController>;
 
+const X_MEASURE_OPTIONS: ReadonlyArray<readonly [string, XMeasure]> = [
+  ["Rating", "rating"],
+  ["Sub-sector", "subSector"],
+  ["Size", "size"],
+  ["Price", "price"],
+];
+
+const CHART_TYPE_OPTIONS: ReadonlyArray<readonly [string, ChartType]> = [
+  ["Scatter", "scatter"],
+  ["Bar", "bar"],
+  ["Box", "box"],
+];
+
+const TABLE_LENS_OPTIONS: ReadonlyArray<readonly [string, PeerPreset]> = [
+  ["Full", "full"],
+  ["Market", "market"],
+  ["RV", "rv"],
+];
+
+function toolbarButtonClass(active: boolean, disabled = false) {
+  const base = "shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border transition-caos focus-ring flex items-center justify-center ";
+  if (active) return base + "border-caos-accent text-caos-text bg-caos-elevated";
+  if (disabled) return base + "border-caos-border/30 text-caos-muted/40 cursor-not-allowed";
+  return base + "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 cursor-pointer";
+}
+
+function ToolbarDivider() {
+  return <span className="w-px h-4 bg-caos-border/60 shrink-0" aria-hidden="true" />;
+}
+
+function ToolbarGroupLabel({ children }: { children: React.ReactNode }) {
+  return <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">{children}</span>;
+}
+
+function SectorSelector({ state }: { state: SectorRVController }) {
   return (
-    <div
-      className="@container flex flex-col gap-3 min-w-0"
-      onKeyDown={(e) => {
-        if (e.key === "Escape" && selected) setSelected(null);
-      }}
+    <>
+      <label htmlFor="sector-rv-select" className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">Sector tables</label>
+      <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: state.sector.color }} aria-hidden="true" />
+      <select
+        id="sector-rv-select"
+        value={state.active}
+        onChange={(event) => state.setActive(Number(event.target.value))}
+        className="focus-ring h-7 min-w-[220px] rounded border border-caos-border bg-caos-elevated px-2.5 tabular text-caos-xs text-caos-text outline-none transition-caos hover:border-caos-accent/60 cursor-pointer"
+      >
+        {state.sectors.map((sector, index) => <option key={sector.name} value={index}>{sector.name}</option>)}
+      </select>
+    </>
+  );
+}
+
+function XMeasureControls({ state }: { state: SectorRVController }) {
+  const selectMeasure = (measure: XMeasure) => {
+    state.setXMeasure(measure);
+    if ((measure === "size" || measure === "price") && state.chartType !== "scatter") state.setChartType("scatter");
+  };
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label="Chart X measure">
+      <ToolbarGroupLabel>X</ToolbarGroupLabel>
+      {X_MEASURE_OPTIONS.map(([label, measure]) => (
+        <button key={measure} type="button" aria-pressed={state.xMeasure === measure} onClick={() => selectMeasure(measure)} className={toolbarButtonClass(state.xMeasure === measure)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ChartTypeControls({ state }: { state: SectorRVController }) {
+  const continuous = state.xMeasure === "size" || state.xMeasure === "price";
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label="Chart type">
+      <ToolbarGroupLabel>Chart</ToolbarGroupLabel>
+      {CHART_TYPE_OPTIONS.map(([label, chartType]) => {
+        const disabled = chartType !== "scatter" && continuous;
+        return (
+          <ActionReason
+            key={chartType}
+            type="button"
+            aria-pressed={state.chartType === chartType}
+            reason={disabled ? "Bar and Box charts need a categorical X measure (Rating or Sub-sector)" : null}
+            reasonDisplay="hidden"
+            onClick={() => state.setChartType(chartType)}
+            className={toolbarButtonClass(state.chartType === chartType, disabled)}
+          >
+            {label}
+          </ActionReason>
+        );
+      })}
+    </div>
+  );
+}
+
+function TableLensControls({ state }: { state: SectorRVController }) {
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label="Loans table lens">
+      <ToolbarGroupLabel>Table</ToolbarGroupLabel>
+      {TABLE_LENS_OPTIONS.map(([label, preset]) => (
+        <button key={preset} type="button" aria-pressed={state.colPreset === preset} onClick={() => state.setColPreset(preset)} className={toolbarButtonClass(state.colPreset === preset)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FilterReset({ state }: { state: SectorRVController }) {
+  const count = Object.keys(state.filters).length;
+  if (!count) return null;
+  return (
+    <>
+      <ToolbarDivider />
+      <button
+        type="button"
+        onClick={() => state.setFilters({})}
+        aria-label={"Clear " + count + " column filter(s)"}
+        className="shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring cursor-pointer flex items-center justify-center"
+      >
+        Clear filters ({count})
+      </button>
+    </>
+  );
+}
+
+function SectorToolbar({ state }: { state: SectorRVController }) {
+  return (
+    <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap">
+      <SectorSelector state={state} />
+      <span className="flex-1" />
+      <XMeasureControls state={state} />
+      <ToolbarDivider />
+      <ChartTypeControls state={state} />
+      <ToolbarDivider />
+      <TableLensControls state={state} />
+      <FilterReset state={state} />
+      <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">{state.sector.rows.length} in file</span>
+    </div>
+  );
+}
+
+function distributionCaption(chartType: ChartType, xMeasure: XMeasure) {
+  const label = X_LABEL[xMeasure].toLowerCase();
+  if (chartType === "bar") return "avg 3Y DM by " + label;
+  if (chartType === "box") return "3Y DM spread by " + label + " · box = IQR";
+  if (isCategorical(xMeasure)) return "3Y DM by " + label + " · tick = median · above = wide / cheap";
+  return "3Y DM vs " + label;
+}
+
+function EmptyDistribution() {
+  return (
+    <div className="h-full min-h-[240px] flex flex-col items-center justify-center gap-2 text-center">
+      <span style={{ color: "var(--caos-muted)" }} aria-hidden="true"><StatusGlyph kind="idle" size={16} /></span>
+      <p className="tabular text-caos-sm text-caos-muted m-0 max-w-[320px] leading-relaxed">
+        No loans match the current column filters — clear a filter to plot the sector distribution.
+      </p>
+    </div>
+  );
+}
+
+function DistributionChart({ state }: { state: SectorRVController }) {
+  if (!state.filtered.length) return <EmptyDistribution />;
+  if (state.dimensions.width <= 0) return null;
+  return (
+    <RVScatter
+      rows={state.filtered}
+      color={state.sector.color}
+      xMeasure={state.xMeasure}
+      chartType={state.chartType}
+      selected={state.selected}
+      hovered={state.hovered}
+      onSelect={state.handleSelect}
+      onHover={state.setHovered}
+      width={state.dimensions.width}
+      height={state.dimensions.height}
+    />
+  );
+}
+
+function DistributionFocus({ state }: { state: SectorRVController }) {
+  if (state.chartType !== "scatter" && !state.selectedRow) {
+    return (
+      <div className="flex items-center h-8 px-3 border-t border-caos-border text-caos-2xs text-caos-muted">
+        Point selection is available in the Scatter view and the peer table.
+      </div>
+    );
+  }
+  return <FocusReadout row={state.selectedRow} onClear={() => state.setSelected(null)} />;
+}
+
+function DistributionPanel({ state }: { state: SectorRVController }) {
+  return (
+    <PanelShell
+      title={state.sector.name + " — RV Distribution"}
+      className="min-h-[360px]"
+      right={<span className="tabular text-caos-xs text-caos-muted">{distributionCaption(state.chartType, state.xMeasure)}</span>}
     >
-      <CaveatHeader rows={rvRows} />
-
-      {/* Decision-first opener (WP-6): ranked |RV| + carry dislocations across
-          the whole loan universe, ahead of the sector-scoped scatter/toolbar/
-          heatmap/averages below — those are demoted, not deleted. */}
-      <PanelShell title="Actionable Dislocations" className="flex-none min-h-0" collapsible>
-        <ActionableDislocations rows={rvRows} />
-      </PanelShell>
-
-      {/* sector selector */}
-      <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap">
-        <label htmlFor="sector-rv-select" className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap">
-          Sector tables
-        </label>
-        <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: sector.color }} aria-hidden="true" />
-        <select
-          id="sector-rv-select"
-          value={active}
-          onChange={(e) => setActive(Number(e.target.value))}
-          className="focus-ring h-7 min-w-[220px] rounded border border-caos-border bg-caos-elevated px-2.5 tabular text-caos-xs text-caos-text outline-none transition-caos hover:border-caos-accent/60 cursor-pointer"
-        >
-          {rvSectors.map((s, i) => (
-            <option key={s.name} value={i}>{s.name}</option>
-          ))}
-        </select>
-        <span className="flex-1" />
-        {/* X measure — what the RV distribution plots along the horizontal axis */}
-        <div className="flex items-center gap-1" role="group" aria-label="Chart X measure">
-          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">X</span>
-          {([
-            ["Rating", "rating"],
-            ["Sub-sector", "subSector"],
-            ["Size", "size"],
-            ["Price", "price"],
-          ] as const).map(([label, x]) => (
-            <button
-              key={x}
-              type="button"
-              aria-pressed={xMeasure === x}
-              onClick={() => {
-                setXMeasure(x);
-                if ((x === "size" || x === "price") && chartType !== "scatter") setChartType("scatter");
-              }}
-              className={
-                "shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border transition-caos focus-ring cursor-pointer flex items-center justify-center " +
-                (xMeasure === x
-                  ? "border-caos-accent text-caos-text bg-caos-elevated"
-                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <span className="w-px h-4 bg-caos-border/60 shrink-0" aria-hidden="true" />
-        {/* Chart type — scatter / bar (avg) / box (distribution) */}
-        <div className="flex items-center gap-1" role="group" aria-label="Chart type">
-          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Chart</span>
-          {([
-            ["Scatter", "scatter"],
-            ["Bar", "bar"],
-            ["Box", "box"],
-          ] as const).map(([label, ct]) => {
-            const disabled = ct !== "scatter" && (xMeasure === "size" || xMeasure === "price");
-            return (
-              <ActionReason
-                key={ct}
-                type="button"
-                aria-pressed={chartType === ct}
-                reason={disabled ? "Bar and Box charts need a categorical X measure (Rating or Sub-sector)" : null}
-                reasonDisplay="hidden"
-                onClick={() => setChartType(ct)}
-                className={
-                  "shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border transition-caos focus-ring flex items-center justify-center " +
-                  (chartType === ct
-                    ? "border-caos-accent text-caos-text bg-caos-elevated"
-                    : disabled
-                      ? "border-caos-border/30 text-caos-muted/40 cursor-not-allowed"
-                      : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 cursor-pointer")
-                }
-              >
-                {label}
-              </ActionReason>
-            );
-          })}
-        </div>
-        <span className="w-px h-4 bg-caos-border/60 shrink-0" aria-hidden="true" />
-        <div className="flex items-center gap-1" role="group" aria-label="Loans table lens">
-          <span className="shrink-0 tabular text-caos-2xs uppercase tracking-widest text-caos-muted mr-1">Table</span>
-          {([
-            ["Full", "full"],
-            ["Market", "market"],
-            ["RV", "rv"],
-          ] as const).map(([label, preset]) => (
-            <button
-              key={preset}
-              type="button"
-              aria-pressed={colPreset === preset}
-              onClick={() => setColPreset(preset)}
-              className={
-                "shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border transition-caos focus-ring cursor-pointer flex items-center justify-center " +
-                (colPreset === preset
-                  ? "border-caos-accent text-caos-text bg-caos-elevated"
-                  : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {Object.keys(filters).length > 0 && (
-          <>
-            <span className="w-px h-4 bg-caos-border/60 shrink-0" aria-hidden="true" />
-            <button
-              type="button"
-              onClick={() => setFilters({})}
-              aria-label={`Clear ${Object.keys(filters).length} column filter(s)`}
-              className="shrink-0 tabular text-caos-2xs h-7 px-2.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring cursor-pointer flex items-center justify-center"
-            >
-              Clear filters ({Object.keys(filters).length})
-            </button>
-          </>
-        )}
-        <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap hidden xl:inline">
-          {sector.rows.length} in file
-        </span>
+      <div className="flex flex-col h-full min-h-0">
+        <div ref={state.chartRef} className="flex-1 min-h-[300px] w-full px-2 py-1"><DistributionChart state={state} /></div>
+        <DistributionFocus state={state} />
       </div>
+    </PanelShell>
+  );
+}
 
-      <RvLegend />
+function readScopeLabel(filtered: number, total: number) {
+  if (filtered !== total) return "computed · " + filtered + " of " + total + " shown";
+  return "computed · " + filtered + " loans";
+}
 
-      {/* TOP HALF — the spatial "relative" the tables only imply, given the
-          dominant width, flanked by two deterministic reads over the SAME
-          filtered universe. Big scatter (left) · Sector read + Top of book
-          stacked (right). All three render from `filtered` (sector rows + the
-          peer table's column filters) so the whole surface stays one universe. */}
-      <div className="shrink-0 grid grid-cols-1 @[60rem]:grid-cols-[1.6fr_1fr] gap-3 items-stretch">
-        <PanelShell
-          title={sector.name + " — RV Distribution"}
-          className="min-h-[360px]"
-          right={
-            <span className="tabular text-caos-xs text-caos-muted">
-              {chartType === "bar"
-                ? `avg 3Y DM by ${X_LABEL[xMeasure].toLowerCase()}`
-                : chartType === "box"
-                  ? `3Y DM spread by ${X_LABEL[xMeasure].toLowerCase()} · box = IQR`
-                  : xMeasure === "rating" || xMeasure === "subSector"
-                    ? `3Y DM by ${X_LABEL[xMeasure].toLowerCase()} · tick = median · above = wide / cheap`
-                    : `3Y DM vs ${X_LABEL[xMeasure].toLowerCase()}`}
-            </span>
-          }
-        >
-          {/* Chart body grows; the focus readout is a fixed strip at the bottom. */}
-          <div className="flex flex-col h-full min-h-0">
-            <div ref={chartRef} className="flex-1 min-h-[300px] w-full px-2 py-1">
-              {filtered.length === 0 ? (
-                // All rows filtered out — the SVG would render blank, so say so
-                // and point at the exit (matches Sector read / Top-of-book copy).
-                <div className="h-full min-h-[240px] flex flex-col items-center justify-center gap-2 text-center">
-                  <span style={{ color: "var(--caos-muted)" }} aria-hidden="true">
-                    <StatusGlyph kind="idle" size={16} />
-                  </span>
-                  <p className="tabular text-caos-sm text-caos-muted m-0 max-w-[320px] leading-relaxed">
-                    No loans match the current column filters — clear a filter to plot the sector distribution.
-                  </p>
-                </div>
-              ) : dimensions.width > 0 ? (
-                <RVScatter
-                  rows={filtered}
-                  color={sector.color}
-                  xMeasure={xMeasure}
-                  chartType={chartType}
-                  selected={selected}
-                  hovered={hovered}
-                  onSelect={handleSelect}
-                  onHover={setHovered}
-                  width={dimensions.width}
-                  height={dimensions.height}
-                />
-              ) : null}
-            </div>
-            {/* Focus readout — selected loan's real fields, or a linking hint. In
-                the aggregate (bar/box) views there is no per-loan point, so note
-                that selection lives in the scatter/table. */}
-            {chartType !== "scatter" && !selectedRow ? (
-              <div className="flex items-center h-8 px-3 border-t border-caos-border text-caos-2xs text-caos-muted">
-                Point selection is available in the Scatter view and the peer table.
-              </div>
-            ) : (
-              <FocusReadout row={selectedRow} onClear={() => setSelected(null)} />
-            )}
-          </div>
-        </PanelShell>
-
-        {/* right column — Sector read over Top of book, both stacked and stretched */}
-        <div data-testid="sector-rv-right-rail" className="grid grid-rows-2 gap-2 min-h-0 max-h-[360px] overflow-hidden">
-          <PanelShell
-            title="Sector read"
-            className="min-h-0"
-            right={<span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">{filtered.length !== sector.rows.length ? `computed · ${filtered.length} of ${sector.rows.length} shown` : `computed · ${filtered.length} loans`}</span>}
-          >
-            <SectorReadPanel lines={readLines} />
-          </PanelShell>
-          <PanelShell
-            title="Top of book"
-            className="min-h-0"
-            right={<span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">by RV vs bucket</span>}
-          >
-            <TopOfBookPanel
-              book={book}
-              selected={selected}
-              hovered={hovered}
-              onSelect={handleSelect}
-              onHover={setHovered}
-            />
-          </PanelShell>
-        </div>
-      </div>
-
-      {/* peer table */}
+function SectorReadRail({ state }: { state: SectorRVController }) {
+  return (
+    <div data-testid="sector-rv-right-rail" className="grid grid-rows-2 gap-2 min-h-0 max-h-[360px] overflow-hidden">
       <PanelShell
-        title={sector.name + " — Sector Peers · Relative Value"}
-        className="min-h-[400px] h-[400px] flex-none"
-        right={
-          <span className="tabular text-caos-xs text-caos-muted">
-            RV = 3Y DM − sector×rating median (n ≥ 2) · sorted |rvBp| ↓
-          </span>
-        }
+        title="Sector read"
+        className="min-h-0"
+        right={<span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">{readScopeLabel(state.filtered.length, state.sector.rows.length)}</span>}
       >
-        <div className="overflow-auto h-full">
-          <PeerTable
-            rows={sector.rows}
-            filtered={filtered}
-            preset={colPreset}
-            filters={filters}
-            onFilter={setFilter}
-            selected={selected}
-            hovered={hovered}
-            onSelect={handleSelect}
-            onHover={setHovered}
-          />
-        </div>
+        <SectorReadPanel lines={state.readLines} />
       </PanelShell>
-
-      {/* cross-sector relative value heatmap */}
-      <CrossSectorHeatmap rowsList={rvRows} filtersActive={Object.keys(filters).length > 0} filterCount={Object.keys(filters).length} />
-
-      {/* consolidated statistics tabbed panel */}
       <PanelShell
-        title="Sector Averages & Index Summary"
-        className="min-h-[280px] h-[280px] flex-none"
-        right={
-          <div className="flex items-center gap-3">
-            <span className="tabular text-caos-xs text-caos-muted">
-              {statsTab === "indexes" ? "derived from file sectors" : `${sector.name} · peer set`}
-            </span>
-            <div className="flex items-center gap-1" role="group" aria-label="Statistics view type">
-              {([
-                ["Ratings", "ratings"],
-                ["Sub-Sectors", "subsectors"],
-                ["Indexes", "indexes"],
-              ] as const).map(([label, tab]) => (
-                <button
-                  key={tab}
-                  type="button"
-                  aria-pressed={statsTab === tab}
-                  onClick={() => setStatsTab(tab)}
-                  className={
-                    "shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
-                    (statsTab === tab
-                      ? "border-caos-accent text-caos-text bg-caos-elevated"
-                      : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        }
+        title="Top of book"
+        className="min-h-0"
+        right={<span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">by RV vs bucket</span>}
       >
-        <div className="overflow-auto h-full">
-          {statsTab === "ratings" ? (
-            <table aria-label="Sector ratings average" className="border-collapse text-caos-xs w-full min-w-[760px]">
-              <thead>
-                <tr className="border-b border-caos-border">
-                  <SortTh label="Rating" col="bucket" sort={sortAvg} onSort={handleSortAvg} />
-                  <SortTh label="Loans" col="n" align="right" sort={sortAvg} onSort={handleSortAvg} />
-                  <SortTh label="Avg Size ($Mn)" col="size" align="right" sort={sortAvg} onSort={handleSortAvg} />
-                  <SortTh label="Margin" col="margin" align="right" sort={sortAvg} onSort={handleSortAvg} />
-                  <SortTh label="Bid" col="bid" align="right" sort={sortAvg} onSort={handleSortAvg} />
-                  <SortTh label="Ask" col="ask" align="right" sort={sortAvg} onSort={handleSortAvg} />
-                  {DELTA_COLS.map((c, i) => (
-                    <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sortAvg} onSort={handleSortAvg} />
-                  ))}
-                  <SortTh label="Mid YTM" col="ytm" align="right" sort={sortAvg} onSort={handleSortAvg} />
-                  <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sortAvg} onSort={handleSortAvg} />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedAvg.map((b) => (
-                  <tr key={b.bucket} className="border-b border-caos-border/40">
-                    <td className={td + " text-caos-text"}>{b.bucket}</td>
-                    <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted")}>
-                      {b.n.toLocaleString()}
-                    </td>
-                    <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted")}>
-                      {b.size === null ? "—" : Math.round(b.size).toLocaleString()}
-                    </td>
-                    <td className={td + " text-right " + (b.n ? "text-caos-text" : "text-caos-muted")}>
-                      {b.margin === null ? "—" : Math.round(b.margin)}
-                    </td>
-                    <td className={td + " text-right text-caos-text"}>{fmt(b.bid)}</td>
-                    <td className={td + " text-right text-caos-text"}>{fmt(b.ask)}</td>
-                    {b.d.map((v, j) => (
-                      <DeltaCell key={DELTA_COLS[j]} v={v} colLabel={DELTA_COLS[j]} />
-                    ))}
-                    <td className={td + " text-right text-caos-text"}>{fmt(b.ytm, 1)}</td>
-                    <td className={td + " text-right text-caos-text"}>{b.dm === null ? "—" : Math.round(b.dm).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : statsTab === "subsectors" ? (
-            <table aria-label="Sub-sector market average" className="border-collapse text-caos-xs w-full min-w-[760px]">
-              <thead>
-                <tr className="border-b border-caos-border">
-                  <SortTh label="Sub-Sector" col="subSector" sort={sortSub} onSort={handleSortSub} />
-                  <SortTh label="Loans" col="n" align="right" sort={sortSub} onSort={handleSortSub} />
-                  <SortTh label="Avg Size ($Mn)" col="size" align="right" sort={sortSub} onSort={handleSortSub} />
-                  <SortTh label="Margin" col="margin" align="right" sort={sortSub} onSort={handleSortSub} />
-                  <SortTh label="Bid" col="bid" align="right" sort={sortSub} onSort={handleSortSub} />
-                  <SortTh label="Ask" col="ask" align="right" sort={sortSub} onSort={handleSortSub} />
-                  {DELTA_COLS.map((c, i) => (
-                    <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sortSub} onSort={handleSortSub} />
-                  ))}
-                  <SortTh label="Mid YTM" col="ytm" align="right" sort={sortSub} onSort={handleSortSub} />
-                  <SortTh label="Mid 3Y DM" col="dm" align="right" sort={sortSub} onSort={handleSortSub} />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedSub.map((b) => (
-                  <tr key={b.subSector} className="border-b border-caos-border/40">
-                    <td className={td + " text-caos-text max-w-[260px] truncate"}>{b.subSector}</td>
-                    <td className={td + " text-right text-caos-text"}>{b.n.toLocaleString()}</td>
-                    <td className={td + " text-right text-caos-text"}>{b.size === null ? "—" : Math.round(b.size).toLocaleString()}</td>
-                    <td className={td + " text-right text-caos-text"}>{b.margin === null ? "—" : Math.round(b.margin)}</td>
-                    <td className={td + " text-right text-caos-text"}>{fmt(b.bid)}</td>
-                    <td className={td + " text-right text-caos-text"}>{fmt(b.ask)}</td>
-                    {b.d.map((v, j) => (
-                      <DeltaCell key={DELTA_COLS[j]} v={v} colLabel={DELTA_COLS[j]} />
-                    ))}
-                    <td className={td + " text-right text-caos-text"}>{fmt(b.ytm, 1)}</td>
-                    <td className={td + " text-right text-caos-text"}>{b.dm === null ? "—" : Math.round(b.dm).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <table aria-label="Index statistics" className="border-collapse text-caos-xs w-full min-w-[760px]">
-              <thead>
-                <tr className="border-b border-caos-border">
-                  <SortTh label="Index" col="name" sort={sortIdx} onSort={handleSortIdx} />
-                  <SortTh label="Loans" col="n" align="right" sort={sortIdx} onSort={handleSortIdx} />
-                  <SortTh label="MV ($Bn)" col="mv" align="right" sort={sortIdx} onSort={handleSortIdx} />
-                  <SortTh label="Avg Price" col="avgPrice" align="right" sort={sortIdx} onSort={handleSortIdx} />
-                  {DELTA_COLS.map((c, i) => (
-                    <SortTh key={c} label={c} col={`d${i}`} align="right" sort={sortIdx} onSort={handleSortIdx} />
-                  ))}
-                  <SortTh label="YTM" col="ytm" align="right" sort={sortIdx} onSort={handleSortIdx} />
-                  <SortTh label="3Y DM" col="dm" align="right" sort={sortIdx} onSort={handleSortIdx} />
-                </tr>
-              </thead>
-              <tbody>
-                {sortedIdx.map((s) => (
-                  <tr key={s.name} className="border-b border-caos-border/40">
-                    <td className={td + " text-caos-text"}>{s.name}</td>
-                    <td className={td + " text-right text-caos-text"}>{s.n.toLocaleString()}</td>
-                    <td className={td + " text-right text-caos-text"}>{s.mv.toLocaleString()}</td>
-                    <td className={td + " text-right text-caos-text"}>{s.avgPrice.toFixed(2)}</td>
-                    {s.d.map((v, j) => (
-                      <DeltaCell key={DELTA_COLS[j]} v={v} colLabel={DELTA_COLS[j]} />
-                    ))}
-                    <td className={td + " text-right text-caos-text"}>{s.ytm.toFixed(1)}</td>
-                    <td className={td + " text-right text-caos-text"}>{s.dm.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <TopOfBookPanel
+          book={state.book}
+          selected={state.selected}
+          hovered={state.hovered}
+          onSelect={state.handleSelect}
+          onHover={state.setHovered}
+        />
       </PanelShell>
     </div>
   );
+}
+
+function SectorDistribution({ state }: { state: SectorRVController }) {
+  return (
+    <div className="shrink-0 grid grid-cols-1 @[60rem]:grid-cols-[1.6fr_1fr] gap-3 items-stretch">
+      <DistributionPanel state={state} />
+      <SectorReadRail state={state} />
+    </div>
+  );
+}
+
+function SectorPeerPanel({ state }: { state: SectorRVController }) {
+  return (
+    <PanelShell
+      title={state.sector.name + " — Sector Peers · Relative Value"}
+      className="min-h-[400px] h-[400px] flex-none"
+      right={<span className="tabular text-caos-xs text-caos-muted">RV = 3Y DM − sector×rating median (n ≥ 2) · sorted |rvBp| ↓</span>}
+    >
+      <div className="overflow-auto h-full">
+        <PeerTable
+          rows={state.sector.rows}
+          filtered={state.filtered}
+          preset={state.colPreset}
+          filters={state.filters}
+          onFilter={state.setFilter}
+          selected={state.selected}
+          hovered={state.hovered}
+          onSelect={state.handleSelect}
+          onHover={state.setHovered}
+        />
+      </div>
+    </PanelShell>
+  );
+}
+
+type StatsColumn = { label: string; column: string; align?: "left" | "right" };
+
+const RATING_STATS_COLUMNS: StatsColumn[] = [
+  { label: "Rating", column: "bucket" },
+  { label: "Loans", column: "n", align: "right" },
+  { label: "Avg Size ($Mn)", column: "size", align: "right" },
+  { label: "Margin", column: "margin", align: "right" },
+  { label: "Bid", column: "bid", align: "right" },
+  { label: "Ask", column: "ask", align: "right" },
+  ...DELTA_COLS.map((label, index) => ({ label, column: "d" + index, align: "right" as const })),
+  { label: "Mid YTM", column: "ytm", align: "right" },
+  { label: "Mid 3Y DM", column: "dm", align: "right" },
+];
+
+const SUBSECTOR_STATS_COLUMNS: StatsColumn[] = [
+  { label: "Sub-Sector", column: "subSector" },
+  ...RATING_STATS_COLUMNS.slice(1),
+];
+
+const INDEX_STATS_COLUMNS: StatsColumn[] = [
+  { label: "Index", column: "name" },
+  { label: "Loans", column: "n", align: "right" },
+  { label: "MV ($Bn)", column: "mv", align: "right" },
+  { label: "Avg Price", column: "avgPrice", align: "right" },
+  ...DELTA_COLS.map((label, index) => ({ label, column: "d" + index, align: "right" as const })),
+  { label: "YTM", column: "ytm", align: "right" },
+  { label: "3Y DM", column: "dm", align: "right" },
+];
+
+function StatsHeader({ columns, sort, onSort }: { columns: StatsColumn[]; sort: SortConfig; onSort: (column: string) => void }) {
+  return (
+    <thead>
+      <tr className="border-b border-caos-border">
+        {columns.map((column) => (
+          <SortTh key={column.column} label={column.label} col={column.column} align={column.align} sort={sort} onSort={onSort} />
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+function AverageStatsCells({ row, summaryTone }: { row: RatingAverageRow | SubSectorAverageRow; summaryTone: string }) {
+  return <>
+    <td className={td + " text-right " + summaryTone}>{row.n.toLocaleString()}</td>
+    <td className={td + " text-right " + summaryTone}>{row.size === null ? "—" : Math.round(row.size).toLocaleString()}</td>
+    <td className={td + " text-right " + summaryTone}>{row.margin === null ? "—" : Math.round(row.margin)}</td>
+    <td className={td + " text-right text-caos-text"}>{fmt(row.bid)}</td>
+    <td className={td + " text-right text-caos-text"}>{fmt(row.ask)}</td>
+    {row.d.map((value, index) => <DeltaCell key={DELTA_COLS[index]} v={value} colLabel={DELTA_COLS[index]} />)}
+    <td className={td + " text-right text-caos-text"}>{fmt(row.ytm, 1)}</td>
+    <td className={td + " text-right text-caos-text"}>{row.dm === null ? "—" : Math.round(row.dm).toLocaleString()}</td>
+  </>;
+}
+
+function RatingStatsRow({ row }: { row: RatingAverageRow }) {
+  const dataTone = row.n ? "text-caos-text" : "text-caos-muted";
+  return (
+    <tr className="border-b border-caos-border/40">
+      <td className={td + " text-caos-text"}>{row.bucket}</td>
+      <AverageStatsCells row={row} summaryTone={dataTone} />
+    </tr>
+  );
+}
+
+function RatingsStatsTable({ state }: { state: SectorRVController }) {
+  return (
+    <table aria-label="Sector ratings average" className="border-collapse text-caos-xs w-full min-w-[760px]">
+      <StatsHeader columns={RATING_STATS_COLUMNS} sort={state.averageSort} onSort={state.sortAverages} />
+      <tbody>{state.sortedAverages.map((row) => <RatingStatsRow key={row.bucket} row={row} />)}</tbody>
+    </table>
+  );
+}
+
+function SubSectorStatsRow({ row }: { row: SubSectorAverageRow }) {
+  return (
+    <tr className="border-b border-caos-border/40">
+      <td className={td + " text-caos-text max-w-[260px] truncate"}>{row.subSector}</td>
+      <AverageStatsCells row={row} summaryTone="text-caos-text" />
+    </tr>
+  );
+}
+
+function SubSectorStatsTable({ state }: { state: SectorRVController }) {
+  return (
+    <table aria-label="Sub-sector market average" className="border-collapse text-caos-xs w-full min-w-[760px]">
+      <StatsHeader columns={SUBSECTOR_STATS_COLUMNS} sort={state.subSectorSort} onSort={state.sortSubSectors} />
+      <tbody>{state.sortedSubSectors.map((row) => <SubSectorStatsRow key={row.subSector} row={row} />)}</tbody>
+    </table>
+  );
+}
+
+function IndexStatsRow({ row }: { row: IndexStatRow }) {
+  return (
+    <tr className="border-b border-caos-border/40">
+      <td className={td + " text-caos-text"}>{row.name}</td>
+      <td className={td + " text-right text-caos-text"}>{row.n.toLocaleString()}</td>
+      <td className={td + " text-right text-caos-text"}>{row.mv.toLocaleString()}</td>
+      <td className={td + " text-right text-caos-text"}>{row.avgPrice.toFixed(2)}</td>
+      {row.d.map((value, index) => <DeltaCell key={DELTA_COLS[index]} v={value} colLabel={DELTA_COLS[index]} />)}
+      <td className={td + " text-right text-caos-text"}>{row.ytm.toFixed(1)}</td>
+      <td className={td + " text-right text-caos-text"}>{row.dm.toLocaleString()}</td>
+    </tr>
+  );
+}
+
+function IndexStatsTable({ state }: { state: SectorRVController }) {
+  return (
+    <table aria-label="Index statistics" className="border-collapse text-caos-xs w-full min-w-[760px]">
+      <StatsHeader columns={INDEX_STATS_COLUMNS} sort={state.indexSort} onSort={state.sortIndexes} />
+      <tbody>{state.sortedIndexes.map((row) => <IndexStatsRow key={row.name} row={row} />)}</tbody>
+    </table>
+  );
+}
+
+const STATS_TAB_OPTIONS: ReadonlyArray<readonly [string, StatsTab]> = [
+  ["Ratings", "ratings"],
+  ["Sub-Sectors", "subsectors"],
+  ["Indexes", "indexes"],
+];
+
+function StatisticsControls({ state }: { state: SectorRVController }) {
+  const scope = state.statsTab === "indexes" ? "derived from file sectors" : state.sector.name + " · peer set";
+  return (
+    <div className="flex items-center gap-3">
+      <span className="tabular text-caos-xs text-caos-muted">{scope}</span>
+      <div className="flex items-center gap-1" role="group" aria-label="Statistics view type">
+        {STATS_TAB_OPTIONS.map(([label, tab]) => (
+          <button
+            key={tab}
+            type="button"
+            aria-pressed={state.statsTab === tab}
+            onClick={() => state.setStatsTab(tab)}
+            className={"shrink-0 tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " + (state.statsTab === tab ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatisticsTable({ state }: { state: SectorRVController }) {
+  if (state.statsTab === "ratings") return <RatingsStatsTable state={state} />;
+  if (state.statsTab === "subsectors") return <SubSectorStatsTable state={state} />;
+  return <IndexStatsTable state={state} />;
+}
+
+function SectorStatistics({ state }: { state: SectorRVController }) {
+  return (
+    <PanelShell
+      title="Sector Averages & Index Summary"
+      className="min-h-[280px] h-[280px] flex-none"
+      right={<StatisticsControls state={state} />}
+    >
+      <div className="overflow-auto h-full"><StatisticsTable state={state} /></div>
+    </PanelShell>
+  );
+}
+
+function SectorRVWorkspace({ state }: { state: SectorRVController }) {
+  const filterCount = Object.keys(state.filters).length;
+  return (
+    <div
+      className="@container flex flex-col gap-3 min-w-0"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && state.selected) state.setSelected(null);
+      }}
+    >
+      <CaveatHeader rows={state.rows} />
+      <PanelShell title="Actionable Dislocations" className="flex-none min-h-0" collapsible>
+        <ActionableDislocations rows={state.rows} />
+      </PanelShell>
+      <SectorToolbar state={state} />
+      <RvLegend />
+      <SectorDistribution state={state} />
+      <SectorPeerPanel state={state} />
+      <CrossSectorHeatmap rowsList={state.rows} filtersActive={filterCount > 0} filterCount={filterCount} />
+      <SectorStatistics state={state} />
+    </div>
+  );
+}
+
+export function SectorRV({ holdings }: { holdings?: Map<string, RVHolding> } = {}) {
+  const state = useSectorRVController(holdings);
+  return <SectorRVWorkspace state={state} />;
 }

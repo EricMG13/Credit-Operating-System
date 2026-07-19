@@ -12,6 +12,10 @@ import { useNavigationAttempt } from "./NavigationGuardProvider";
 // Alt+←/→ stops come from the shared nav registry — cycle order is the visual
 // nav order by construction (this file used to keep its own diverging list).
 const CONCEPTS = CONCEPT_CYCLE;
+const ALT_ACTION_EVENTS: Partial<Record<string, string>> = {
+  KeyS: "caos:command-palette-open",
+  KeyC: "caos:collapse-toggle",
+};
 
 function isEditable(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null;
@@ -24,6 +28,61 @@ function isEditable(el: EventTarget | null): boolean {
   );
 }
 
+function openHelp(event: KeyboardEvent): void {
+  if (event.key !== "?" || event.metaKey || event.ctrlKey) return;
+  event.preventDefault();
+  window.dispatchEvent(new Event("caos:help-open"));
+}
+
+function dispatchAltAction(event: KeyboardEvent, path: string | null): boolean {
+  const eventName = ALT_ACTION_EVENTS[event.code];
+  if (eventName) {
+    event.preventDefault();
+    window.dispatchEvent(new Event(eventName));
+    return true;
+  }
+  if (event.code !== "KeyK") return false;
+  event.preventDefault();
+  window.dispatchEvent(new Event(path?.startsWith("/query") ? "caos:query-focus" : "caos:ask-toggle"));
+  return true;
+}
+
+function subviewDirection(event: KeyboardEvent): -1 | 1 | null {
+  if (event.key === "." || event.code === "Period") return 1;
+  if (event.key === "," || event.code === "Comma") return -1;
+  return null;
+}
+
+function dispatchSubviewCycle(event: KeyboardEvent): boolean {
+  const direction = subviewDirection(event);
+  if (direction === null) return false;
+  event.preventDefault();
+  window.dispatchEvent(new CustomEvent("caos:subview-cycle", { detail: { direction } }));
+  return true;
+}
+
+function conceptDestination(key: string, path: string | null): string | null {
+  if (key !== "ArrowLeft" && key !== "ArrowRight") return null;
+  const direction = key === "ArrowRight" ? 1 : -1;
+  const current = CONCEPTS.findIndex((concept) => path === concept || path?.startsWith(concept + "/"));
+  const start = direction === 1 ? 0 : CONCEPTS.length - 1;
+  const next = current === -1 ? start : (current + direction + CONCEPTS.length) % CONCEPTS.length;
+  return CONCEPTS[next];
+}
+
+function handleHotkey(event: KeyboardEvent, path: string | null, navigate: (destination: string) => void): void {
+  if (isEditable(event.target)) return;
+  if (!event.altKey) {
+    openHelp(event);
+    return;
+  }
+  if (dispatchAltAction(event, path) || dispatchSubviewCycle(event)) return;
+  const destination = conceptDestination(event.key, path);
+  if (!destination) return;
+  event.preventDefault();
+  navigate(destination);
+}
+
 export function ConceptHotkeys() {
   const router = useRouter();
   const attemptNavigation = useNavigationAttempt();
@@ -33,52 +92,11 @@ export function ConceptHotkeys() {
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (isEditable(e.target)) return;
-      // "?" (no Alt) opens the shortcut reference — every binding the overlay
-      // documents lives in lib/shortcuts.ts.
-      if (!e.altKey) {
-        if (e.key === "?" && !e.metaKey && !e.ctrlKey) {
-          e.preventDefault();
-          window.dispatchEvent(new Event("caos:help-open"));
-        }
-        return;
-      }
-
-      // Match on e.code, never e.key: with Option held, macOS resolves the key
-      // to a composed character (Alt+S → "ß", Alt+K → "˚", Alt+C → "ç"), so a
-      // key-based match leaves every advertised Alt chord dead on the desk's
-      // primary platform. Comma/Period below already learned this lesson.
-      if (["KeyS", "KeyK", "KeyC"].includes(e.code)) {
-        e.preventDefault();
-        if (e.code === "KeyS") window.dispatchEvent(new Event("caos:command-palette-open"));
-        if (e.code === "KeyK") {
-          if (pathRef.current?.startsWith("/query")) {
-            window.dispatchEvent(new Event("caos:query-focus"));
-          } else {
-            window.dispatchEvent(new Event("caos:ask-toggle"));
-          }
-        }
-        if (e.code === "KeyC") window.dispatchEvent(new Event("caos:collapse-toggle"));
-        return;
-      }
-      if (e.key === "," || e.key === "." || e.code === "Comma" || e.code === "Period") {
-        e.preventDefault();
-        const dir = (e.key === "." || e.code === "Period") ? 1 : -1;
-        window.dispatchEvent(new CustomEvent("caos:subview-cycle", { detail: { direction: dir } }));
-        return;
-      }
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      e.preventDefault();
-      const dir = e.key === "ArrowRight" ? 1 : -1;
-      const path = pathRef.current || "";
-      const cur = CONCEPTS.findIndex((c) => path === c || path.startsWith(c + "/"));
-      const next =
-        cur === -1
-          ? dir === 1
-            ? 0
-            : CONCEPTS.length - 1
-          : (cur + dir + CONCEPTS.length) % CONCEPTS.length;
-      attemptNavigation(() => router.push(CONCEPTS[next]));
+      // Match letter chords on e.code: macOS Option resolves e.key to composed
+      // characters (Alt+S → "ß", Alt+K → "˚", Alt+C → "ç").
+      handleHotkey(e, pathRef.current, (destination) => {
+        attemptNavigation(() => router.push(destination));
+      });
     };
     window.addEventListener("keydown", down);
     return () => {

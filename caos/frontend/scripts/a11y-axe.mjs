@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 import { createRequire } from 'module';
 import { mkdir } from 'node:fs/promises';
 import { installSurfaceStubs } from './browser-surface-fixtures.mjs';
+import { summarizeAxeViolations } from './axe-results.mjs';
 const require = createRequire(import.meta.url);
 const axePath = require.resolve('axe-core/axe.min.js');
 
@@ -142,26 +143,37 @@ for (const viewport of viewports) {
     }
   }
   await page.addScriptTag({ path: axePath });
-  const res = await page.evaluate(async ({ tags, viewport }) => {
-    const r = await window.axe.run(document, { runOnly: { type: 'tag', values: tags } });
+  const rawViolations = await page.evaluate(async (tags) => {
+    const result = await window.axe.run(document, { runOnly: { type: 'tag', values: tags } });
+    return result.violations;
+  }, TAGS);
+  const violations = summarizeAxeViolations(rawViolations, { nodeLimit: 4, includeHtml: true });
+  const controlLayout = await page.evaluate(() => {
     const rootWidth = document.documentElement.clientWidth;
-    const pageOverflowPx = Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0) - rootWidth;
     const isVisible = (element) => {
       if (element.matches('.sr-only:not(:focus), [hidden]')) return false;
       const style = getComputedStyle(element);
       const rect = element.getBoundingClientRect();
-      return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0 && !element.closest('[aria-hidden="true"]');
+      return [style.display !== 'none', style.visibility !== 'hidden', Number(style.opacity) !== 0, rect.width > 0, rect.height > 0, !element.closest('[aria-hidden="true"]')].every(Boolean);
     };
     const hasHorizontalScrollOwner = (element) => {
-      for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+      let parent = element.parentElement;
+      while (parent) {
+        if (parent === document.body) return false;
         const style = getComputedStyle(parent);
-        if (/(auto|scroll)/.test(style.overflowX) && parent.scrollWidth > parent.clientWidth + 1) return true;
+        if ([/(auto|scroll)/.test(style.overflowX), parent.scrollWidth > parent.clientWidth + 1].every(Boolean)) return true;
+        parent = parent.parentElement;
       }
       return false;
     };
     const interactive = [...document.querySelectorAll('a[href], button, input, select, textarea, [role="button"], [role="tab"], [role="switch"], [tabindex]:not([tabindex="-1"])')]
       .filter(isVisible)
       .filter((element) => !element.matches(':disabled, [aria-disabled="true"]'));
+    const describeControl = (element, dimensions = {}) => ({
+      tag: element.tagName.toLowerCase(),
+      label: (element.getAttribute('aria-label') || element.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 120),
+      ...dimensions,
+    });
     const clippedControls = interactive
       .filter((element) => {
         const rect = element.getBoundingClientRect();
@@ -170,16 +182,8 @@ for (const viewport of viewports) {
       .slice(0, 20)
       .map((element) => {
         const rect = element.getBoundingClientRect();
-        return {
-          tag: element.tagName.toLowerCase(),
-          label: (element.getAttribute('aria-label') || element.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 120),
-          left: Math.round(rect.left),
-          right: Math.round(rect.right),
-        };
+        return describeControl(element, { left: Math.round(rect.left), right: Math.round(rect.right) });
       });
-    // WCAG 2.5.8 permits a sub-24px target when its centre has a 24px clear
-    // circle. Flag only crowded undersized controls; inline prose links are an
-    // explicit exception in the criterion.
     const targetSizeFailures = interactive
       .filter((element) => getComputedStyle(element).display !== 'inline')
       .filter((element) => {
@@ -198,83 +202,42 @@ for (const viewport of viewports) {
       .slice(0, 20)
       .map((element) => {
         const rect = element.getBoundingClientRect();
-        return {
-          tag: element.tagName.toLowerCase(),
-          label: (element.getAttribute('aria-label') || element.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 120),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
-        };
+        return describeControl(element, { width: Math.round(rect.width), height: Math.round(rect.height) });
       });
     const launcher = document.querySelector('.caos-ask-launcher');
-    const overlayCollisions = launcher && isVisible(launcher)
-      ? interactive
-          .filter((element) => element !== launcher && !launcher.contains(element))
-          .filter((element) => {
-            const a = launcher.getBoundingClientRect();
-            const b = element.getBoundingClientRect();
-            const left = Math.max(a.left, b.left);
-            const right = Math.min(a.right, b.right);
-            const top = Math.max(a.top, b.top);
-            const bottom = Math.min(a.bottom, b.bottom);
-            if (right - left <= 1 || bottom - top <= 1) return false;
-            // Bounding boxes can extend beyond a clipping ancestor. Require the
-            // target to be present in the actual painted stack at the overlap.
-            const painted = document.elementsFromPoint((left + right) / 2, (top + bottom) / 2);
-            return painted.some((hit) => hit === element || element.contains(hit));
-          })
-          .slice(0, 20)
-          .map((element) => ({
-            tag: element.tagName.toLowerCase(),
-            label: (element.getAttribute('aria-label') || element.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 120),
-          }))
-      : [];
+    let overlayCollisions = [];
+    if (launcher && isVisible(launcher)) {
+      overlayCollisions = interactive.filter((element) => element !== launcher && !launcher.contains(element)).filter((element) => {
+        const a = launcher.getBoundingClientRect(); const b = element.getBoundingClientRect();
+        const left = Math.max(a.left, b.left); const right = Math.min(a.right, b.right);
+        const top = Math.max(a.top, b.top); const bottom = Math.min(a.bottom, b.bottom);
+        if (right - left <= 1 || bottom - top <= 1) return false;
+        const painted = document.elementsFromPoint((left + right) / 2, (top + bottom) / 2);
+        return painted.some((hit) => hit === element || element.contains(hit));
+      }).slice(0, 20).map((element) => describeControl(element));
+    }
+    return { clipped_controls: clippedControls, target_size_failures: targetSizeFailures, overlay_collisions: overlayCollisions };
+  });
+  const structuralLayout = await page.evaluate(() => {
+    const rootWidth = document.documentElement.clientWidth;
+    const pageOverflowPx = Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0) - rootWidth;
+    const unexpectedHorizontalOffsets = [...document.querySelectorAll('.caos-enterprise-page, .persona-workbench__composition, .persona-workbench__slot--primary')]
+      .filter((element) => element.scrollLeft > 1)
+      .map((element) => ({ class_name: typeof element.className === 'string' ? element.className.slice(0, 160) : '', scroll_left: Math.round(element.scrollLeft) }));
+    const selectors = ['.caos-enterprise-page', '[data-testid="persona-workbench"]', '.persona-workbench__slot--primary', '.deepdive-analysis-grid', '.deepdive-analysis-primary', '.model-editor-layout', '.model-sheet-region'];
+    const diagnosticRegions = selectors.flatMap((selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return [];
+      const rect = element.getBoundingClientRect(); const style = getComputedStyle(element);
+      return [{ selector, left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width), client_width: element.clientWidth, scroll_width: element.scrollWidth, overflow_x: style.overflowX }];
+    });
     return {
-      url: location.pathname,
-      viewport,
-      layout: {
-        page_overflow_px: Math.max(0, Math.round(pageOverflowPx)),
-        clipped_controls: clippedControls,
-        target_size_failures: targetSizeFailures,
-        overlay_collisions: overlayCollisions,
-        unexpected_horizontal_offsets: [
-          ...document.querySelectorAll('.caos-enterprise-page, .persona-workbench__composition, .persona-workbench__slot--primary'),
-        ]
-          .filter((element) => element.scrollLeft > 1)
-          .map((element) => ({
-            class_name: typeof element.className === 'string' ? element.className.slice(0, 160) : '',
-            scroll_left: Math.round(element.scrollLeft),
-          })),
-        diagnostic_regions: [
-          '.caos-enterprise-page',
-          '[data-testid="persona-workbench"]',
-          '.persona-workbench__slot--primary',
-          '.deepdive-analysis-grid',
-          '.deepdive-analysis-primary',
-          '.model-editor-layout',
-          '.model-sheet-region',
-        ].flatMap((selector) => {
-          const element = document.querySelector(selector);
-          if (!element) return [];
-          const rect = element.getBoundingClientRect();
-          const style = getComputedStyle(element);
-          return [{
-            selector,
-            left: Math.round(rect.left),
-            right: Math.round(rect.right),
-            width: Math.round(rect.width),
-            client_width: element.clientWidth,
-            scroll_width: element.scrollWidth,
-            overflow_x: style.overflowX,
-          }];
-        }),
-      },
-      violations: r.violations.map(v => ({
-        id: v.id, impact: v.impact, help: v.help, wcag: v.tags.filter(t=>t.startsWith('wcag')),
-        n: v.nodes.length,
-        nodes: v.nodes.slice(0,4).map(n => ({ target: n.target, html: n.html, summary: n.failureSummary }))
-      }))
+      page_overflow_px: Math.max(0, Math.round(pageOverflowPx)),
+      unexpected_horizontal_offsets: unexpectedHorizontalOffsets,
+      diagnostic_regions: diagnosticRegions,
     };
-  }, { tags: TAGS, viewport });
+  });
+  const res = { url: new URL(page.url()).pathname, viewport, layout: { ...structuralLayout, ...controlLayout }, violations };
   out[evidenceKey] = res;
   if (screenshotDir) {
     const safeName = evidenceKey.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'root';
@@ -286,16 +249,30 @@ await browser.close();
 // totals — fail closed when a route was not scanned as well as on violations.
 // Otherwise a transient readiness miss can serialize as `scan_error` while the
 // validation command still exits 0 and is mistaken for a complete clean matrix.
+function hasEntries(value) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function layoutHasFailures(layout) {
+  if (!layout) return false;
+  const counts = [
+    (layout.page_overflow_px || 0) > 1,
+    hasEntries(layout.clipped_controls),
+    hasEntries(layout.target_size_failures),
+    hasEntries(layout.overlay_collisions),
+    hasEntries(layout.unexpected_horizontal_offsets),
+  ];
+  return counts.some(Boolean);
+}
+
+function routeHasFailures(result) {
+  return [Boolean(result.scan_error), hasEntries(result.violations), layoutHasFailures(result.layout)].some(Boolean);
+}
+
 let total = 0; let scanErrors = 0; let layoutFailures = 0; const byImpact = {};
 for (const r of Object.values(out)) {
   if (r.scan_error) scanErrors += 1;
-  if (
-    (r.layout?.page_overflow_px || 0) > 1
-    || (r.layout?.clipped_controls?.length || 0) > 0
-    || (r.layout?.target_size_failures?.length || 0) > 0
-    || (r.layout?.overlay_collisions?.length || 0) > 0
-    || (r.layout?.unexpected_horizontal_offsets?.length || 0) > 0
-  ) layoutFailures += 1;
+  if (layoutHasFailures(r.layout)) layoutFailures += 1;
   for (const v of r.violations || []) {
     total += v.n;
     byImpact[v.impact] = (byImpact[v.impact] || 0) + v.n;
@@ -303,15 +280,7 @@ for (const r of Object.values(out)) {
 }
 const compact = process.env.A11Y_COMPACT === '1';
 const reportedRoutes = compact
-  ? Object.fromEntries(Object.entries(out).filter(([, result]) => (
-      result.scan_error
-      || (result.violations?.length || 0) > 0
-      || (result.layout?.page_overflow_px || 0) > 1
-      || (result.layout?.clipped_controls?.length || 0) > 0
-      || (result.layout?.target_size_failures?.length || 0) > 0
-      || (result.layout?.overlay_collisions?.length || 0) > 0
-      || (result.layout?.unexpected_horizontal_offsets?.length || 0) > 0
-    )))
+  ? Object.fromEntries(Object.entries(out).filter(([, result]) => routeHasFailures(result)))
   : out;
 console.log(JSON.stringify({ base: BASE, tags: TAGS, viewports, total_nodes: total, scan_errors: scanErrors, layout_failures: layoutFailures, byImpact, routes: reportedRoutes }, null, 2));
 process.exit(total > 0 || scanErrors > 0 || layoutFailures > 0 ? 1 : 0);

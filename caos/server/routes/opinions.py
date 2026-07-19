@@ -103,24 +103,24 @@ async def _validate_refs(
     if body.thesis_version_id:
         thesis = await db.get(ThesisVersion, body.thesis_version_id)
         if thesis is None or thesis.issuer_id != issuer_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Thesis version does not belong to issuer.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Thesis version does not belong to issuer.")
     if body.source_run_id:
         run = await db.get(Run, body.source_run_id)
         await require_run_access(caller, run, db)
         if run.issuer_id != issuer_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Source run does not belong to issuer.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source run does not belong to issuer.")
     if body.context_id:
         context = await db.get(AnalysisContextRecord, body.context_id)
         if context is None or context.analyst_id != caller.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
         if context.issuer_ids and issuer_id not in context.issuer_ids:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Analysis context does not include issuer.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Analysis context does not include issuer.")
     if body.analyst_link_ids:
         links = list((await db.execute(
             select(AnalystLink).where(AnalystLink.id.in_(body.analyst_link_ids))
         )).scalars().all())
         if len(links) != len(body.analyst_link_ids) or any(link.target_issuer_id != issuer_id for link in links):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A linked analyst memo does not belong to issuer.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A linked analyst memo does not belong to issuer.")
 
 
 @router.get("/{issuer_id}/analyst-opinions", response_model=AnalystOpinionHistory)

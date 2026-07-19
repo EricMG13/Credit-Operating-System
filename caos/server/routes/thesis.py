@@ -67,7 +67,7 @@ async def create_thesis_version(
     if body.linked_decision_id:
         decision = await db.get(Decision, body.linked_decision_id)
         if decision is None or decision.issuer_id != body.issuer_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Linked decision does not belong to issuer")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Linked decision does not belong to issuer")
     current = (await db.execute(
         select(func.max(ThesisVersion.version)).where(ThesisVersion.issuer_id == body.issuer_id)
     )).scalar() or 0
@@ -84,7 +84,7 @@ async def create_thesis_version(
     await db.flush()
     for prediction in body.predictions:
         if not is_finite_number(prediction.predicted):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Prediction must be finite")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Prediction must be finite")
         db.add(ThesisPrediction(
             thesis_version_id=row.id,
             metric=prediction.metric.strip(),
@@ -160,7 +160,7 @@ async def realize_prediction(
     caller: CallerIdentity = Depends(get_write_identity),
 ):
     if not is_finite_number(body.realized):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Realized value must be finite")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Realized value must be finite")
     prediction = await db.get(ThesisPrediction, prediction_id)
     if prediction is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Prediction not found")

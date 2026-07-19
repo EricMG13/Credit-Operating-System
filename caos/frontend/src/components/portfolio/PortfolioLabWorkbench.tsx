@@ -480,6 +480,23 @@ function usePortfolioInsightActions(
   return { generate, ratify };
 }
 
+function selectedPortfolio(portfolios: PortfolioSummary[], id: string | null) {
+  return portfolios.find((row) => row.id === id) ?? null;
+}
+
+function selectedPortfolioPosition(positionLane: ReturnType<typeof usePortfolioPositions>, selectedId: string | null | undefined) {
+  return positionLane.positions?.items.find((row) => row.id === selectedId) ?? null;
+}
+
+function selectedStressRun(stressRuns: StressRun[], selectedId: string | null | undefined) {
+  return stressRuns.find((run) => run.id === selectedId) ?? stressRuns[0] ?? null;
+}
+
+function portfolioChartSpec(chart: ChartMode, analytics: PortfolioAnalytics | null, stressRuns: StressRun[]) {
+  const visualizationAnalytics = buildVisualizationAnalytics(analytics, stressRuns);
+  return visualizationAnalytics ? createPortfolioVisualizationSpec(chart, visualizationAnalytics) : null;
+}
+
 function usePortfolioLabView() {
   const { roleView } = useRoleView();
   const analysis = useAnalysisContext({ name: "Portfolio Lab" });
@@ -493,11 +510,10 @@ function usePortfolioLabView() {
   const filters = usePortfolioFilters(values);
   const positionLane = usePortfolioPositions(selection.id, directory.loaded, values, sort, setError);
   const support = usePortfolioSupport(analysis.context?.id, selection.id, directory.loaded);
-  const portfolio = directory.portfolios.find((row) => row.id === selection.id) ?? null;
-  const selectedPosition = positionLane.positions?.items.find((row) => row.id === values.selected) ?? null;
-  const selectedStress = support.stressRuns.find((run) => run.id === values.stress) ?? support.stressRuns[0] ?? null;
-  const visualizationAnalytics = useMemo(() => buildVisualizationAnalytics(support.analytics, support.stressRuns), [support.analytics, support.stressRuns]);
-  const chartSpec = useMemo(() => visualizationAnalytics ? createPortfolioVisualizationSpec(chart, visualizationAnalytics) : null, [chart, visualizationAnalytics]);
+  const portfolio = selectedPortfolio(directory.portfolios, selection.id);
+  const selectedPosition = selectedPortfolioPosition(positionLane, values.selected);
+  const selectedStress = selectedStressRun(support.stressRuns, values.stress);
+  const chartSpec = useMemo(() => portfolioChartSpec(chart, support.analytics, support.stressRuns), [chart, support.analytics, support.stressRuns]);
   const stress = usePortfolioStress(selection.id, update, support.setStressRuns, setError);
   const insightActions = usePortfolioInsightActions(analysis.context?.id, selection.id, support, setError);
   return {
@@ -568,18 +584,31 @@ function PortfolioToolbar({ view }: { view: PortfolioLabViewModel }) {
   );
 }
 
-function PortfolioDatasetContent({ view }: { view: PortfolioLabViewModel }) {
+function portfolioDatasetGate(view: PortfolioLabViewModel) {
   if (view.selection.requestedIsMissing) return <SurfaceState kind="unavailable" headingLevel={2} title="Portfolio not found" detail={`The requested portfolio (${view.selection.requestedId}) is not available. Choose a portfolio from the picker.`} compact />;
   if (!view.selection.id && view.directory.error) return <SurfaceState kind="offline" headingLevel={2} title="Portfolio register unavailable" detail={view.directory.error} compact />;
   if (!view.selection.id && view.directory.loaded) return <SurfaceState kind="empty" headingLevel={2} title="No portfolios are configured" detail="Create or import a portfolio in Settings before opening the lab." primaryAction={<Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Open Settings</Link>} compact />;
   if (view.positions.loading && !view.positions.positions) return <LoadingTable />;
   if (view.error && !view.positions.positions) return <SurfaceState kind="unavailable" headingLevel={2} title="Portfolio positions unavailable" detail={view.error} compact />;
-  if (view.dataset === "positions" && view.positions.positions?.items.length) return <PositionsTable page={view.positions.positions} selectedId={view.values.selected} onSelect={(row) => view.update({ selected: row.id })} />;
-  if (view.dataset === "positions" && view.positions.positions) return <SurfaceState kind="empty" headingLevel={2} title="No positions match the active filters" detail="Clear or adjust the visible filters to broaden the result." compact />;
+  return null;
+}
+
+function PositionDatasetContent({ view }: { view: PortfolioLabViewModel }) {
+  if (view.positions.positions?.items.length) return <PositionsTable page={view.positions.positions} selectedId={view.values.selected} onSelect={(row) => view.update({ selected: row.id })} />;
+  return <SurfaceState kind="empty" headingLevel={2} title="No positions match the active filters" detail="Clear or adjust the visible filters to broaden the result." compact />;
+}
+
+function ConstraintDatasetContent({ view }: { view: PortfolioLabViewModel }) {
   if (view.support.analytics?.compliance.length) return <ConstraintsTable rows={view.support.analytics.compliance} />;
   if (view.support.analytics) return <SurfaceState kind="empty" headingLevel={2} title="No portfolio constraints are configured" compact />;
   if (view.support.error) return <SurfaceState kind="unavailable" headingLevel={2} title="Constraint analytics unavailable" detail="Positions remain accessible." compact />;
   return <LoadingTable />;
+}
+
+function PortfolioDatasetContent({ view }: { view: PortfolioLabViewModel }) {
+  const gate = portfolioDatasetGate(view);
+  if (gate) return gate;
+  return view.dataset === "positions" ? <PositionDatasetContent view={view} /> : <ConstraintDatasetContent view={view} />;
 }
 
 function PortfolioPrimary({ view }: { view: PortfolioLabViewModel }) {

@@ -134,15 +134,7 @@ function severityBand(value: number): "critical" | "high" | "medium" | "low" {
   return "low";
 }
 
-function Row({
-  row,
-  state,
-  selected,
-  onToggleSelect,
-  onAck,
-  onAssign,
-  onResolve,
-}: {
+type RowProps = {
   row: AlertRow;
   state: AlertStateDTO | undefined;
   selected: boolean;
@@ -150,7 +142,81 @@ function Row({
   onAck: () => Promise<void>;
   onAssign: (name: string) => Promise<void>;
   onResolve: (note: string) => Promise<void>;
+};
+
+type PerformAlertAction = (action: () => Promise<void>, onSuccess?: () => void) => Promise<void>;
+
+function AlertRowHeader({ row, state, selected, onToggleSelect }: Pick<RowProps, "row" | "state" | "selected" | "onToggleSelect">) {
+  const resolved = state?.state === "resolved";
+  const acked = state?.state === "ack";
+  const impact = formatImpact(row);
+  const band = severityBand(row.severity);
+  const stateLabel = resolved ? "Resolved" : acked ? "Ack/assigned" : "Open";
+  const stateColor = resolved || acked ? "var(--caos-success)" : "var(--caos-muted)";
+  return (
+    <div className="flex items-center gap-2">
+      <input type="checkbox" checked={selected} onChange={onToggleSelect} disabled={resolved} aria-label={`Select ${row.event}`} className="min-h-8 min-w-8 caos-target disabled:opacity-40" />
+      <ConclusionAuthority prov={rowProvenance(row)} />
+      <span className="inline-flex items-center gap-1" title={`Alert severity band: ${band}`}><Dot sev={band} glyph /><Tag sev={band}>{band}</Tag></span>
+      {impact ? <span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap" title="Anomaly severity — standard deviations from the baseline/peer median (engine/anomaly.py's robust z-score / cusum run, never a fabricated bp figure)" style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}>{impact}</span> : null}
+      <IssuerLink query={row.issuerName} title={`Open ${row.issuerName} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none">{row.issuerName}</IssuerLink>
+      <span className="tabular text-caos-2xs uppercase tracking-wider ml-auto" style={{ color: stateColor }}>{stateLabel}</span>
+    </div>
+  );
+}
+
+function AlertRowSummary({ row, state }: Pick<RowProps, "row" | "state">) {
+  return (
+    <>
+      <div className="text-caos-md text-caos-text leading-snug mt-1">{row.event}</div>
+      <div className="text-caos-xs text-caos-muted leading-snug mt-0.5">{row.reason}</div>
+      <AlertSource row={row} />
+      {state?.state === "resolved" && state.resolution_note ? <div className="text-caos-xs text-caos-muted leading-snug mt-0.5 italic">resolved: {state.resolution_note}</div> : null}
+    </>
+  );
+}
+
+function AssignmentActions({ state, value, pending, onChange, perform, onAssign, onAck }: {
+  state: AlertStateDTO | undefined;
+  value: string;
+  pending: boolean;
+  onChange: (value: string) => void;
+  perform: PerformAlertAction;
+  onAssign: RowProps["onAssign"];
+  onAck: RowProps["onAck"];
 }) {
+  const assignee = value.trim();
+  return (
+    <>
+      <span className="tabular text-caos-xs text-caos-muted">{state?.assignee || "unassigned"}</span>
+      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder="assign to…" className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target" />
+      <ActionReason reason={!assignee ? "Enter a name to assign" : pending ? "Update in progress…" : null} onClick={() => void perform(() => onAssign(assignee), () => onChange(""))} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target">Assign</ActionReason>
+      <ActionReason reason={state?.state === "ack" ? "Already acknowledged" : pending ? "Update in progress…" : null} onClick={() => void perform(onAck)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target">Ack</ActionReason>
+    </>
+  );
+}
+
+function ResolutionActions({ active, note, pending, onActiveChange, onNoteChange, perform, onResolve }: {
+  active: boolean;
+  note: string;
+  pending: boolean;
+  onActiveChange: (active: boolean) => void;
+  onNoteChange: (note: string) => void;
+  perform: PerformAlertAction;
+  onResolve: RowProps["onResolve"];
+}) {
+  const reset = () => { onActiveChange(false); onNoteChange(""); };
+  if (!active) return <button type="button" onClick={() => onActiveChange(true)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring caos-target">Resolve</button>;
+  return (
+    <>
+      <input value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder="resolution note (optional)…" autoFocus className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target" />
+      <ActionReason reason={pending ? "Update in progress…" : null} onClick={() => void perform(() => onResolve(note), reset)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target">Confirm resolve</ActionReason>
+      <button type="button" onClick={reset} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Cancel</button>
+    </>
+  );
+}
+
+function AlertRowActions({ row, state, onAck, onAssign, onResolve }: Pick<RowProps, "row" | "state" | "onAck" | "onAssign" | "onResolve">) {
   const [assigneeInput, setAssigneeInput] = useState("");
   const [resolving, setResolving] = useState(false);
   const [resolveNote, setResolveNote] = useState("");
@@ -172,128 +238,133 @@ function Row({
       setPending(false);
     }
   };
-  const acked = state?.state === "ack";
-  const resolved = state?.state === "resolved";
-  const impact = formatImpact(row);
-  const band = severityBand(row.severity);
-  const stateLabel = resolved ? "Resolved" : acked ? "Ack/assigned" : "Open";
-  const stateColor = resolved || acked ? "var(--caos-success)" : "var(--caos-muted)";
   return (
-    <div className="px-3 py-[6px] border-b border-caos-border/50">
-      <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggleSelect}
-          disabled={resolved}
-          aria-label={`Select ${row.event}`}
-          className="min-h-8 min-w-8 caos-target disabled:opacity-40"
-        />
-        <ConclusionAuthority prov={rowProvenance(row)} />
-        <span className="inline-flex items-center gap-1" title={`Alert severity band: ${band}`}>
-          <Dot sev={band} glyph />
-          <Tag sev={band}>{band}</Tag>
-        </span>
-        {impact ? (
-          <span
-            className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap"
-            title="Anomaly severity — standard deviations from the baseline/peer median (engine/anomaly.py's robust z-score / cusum run, never a fabricated bp figure)"
-            style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}
-          >
-            {impact}
-          </span>
-        ) : null}
-        <IssuerLink
-          query={row.issuerName}
-          title={`Open ${row.issuerName} profile`}
-          className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none"
-        >
-          {row.issuerName}
-        </IssuerLink>
-        <span
-          className="tabular text-caos-2xs uppercase tracking-wider ml-auto"
-          style={{ color: stateColor }}
-        >
-          {stateLabel}
-        </span>
-      </div>
-      <div className="text-caos-md text-caos-text leading-snug mt-1">{row.event}</div>
-      <div className="text-caos-xs text-caos-muted leading-snug mt-0.5">{row.reason}</div>
-      <AlertSource row={row} />
-      {resolved && state?.resolution_note ? (
-        <div className="text-caos-xs text-caos-muted leading-snug mt-0.5 italic">
-          resolved: {state.resolution_note}
-        </div>
-      ) : null}
-      {!resolved ? (
-        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-          <span className="tabular text-caos-xs text-caos-muted">{state?.assignee || "unassigned"}</span>
-          <input
-            value={assigneeInput}
-            onChange={(e) => setAssigneeInput(e.target.value)}
-            placeholder="assign to…"
-            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target"
-          />
-          <ActionReason
-            reason={!assigneeInput.trim() ? "Enter a name to assign" : pending ? "Update in progress…" : null}
-            onClick={() => void perform(
-              () => onAssign(assigneeInput.trim()),
-              () => setAssigneeInput(""),
-            )}
-            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
-          >
-            Assign
-          </ActionReason>
-          <ActionReason
-            reason={acked ? "Already acknowledged" : pending ? "Update in progress…" : null}
-            onClick={() => void perform(onAck)}
-            className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target"
-          >
-            Ack
-          </ActionReason>
-          {resolving ? (
-            <>
-              <input
-                value={resolveNote}
-                onChange={(e) => setResolveNote(e.target.value)}
-                placeholder="resolution note (optional)…"
-                autoFocus
-                className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target"
-              />
-              <ActionReason
-                reason={pending ? "Update in progress…" : null}
-                onClick={() => void perform(
-                  () => onResolve(resolveNote),
-                  () => { setResolving(false); setResolveNote(""); },
-                )}
-                className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target"
-              >
-                Confirm resolve
-              </ActionReason>
-              <button
-                type="button"
-                onClick={() => { setResolving(false); setResolveNote(""); }}
-                className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target"
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setResolving(true)}
-              className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring caos-target"
-            >
-              Resolve
-            </button>
-          )}
-          <ReopenDecision row={row} />
-          {actionError ? <span role="alert" className="text-caos-2xs text-caos-critical">{actionError} — retry the same action.</span> : null}
-        </div>
-      ) : null}
+    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+      <AssignmentActions state={state} value={assigneeInput} pending={pending} onChange={setAssigneeInput} perform={perform} onAssign={onAssign} onAck={onAck} />
+      <ResolutionActions active={resolving} note={resolveNote} pending={pending} onActiveChange={setResolving} onNoteChange={setResolveNote} perform={perform} onResolve={onResolve} />
+      <ReopenDecision row={row} />
+      {actionError ? <span role="alert" className="text-caos-2xs text-caos-critical">{actionError} — retry the same action.</span> : null}
     </div>
   );
 }
+
+function Row(props: RowProps) {
+  return (
+    <div className="px-3 py-[6px] border-b border-caos-border/50">
+      <AlertRowHeader row={props.row} state={props.state} selected={props.selected} onToggleSelect={props.onToggleSelect} />
+      <AlertRowSummary row={props.row} state={props.state} />
+      {props.state?.state !== "resolved" ? <AlertRowActions row={props.row} state={props.state} onAck={props.onAck} onAssign={props.onAssign} onResolve={props.onResolve} /> : null}
+    </div>
+  );
+}
+
+type PersistAlertState = (
+  key: string,
+  state: AlertStateDTO["state"],
+  opts?: { assignee?: string; note?: string; resolutionNote?: string },
+) => Promise<AlertStateDTO>;
+
+function ActiveInboxRow({
+  row,
+  state,
+  selected,
+  onToggleSelect,
+  persistState,
+  applyState,
+}: {
+  row: AlertRow;
+  state?: AlertStateDTO;
+  selected: boolean;
+  onToggleSelect: () => void;
+  persistState: PersistAlertState;
+  applyState: (key: string, next: AlertStateDTO) => void;
+}) {
+  return (
+    <Row
+      row={row}
+      state={state}
+      selected={selected}
+      onToggleSelect={onToggleSelect}
+      onAck={async () => applyState(row.key, await persistState(row.key, "ack"))}
+      onAssign={async (name) => applyState(
+        row.key,
+        await persistState(row.key, state?.state === "ack" ? "ack" : "open", { assignee: name }),
+      )}
+      onResolve={async (note) => applyState(
+        row.key,
+        await persistState(row.key, "resolved", { resolutionNote: note || undefined }),
+      )}
+    />
+  );
+}
+
+const noAlertAction = async () => {};
+
+function ResolvedInbox({
+  rows,
+  states,
+  open,
+  onOpenChange,
+}: {
+  rows: AlertRow[];
+  states: Map<string, AlertStateDTO>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  if (!rows.length) return null;
+  return (
+    <div className="border-t border-caos-border/50">
+      <button type="button" onClick={() => onOpenChange(!open)} aria-expanded={open} className="w-full flex items-center gap-2 px-3 min-h-8 tabular text-caos-2xs uppercase tracking-widest text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">
+        {open ? "− " : "+ "}Resolved ({rows.length})
+      </button>
+      {open ? rows.map((row) => <Row key={row.key} row={row} state={states.get(row.key)} selected={false} onToggleSelect={noAlertAction} onAck={noAlertAction} onAssign={noAlertAction} onResolve={noAlertAction} />) : null}
+    </div>
+  );
+}
+
+function AlertInboxContent({
+  rows,
+  states,
+  selected,
+  mutationError,
+  resolvedOpen,
+  setSelected,
+  setResolvedOpen,
+  persistState,
+  applyState,
+}: {
+  rows: AlertRow[];
+  states: Map<string, AlertStateDTO>;
+  selected: string[];
+  mutationError: string | null;
+  resolvedOpen: boolean;
+  setSelected: (selected: string[]) => void;
+  setResolvedOpen: (open: boolean) => void;
+  persistState: PersistAlertState;
+  applyState: (key: string, next: AlertStateDTO) => void;
+}) {
+  const activeRows = rows.filter((row) => states.get(row.key)?.state !== "resolved");
+  const resolvedRows = rows.filter((row) => states.get(row.key)?.state === "resolved");
+  const toggleSelect = (key: string) => setSelected(
+    selected.includes(key) ? selected.filter((selectedKey) => selectedKey !== key) : [...selected, key],
+  );
+  return (
+    <div>
+      {mutationError ? <p role="alert" className="border-b border-caos-border px-3 py-2 text-caos-xs text-caos-critical">{mutationError}. Selection was preserved; retry Ack.</p> : null}
+      <BatchBar selected={selected} onClear={() => setSelected([])} itemLabel="alert" actions={[{ id: "ack", label: "Ack", run: async (key) => applyState(key, await persistState(key, "ack")) }]} />
+      {activeRows.map((row) => <ActiveInboxRow key={row.key} row={row} state={states.get(row.key)} selected={selected.includes(row.key)} onToggleSelect={() => toggleSelect(row.key)} persistState={persistState} applyState={applyState} />)}
+      <ResolvedInbox rows={resolvedRows} states={states} open={resolvedOpen} onOpenChange={setResolvedOpen} />
+    </div>
+  );
+}
+
+const alertInboxState = (loading: boolean, offline: boolean, rowCount: number) => {
+  if (loading) return <SurfaceState kind="loading" title="Loading alert inbox" compact className="m-2" />;
+  if (offline) return <SurfaceState kind="offline" title="Autonomy engine unreachable" detail="No draft data to show." compact className="m-2" />;
+  return rowCount === 0
+    ? <SurfaceState kind="empty" title="No live alerts" detail="Nothing routed from the autonomy draft." compact className="m-2" />
+    : null;
+};
 
 export function AlertInbox() {
   const { draft, loading, offline } = useAutonomyDraft();
@@ -330,9 +401,6 @@ export function AlertInbox() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.generated_at]);
-
-  const toggleSelect = (key: string) =>
-    setSelected((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s, key]));
 
   const applyState = (key: string, next: AlertStateDTO) => setStates((m) => new Map(m).set(key, next));
 
@@ -379,72 +447,7 @@ export function AlertInbox() {
   // `return null` across all three used to leave the live lane's status
   // unstated regardless of which of the three was actually true. Never
   // fabricates a row here — only an honest status line for THIS component.
-  if (loading) return <SurfaceState kind="loading" title="Loading alert inbox" compact className="m-2" />;
-  if (offline) return <SurfaceState kind="offline" title="Autonomy engine unreachable" detail="No draft data to show." compact className="m-2" />;
-  if (rows.length === 0) return <SurfaceState kind="empty" title="No live alerts" detail="Nothing routed from the autonomy draft." compact className="m-2" />;
-
-  const activeRows = rows.filter((r) => states.get(r.key)?.state !== "resolved");
-  const resolvedRows = rows.filter((r) => states.get(r.key)?.state === "resolved");
-
-  return (
-    <div>
-      {mutationError ? <p role="alert" className="border-b border-caos-border px-3 py-2 text-caos-xs text-caos-critical">{mutationError}. Selection was preserved; retry Ack.</p> : null}
-      <BatchBar
-        selected={selected}
-        onClear={() => setSelected([])}
-        itemLabel="alert"
-        actions={[
-          {
-            id: "ack",
-            label: "Ack",
-            run: async (key) => applyState(key, await persistState(key, "ack")),
-          },
-        ]}
-      />
-      {activeRows.map((row) => (
-        <Row
-          key={row.key}
-          row={row}
-          state={states.get(row.key)}
-          selected={selected.includes(row.key)}
-          onToggleSelect={() => toggleSelect(row.key)}
-          onAck={async () => applyState(row.key, await persistState(row.key, "ack"))}
-          onAssign={async (name) => applyState(
-            row.key,
-            await persistState(row.key, states.get(row.key)?.state === "ack" ? "ack" : "open", { assignee: name }),
-          )}
-          onResolve={async (note) => applyState(
-            row.key,
-            await persistState(row.key, "resolved", { resolutionNote: note || undefined }),
-          )}
-        />
-      ))}
-      {resolvedRows.length > 0 ? (
-        <div className="border-t border-caos-border/50">
-          <button
-            type="button"
-            onClick={() => setResolvedOpen((v) => !v)}
-            aria-expanded={resolvedOpen}
-            className="w-full flex items-center gap-2 px-3 min-h-8 tabular text-caos-2xs uppercase tracking-widest text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target"
-          >
-            {resolvedOpen ? "− " : "+ "}Resolved ({resolvedRows.length})
-          </button>
-          {resolvedOpen
-            ? resolvedRows.map((row) => (
-                <Row
-                  key={row.key}
-                  row={row}
-                  state={states.get(row.key)}
-                  selected={false}
-                  onToggleSelect={() => {}}
-                  onAck={async () => {}}
-                  onAssign={async () => {}}
-                  onResolve={async () => {}}
-                />
-              ))
-            : null}
-        </div>
-      ) : null}
-    </div>
-  );
+  const stateSurface = alertInboxState(loading, offline, rows.length);
+  if (stateSurface) return stateSurface;
+  return <AlertInboxContent rows={rows} states={states} selected={selected} mutationError={mutationError} resolvedOpen={resolvedOpen} setSelected={setSelected} setResolvedOpen={setResolvedOpen} persistState={persistState} applyState={applyState} />;
 }

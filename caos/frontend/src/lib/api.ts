@@ -916,6 +916,29 @@ const _gone = () => ({ [RESEARCH_GONE]: true });
 export const isResearchGone = (e: unknown): boolean =>
   typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[RESEARCH_GONE] === true;
 
+function throwIfResearchAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw _aborted();
+}
+
+function nextResearchPollError(error: unknown, current: number): number {
+  if (axios.isAxiosError(error) && error.response?.status === 404) throw _gone();
+  const next = current + 1;
+  if (next >= _RESEARCH_MAX_POLL_ERRORS) {
+    throw _detail("Lost contact with the research backend — the run may still be completing; retry shortly.");
+  }
+  return next;
+}
+
+function completedResearch(job: ResearchJob): ResearchResult {
+  return { report: job.report, sources: job.sources, demo: job.demo, truncated: job.truncated, figures: job.figures ?? [] };
+}
+
+function terminalResearch(job: ResearchJob): ResearchResult | null {
+  if (job.status === "complete") return completedResearch(job);
+  if (job.status === "failed") throw _detail(job.error || "Research failed — try again.");
+  return null;
+}
+
 // Poll an already-created durable job to terminal. Shared by a fresh run and by
 // resume-on-reload, so both paths tolerate transport blips identically. Honors an
 // AbortSignal so an unmount / detach stops the loop without touching the job.
@@ -928,10 +951,10 @@ const _pollResearch = async (
   let pollErrors = 0;
   let first = true;
   while (Date.now() < deadline) {
-    if (signal?.aborted) throw _aborted();
+    throwIfResearchAborted(signal);
     if (!first) await new Promise((r) => setTimeout(r, _RESEARCH_POLL_MS));
     first = false; // poll immediately first so a fast/demo completion isn't delayed
-    if (signal?.aborted) throw _aborted();
+    throwIfResearchAborted(signal);
     let job: ResearchJob;
     try {
       job = (await api.get(`/api/research/${id}`)).data as ResearchJob;
@@ -940,16 +963,13 @@ const _pollResearch = async (
       // 404 = the job genuinely doesn't exist (or isn't ours) — retrying can't
       // recover it, so signal "gone" immediately instead of burning the retry
       // budget. The reattach path treats this as a quiet reset.
-      if (axios.isAxiosError(e) && e.response?.status === 404) throw _gone();
       // Any other transport error — the durable job is unaffected; keep polling.
       // Bail only after many consecutive failures (the backend is likely down).
-      if (++pollErrors >= _RESEARCH_MAX_POLL_ERRORS)
-        throw _detail("Lost contact with the research backend — the run may still be completing; retry shortly.");
+      pollErrors = nextResearchPollError(e, pollErrors);
       continue;
     }
-    if (job.status === "complete")
-      return { report: job.report, sources: job.sources, demo: job.demo, truncated: job.truncated, figures: job.figures ?? [] };
-    if (job.status === "failed") throw _detail(job.error || "Research failed — try again.");
+    const result = terminalResearch(job);
+    if (result) return result;
     onProgress?.(job.progress ?? null); // still running — surface live counts
   }
   throw _detail("Research timed out on the client — it may still be completing; retry shortly.");

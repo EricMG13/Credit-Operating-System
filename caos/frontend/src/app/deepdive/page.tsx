@@ -108,7 +108,57 @@ const GROUPS: readonly { label: string; mods: readonly string[] }[] = [
   { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
 ];
 
-// fallow-ignore-next-line complexity
+type LayerSummaryPart = { key: string; n: number; dot: React.ReactNode; word: string };
+
+const layerSummaryParts = (
+  group: (typeof GROUPS)[number],
+  stateFor: (id: string) => string,
+  isReference: boolean,
+): LayerSummaryPart[] => {
+  const counts: Record<string, number> = { pass: 0, warning: 0, failed: 0, "not-reviewed": 0, idle: 0 };
+  for (const id of group.mods) {
+    const state = stateFor(id);
+    if (state in counts) counts[state] += 1;
+    else counts.idle += 1;
+  }
+  return [
+    counts.pass ? { key: "ok", n: counts.pass, dot: <Dot sev="pass" glyph />, word: `${counts.pass} cleared` } : null,
+    counts.warning ? { key: "concerns", n: counts.warning, dot: <Dot sev="warning" glyph />, word: `${counts.warning} w/ concerns` } : null,
+    counts.failed ? { key: "fail", n: counts.failed, dot: <Dot sev="blocked" glyph />, word: `${counts.failed} failed` } : null,
+    counts["not-reviewed"] ? { key: "review", n: counts["not-reviewed"], dot: <StatusGlyph kind="idle" />, word: `${counts["not-reviewed"]} not reviewed` } : null,
+    counts.idle ? { key: "pend", n: counts.idle, dot: <StatusGlyph kind={isReference ? "locked" : "idle"} />, word: `${counts.idle} ${isReference ? "gated" : "no output"}` } : null,
+  ].filter(Boolean) as LayerSummaryPart[];
+};
+
+function CollapsedLayerSummary({ group, stateFor, isReference }: { group: (typeof GROUPS)[number]; stateFor: (id: string) => string; isReference: boolean }) {
+  const parts = layerSummaryParts(group, stateFor, isReference);
+  return (
+    <span className="flex items-center gap-1.5" aria-label={parts.map((part) => part.word).join(", ")}>
+      {parts.map((part) => (
+        <span key={part.key} className="flex items-center gap-0.5" aria-hidden="true">
+          <span className="tabular text-caos-2xs text-caos-muted">{part.n}</span>
+          {part.dot}
+          <span className="hidden xl:inline tabular text-caos-2xs text-caos-muted">{part.word.split(" ").slice(1).join(" ")}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+const DEEP_DIVE_LAYOUTS = [
+  { value: "summary" as const, label: "Summary", title: "Clean layer read: verdict-first, no model outputs or workflow cards" },
+  { value: "report" as const, label: "Report", title: "Committee report: module outputs plus consolidated workflow cards" },
+  { value: "dense" as const, label: "Dense", title: "Audit view: module outputs plus every workflow card packed tight" },
+];
+
+function DeepDiveLayoutPicker({ layout, onPick, labelClassName = "" }: { layout: DeepDiveLayout; onPick: (layout: DeepDiveLayout) => void; labelClassName?: string }) {
+  return <>
+    <span className={`tabular text-caos-2xs uppercase tracking-wider text-caos-muted ${labelClassName}`}>Layout</span>
+    {DEEP_DIVE_LAYOUTS.map((option) => <button key={option.value} type="button" aria-pressed={layout === option.value} onClick={() => onPick(option.value)} title={option.title} className={"tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " + (layout === option.value ? "bg-caos-elevated text-caos-text border-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")}>{option.label}</button>)}
+  </>;
+}
+
+// fallow-ignore-next-line complexity -- Route, evidence, pane, and module state synchronize at this workbench boundary.
 function DeepDive() {
   const searchParams = useSearchParams();
   const modParam = searchParams.get("mod");
@@ -462,28 +512,7 @@ function DeepDive() {
   const narrowContract: NarrowContract = {
     essentialControls: (
       <>
-        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Layout</span>
-        {([
-          { v: "summary" as const, label: "Summary", t: "Clean layer read: verdict-first, no model outputs or workflow cards" },
-          { v: "report" as const, label: "Report", t: "Committee report: module outputs plus consolidated workflow cards" },
-          { v: "dense" as const, label: "Dense", t: "Audit view: module outputs plus every workflow card packed tight" },
-        ]).map((o) => (
-          <button
-            key={o.v}
-            type="button"
-            aria-pressed={layout === o.v}
-            onClick={() => pickLayout(o.v)}
-            title={o.t}
-            className={
-              "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
-              (layout === o.v
-                ? "bg-caos-elevated text-caos-text border-caos-accent"
-                : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
-            }
-          >
-            {o.label}
-          </button>
-        ))}
+        <DeepDiveLayoutPicker layout={layout} onPick={pickLayout} />
         <SimControls run={run} />
       </>
     ),
@@ -562,28 +591,7 @@ function DeepDive() {
       utilityControls={
         <>
           <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
-            <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted hidden xl:inline">Layout</span>
-            {([
-              { v: "summary" as const, label: "Summary", t: "Clean layer read: verdict-first, no model outputs or workflow cards" },
-              { v: "report" as const, label: "Report", t: "Committee report: module outputs plus consolidated workflow cards" },
-              { v: "dense" as const, label: "Dense", t: "Audit view: module outputs plus every workflow card packed tight" },
-            ]).map((o) => (
-              <button
-                key={o.v}
-                type="button"
-                aria-pressed={layout === o.v}
-                onClick={() => pickLayout(o.v)}
-                title={o.t}
-                className={
-                  "tabular text-caos-2xs px-1.5 py-0.5 rounded border transition-caos focus-ring " +
-                  (layout === o.v
-                    ? "bg-caos-elevated text-caos-text border-caos-accent"
-                    : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
-                }
-              >
-                {o.label}
-              </button>
-            ))}
+            <DeepDiveLayoutPicker layout={layout} onPick={pickLayout} labelClassName="hidden xl:inline" />
           </div>
           {live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
           <SimControls run={run} />
@@ -617,7 +625,7 @@ function DeepDive() {
       >
         <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap hidden lg:inline" title="Alt + , / .  cycles the open module">Module outputs</span>
         <ModuleFinder onSelect={setTab} activeId={tab} />
-        {/* fallow-ignore-next-line complexity */}
+        {/* fallow-ignore-next-line complexity -- Static module-group projection keeps navigation semantics local. */}
         {GROUPS.map((g) => {
           const open = openLayers.has(g.label);
           return (
@@ -629,50 +637,12 @@ function DeepDive() {
                 className="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
                 <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap">{g.label}</span>
-                {!open ? (() => {
-                  // Aggregate the layer's module states into counts instead of a
-                  // run of up to 7 undifferentiated glyphs (which read as soup).
-                  // "cleared" and "concerns" are kept as separate buckets — folding
-                  // Restricted (isCleared()===true, since it doesn't block downstream
-                  // work) into the same green "N cleared" glyph as a clean pass used
-                  // to render an all-Restricted live run as unqualified green, the
-                  // exact state a QA reader most needs distinguished from clean.
-                  let cleared = 0, concerns = 0, failed = 0, notReviewed = 0, pending = 0;
-                  for (const id of g.mods) {
-                    const st = modState(id);
-                    if (st === "pass") cleared++;
-                    else if (st === "warning") concerns++;
-                    else if (st === "failed") failed++;
-                    else if (st === "not-reviewed") notReviewed++;
-                    else pending++;
-                  }
-                  const parts = [
-                    cleared ? { key: "ok", n: cleared, dot: <Dot sev="pass" glyph />, word: `${cleared} cleared` } : null,
-                    concerns ? { key: "concerns", n: concerns, dot: <Dot sev="warning" glyph />, word: `${concerns} w/ concerns` } : null,
-                    failed ? { key: "fail", n: failed, dot: <Dot sev="blocked" glyph />, word: `${failed} failed` } : null,
-                    notReviewed ? { key: "review", n: notReviewed, dot: <StatusGlyph kind="idle" />, word: `${notReviewed} not reviewed` } : null,
-                    pending ? { key: "pend", n: pending, dot: <StatusGlyph kind={isReference ? "locked" : "idle"} />, word: `${pending} ${isReference ? "gated" : "no output"}` } : null,
-                  ].filter(Boolean) as { key: string; n: number; dot: React.ReactNode; word: string }[];
-                  return (
-                    <span className="flex items-center gap-1.5" aria-label={parts.map((p) => p.word).join(", ")}>
-                      {parts.map((p) => (
-                        <span key={p.key} className="flex items-center gap-0.5" aria-hidden="true">
-                          <span className="tabular text-caos-2xs text-caos-muted">{p.n}</span>
-                          {p.dot}
-                          {/* the word the glyph encodes, visible where width
-                              allows — glyph-only clusters read as memorized
-                              corpus (2026-07-16 critique H6) */}
-                          <span className="hidden xl:inline tabular text-caos-2xs text-caos-muted">{p.word.split(" ").slice(1).join(" ")}</span>
-                        </span>
-                      ))}
-                    </span>
-                  );
-                })() : null}
+                {!open ? <CollapsedLayerSummary group={g} stateFor={modState} isReference={isReference} /> : null}
                 <span className="tabular text-caos-2xs text-caos-muted">{open ? "▾" : "▸"}</span>
               </button>
               {open ? (
                 <span className="flex items-center gap-1">
-                  {/* fallow-ignore-next-line complexity */}
+                  {/* fallow-ignore-next-line complexity -- Static module-button projection preserves group-local state. */}
                   {g.mods.map((id) => {
                     const st = modState(id);
                     const ok = isCleared(st);

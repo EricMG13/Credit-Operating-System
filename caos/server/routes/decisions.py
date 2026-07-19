@@ -245,7 +245,7 @@ async def list_decisions(
     # Preserve the exact pre-IC-Book contract for existing issuer clients.
     if not book:
         if not issuer_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "issuer_id is required unless book=true.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "issuer_id is required unless book=true.")
         require_issuer(caller, await db.get(Issuer, issuer_id))
         rows = (await db.execute(
             select(Decision).where(Decision.issuer_id == issuer_id)
@@ -319,7 +319,7 @@ async def vote(
     require_issuer(caller, await db.get(Issuer, row.issuer_id))
     require_write_role(caller)
     if body.vote == "dissent" and not (body.dissent_note or "").strip():
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Dissent requires a note")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Dissent requires a note")
     existing = (await db.execute(select(DecisionVote).where(
         DecisionVote.decision_id == row.id,
         DecisionVote.member == caller.id,
@@ -358,7 +358,7 @@ async def reopen(
     require_issuer(caller, await db.get(Issuer, row.issuer_id))
     require_write_role(caller)
     if f":{row.issuer_id}:" not in body.trigger_alert_key:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Alert key does not belong to decision issuer")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Alert key does not belong to decision issuer")
     if row.status == "reopened":
         return await _out(db, row)
     latest = (await db.execute(

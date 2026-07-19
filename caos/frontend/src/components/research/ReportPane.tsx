@@ -8,6 +8,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePrintPortalElement } from "@/lib/use-print-portal";
 import { Panel } from "@/components/shared/Panel";
 import { labelCls } from "@/components/shared/styles";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
@@ -286,14 +287,7 @@ function ResultView({ result, mode }: { result: ResearchResult; mode: "sector" |
 // printed blank pages. Portal a print-only copy of the doc to <body>, same
 // pattern as Report Studio (app/reports/page.tsx) and the Query exhibit.
 function ResearchPrintPortal({ result, mode }: { result: ResearchResult; mode: "sector" | "issuer" }) {
-  const [el, setEl] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    const d = document.createElement("div");
-    d.className = "print-root";
-    document.body.appendChild(d);
-    setEl(d);
-    return () => { document.body.removeChild(d); };
-  }, []);
+  const el = usePrintPortalElement();
   if (!el) return null;
   return createPortal(<ResearchDoc result={result} mode={mode} />, el);
 }
@@ -328,7 +322,7 @@ function EmptyView() {
 
 // Pure presentational dispatch over the four mutually exclusive report states;
 // the branch count is the component's entire purpose.
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Pure presentational dispatch over four mutually exclusive report states.
 export function ReportPane({
   running,
   error,

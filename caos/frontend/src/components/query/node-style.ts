@@ -56,37 +56,65 @@ export type NodeStyle = {
   color: string;
 };
 
+type NodeGeometry = Pick<NodeStyle, "fill" | "stroke" | "r" | "sw">;
+const MONO_KINDS = new Set(["claim", "evidence", "metric", "module"]);
+
+function compactStyle(groupColor: string, palette: { fill: string; stroke: string } | undefined): NodeStyle {
+  return {
+    shape: "compact",
+    fill: palette?.fill ?? `color-mix(in srgb, ${groupColor} 20%, transparent)`,
+    stroke: palette?.stroke ?? groupColor,
+    r: 6,
+    sw: 1.4,
+    isCircle: false,
+    isMono: false,
+    color: groupColor,
+  };
+}
+
+function centerGeometry(flagged: boolean): NodeGeometry {
+  return { fill: "var(--caos-panel)", stroke: flagged ? CHART_HEX.warning : CHART_HEX.accent, r: 19, sw: 2.6 };
+}
+
+function issuerGeometry(groupColor: string, exposed: boolean): NodeGeometry {
+  return {
+    fill: `color-mix(in srgb, ${groupColor} 20%, transparent)`,
+    stroke: exposed ? CHART_HEX.warning : groupColor,
+    r: 11,
+    sw: exposed ? 2.4 : 1.8,
+  };
+}
+
+function rectangularGeometry(flagged: boolean, palette: { fill: string; stroke: string } | undefined): NodeGeometry {
+  return {
+    fill: palette?.fill ?? "var(--caos-panel)",
+    stroke: flagged ? CHART_HEX.warning : palette?.stroke ?? "var(--caos-border)",
+    r: 13,
+    sw: 1.4,
+  };
+}
+
+function regularGeometry(node: GraphNode, groupColor: string, palette: { fill: string; stroke: string } | undefined): NodeGeometry {
+  if (node.kind === "center") return centerGeometry(Boolean(node.flag));
+  if (node.kind === "issuer") return issuerGeometry(groupColor, Boolean(node.exposed));
+  return rectangularGeometry(Boolean(node.flag), palette);
+}
+
+function regularShape(kind: string): Pick<NodeStyle, "shape" | "isCircle"> {
+  if (kind === "issuer" || kind === "center") return { shape: "circle", isCircle: true };
+  return { shape: kind === "sector" ? "pill" : "rect", isCircle: false };
+}
+
 export function nodeStyle(n: GraphNode): NodeStyle {
   const groupColor = hueFor(n.group);
   const palette = KIND[n.kind];
 
   // Compact cluster member: a small dot, name on hover only.
-  if (n.compact) {
-    return {
-      shape: "compact",
-      fill: palette?.fill ?? `color-mix(in srgb, ${groupColor} 20%, transparent)`,
-      stroke: palette?.stroke ?? groupColor,
-      r: 6,
-      sw: 1.4,
-      isCircle: false,
-      isMono: false,
-      color: groupColor,
-    };
-  }
+  if (n.compact) return compactStyle(groupColor, palette);
 
   // Shape: issuers + center are circles colored by group; everything else is a
   // small rounded rect tinted by kind. Sector/cluster nodes read as a pill.
-  const isCircle = n.kind === "issuer" || n.kind === "center";
-  let fill: string, stroke: string, r: number, sw: number;
-  if (n.kind === "center") {
-    fill = "var(--caos-panel)"; stroke = n.flag ? CHART_HEX.warning : CHART_HEX.accent; r = 19; sw = 2.6;
-  } else if (n.kind === "issuer") {
-    fill = `color-mix(in srgb, ${groupColor} 20%, transparent)`; stroke = n.exposed ? CHART_HEX.warning : groupColor; r = 11; sw = n.exposed ? 2.4 : 1.8;
-  } else {
-    fill = palette?.fill ?? "var(--caos-panel)"; stroke = n.flag ? CHART_HEX.warning : palette?.stroke ?? "var(--caos-border)"; r = 13; sw = 1.4;
-  }
-  const isMono = n.kind === "claim" || n.kind === "evidence" || n.kind === "metric" || n.kind === "module";
-  const shape = isCircle ? "circle" : n.kind === "sector" ? "pill" : "rect";
-
-  return { shape, fill, stroke, r, sw, isCircle, isMono, color: n.flag ? CHART_HEX.warning : groupColor };
+  const geometry = regularGeometry(n, groupColor, palette);
+  const shape = regularShape(n.kind);
+  return { ...geometry, ...shape, isMono: MONO_KINDS.has(n.kind), color: n.flag ? CHART_HEX.warning : groupColor };
 }

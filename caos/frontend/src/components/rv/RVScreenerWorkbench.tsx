@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { ActionReason } from "@/components/shared/ActionReason";
 import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/shared/AnalysisWorkbench";
 import { ConceptNav } from "@/components/shared/ConceptNav";
@@ -27,7 +27,8 @@ import {
   type RVScreenRun,
 } from "@/lib/analysis-workbench";
 import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
-import { useTypedUrlState } from "@/lib/typed-url-state";
+import { authorityProvenance } from "@/lib/authority-decision";
+import { useTypedUrlState, type TypedUrlUpdate } from "@/lib/typed-url-state";
 
 type View = "table" | "distribution" | "compare";
 const RV_URL_KEYS = ["view", "selected"] as const;
@@ -42,12 +43,7 @@ function display(value: unknown, suffix = "") {
 
 function decisionAuthority(authority: AuthorityEnvelope): DecisionAuthority {
   return {
-    provenance: {
-      origin: authority.origin === "live" ? "LIVE" : authority.origin === "demo" ? "DEMO" : "REFERENCE",
-      method: "DERIVED",
-      freshness: authority.freshness === "current" ? "CURRENT" : authority.freshness === "stale" ? "STALE" : "UNKNOWN",
-      detail: authority.method,
-    },
+    provenance: authorityProvenance(authority),
     approval: authority.approval_state === "ratified" ? "RATIFIED" : "DRAFT",
   };
 }
@@ -170,7 +166,92 @@ function VirtualCandidateGrid({
   );
 }
 
-export function RVScreenerWorkbench() {
+type Setter<T> = Dispatch<SetStateAction<T>>;
+type RVContextState = ReturnType<typeof useAnalysisContext>;
+type RVUrlUpdate = (changes: TypedUrlUpdate<(typeof RV_URL_KEYS)[number]>, mode?: "push" | "replace") => void;
+
+interface RVActionState {
+  busy: boolean;
+  contextState: RVContextState;
+  screen: RVScreenRun | null;
+  selected: RVCandidate | null;
+  setBusy: Setter<boolean>;
+  setError: Setter<string | null>;
+  setFindingsKey: Setter<number>;
+  setScreen: Setter<RVScreenRun | null>;
+  setSelected: Setter<RVCandidate | null>;
+  updateUrlState: RVUrlUpdate;
+}
+
+async function runRVScreen(state: RVActionState, snapshotId?: string) {
+  const context = state.contextState.context;
+  if (!context || state.busy) return;
+  state.setBusy(true);
+  state.setError(null);
+  try {
+    const filters = context.sector_id ? { sector_id: context.sector_id } : {};
+    const next = await analysisApi.createRVScreen({ context_id: context.id, snapshot_id: snapshotId, filters });
+    const first = next.candidates[0] ?? null;
+    state.setScreen(next);
+    state.setSelected(first);
+    state.updateUrlState({ selected: first?.id ?? null }, "replace");
+    state.contextState.setContext({ ...context, rv_run_id: next.id, rv_snapshot_id: next.snapshot_id });
+  } catch (reason) {
+    state.setError(toErrorMessage(reason, "RV screen failed."));
+  } finally {
+    state.setBusy(false);
+  }
+}
+
+async function pinRVPitch(state: RVActionState, kind: "rv-pitch" | "monitor-threshold") {
+  const context = state.contextState.context;
+  if (!context || !state.screen || !state.selected) return;
+  state.setBusy(true);
+  try {
+    const candidate = state.selected;
+    await analysisApi.createFinding({
+      context_id: context.id, kind,
+      title: `${candidate.borrower} · ${classificationLabel(candidate.classification)}`,
+      body: candidate.missing_gates.length ? `Decision gates missing: ${candidate.missing_gates.join(", ")}.` : "All RV decision gates satisfied.",
+      source_surface: "rv-screener", source_run_id: state.screen.id, evidence: candidate.evidence,
+    });
+    state.setFindingsKey((value) => value + 1);
+  } catch (reason) {
+    state.setError(toErrorMessage(reason, "Finding could not be pinned."));
+  } finally {
+    state.setBusy(false);
+  }
+}
+
+async function ratifyRVCandidate(state: RVActionState) {
+  const candidate = state.selected;
+  if (!state.screen || !candidate || candidate.classification !== "actionable") return;
+  state.setBusy(true);
+  try {
+    const next = await analysisApi.ratifyRVCandidate(state.screen.id, candidate.id);
+    state.setScreen(next);
+    state.setSelected(next.candidates.find((value) => value.id === candidate.id) ?? candidate);
+  } catch (reason) {
+    state.setError(toErrorMessage(reason, "Candidate ratification failed."));
+  } finally {
+    state.setBusy(false);
+  }
+}
+
+function preferredRVCandidate(screen: RVScreenRun) {
+  return screen.candidates.find((candidate) => candidate.classification === "actionable")
+    ?? screen.candidates.find((candidate) => candidate.classification === "screen-only")
+    ?? screen.candidates[0];
+}
+
+function toggleCandidateComparison(current: Set<string>, candidateId: string) {
+  const next = new Set(current);
+  if (next.has(candidateId)) next.delete(candidateId);
+  else if (next.size < 5) next.add(candidateId);
+  return next;
+}
+
+function useRVScreenerController() {
   const { roleView } = useRoleView();
   const contextState = useAnalysisContext({ name: "Telecom RV screen", sector_id: "telecom" });
   const { values: urlState, update: updateUrlState } = useTypedUrlState(RV_URL_KEYS);
@@ -190,148 +271,199 @@ export function RVScreenerWorkbench() {
     }).catch(() => setScreen(null));
   }, [contextState.context, urlState.selected]);
 
-  const runScreen = async (snapshotId?: string) => {
-    if (!contextState.context || busy) return;
-    setBusy(true); setError(null);
-    try {
-      const next = await analysisApi.createRVScreen({ context_id: contextState.context.id, snapshot_id: snapshotId, filters: contextState.context.sector_id ? { sector_id: contextState.context.sector_id } : {} });
-      setScreen(next); setSelected(next.candidates[0] ?? null);
-      updateUrlState({ selected: next.candidates[0]?.id ?? null }, "replace");
-      contextState.setContext({ ...contextState.context, rv_run_id: next.id, rv_snapshot_id: next.snapshot_id });
-    } catch (reason) { setError(toErrorMessage(reason, "RV screen failed.")); }
-    finally { setBusy(false); }
-  };
+  const actionState: RVActionState = { busy, contextState, screen, selected, setBusy, setError, setFindingsKey, setScreen, setSelected, updateUrlState };
+  const runScreen = (snapshotId?: string) => runRVScreen(actionState, snapshotId);
 
   const reviewTop = () => {
     if (!screen) { void runScreen(); return; }
-    const top = screen.candidates.find((candidate) => candidate.classification === "actionable") ?? screen.candidates.find((candidate) => candidate.classification === "screen-only") ?? screen.candidates[0];
+    const top = preferredRVCandidate(screen);
     if (top) { setSelected(top); updateUrlState({ selected: top.id, view: null }, "replace"); }
   };
 
-  const toggleCompare = (candidate: RVCandidate) => {
-    setCompareIds((current) => { const next = new Set(current); if (next.has(candidate.id)) next.delete(candidate.id); else if (next.size < 5) next.add(candidate.id); return next; });
-  };
+  const toggleCompare = (candidate: RVCandidate) => setCompareIds((current) => toggleCandidateComparison(current, candidate.id));
+  const pinPitch = (kind: "rv-pitch" | "monitor-threshold") => pinRVPitch(actionState, kind);
+  const ratifyCandidate = () => ratifyRVCandidate(actionState);
 
-  const pinPitch = async (kind: "rv-pitch" | "monitor-threshold") => {
-    if (!contextState.context || !screen || !selected) return;
-    setBusy(true);
-    try {
-      await analysisApi.createFinding({
-        context_id: contextState.context.id,
-        kind,
-        title: `${selected.borrower} · ${classificationLabel(selected.classification)}`,
-        body: selected.missing_gates.length ? `Decision gates missing: ${selected.missing_gates.join(", ")}.` : "All RV decision gates satisfied.",
-        source_surface: "rv-screener",
-        source_run_id: screen.id,
-        evidence: selected.evidence,
-      });
-      setFindingsKey((value) => value + 1);
-    } catch (reason) { setError(toErrorMessage(reason, "Finding could not be pinned.")); }
-    finally { setBusy(false); }
+  return {
+    actionState, busy, compareIds, contextState, error, findingsKey, importOpen, pinPitch, ratifyCandidate,
+    reviewTop, roleView, runScreen, screen, selected, setImportOpen, setSelected, toggleCompare,
+    updateUrlState, view,
   };
+}
 
-  const ratifyCandidate = async () => {
-    if (!screen || !selected || selected.classification !== "actionable") return;
-    setBusy(true);
-    try {
-      const next = await analysisApi.ratifyRVCandidate(screen.id, selected.id);
-      setScreen(next);
-      setSelected(next.candidates.find((candidate) => candidate.id === selected.id) ?? selected);
-    } catch (reason) { setError(toErrorMessage(reason, "Candidate ratification failed.")); }
-    finally { setBusy(false); }
-  };
+type RVController = ReturnType<typeof useRVScreenerController>;
 
-  const selectedPickup = selected ? (selected.pitch.market_relative_value as Record<string, unknown> | undefined)?.dm_pickup_bps : null;
-  const pitchOrder = roleView === "pm"
-    ? [["3 · Portfolio implementation", "portfolio_implementation"], ["1 · Market relative value", "market_relative_value"], ["2 · Instrument mispricing", "instrument_mispricing"]] as const
-    : [["1 · Market relative value", "market_relative_value"], ["2 · Instrument mispricing", "instrument_mispricing"], ["3 · Portfolio implementation", "portfolio_implementation"]] as const;
-  const decisionState: DecisionContextState = {
-    whatChanged: rvDatum(screen, selected ? `${selected.borrower} · ${display(selectedPickup, "bp")} vs cohort` : "No candidate selected"),
+const ANALYST_PITCH_ORDER = [["1 · Market relative value", "market_relative_value"], ["2 · Instrument mispricing", "instrument_mispricing"], ["3 · Portfolio implementation", "portfolio_implementation"]] as const;
+const PM_PITCH_ORDER = [["3 · Portfolio implementation", "portfolio_implementation"], ["1 · Market relative value", "market_relative_value"], ["2 · Instrument mispricing", "instrument_mispricing"]] as const;
+
+function rvDecisionContext(screen: RVScreenRun | null, selected: RVCandidate | null): DecisionContextState {
+  const pickup = selected ? (selected.pitch.market_relative_value as Record<string, unknown> | undefined)?.dm_pickup_bps : null;
+  return {
+    whatChanged: rvDatum(screen, selected ? `${selected.borrower} · ${display(pickup, "bp")} vs cohort` : "No candidate selected"),
     whyItMatters: rvDatum(screen, selected ? `${classificationLabel(selected.classification)} · ${selected.missing_gates.length} missing gates` : "No instrument evidence"),
     requiredAction: rvDatum(screen, selected?.classification === "actionable" ? "Review sizing and ratify" : "Resolve missing gates before any recommendation"),
     evidenceHealth: rvDatum(screen, screen ? `${screen.snapshot_source_label ?? screen.authority.origin} · ${String(screen.snapshot_freshness?.state ?? screen.authority.freshness)}` : "Snapshot unavailable"),
   };
-  const context = contextState.context;
-  const compared = screen?.candidates.filter((candidate) => compareIds.has(candidate.id)) ?? [];
-  const distribution = useMemo(() => screen ? ["actionable", "screen-only", "unavailable"].map((key) => ({ key, count: screen.counts[key] ?? 0 })) : [], [screen]);
-  const distributionSpec: VisualizationSpec = {
-    kind: "bar",
-    title: "RV candidate classification",
-    unit: "instruments",
+}
+
+function rvDistributionSpec(screen: RVScreenRun | null): VisualizationSpec {
+  const data = screen ? ["actionable", "screen-only", "unavailable"].map((key) => ({ key, count: screen.counts[key] ?? 0 })) : [];
+  return {
+    kind: "bar", title: "RV candidate classification", unit: "instruments",
     asOf: screen?.authority.as_of ? fmtUtcDateTime(screen.authority.as_of) : undefined,
     sourceIds: screen?.authority.source_ids ?? ["rv-screen"],
-    accessibleSummary: screen ? `${screen.candidates.length} instruments: ${distribution.map((item) => `${item.key} ${item.count}`).join(", ")}.` : "Run the screen to populate candidate classification.",
+    accessibleSummary: screen ? `${screen.candidates.length} instruments: ${data.map((item) => `${item.key} ${item.count}`).join(", ")}.` : "Run the screen to populate candidate classification.",
     status: (screen?.counts.actionable ?? 0) > 0 ? { label: "Actionable present", tone: "success" } : { label: "No actionable candidate", tone: "warning" },
-    data: distribution,
-    tabularFallback: { label: "RV classification counts", columns: [{ key: "key", label: "Classification" }, { key: "count", label: "Instruments" }], data: distribution },
-    // Pin all three category ticks: axis label auto-hide dropped the middle
-    // one, so a single "screen-only" bar rendered between "actionable" and
-    // "unavailable" ticks and scan-read as the wrong category.
+    data,
+    tabularFallback: { label: "RV classification counts", columns: [{ key: "key", label: "Classification" }, { key: "count", label: "Instruments" }], data },
     chart: { type: "interval", encode: { x: "key", y: "count" }, axis: { x: { labelAutoHide: false, labelAutoRotate: false } } },
   };
+}
+
+function rvPrimaryReason(controller: RVController) {
+  if (controller.contextState.loading) return "Preparing analysis workspace…";
+  if (controller.contextState.error) return "Analysis workspace unavailable — reload to retry";
+  if (controller.busy) return "Screen in progress";
+  if (controller.screen && !controller.screen.candidates.length) return "No candidates returned — adjust the screen filters";
+  return null;
+}
+
+function rvPrimaryLabel(controller: RVController) {
+  if (controller.busy) return "Running…";
+  if (!controller.screen) return "Run screen";
+  return (controller.screen.counts.actionable ?? 0) > 0 ? "Review top candidate" : "Review top screen-only name";
+}
+
+function RVPrimaryAction({ controller }: { controller: RVController }) {
+  return <ActionReason reason={rvPrimaryReason(controller)} reasonDisplay="hidden" onClick={controller.reviewTop} className="caos-action-primary focus-ring">{rvPrimaryLabel(controller)}</ActionReason>;
+}
+
+function RVContextualControls({ controller }: { controller: RVController }) {
+  const actionable = controller.screen?.counts.actionable ?? 0;
+  const screenOnly = controller.screen?.counts["screen-only"] ?? 0;
+  return <>{headStat("Universe", controller.contextState.context?.sector_id ?? "All")}{headStat("Actionable", String(actionable), actionable > 0 ? "var(--caos-success)" : undefined)}{headStat(classificationLabel("screen-only"), String(screenOnly), screenOnly > 0 ? "var(--caos-warning)" : undefined)}<button type="button" onClick={() => controller.setImportOpen(true)} className="caos-action-secondary focus-ring">Import pricing</button></>;
+}
+
+function RVUtilities({ controller }: { controller: RVController }) {
+  const context = controller.contextState.context;
+  return (
+    <div className="space-y-4 text-caos-xs">
+      <section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section>
+      <section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section>
+      <ActionReason reason={!controller.screen ? "Run the screen first — a saved screen references its snapshot" : null} onClick={() => void controller.contextState.patch({ filters: { ...(context?.filters ?? {}), rv: controller.screen?.filters ?? {} } })} className="caos-action-secondary focus-ring">Save current screen</ActionReason>
+    </div>
+  );
+}
+
+function RVViewTabs({ controller }: { controller: RVController }) {
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1" role="tablist" aria-label="RV views">
+      {(["table", "distribution", "compare"] as const).map((value) => {
+        const gated = value === "compare" && controller.compareIds.size < 2;
+        return <button key={value} type="button" role="tab" aria-selected={controller.view === value} aria-disabled={gated || undefined} title={gated ? "Mark at least 2 candidates with each row's Compare action" : undefined} onClick={() => { if (!gated) controller.updateUrlState({ view: value === "table" ? null : value }); }} className={`caos-action-secondary focus-ring ${controller.view === value ? "border-caos-accent text-caos-text" : ""}`}>{value}{value === "compare" ? ` (${controller.compareIds.size})` : ""}</button>;
+      })}
+      {controller.screen ? <div className="ml-auto"><AuthorityLine authority={controller.screen.authority} /></div> : null}
+    </div>
+  );
+}
+
+function RVCompareView({ candidates }: { candidates: RVCandidate[] }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-auto"><div className="grid gap-3 xl:grid-cols-2">
+      {candidates.map((candidate) => <article key={candidate.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><h2 className="text-caos-sm font-semibold text-caos-text">{candidate.borrower}</h2><span className="ml-auto tabular text-caos-2xs uppercase text-caos-warning">{classificationLabel(candidate.classification)}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-caos-xs"><div><dt className="text-caos-muted">DM</dt><dd className="tabular text-caos-text">{display(candidate.market.dm, "bp")}</dd></div><div><dt className="text-caos-muted">Pickup</dt><dd className="tabular text-caos-text">{display((candidate.pitch.market_relative_value as Record<string, unknown>).dm_pickup_bps, "bp")}</dd></div><div><dt className="text-caos-muted">Ranking</dt><dd className="text-caos-text">{display(candidate.market.ranking)}</dd></div><div><dt className="text-caos-muted">Maturity</dt><dd className="text-caos-text">{display(candidate.market.maturity)}</dd></div></dl><p className="mt-3 text-caos-xs text-caos-warning">{candidate.missing_gates.join(" · ") || "All gates satisfied"}</p></article>)}
+    </div></div>
+  );
+}
+
+function RVWorkspaceState({ controller }: { controller: RVController }) {
+  if (controller.screen) return null;
+  const loading = controller.contextState.loading;
+  return <SurfaceState kind={loading ? "loading" : "not-run"} headingLevel={2} title={loading ? "Preparing workspace" : "Immutable snapshot required"} detail={loading ? "Resolving the analysis context — the screen unlocks in a moment." : "Run the screen to normalize the reference pricing sheet. Reference observations can surface candidates but can never produce an actionable recommendation."} className="m-auto max-w-xl" />;
+}
+
+function RVCandidateWorkspace({ controller, distributionSpec }: { controller: RVController; distributionSpec: VisualizationSpec }) {
+  const screen = controller.screen;
+  const compared = screen?.candidates.filter((candidate) => controller.compareIds.has(candidate.id)) ?? [];
+  return (
+    <section className="min-h-0 h-full overflow-hidden flex flex-col p-3 border border-caos-border" aria-label="RV candidate workspace">
+      <RVViewTabs controller={controller} />
+      {controller.error ? <div className="mb-2 rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">{controller.error}</div> : null}
+      {controller.contextState.error ? <div className="mb-2 rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">Analysis workspace unavailable — the screen cannot run without it. <button type="button" className="text-caos-accent focus-ring" onClick={() => window.location.reload()}>Reload to retry</button></div> : null}
+      <RVWorkspaceState controller={controller} />
+      {screen && controller.view === "table" ? <DominantTableRegion ownerId="rv-candidates" label="Ranked RV candidates" className="min-h-0 flex-1"><VirtualCandidateGrid candidates={screen.candidates} selectedId={controller.selected?.id ?? null} compareIds={controller.compareIds} onSelect={(candidate) => { controller.setSelected(candidate); controller.updateUrlState({ selected: candidate.id }, "replace"); }} onCompare={controller.toggleCompare} /></DominantTableRegion> : null}
+      {screen && controller.view === "distribution" ? <div className="min-h-0 flex-1 overflow-auto"><SemanticVisualization spec={distributionSpec} headingLevel={2} /></div> : null}
+      {screen && controller.view === "compare" ? <RVCompareView candidates={compared} /> : null}
+    </section>
+  );
+}
+
+function RVGateReview({ candidate, qa }: { candidate: RVCandidate; qa: boolean }) {
+  if (!candidate.missing_gates.length) return null;
+  return <section className="mt-4 rounded-md border border-caos-warning/50 bg-caos-warning/5 p-3"><h3 className="tabular text-caos-2xs font-semibold uppercase tracking-widest text-caos-warning">{qa ? "QA gate review" : "Decision gates missing"}</h3><ul className="mt-2 space-y-1 text-caos-xs text-caos-text">{candidate.missing_gates.map((gate) => <li key={gate}>△ {gate}</li>)}</ul></section>;
+}
+
+function RVInspectorActions({ candidate, controller }: { candidate: RVCandidate; controller: RVController }) {
+  const context = controller.contextState.context;
+  const actionable = candidate.classification === "actionable";
+  return (
+    <div className="mt-4 flex flex-wrap gap-2">
+      <button type="button" onClick={() => void controller.pinPitch("rv-pitch")} disabled={controller.busy} className="caos-action-secondary focus-ring">Pin pitch</button>
+      <button type="button" onClick={() => void controller.pinPitch("monitor-threshold")} disabled={controller.busy} className="caos-action-secondary focus-ring">Monitor threshold</button>
+      {context ? <><Link href={contextHref("/query", context.id, { instrument: candidate.instrument_id })} className="caos-action-secondary focus-ring no-underline">Investigate</Link><Link href={contextHref("/sector", context.id)} className="caos-action-secondary focus-ring no-underline">Sector view</Link></> : null}
+      <button type="button" onClick={() => void controller.ratifyCandidate()} disabled={!actionable || controller.busy} className="caos-action-secondary focus-ring disabled:opacity-40" title={actionable ? undefined : "Resolve every decision gate before ratification."}>{candidate.ratified_at ? "Ratified" : "Ratify candidate"}</button>
+    </div>
+  );
+}
+
+function RVCandidateInspector({ controller }: { controller: RVController }) {
+  const candidate = controller.selected;
+  if (!candidate) return <p className="mt-3 text-caos-xs text-caos-muted">Select one exact instrument to inspect its three-part pitch, evidence and portfolio effect.</p>;
+  const qa = controller.roleView === "qa";
+  const pitchOrder = controller.roleView === "pm" ? PM_PITCH_ORDER : ANALYST_PITCH_ORDER;
+  return <><div className="mt-3"><h3 className="text-base font-semibold text-caos-text">{candidate.borrower}</h3><p className="mt-1 tabular text-caos-xs text-caos-muted">{candidate.figi ?? "No exact identity"} · {display(candidate.market.ranking)} · {display(candidate.market.maturity)}</p><p className={`mt-2 tabular text-caos-xs uppercase ${candidate.classification === "actionable" ? "text-caos-success" : "text-caos-warning"}`}>{recommendationLine(candidate.recommendation, candidate.classification)}</p></div>{qa ? <RVGateReview candidate={candidate} qa /> : null}<div className="mt-4 space-y-2">{pitchOrder.map(([title, key]) => <PitchBlock key={key} title={title} value={candidate.pitch[key]} />)}</div>{qa ? null : <RVGateReview candidate={candidate} qa={false} />}<RVInspectorActions candidate={candidate} controller={controller} /></>;
+}
+
+function RVInspector({ controller }: { controller: RVController }) {
+  const candidate = controller.selected;
+  const state = candidate?.classification === "actionable" ? "ready" : candidate?.classification === "unavailable" ? "error" : "partial";
+  const context = controller.contextState.context;
+  return <aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50 p-3" aria-label="RV evidence inspector"><div className="flex items-center gap-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Instrument inspector</h2>{candidate ? <AnalysisStateBadge state={state} /> : null}</div><RVCandidateInspector controller={controller} />{context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={controller.findingsKey} /></div> : null}</aside>;
+}
+
+function RVImporter({ controller }: { controller: RVController }) {
+  if (!controller.importOpen) return null;
+  return <SlideOver title="Import immutable pricing snapshot" onClose={() => controller.setImportOpen(false)}><MarketWorkbookImport onCommitted={(value) => { controller.setImportOpen(false); void controller.runScreen(value.snapshot_id); }} /></SlideOver>;
+}
+
+function RVScreenerPage({ controller }: { controller: RVController }) {
+  const screen = controller.screen;
+  const distributionSpec = rvDistributionSpec(screen);
 
   return (
     <EnterprisePage
       kind="analytical"
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text shrink-0">RV Screener</span>{screen ? <span className="tabular text-caos-2xs text-caos-muted min-w-0 truncate" title={`${screen.snapshot_source_label ?? "Snapshot"} · ${screen.snapshot_id}`}>{screen.snapshot_source_label ?? "Snapshot"} · {screen.snapshot_id.slice(0, 8)}</span> : null}</>}
       status={<span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>}
-      primaryAction={<ActionReason
-        reason={contextState.loading
-          ? "Preparing analysis workspace…"
-          : contextState.error
-          ? "Analysis workspace unavailable — reload to retry"
-          : busy
-          ? "Screen in progress"
-          : screen && screen.candidates.length === 0
-          ? "No candidates returned — adjust the screen filters"
-          : null}
-        reasonDisplay="hidden"
-        onClick={reviewTop}
-        className="caos-action-primary focus-ring"
-      >{busy ? "Running…" : screen ? ((screen.counts.actionable ?? 0) > 0 ? "Review top candidate" : "Review top screen-only name") : "Run screen"}</ActionReason>}
-      contextualControls={<>{headStat("Universe", context?.sector_id ?? "All")}{headStat("Actionable", String(screen?.counts.actionable ?? 0), (screen?.counts.actionable ?? 0) > 0 ? "var(--caos-success)" : undefined)}{headStat(classificationLabel("screen-only"), String(screen?.counts["screen-only"] ?? 0), (screen?.counts["screen-only"] ?? 0) > 0 ? "var(--caos-warning)" : undefined)}<button type="button" onClick={() => setImportOpen(true)} className="caos-action-secondary focus-ring">Import pricing</button></>}
+      primaryAction={<RVPrimaryAction controller={controller} />}
+      contextualControls={<RVContextualControls controller={controller} />}
       utilityLabel="RV utilities"
-      utilityControls={<div className="space-y-4 text-caos-xs"><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section><section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section><ActionReason reason={!screen ? "Run the screen first — a saved screen references its snapshot" : null} onClick={() => void contextState.patch({ filters: { ...(context?.filters ?? {}), rv: screen?.filters ?? {} } })} className="caos-action-secondary focus-ring">Save current screen</ActionReason></div>}
+      utilityControls={<RVUtilities controller={controller} />}
       narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">{screen?.candidates.length ?? 0} instruments</span> }}
     >
       <section aria-label="Relative value screening workspace" className="caos-persona-route rv-workbench min-h-0 flex-1 overflow-hidden p-2">
         <PersonaWorkbench
           surface="rv-screener"
-          decision={<DecisionHeader state={decisionState} defaultOpen />}
-          primary={<section className="min-h-0 h-full overflow-hidden flex flex-col p-3 border border-caos-border" aria-label="RV candidate workspace">
-          <div className="mb-2 flex flex-wrap items-center gap-1" role="tablist" aria-label="RV views">{(["table", "distribution", "compare"] as const).map((value) => {
-            const gated = value === "compare" && compareIds.size < 2;
-            return <button key={value} type="button" role="tab" aria-selected={view === value} aria-disabled={gated || undefined} title={gated ? "Mark at least 2 candidates with each row's Compare action" : undefined} onClick={() => { if (!gated) updateUrlState({ view: value === "table" ? null : value }); }} className={`caos-action-secondary focus-ring ${view === value ? "border-caos-accent text-caos-text" : ""}`}>{value}{value === "compare" ? ` (${compareIds.size})` : ""}</button>;
-          })}{screen ? <div className="ml-auto"><AuthorityLine authority={screen.authority} /></div> : null}</div>
-          {error ? <div className="mb-2 rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">{error}</div> : null}
-          {contextState.error ? <div className="mb-2 rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">Analysis workspace unavailable — the screen cannot run without it. <button type="button" className="text-caos-accent focus-ring" onClick={() => window.location.reload()}>Reload to retry</button></div> : null}
-          {!screen ? <SurfaceState
-            kind={contextState.loading ? "loading" : "not-run"}
-            headingLevel={2}
-            title={contextState.loading ? "Preparing workspace" : "Immutable snapshot required"}
-            detail={contextState.loading ? "Resolving the analysis context — the screen unlocks in a moment." : "Run the screen to normalize the reference pricing sheet. Reference observations can surface candidates but can never produce an actionable recommendation."}
-            className="m-auto max-w-xl"
-          /> : null}
-          {screen && view === "table" ? <DominantTableRegion ownerId="rv-candidates" label="Ranked RV candidates" className="min-h-0 flex-1"><VirtualCandidateGrid candidates={screen.candidates} selectedId={selected?.id ?? null} compareIds={compareIds} onSelect={(candidate) => { setSelected(candidate); updateUrlState({ selected: candidate.id }, "replace"); }} onCompare={toggleCompare} /></DominantTableRegion> : null}
-          {screen && view === "distribution" ? <div className="min-h-0 flex-1 overflow-auto"><SemanticVisualization spec={distributionSpec} headingLevel={2} /></div> : null}
-          {screen && view === "compare" ? <div className="min-h-0 flex-1 overflow-auto"><div className="grid gap-3 xl:grid-cols-2">{compared.map((candidate) => <article key={candidate.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><h2 className="text-caos-sm font-semibold text-caos-text">{candidate.borrower}</h2><span className="ml-auto tabular text-caos-2xs uppercase text-caos-warning">{classificationLabel(candidate.classification)}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-caos-xs"><div><dt className="text-caos-muted">DM</dt><dd className="tabular text-caos-text">{display(candidate.market.dm, "bp")}</dd></div><div><dt className="text-caos-muted">Pickup</dt><dd className="tabular text-caos-text">{display((candidate.pitch.market_relative_value as Record<string, unknown>).dm_pickup_bps, "bp")}</dd></div><div><dt className="text-caos-muted">Ranking</dt><dd className="text-caos-text">{display(candidate.market.ranking)}</dd></div><div><dt className="text-caos-muted">Maturity</dt><dd className="text-caos-text">{display(candidate.market.maturity)}</dd></div></dl><p className="mt-3 text-caos-xs text-caos-warning">{candidate.missing_gates.join(" · ") || "All gates satisfied"}</p></article>)}</div></div> : null}
-        </section>}
-          context={view === "distribution" ? null : <SemanticVisualization spec={distributionSpec} headingLevel={2} />}
-          inspector={<aside className="min-h-0 overflow-auto border border-caos-border bg-caos-panel/50 p-3" aria-label="RV evidence inspector">
-          <div className="flex items-center gap-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Instrument inspector</h2>{selected ? <AnalysisStateBadge state={selected.classification === "actionable" ? "ready" : selected.classification === "unavailable" ? "error" : "partial"} /> : null}</div>
-          {selected ? <><div className="mt-3"><h3 className="text-base font-semibold text-caos-text">{selected.borrower}</h3><p className="mt-1 tabular text-caos-xs text-caos-muted">{selected.figi ?? "No exact identity"} · {display(selected.market.ranking)} · {display(selected.market.maturity)}</p><p className={`mt-2 tabular text-caos-xs uppercase ${selected.classification === "actionable" ? "text-caos-success" : "text-caos-warning"}`}>{recommendationLine(selected.recommendation, selected.classification)}</p></div>{roleView === "qa" && selected.missing_gates.length ? <section className="mt-4 rounded-md border border-caos-warning/50 bg-caos-warning/5 p-3"><h3 className="tabular text-caos-2xs font-semibold uppercase tracking-widest text-caos-warning">QA gate review</h3><ul className="mt-2 space-y-1 text-caos-xs text-caos-text">{selected.missing_gates.map((gate) => <li key={gate}>△ {gate}</li>)}</ul></section> : null}<div className="mt-4 space-y-2">{pitchOrder.map(([title, key]) => <PitchBlock key={key} title={title} value={selected.pitch[key]} />)}</div>{roleView !== "qa" && selected.missing_gates.length ? <section className="mt-4 rounded-md border border-caos-warning/50 bg-caos-warning/5 p-3"><h3 className="tabular text-caos-2xs font-semibold uppercase tracking-widest text-caos-warning">Decision gates missing</h3><ul className="mt-2 space-y-1 text-caos-xs text-caos-text">{selected.missing_gates.map((gate) => <li key={gate}>△ {gate}</li>)}</ul></section> : null}<div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void pinPitch("rv-pitch")} disabled={busy} className="caos-action-secondary focus-ring">Pin pitch</button><button type="button" onClick={() => void pinPitch("monitor-threshold")} disabled={busy} className="caos-action-secondary focus-ring">Monitor threshold</button>{context ? <><Link href={contextHref("/query", context.id, { instrument: selected.instrument_id })} className="caos-action-secondary focus-ring no-underline">Investigate</Link><Link href={contextHref("/sector", context.id)} className="caos-action-secondary focus-ring no-underline">Sector view</Link></> : null}<button type="button" onClick={() => void ratifyCandidate()} disabled={selected.classification !== "actionable" || busy} className="caos-action-secondary focus-ring disabled:opacity-40" title={selected.classification !== "actionable" ? "Resolve every decision gate before ratification." : undefined}>{selected.ratified_at ? "Ratified" : "Ratify candidate"}</button></div></> : <p className="mt-3 text-caos-xs text-caos-muted">Select one exact instrument to inspect its three-part pitch, evidence and portfolio effect.</p>}
-          {context ? <div className="mt-4"><FindingsTray contextId={context.id} refreshKey={findingsKey} /></div> : null}
-        </aside>}
+          decision={<DecisionHeader state={rvDecisionContext(screen, controller.selected)} defaultOpen />}
+          primary={<RVCandidateWorkspace controller={controller} distributionSpec={distributionSpec} />}
+          context={controller.view === "distribution" ? null : <SemanticVisualization spec={distributionSpec} headingLevel={2} />}
+          inspector={<RVInspector controller={controller} />}
         />
-        {importOpen ? (
-          <SlideOver title="Import immutable pricing snapshot" onClose={() => setImportOpen(false)}>
-            <MarketWorkbookImport onCommitted={(value) => {
-              setImportOpen(false);
-              void runScreen(value.snapshot_id);
-            }} />
-          </SlideOver>
-        ) : null}
+        <RVImporter controller={controller} />
       </section>
     </EnterprisePage>
   );
+}
+
+export function RVScreenerWorkbench() {
+  return <RVScreenerPage controller={useRVScreenerController()} />;
 }

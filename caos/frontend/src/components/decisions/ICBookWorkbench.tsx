@@ -616,17 +616,20 @@ function ClearRegisterFilters({ onClear }: { onClear: () => void }) {
   return <button type="button" className="caos-action-secondary focus-ring" onClick={onClear}>Clear filters</button>;
 }
 
-function AgendaRegisterContent({ rows, selected, sort, direction, filtered, issuerLabel, ownerLabel, onSort, onSelect, onClear, onAdd }: {
-  rows: CommitteeAgendaItem[];
+type RegisterSelectionProps = {
   selected: string | null;
   sort: string | null;
   direction: string | null;
   filtered: boolean;
   issuerLabel: (id: string) => string;
-  ownerLabel: (id: string | null) => string;
   onSort: (key: string, current: string) => void;
   onSelect: (id: string) => void;
   onClear: () => void;
+};
+
+function AgendaRegisterContent({ rows, selected, sort, direction, filtered, issuerLabel, ownerLabel, onSort, onSelect, onClear, onAdd }: RegisterSelectionProps & {
+  rows: CommitteeAgendaItem[];
+  ownerLabel: (id: string | null) => string;
   onAdd: () => void;
 }) {
   if (rows.length) {
@@ -638,16 +641,8 @@ function AgendaRegisterContent({ rows, selected, sort, direction, filtered, issu
   return <SurfaceState kind="empty" headingLevel={2} title="No agenda items yet" detail="Add the first committee agenda item to begin the book." primaryAction={<button type="button" className="caos-action-primary focus-ring" onClick={onAdd}>Add agenda item</button>} />;
 }
 
-function HistoryRegisterContent({ rows, selected, sort, direction, filtered, issuerLabel, onSort, onSelect, onClear }: {
+function HistoryRegisterContent({ rows, selected, sort, direction, filtered, issuerLabel, onSort, onSelect, onClear }: RegisterSelectionProps & {
   rows: DecisionBookItem[];
-  selected: string | null;
-  sort: string | null;
-  direction: string | null;
-  filtered: boolean;
-  issuerLabel: (id: string) => string;
-  onSort: (key: string, current: string) => void;
-  onSelect: (id: string) => void;
-  onClear: () => void;
 }) {
   if (rows.length) {
     return <HistoryTable rows={rows} selected={selected} sort={{ key: sort === "expiry" ? "expiry" : "created_at", direction: direction === "desc" ? "desc" : "asc" }} onSort={(key) => onSort(key, "created_at")} onSelect={onSelect} issuerLabel={issuerLabel} />;
@@ -655,22 +650,14 @@ function HistoryRegisterContent({ rows, selected, sort, direction, filtered, iss
   return <SurfaceState kind="empty" headingLevel={2} title={filtered ? "No decisions match the current filters" : "No immutable decisions yet"} detail={filtered ? "Clear the filters to see every recorded decision." : "Finalized committee decisions will appear here."} {...(filtered ? { primaryAction: <ClearRegisterFilters onClear={onClear} /> } : {})} />;
 }
 
-type ICBookRegisterProps = {
+type ICBookRegisterProps = RegisterSelectionProps & {
   dataset: Dataset;
   loading: boolean;
   error: string | null;
   agenda: CommitteeAgendaItem[];
   decisions: DecisionBookItem[];
-  selected: string | null;
-  sort: string | null;
-  direction: string | null;
   nextCursor: string | null;
-  filtered: boolean;
-  issuerLabel: (id: string) => string;
   ownerLabel: (id: string | null) => string;
-  onSort: (key: string, current: string) => void;
-  onSelect: (id: string) => void;
-  onClear: () => void;
   onAdd: () => void;
   onNext: (cursor: string) => void;
 };

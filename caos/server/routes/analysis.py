@@ -439,7 +439,7 @@ async def create_context(
     await _ensure_taxonomy(db)
     sector_id = canonical_sector_id(body.sector_id)
     if body.sector_id and sector_id is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector taxonomy value.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown sector taxonomy value.")
     # A bare create (name + optional sector, nothing else) is every surface's
     # mount-time default. Find-or-create: reuse the analyst's newest matching
     # context instead of inserting a duplicate row per visit — a 17-route
@@ -877,7 +877,7 @@ async def patch_context(
         raw = changes["sector_id"]
         changes["sector_id"] = canonical_sector_id(raw)
         if raw and changes["sector_id"] is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector taxonomy value.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown sector taxonomy value.")
     if "artifacts" in changes:
         # Artifact updates are patch semantics, not whole-object replacement.
         # Several long-running surfaces may finish out of order (research,

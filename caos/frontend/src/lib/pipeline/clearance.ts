@@ -6,6 +6,21 @@
 export type ClearanceTag = "ok" | "warning" | "critical" | "idle" | "running";
 export type Clearance = { tag: ClearanceTag; text: string };
 
+const liveClearance = (live: { committeeStatus: string; gateStatus: string }): Clearance => {
+  if (live.committeeStatus === "Blocked") return { tag: "critical", text: "CLEARANCE: BLOCKED" };
+  if (live.committeeStatus === "Restricted") return { tag: "warning", text: "CLEARANCE: RESTRICTED" };
+  if (live.committeeStatus === "Committee Ready") {
+    return { tag: "ok", text: `CLEARANCE: COMMITTEE READY · ${live.gateStatus}` };
+  }
+  return { tag: "idle", text: `CLEARANCE: ${live.committeeStatus}` };
+};
+
+const offlineClearance = (cp5: string, modeDone: Clearance): Clearance => {
+  if (["pass", "warning", "held"].includes(cp5)) return modeDone;
+  if (cp5 === "running") return { tag: "running", text: "CP-5 QA audit in progress…" };
+  return { tag: "idle", text: "CLEARANCE: pending upstream completion" };
+};
+
 export function deriveClearance(opts: {
   useLive: boolean;
   live: { committeeStatus: string; gateStatus: string } | null;
@@ -13,20 +28,5 @@ export function deriveClearance(opts: {
   modeDone: Clearance;
 }): Clearance {
   const { useLive, live, cp5, modeDone } = opts;
-  const liveClear: Clearance | null = useLive
-    ? live!.committeeStatus === "Blocked"
-      ? { tag: "critical", text: "CLEARANCE: BLOCKED" }
-      : live!.committeeStatus === "Restricted"
-      ? { tag: "warning", text: "CLEARANCE: RESTRICTED" }
-      : live!.committeeStatus === "Committee Ready"
-      ? { tag: "ok", text: `CLEARANCE: COMMITTEE READY · ${live!.gateStatus}` }
-      : { tag: "idle", text: `CLEARANCE: ${live!.committeeStatus}` }
-    : null;
-  return liveClear
-    ? liveClear
-    : ["pass", "warning", "held"].includes(cp5)
-    ? modeDone
-    : cp5 === "running"
-    ? { tag: "running", text: "CP-5 QA audit in progress…" }
-    : { tag: "idle", text: "CLEARANCE: pending upstream completion" };
+  return useLive ? liveClearance(live!) : offlineClearance(cp5, modeDone);
 }

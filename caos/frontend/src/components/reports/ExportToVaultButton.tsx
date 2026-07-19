@@ -19,6 +19,39 @@ type State =
 const BASE =
   "tabular text-caos-sm whitespace-nowrap px-2.5 py-1 rounded border transition-caos aria-disabled:opacity-50";
 
+const vaultExportError = (status?: number): string => status === 503
+  ? "Vault export not configured (VAULT_EXPORT_DIR unset)."
+  : "Export failed — try again.";
+
+const vaultPresentation = (state: State): { label: string; tone: string; title: string } => {
+  switch (state.kind) {
+    case "busy":
+      return {
+        label: "EXPORTING…",
+        tone: "border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg",
+        title: "Write this run to the Obsidian vault (hub + spoke notes)",
+      };
+    case "done":
+      return {
+        label: `✓ EXPORTED · ${state.files.length} note${state.files.length === 1 ? "" : "s"}`,
+        tone: "border-caos-success text-caos-success",
+        title: `Wrote: ${state.files.join(" · ")}`,
+      };
+    case "error":
+      return {
+        label: "✗ EXPORT FAILED",
+        tone: "border-caos-critical text-caos-critical-bright hover:bg-caos-critical hover:text-caos-bg",
+        title: state.msg,
+      };
+    default:
+      return {
+        label: "⬓ EXPORT TO VAULT",
+        tone: "border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg",
+        title: "Write this run to the Obsidian vault (hub + spoke notes)",
+      };
+  }
+};
+
 export function ExportToVaultButton({ runId, className = "" }: { runId: string; className?: string }) {
   const [state, setState] = useState<State>({ kind: "idle" });
 
@@ -30,33 +63,17 @@ export function ExportToVaultButton({ runId, className = "" }: { runId: string; 
       setState({ kind: "done", files: written });
     } catch (e) {
       const status = (e as AxiosError)?.response?.status;
-      setState({
-        kind: "error",
-        msg: status === 503 ? "Vault export not configured (VAULT_EXPORT_DIR unset)." : "Export failed — try again.",
-      });
+      setState({ kind: "error", msg: vaultExportError(status) });
     }
   }
 
-  const label =
-    state.kind === "busy" ? "EXPORTING…"
-    : state.kind === "done" ? `✓ EXPORTED · ${state.files.length} note${state.files.length === 1 ? "" : "s"}`
-    : state.kind === "error" ? "✗ EXPORT FAILED"
-    : "⬓ EXPORT TO VAULT";
-
-  const tone =
-    state.kind === "error" ? "border-caos-critical text-caos-critical-bright hover:bg-caos-critical hover:text-caos-bg"
-    : state.kind === "done" ? "border-caos-success text-caos-success"
-    : "border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg";
+  const { label, tone, title } = vaultPresentation(state);
 
   return (
     <button
       onClick={onClick}
       aria-disabled={state.kind === "busy" || undefined}
-      title={
-        state.kind === "done" ? `Wrote: ${state.files.join(" · ")}`
-        : state.kind === "error" ? state.msg
-        : "Write this run to the Obsidian vault (hub + spoke notes)"
-      }
+      title={title}
       className={`${BASE} ${tone} ${className}`}
     >
       {label}

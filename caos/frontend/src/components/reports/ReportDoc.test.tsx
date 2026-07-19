@@ -11,7 +11,7 @@ vi.mock("@/components/charts/SemanticVisualization", () => ({
 }));
 
 vi.mock("./AuthorityBlock", () => ({
-  AuthorityBlock: ({ runId }: { runId?: string | null }) => <div data-testid="authority-block">Authority {runId ?? "none"}</div>,
+  ReportAuthority: ({ runId }: { runId?: string | null }) => <div data-testid="authority-block">Authority {runId ?? "none"}</div>,
 }));
 
 afterEach(cleanup);

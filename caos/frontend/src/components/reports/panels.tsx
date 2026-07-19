@@ -135,6 +135,15 @@ export function LineagePanel({ rep, onOpenEvidence }: { rep: Report; onOpenEvide
 }
 
 /* ---------- right rail: compose ---------- */
+function SectionToggle({ section, index, off, onToggle, inset = false }: { section: Section; index: number; off: boolean; onToggle: (index: number) => void; inset?: boolean }) {
+  return (
+    <button onClick={() => onToggle(index)} aria-pressed={!off} className={`w-full flex items-center gap-2 ${inset ? "px-2.5" : "px-3"} py-[5px] min-h-[24px] hover:bg-caos-elevated/70 text-left transition-caos`}>
+      <span className="w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 text-caos-3xs leading-none" style={{ borderColor: off ? "var(--caos-border)" : "var(--caos-accent)", background: off ? "transparent" : "color-mix(in srgb, var(--caos-accent) 20%, transparent)", color: "var(--caos-accent)" }}>{!off ? "✓" : null}</span>
+      <span title={secLabel(section)} className={"tabular text-caos-2xs uppercase tracking-wide line-clamp-2 " + (off ? "text-caos-muted line-through" : "text-caos-muted")}>{secLabel(section)}</span>
+    </button>
+  );
+}
+
 export function ComposePanel({
   rep,
   omit,
@@ -172,31 +181,7 @@ export function ComposePanel({
                 {g.name}
               </div>
               <div className="flex flex-col py-1">
-                {g.items.map(({ s, idx }) => {
-                  const off = !!omitted[idx];
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => onToggle(idx)}
-                      aria-pressed={!off}
-                      className="w-full flex items-center gap-2 px-2.5 py-[5px] min-h-[24px] hover:bg-caos-elevated/70 text-left transition-caos"
-                    >
-                      <span
-                        className="w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 text-caos-3xs leading-none"
-                        style={{
-                          borderColor: off ? "var(--caos-border)" : "var(--caos-accent)",
-                          background: off ? "transparent" : "color-mix(in srgb, var(--caos-accent) 20%, transparent)",
-                          color: "var(--caos-accent)",
-                        }}
-                      >
-                        {!off ? "✓" : null}
-                      </span>
-                      <span title={secLabel(s)} className={"tabular text-caos-2xs uppercase tracking-wide line-clamp-2 " + (off ? "text-caos-muted line-through" : "text-caos-muted")}>
-                        {secLabel(s)}
-                      </span>
-                    </button>
-                  );
-                })}
+                {g.items.map(({ s, idx }) => <SectionToggle key={idx} section={s} index={idx} off={!!omitted[idx]} onToggle={onToggle} inset />)}
               </div>
             </div>
           ))}
@@ -211,31 +196,7 @@ export function ComposePanel({
       right={<span className="tabular text-caos-xs text-caos-muted">{onCount}/{rep.sections.length} sections</span>}
     >
       <div className="py-1">
-        {rep.sections.map((s: Section, i: number) => {
-          const off = !!omitted[i];
-          return (
-            <button
-              key={i}
-              onClick={() => onToggle(i)}
-              aria-pressed={!off}
-              className="w-full flex items-center gap-2 px-3 py-[5px] min-h-[24px] hover:bg-caos-elevated/70 text-left transition-caos"
-            >
-              <span
-                className="w-3 h-3 rounded-sm border flex items-center justify-center shrink-0 text-caos-3xs leading-none"
-                style={{
-                  borderColor: off ? "var(--caos-border)" : "var(--caos-accent)",
-                  background: off ? "transparent" : "color-mix(in srgb, var(--caos-accent) 20%, transparent)",
-                  color: "var(--caos-accent)",
-                }}
-              >
-                {!off ? "✓" : null}
-              </span>
-              <span title={secLabel(s)} className={"tabular text-caos-2xs uppercase tracking-wide line-clamp-2 " + (off ? "text-caos-muted line-through" : "text-caos-muted")}>
-                {secLabel(s)}
-              </span>
-            </button>
-          );
-        })}
+        {rep.sections.map((s: Section, i: number) => <SectionToggle key={i} section={s} index={i} off={!!omitted[i]} onToggle={onToggle} />)}
       </div>
     </Panel>
   );

@@ -8,7 +8,7 @@
 import type { Report, Section, TableRow } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
 import { SemanticVisualization, type VisualizationDatum } from "@/components/charts/SemanticVisualization";
-import { AuthorityBlock } from "./AuthorityBlock";
+import { ReportAuthority } from "./AuthorityBlock";
 import type { DeepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import type { ProvFreshness } from "@/lib/provenance";
 
@@ -172,11 +172,15 @@ function RDProfile({ s, p, ctx }: { s: Extract<Section, { t: "profile" }>; p: st
   );
 }
 
+function RDSubhead({ p, value, ctx }: { p: string; value?: string; ctx: EditCtx }) {
+  return value ? <h3 className="rd-subhead"><E p={p + ".subhead"} v={value} ctx={ctx} /></h3> : null;
+}
+
 function RDText({ s, p, ctx }: { s: Extract<Section, { t: "text" }>; p: string; ctx: EditCtx }) {
   return (
     <div className="rd-sec">
       <RDHead p={p} title={s.title} ctx={ctx} />
-      {s.subhead ? <h3 className="rd-subhead"><E p={p + ".subhead"} v={s.subhead} ctx={ctx} /></h3> : null}
+      <RDSubhead p={p} value={s.subhead} ctx={ctx} />
       <p className="rd-body"><E p={p + ".body"} v={s.body} ctx={ctx} /></p>
       {s.label ? (
         <div className="rd-lblock">
@@ -192,7 +196,7 @@ function RDList({ s, p, ctx }: { s: Extract<Section, { t: "list" }>; p: string; 
   return (
     <div className="rd-sec">
       <RDHead p={p} title={s.title} ctx={ctx} />
-      {s.subhead ? <h3 className="rd-subhead"><E p={p + ".subhead"} v={s.subhead} ctx={ctx} /></h3> : null}
+      <RDSubhead p={p} value={s.subhead} ctx={ctx} />
       <ul className="rd-list">
         {s.items.map((it, i) => (
           <li key={i}><E p={p + ".i" + i} v={it} ctx={ctx} /></li>
@@ -293,18 +297,16 @@ function RDSources({ srcs, onOpenEvidence }: { srcs: Report["srcs"]; onOpenEvide
 }
 
 /* ---------- the full sheet ---------- */
-export function ReportDoc({
-  rep,
-  omit,
-  paper,
-  showSources,
-  edits,
-  onEdit,
-  editableSectionCount,
-  hideAddbacks,
-  onOpenEvidence,
-  authority,
-}: {
+interface ReportAuthority {
+  caveatKind: DeepDiveCaveatKind;
+  liveRunBacked: boolean;
+  runId?: string | null;
+  qaNote?: string | null;
+  freshness?: ProvFreshness;
+  freshnessDetail?: string | null;
+}
+
+interface ReportDocProps {
   rep: Report;
   omit?: Record<number, boolean>;
   paper?: string;
@@ -319,194 +321,174 @@ export function ReportDoc({
   /** Origin/Method/Freshness/QA for the printed authority block — omit to
       fall back to the old blanket "reference template" disclaimer (callers
       that haven't been updated yet). */
-  authority?: { caveatKind: DeepDiveCaveatKind; liveRunBacked: boolean; runId?: string | null; qaNote?: string | null; freshness?: ProvFreshness; freshnessDetail?: string | null };
-}) {
-  const boundedEdits = editableSectionCount == null || !edits
-    ? edits
-    : Object.fromEntries(Object.entries(edits).filter(([path]) => {
-        const match = /^s(\d+)(?:\.|$)/.exec(path);
-        return !match || Number(match[1]) < editableSectionCount;
-      }));
-  const ctx: EditCtx = { edits: boundedEdits, onEdit, hideAddbacks };
-  const immutableCtx: EditCtx = { hideAddbacks };
-  const isModelAppendix = rep.id === "model";
-  // The running masthead used to print a literal "RUN #2641 · JUN 10, 2026"
-  // on every page regardless of what actually backs the deliverable — a live
-  // Restricted run's own printed sheet claimed a different run's id and a
-  // date months in the past. Derive the identity from the real caveat state
-  // instead; the full authority stamp (freshness/QA/origin) is AuthorityBlock
-  // below, so this strip only needs a short, honest identity — never a
-  // fabricated one.
-  const mastRunLabel = authority?.runId ? `RUN ${authority.runId.slice(0, 8).toUpperCase()}` : "REFERENCE";
-  const overrideN = boundedEdits ? Object.keys(boundedEdits).length : 0;
-  const colophonText = [
-    overrideN > 0 ? overrideN + " analyst override" + (overrideN === 1 ? "" : "s") + " applied" : null,
-    hideAddbacks ? "EBITDA add-back detail suppressed" : null,
-  ].filter(Boolean).join(" · ");
-  const secs = rep.sections
-    .map((s, i) => ({ s, i }))
-    .filter((x) => !(omit && omit[x.i]));
+  authority?: ReportAuthority;
+}
 
-  const hasPages = rep.sections.some(s => s.page);
+type IndexedSection = { s: Section; i: number };
+type ReportPage = { name: string; items: IndexedSection[] };
 
-  if (hasPages) {
-    const pages: { name: string; items: typeof secs }[] = [];
-    secs.forEach((x) => {
-      const pageName = x.s.page || "Page Group";
-      let p = pages.find((pg) => pg.name === pageName);
-      if (!p) {
-        p = { name: pageName, items: [] };
-        pages.push(p);
-      }
-      p.items.push(x);
-    });
+interface ReportRenderState {
+  colophonText: string;
+  ctx: EditCtx;
+  immutableCtx: EditCtx;
+  isModelAppendix: boolean;
+  mastRunLabel: string;
+  sections: IndexedSection[];
+}
 
-    return (
-      <div
-        className={"rd-paper" + (onEdit ? " rd-editing" : "")}
-        style={{ background: paper || "#f7f5ee" }}
-      >
-        {rep.watermark ? (
-          <div className="rd-wm" aria-hidden="true">
-            <span>{rep.watermark}</span>
-            <span>{rep.watermark}</span>
-            <span>{rep.watermark}</span>
-          </div>
-        ) : null}
+function boundedReportEdits(edits: ReportEdits | undefined, editableSectionCount: number | undefined) {
+  if (editableSectionCount == null || !edits) return edits;
+  return Object.fromEntries(Object.entries(edits).filter(([path]) => {
+    const match = /^s(\d+)(?:\.|$)/.exec(path);
+    return !match || Number(match[1]) < editableSectionCount;
+  }));
+}
 
-        {/* Authority block — the paged IC memo is the deliverable most likely
-            handed to committee; stamp it so a printed PDF is never mistaken for a
-            live issuer run when it isn't one. (#19, P2-WP-8) Kept in normal flow
-            so it prints. Falls back to the old blanket claim if no caveat state
-            was supplied (defensive — every current caller passes one). */}
-        {authority ? (
-          <AuthorityBlock {...authority} />
-        ) : (
-          <div
-            role="note"
-            style={{
-              margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
-              color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
-              textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
-            }}
-          >
-            Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run
-          </div>
-        )}
+function reportColophon(edits: ReportEdits | undefined, hideAddbacks: boolean | undefined) {
+  const overrideCount = edits ? Object.keys(edits).length : 0;
+  const overrideText = overrideCount > 0 ? `${overrideCount} analyst override${overrideCount === 1 ? "" : "s"} applied` : null;
+  return [overrideText, hideAddbacks ? "EBITDA add-back detail suppressed" : null].filter(Boolean).join(" · ");
+}
 
-        {pages.map((pg, pi) => (
-          <div key={pg.name} className="rd-page-container border-b border-dashed border-caos-border/40 pb-6 mb-6 last:border-0 last:pb-0 last:mb-0">
-            <div className="rd-mast">
-              <span className="rd-mast-brand">
-                <span className="rd-mark">C</span>
-                <span>CAOS · IC CREDIT MEMO · {pg.name.toUpperCase()}</span>
-              </span>
-              <span className="rd-mast-meta">{mastRunLabel} · PAGE {pi + 1} of {pages.length}</span>
-            </div>
+function visibleReportSections(rep: Report, omit: Record<number, boolean> | undefined) {
+  return rep.sections.map((s, i) => ({ s, i })).filter((item) => !omit?.[item.i]);
+}
 
-            {pi === 0 && (
-              <>
-                <h1 className="rd-title"><E p="title" v={rep.title} ctx={ctx} /></h1>
-                <div className="rd-subtitle"><E p="subtitle" v={rep.subtitle} ctx={ctx} /></div>
-              </>
-            )}
+function prepareReportState(props: ReportDocProps): ReportRenderState {
+  const boundedEdits = boundedReportEdits(props.edits, props.editableSectionCount);
+  return {
+    colophonText: reportColophon(boundedEdits, props.hideAddbacks),
+    ctx: { edits: boundedEdits, onEdit: props.onEdit, hideAddbacks: props.hideAddbacks },
+    immutableCtx: { hideAddbacks: props.hideAddbacks },
+    isModelAppendix: props.rep.id === "model",
+    mastRunLabel: props.authority?.runId ? `RUN ${props.authority.runId.slice(0, 8).toUpperCase()}` : "REFERENCE",
+    sections: visibleReportSections(props.rep, props.omit),
+  };
+}
 
-            <div className="rd-secs mt-4">
-              {pg.items.map((x) => (
-                <RDSection
-                  key={x.i}
-                  s={x.s}
-                  p={"s" + x.i}
-                  ctx={editableSectionCount == null || x.i < editableSectionCount ? ctx : immutableCtx}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-
-        {showSources ? <RDSources srcs={rep.srcs} onOpenEvidence={onOpenEvidence} /> : null}
-
-        {colophonText ? <div className="rd-colophon">{colophonText}</div> : null}
-
-        <div className="rd-foot">
-          <span>Generated by CAOS · CP-RENDER · {rep.file}.pdf</span>
-          <span>For internal committee use only — not for distribution</span>
-        </div>
-      </div>
-    );
+function groupReportPages(sections: IndexedSection[]) {
+  const pages: ReportPage[] = [];
+  for (const item of sections) {
+    const name = item.s.page || "Page Group";
+    let page = pages.find((candidate) => candidate.name === name);
+    if (!page) {
+      page = { name, items: [] };
+      pages.push(page);
+    }
+    page.items.push(item);
   }
+  return pages;
+}
 
-  return (
-    <div
-      className={"rd-paper" + (onEdit ? " rd-editing" : "") + (isModelAppendix ? " rd-model-appendix" : "")}
-      style={{ background: paper || "#f7f5ee" }}
-    >
-      {rep.watermark ? (
-        <div className="rd-wm" aria-hidden="true">
-          <span>{rep.watermark}</span>
-          <span>{rep.watermark}</span>
-          <span>{rep.watermark}</span>
-        </div>
-      ) : null}
-      {isModelAppendix ? null : (
-        <div className="rd-mast">
-          <span className="rd-mast-brand">
-            <span className="rd-mark">C</span>
-            <span>CAOS · CREDIT RESEARCH</span>
-          </span>
-          <span className="rd-mast-meta">{mastRunLabel} · INTERNAL USE</span>
-        </div>
-      )}
-      {/* Authority block — origin/method/QA derived from the real caveat state,
-          not a blanket "not live" claim, so an exported PDF stays accurate
-          when the figures ARE live-backed (FE-5). (#19, P2-WP-8) */}
-      {isModelAppendix ? null : authority ? (
-        <AuthorityBlock {...authority} />
-      ) : (
-        <div
-          role="note"
-          style={{
-            margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
-            color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
-            textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
-          }}
-        >
-          Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run
-        </div>
-      )}
-      {/* Model appendix is a dense landscape sheet with no masthead/banner/foot.
-          Give it a single compact provenance line so it can't be mistaken for a
-          real issuer run. (#19) */}
-      {isModelAppendix ? (
-        <div className="rd-mast" style={{ borderBottomWidth: 1 }}>
-          <span className="rd-mast-brand">
-            <span className="rd-mark">C</span>
-            <span>CAOS · MODEL APPENDIX · REFERENCE FIXTURE</span>
-          </span>
-          <span className="rd-mast-meta">{mastRunLabel} · {authority?.liveRunBacked ? "LIVE ISSUER RUN" : "NOT A LIVE ISSUER RUN"}</span>
-        </div>
-      ) : null}
-      <h1 className="rd-title"><E p="title" v={rep.title} ctx={ctx} /></h1>
-      <div className="rd-subtitle"><E p="subtitle" v={rep.subtitle} ctx={ctx} /></div>
-      <div className="rd-secs">
-        {secs.map((x) => (
-          <RDSection
-            key={x.i}
-            s={x.s}
-            p={"s" + x.i}
-            ctx={editableSectionCount == null || x.i < editableSectionCount ? ctx : immutableCtx}
-          />
-        ))}
-      </div>
-      {showSources && !isModelAppendix ? <RDSources srcs={rep.srcs} onOpenEvidence={onOpenEvidence} /> : null}
-      {!isModelAppendix && colophonText ? <div className="rd-colophon">{colophonText}</div> : null}
-      {isModelAppendix ? null : (
-        <div className="rd-foot">
-          <span>Generated by CAOS · CP-RENDER · {rep.file}.pdf</span>
-          <span>For internal committee use only — not for distribution</span>
-        </div>
-      )}
-      {isModelAppendix && colophonText ? <div className="rd-colophon">{colophonText}</div> : null}
+function sectionEditContext(item: IndexedSection, props: ReportDocProps, state: ReportRenderState) {
+  return props.editableSectionCount == null || item.i < props.editableSectionCount ? state.ctx : state.immutableCtx;
+}
+
+function ReportWatermark({ watermark }: { watermark: string | undefined }) {
+  if (!watermark) return null;
+  return <div className="rd-wm" aria-hidden="true"><span>{watermark}</span><span>{watermark}</span><span>{watermark}</span></div>;
+}
+
+function ReferenceAuthorityNote() {
+  return <div
+    role="note"
+    style={{
+      margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
+      color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
+      textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
+    }}
+  >Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run</div>;
+}
+
+function ReportAuthorityBlock({ authority }: { authority: ReportAuthority | undefined }) {
+  return authority ? <ReportAuthority {...authority} /> : <ReferenceAuthorityNote />;
+}
+
+function ReportTitle({ rep, ctx }: { rep: Report; ctx: EditCtx }) {
+  return <><h1 className="rd-title"><E p="title" v={rep.title} ctx={ctx} /></h1><div className="rd-subtitle"><E p="subtitle" v={rep.subtitle} ctx={ctx} /></div></>;
+}
+
+function ReportSections({ sections, props, state, paged = false }: { sections: IndexedSection[]; props: ReportDocProps; state: ReportRenderState; paged?: boolean }) {
+  return <div className={paged ? "rd-secs mt-4" : "rd-secs"}>
+    {sections.map((item) => <RDSection key={item.i} s={item.s} p={`s${item.i}`} ctx={sectionEditContext(item, props, state)} />)}
+  </div>;
+}
+
+function ReportFooter({ file }: { file: string }) {
+  return <div className="rd-foot"><span>Generated by CAOS · CP-RENDER · {file}.pdf</span><span>For internal committee use only — not for distribution</span></div>;
+}
+
+function ReportColophon({ text }: { text: string }) {
+  return text ? <div className="rd-colophon">{text}</div> : null;
+}
+
+function PagedReportPage({ page, pageIndex, pages, props, state }: { page: ReportPage; pageIndex: number; pages: ReportPage[]; props: ReportDocProps; state: ReportRenderState }) {
+  return <div className="rd-page-container border-b border-dashed border-caos-border/40 pb-6 mb-6 last:border-0 last:pb-0 last:mb-0">
+    <div className="rd-mast">
+      <span className="rd-mast-brand"><span className="rd-mark">C</span><span>CAOS · IC CREDIT MEMO · {page.name.toUpperCase()}</span></span>
+      <span className="rd-mast-meta">{state.mastRunLabel} · PAGE {pageIndex + 1} of {pages.length}</span>
     </div>
-  );
+    {pageIndex === 0 ? <ReportTitle rep={props.rep} ctx={state.ctx} /> : null}
+    <ReportSections sections={page.items} props={props} state={state} paged />
+  </div>;
+}
+
+function PagedReport({ props, state }: { props: ReportDocProps; state: ReportRenderState }) {
+  const pages = groupReportPages(state.sections);
+  const paperClass = `rd-paper${props.onEdit ? " rd-editing" : ""}`;
+  return <div className={paperClass} style={{ background: props.paper || "#f7f5ee" }}>
+    <ReportWatermark watermark={props.rep.watermark} />
+    <ReportAuthorityBlock authority={props.authority} />
+    {pages.map((page, index) => <PagedReportPage key={page.name} page={page} pageIndex={index} pages={pages} props={props} state={state} />)}
+    {props.showSources ? <RDSources srcs={props.rep.srcs} onOpenEvidence={props.onOpenEvidence} /> : null}
+    <ReportColophon text={state.colophonText} />
+    <ReportFooter file={props.rep.file} />
+  </div>;
+}
+
+function ResearchMasthead({ mastRunLabel }: { mastRunLabel: string }) {
+  return <div className="rd-mast">
+    <span className="rd-mast-brand"><span className="rd-mark">C</span><span>CAOS · CREDIT RESEARCH</span></span>
+    <span className="rd-mast-meta">{mastRunLabel} · INTERNAL USE</span>
+  </div>;
+}
+
+function ModelMasthead({ authority, mastRunLabel }: { authority: ReportAuthority | undefined; mastRunLabel: string }) {
+  return <div className="rd-mast" style={{ borderBottomWidth: 1 }}>
+    <span className="rd-mast-brand"><span className="rd-mark">C</span><span>CAOS · MODEL APPENDIX · REFERENCE FIXTURE</span></span>
+    <span className="rd-mast-meta">{mastRunLabel} · {authority?.liveRunBacked ? "LIVE ISSUER RUN" : "NOT A LIVE ISSUER RUN"}</span>
+  </div>;
+}
+
+function FlatReportHeader({ props, state }: { props: ReportDocProps; state: ReportRenderState }) {
+  if (state.isModelAppendix) return <ModelMasthead authority={props.authority} mastRunLabel={state.mastRunLabel} />;
+  return <><ResearchMasthead mastRunLabel={state.mastRunLabel} /><ReportAuthorityBlock authority={props.authority} /></>;
+}
+
+function FlatReportTail({ props, state }: { props: ReportDocProps; state: ReportRenderState }) {
+  if (state.isModelAppendix) return <ReportColophon text={state.colophonText} />;
+  return <>
+    {props.showSources ? <RDSources srcs={props.rep.srcs} onOpenEvidence={props.onOpenEvidence} /> : null}
+    <ReportColophon text={state.colophonText} />
+    <ReportFooter file={props.rep.file} />
+  </>;
+}
+
+function FlatReport({ props, state }: { props: ReportDocProps; state: ReportRenderState }) {
+  const editingClass = props.onEdit ? " rd-editing" : "";
+  const modelClass = state.isModelAppendix ? " rd-model-appendix" : "";
+  return <div className={`rd-paper${editingClass}${modelClass}`} style={{ background: props.paper || "#f7f5ee" }}>
+    <ReportWatermark watermark={props.rep.watermark} />
+    <FlatReportHeader props={props} state={state} />
+    <ReportTitle rep={props.rep} ctx={state.ctx} />
+    <ReportSections sections={state.sections} props={props} state={state} />
+    <FlatReportTail props={props} state={state} />
+  </div>;
+}
+
+export function ReportDoc(props: ReportDocProps) {
+  const state = prepareReportState(props);
+  return props.rep.sections.some((section) => section.page)
+    ? <PagedReport props={props} state={state} />
+    : <FlatReport props={props} state={state} />;
 }

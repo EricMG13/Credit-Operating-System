@@ -417,7 +417,7 @@ def _parse_dt(value: str | None, *, end_of_day: bool = False) -> datetime | None
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         return aware_utc(parsed)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Invalid date: {value}") from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Invalid date: {value}") from exc
 
 
 def _db_signal(row: SectorSignal) -> SectorSignalOut:
@@ -987,7 +987,7 @@ async def create_sector_review(
         context = await _owned_analysis_context(db, body.context_id, caller.id)
         requested_sector = canonical_sector_id(body.sector_id) if body.sector_id else context.sector_id
         if requested_sector is None or requested_sector not in CANONICAL_SECTORS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A canonical sector is required.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A canonical sector is required.")
         if context.sector_id and context.sector_id != requested_sector:
             raise HTTPException(status.HTTP_409_CONFLICT, "Review sector does not match the active context.")
         context.sector_id = requested_sector
@@ -1052,7 +1052,7 @@ async def list_sector_reviews(
     if sector_id:
         canonical = canonical_sector_id(sector_id)
         if canonical is None:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector taxonomy value.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown sector taxonomy value.")
         stmt = stmt.where(SectorReviewRun.sector == canonical)
     rows = (await db.execute(
         stmt.order_by(SectorReviewRun.created_at.desc()).limit(100)
@@ -1092,7 +1092,7 @@ async def ratify_sector_review(
         review = _review_v2(row)
         valid_sections = {section.id for section in review.sections}
         if any(item.section_id not in valid_sections for item in body.sections):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unknown sector-review section.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown sector-review section.")
         for item in body.sections:
             existing = (await db.execute(select(SectorReviewRatification).where(
                 SectorReviewRatification.review_run_id == row.id,

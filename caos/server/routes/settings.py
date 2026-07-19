@@ -147,12 +147,12 @@ async def write_analyst_settings(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Settings rate limit reached — try again in a minute.")
     if body.role_view not in _ROLE_VIEWS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "role_view must be one of: analyst, pm, qa.",
         )
     payload = _settings_payload(body)
     if len(json.dumps(payload)) > _MAX_SETTINGS_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Settings payload too large.")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Settings payload too large.")
     analyst = await db.get(Analyst, caller.id)
     if analyst is None:
         # No persisted profile for this identity (e.g. proxy/local caller without a
@@ -186,10 +186,10 @@ async def patch_analyst_settings(
     changes = body.model_dump(exclude={"expected_revision"}, exclude_none=True)
     next_settings = current.model_copy(update=changes)
     if next_settings.role_view not in _ROLE_VIEWS:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "role_view must be one of: analyst, pm, qa.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "role_view must be one of: analyst, pm, qa.")
     payload = _settings_payload(next_settings)
     if len(json.dumps(payload)) > _MAX_SETTINGS_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Settings payload too large.")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Settings payload too large.")
     analyst.settings = payload
     analyst.settings_revision += 1
     await db.flush()

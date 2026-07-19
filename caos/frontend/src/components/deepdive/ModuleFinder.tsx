@@ -10,14 +10,53 @@
 // stays mounted as browse-all; this is an additive fast path, not a
 // replacement.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MODULES } from "@/lib/pipeline/data";
 import { getAnalystSettings, updateAnalystWorkspace } from "@/lib/api";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
+import { useModalListFocus } from "@/lib/use-modal-list-focus";
 
 const MAX_PINS = 12;
 const MAX_RECENTS = 8;
+
+type FinderKeyAction = "next" | "previous" | "select";
+
+const finderKeyAction = (key: string): FinderKeyAction | null => ({
+  ArrowDown: "next" as const,
+  ArrowUp: "previous" as const,
+  Enter: "select" as const,
+})[key] ?? null;
+
+const moveFinderSelection = (
+  current: number,
+  action: Exclude<FinderKeyAction, "select">,
+  resultCount: number,
+): number => action === "next"
+  ? Math.min(current + 1, resultCount - 1)
+  : Math.max(current - 1, 0);
+
+function ModuleShortcut({ module, active, pinned, onSelect }: {
+  module: (typeof MODULES)[number];
+  active: boolean;
+  pinned: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(module.id)}
+      title={module.name}
+      aria-current={active ? "true" : undefined}
+      className={
+        "tabular text-caos-sm px-2 min-h-8 rounded border transition-caos focus-ring whitespace-nowrap shrink-0 caos-target " +
+        (active ? "bg-caos-elevated text-caos-text border-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
+      }
+    >
+      {pinned ? "★ " : ""}{module.id}
+    </button>
+  );
+}
 
 function readList(ws: Record<string, unknown> | undefined, key: string): string[] {
   const v = ws?.[key];
@@ -96,36 +135,8 @@ export function ModuleFinder({
       >
         ⌘M find module…
       </button>
-      {pinnedMods.map((m) => (
-        <button
-          key={m.id}
-          type="button"
-          onClick={() => select(m.id)}
-          title={m.name}
-          aria-current={activeId === m.id ? "true" : undefined}
-          className={
-            "tabular text-caos-sm px-2 min-h-8 rounded border transition-caos focus-ring whitespace-nowrap shrink-0 caos-target " +
-            (activeId === m.id ? "bg-caos-elevated text-caos-text border-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
-          }
-        >
-          ★ {m.id}
-        </button>
-      ))}
-      {recentMods.map((m) => (
-        <button
-          key={m.id}
-          type="button"
-          onClick={() => select(m.id)}
-          title={m.name}
-          aria-current={activeId === m.id ? "true" : undefined}
-          className={
-            "tabular text-caos-sm px-2 min-h-8 rounded border transition-caos focus-ring whitespace-nowrap shrink-0 caos-target " +
-            (activeId === m.id ? "bg-caos-elevated text-caos-text border-caos-accent" : "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50")
-          }
-        >
-          {m.id}
-        </button>
-      ))}
+      {pinnedMods.map((module) => <ModuleShortcut key={module.id} module={module} active={activeId === module.id} pinned onSelect={select} />)}
+      {recentMods.map((module) => <ModuleShortcut key={module.id} module={module} active={activeId === module.id} pinned={false} onSelect={select} />)}
       {open ? <ModuleFinderModal onClose={() => setOpen(false)} onSelect={select} pins={pins} onTogglePin={togglePin} /> : null}
     </>
   );
@@ -143,17 +154,9 @@ function ModuleFinderModal({
   onTogglePin: (id: string) => void;
 }) {
   const panelRef = useModalA11y<HTMLDivElement>(onClose);
-  const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    document.getElementById(`module-finder-row-${active}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [active]);
+  const inputRef = useModalListFocus(active, "module-finder-row-");
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -164,16 +167,15 @@ function ModuleFinderModal({
   }, [query]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActive((a) => Math.min(a + 1, results.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActive((a) => Math.max(a - 1, 0));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (results[active]) onSelect(results[active].id);
+    const action = finderKeyAction(e.key);
+    if (!action) return;
+    e.preventDefault();
+    if (action === "select") {
+      const selected = results[active];
+      if (selected) onSelect(selected.id);
+      return;
     }
+    setActive((current) => moveFinderSelection(current, action, results.length));
   };
 
   return (

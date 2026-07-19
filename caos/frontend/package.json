@@ -13,10 +13,16 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "NODE_PATH=node_modules playwright test",
     "test:e2e:prodlike": "node scripts/run-prodlike-e2e.mjs",
+    "a11y": "node scripts/a11y-axe.mjs",
+    "a11y:query": "node scripts/a11y-query.mjs",
+    "capture:analysis": "node scripts/capture-analysis-redesign.mjs",
+    "capture:surfaces": "node scripts/capture-enterprise-surfaces.mjs",
+    "audit:performance": "node scripts/performance-audit.mjs",
     "verify:ic-book": "node scripts/validate-ic-book-workflow.mjs",
     "verify:monitor": "node scripts/validate-monitor-workbench.mjs",
     "verify:profile": "node scripts/validate-profile-workbench.mjs",
-    "verify:command": "node scripts/validate-command-workbench.mjs"
+    "verify:command": "node scripts/validate-command-workbench.mjs",
+    "verify:enterprise-layout": "node scripts/validate-enterprise-layout.mjs"
   },
   "dependencies": {
     "@antv/g2": "^5.2.0",
@@ -30,7 +36,8 @@
     "react-dom": "^18.3.0",
     "react-dropzone": "^14.2.3",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "tailwindcss": "^4.3.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
@@ -51,7 +58,6 @@
     "eslint-config-next": "^15.5.19",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.16",
-    "tailwindcss": "^4.3.2",
     "typescript": "^5.6.0",
     "vitest": "^3.2.6"
   },

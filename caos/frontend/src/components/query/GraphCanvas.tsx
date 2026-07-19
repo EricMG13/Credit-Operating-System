@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState } from "react";
 import type { GraphEdge, GraphNode, GraphResult, OverlayEdge } from "@/lib/query/graph";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { CHART_HEX } from "@/lib/chart-colors";
 import { onActivate } from "@/lib/a11y";
 import { hueFor, nodeStyle, MODEL_HUE } from "./node-style";
-import { zoomIdentity, type ZoomTransform } from "d3-zoom";
-import { useGraphZoom } from "./useGraphZoom";
+import { GRAPH_HEIGHT as H, GRAPH_WIDTH as W, graphX as px, graphY as py, useGraphViewport } from "./useGraphViewport";
 
 const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   dep: { stroke: "#5f6f8f", width: 1.3 },
@@ -23,10 +22,6 @@ const EDGE: Record<string, { stroke: string; width: number; dash?: string }> = {
   // Analyst-ratified model proposal: solid (ratified) in the model hue (origin).
   accepted: { stroke: MODEL_HUE, width: 1.8 },
 };
-
-const W = 1000;
-const H = 600;
-const PAD = 78;
 
 const HALO = {
   paintOrder: "stroke" as const,
@@ -66,35 +61,10 @@ export function GraphCanvas({
   onOpenChunk: OpenChunk;
   onSelectNode?: SelectNode;
 }) {
-  const px = (x: number) => PAD + x * (W - 2 * PAD);
-  const py = (y: number) => PAD + y * (H - 2 * PAD);
-
-  // Keep track of zoom transform
-  const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity);
-  const svgRef = useRef<SVGSVGElement | null>(null);
+  const { byId, handleResetZoom, svgRef, transform } = useGraphViewport(graph);
 
   // Keep track of hovered node for visual connection path highlighting
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-
-  // Fit the initial view to the node bounding box — a sparse walk (5 nodes in a
-  // corner) should fill the canvas, not float in 90% empty dark.
-  const fitTransform = useMemo(() => {
-    if (graph.nodes.length === 0) return zoomIdentity;
-    const xs = graph.nodes.map((n) => px(n.x));
-    const ys = graph.nodes.map((n) => py(n.y));
-    const M = 110; // labels render below/beside nodes
-    const bw = Math.max(...xs) - Math.min(...xs);
-    const bh = Math.max(...ys) - Math.min(...ys);
-    const k = Math.max(0.3, Math.min(1.5, (W - 2 * M) / Math.max(bw, 1), (H - 2 * M) / Math.max(bh, 1)));
-    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
-    const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
-    return zoomIdentity.translate(W / 2 - k * cx, H / 2 - k * cy).scale(k);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph]);
-
-  const handleResetZoom = useGraphZoom(svgRef, fitTransform, graph, setTransform);
-
-  const byId = useMemo(() => Object.fromEntries(graph.nodes.map((n) => [n.id, n])), [graph]);
 
   // Adjacent node tracking for hover-highlight filters
   const adjacentNodeIds = useMemo(() => {
@@ -272,41 +242,24 @@ function EdgeLine({ edge, x1, y1, x2, y2 }: { edge: GraphEdge; x1: number; y1: n
   );
 }
 
-function NodeMark({
-  n,
-  cx,
-  cy,
-  onOpenChunk,
-  onSelectNode,
-}: {
+type NodeMarkProps = {
   n: GraphNode;
   cx: number;
   cy: number;
   onOpenChunk: OpenChunk;
   onSelectNode?: SelectNode;
-}) {
-  const isChunk = !!n.chunk_id;
-  
-  // Clicking the node selects it (unless it's a raw chunk node, which opens the CitationViewer)
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isChunk) {
-      onOpenChunk(n.chunk_id!, n.label);
-    } else if (onSelectNode) {
-      onSelectNode(n);
-    }
-  };
+};
 
-  const s = nodeStyle(n);
+type NodeMarkStyle = ReturnType<typeof nodeStyle>;
 
-  // Wrap long labels onto two lines rather than hard-clipping — the label often
-  // IS the answer (a provenance class, a driver, a percentile). Modules stay
-  // tight (dense DAGs); issuers/center and other kinds wrap over two lines.
-  const labelLines = n.kind === "module"
-    ? [short(n.label, 8)]
-    : wrapLabel(n.label, s.isCircle ? 18 : 20);
+function selectGraphNode(node: GraphNode, onOpenChunk: OpenChunk, onSelectNode?: SelectNode) {
+  if (node.chunk_id) onOpenChunk(node.chunk_id, node.label);
+  else onSelectNode?.(node);
+}
 
-  const wikiLink = n.obsidian_url ? (
+function NodeWikiLink({ cx, cy, n, style }: { cx: number; cy: number; n: GraphNode; style: NodeMarkStyle }) {
+  if (!n.obsidian_url) return null;
+  return (
     <a
       href={n.obsidian_url}
       title="Reveal in Obsidian Wiki"
@@ -315,83 +268,85 @@ function NodeMark({
       style={{ cursor: "pointer" }}
       aria-label={`Reveal ${n.label} in Obsidian Wiki`}
     >
-      <circle cx={cx + s.r + 8} cy={cy - s.r - 2} r={7.5} fill={MODEL_HUE} stroke="#0a0a0f" strokeWidth={1} />
-      <text x={cx + s.r + 8} y={cy - s.r + 0.5} textAnchor="middle" fill="#0a0a0f" fontSize={9} fontWeight="bold" fontFamily="var(--font-mono)">W</text>
+      <circle cx={cx + style.r + 8} cy={cy - style.r - 2} r={7.5} fill={MODEL_HUE} stroke="#0a0a0f" strokeWidth={1} />
+      <text x={cx + style.r + 8} y={cy - style.r + 0.5} textAnchor="middle" fill="#0a0a0f" fontSize={9} fontWeight="bold" fontFamily="var(--font-mono)">W</text>
     </a>
-  ) : null;
+  );
+}
 
-  const wrap = (children: React.ReactNode) => (
-    <>
+function NodeInteraction({ children, n, onOpenChunk, onSelectNode }: Pick<NodeMarkProps, "n" | "onOpenChunk" | "onSelectNode"> & { children: React.ReactNode }) {
+  const select = () => selectGraphNode(n, onOpenChunk, onSelectNode);
+  return (
     <g
       opacity={n.dim ? 0.5 : 1}
       style={{ cursor: "pointer" }}
-      onClick={handleClick}
+      onClick={(event) => {
+        event.stopPropagation();
+        select();
+      }}
       className="graph-node select-none focus-ring"
       role="button"
       tabIndex={0}
-      onKeyDown={onActivate(() => {
-        if (isChunk) onOpenChunk(n.chunk_id!, n.label);
-        else if (onSelectNode) onSelectNode(n);
-      })}
+      onKeyDown={onActivate(select)}
       aria-label={`Select ${n.label}${n.exposed && n.kind === "issuer" ? " (exposed)" : ""}`}
     >
       <title>{n.title || n.label}</title>
       {children}
     </g>
-    {wikiLink}
+  );
+}
+
+function NodeShape({ cx, cy, n, style }: { cx: number; cy: number; n: GraphNode; style: NodeMarkStyle }) {
+  if (style.shape === "compact") return <circle cx={cx} cy={cy} r={style.r} fill={style.fill} stroke={style.stroke} strokeWidth={style.sw} />;
+  if (style.shape === "pill") return <NodePill cx={cx} cy={cy} label={n.label} color={style.color} />;
+  if (!style.isCircle) return <RectMark cx={cx} cy={cy} fill={style.fill} stroke={style.stroke} sw={style.sw} />;
+  return (
+    <>
+      {n.exposed && n.kind === "issuer" ? <circle cx={cx} cy={cy} r={style.r + 3.5} fill="none" stroke={style.stroke} strokeWidth={1} opacity={0.7} /> : null}
+      <circle cx={cx} cy={cy} r={style.r} fill={style.fill} stroke={style.stroke} strokeWidth={style.sw} />
     </>
   );
+}
 
-  // Compact cluster member: a small dot, name on hover only
-  if (s.shape === "compact") {
-    return wrap(<circle cx={cx} cy={cy} r={s.r} fill={s.fill} stroke={s.stroke} strokeWidth={s.sw} />);
+function NodeLabel({ cx, cy, labelLines, n, style }: { cx: number; cy: number; labelLines: string[]; n: GraphNode; style: NodeMarkStyle }) {
+  if (n.kind === "sector" || style.shape === "compact") return null;
+  const shared = {
+    textAnchor: "middle" as const,
+    fill: n.dim ? "#9a9aac" : "#f0f0f6",
+    fontWeight: n.kind === "center" ? 600 : 400,
+  };
+  if (style.isCircle) {
+    return (
+      <text x={cx} y={cy + style.r + 16} fontSize={13.5} {...shared} {...HALO}>
+        {labelLines.map((line, index) => <tspan key={index} x={cx} dy={index === 0 ? 0 : 15}>{line}</tspan>)}
+      </text>
+    );
   }
+  return (
+    <text x={cx} y={cy + 4.5} fontSize={12.5} fontFamily={style.isMono ? "var(--font-mono)" : undefined} {...shared} {...HALO}>
+      {labelLines.map((line, index) => <tspan key={index} x={cx} dy={index === 0 ? 0 : 14}>{line}</tspan>)}
+    </text>
+  );
+}
 
-  return wrap(
+function NodeSubLabel({ cx, cy, labelLines, n, style }: { cx: number; cy: number; labelLines: string[]; n: GraphNode; style: NodeMarkStyle }) {
+  if (!n.sub || n.kind === "module" || style.shape === "compact") return null;
+  const lineOffset = labelLines.length > 1 ? (style.isCircle ? 15 : 14) : 0;
+  const y = cy + (style.isCircle ? style.r + 31 : 19) + lineOffset;
+  return <text x={cx} y={y} textAnchor="middle" fill="#a6a6b8" fontSize={11.5} fontFamily="var(--font-mono)" {...HALO}>{short(n.sub, 24)}</text>;
+}
+
+function NodeMark({ n, cx, cy, onOpenChunk, onSelectNode }: NodeMarkProps) {
+  const style = nodeStyle(n);
+  const labelLines = n.kind === "module" ? [short(n.label, 8)] : wrapLabel(n.label, style.isCircle ? 18 : 20);
+  return (
     <>
-      {s.isCircle ? (
-        <>
-          {/* Exposed issuers carry a non-color cue too (a11y): a concentric
-              outer ring so "exposed" reads without relying on the warning hue. */}
-          {n.exposed && n.kind === "issuer" ? (
-            <circle cx={cx} cy={cy} r={s.r + 3.5} fill="none" stroke={s.stroke} strokeWidth={1} opacity={0.7} />
-          ) : null}
-          <circle cx={cx} cy={cy} r={s.r} fill={s.fill} stroke={s.stroke} strokeWidth={s.sw} />
-        </>
-      ) : s.shape === "pill" ? (
-        <NodePill cx={cx} cy={cy} label={n.label} color={s.color} />
-      ) : (
-        <RectMark cx={cx} cy={cy} fill={s.fill} stroke={s.stroke} sw={s.sw} />
-      )}
-
-      {n.kind !== "sector" ? (
-        s.isCircle ? (
-          // Issuer/center: real names get up to two lines so they don't all clip.
-          <text x={cx} y={cy + s.r + 16} textAnchor="middle"
-            fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={13.5}
-            fontWeight={n.kind === "center" ? 600 : 400} {...HALO}>
-            {labelLines.map((ln, i) => (
-              <tspan key={i} x={cx} dy={i === 0 ? 0 : 15}>{ln}</tspan>
-            ))}
-          </text>
-        ) : (
-          <text x={cx} y={cy + 4.5} textAnchor="middle"
-            fill={n.dim ? "#9a9aac" : "#f0f0f6"} fontSize={12.5}
-            fontWeight={n.kind === "center" ? 600 : 400}
-            fontFamily={s.isMono ? "var(--font-mono)" : undefined} {...HALO}>
-            {labelLines.map((ln, i) => (
-              <tspan key={i} x={cx} dy={i === 0 ? 0 : 14}>{ln}</tspan>
-            ))}
-          </text>
-        )
-      ) : null}
-      {n.sub && n.kind !== "module" ? (
-        // Push below a second label line when the name wrapped, so they don't collide.
-        <text x={cx} y={cy + (s.isCircle ? s.r + 31 + (labelLines.length > 1 ? 15 : 0) : 19 + (labelLines.length > 1 ? 14 : 0))} textAnchor="middle"
-          fill="#a6a6b8" fontSize={11.5} fontFamily="var(--font-mono)" {...HALO}>
-          {short(n.sub, 24)}
-        </text>
-      ) : null}
+      <NodeInteraction n={n} onOpenChunk={onOpenChunk} onSelectNode={onSelectNode}>
+        <NodeShape cx={cx} cy={cy} n={n} style={style} />
+        <NodeLabel cx={cx} cy={cy} labelLines={labelLines} n={n} style={style} />
+        <NodeSubLabel cx={cx} cy={cy} labelLines={labelLines} n={n} style={style} />
+      </NodeInteraction>
+      <NodeWikiLink cx={cx} cy={cy} n={n} style={style} />
     </>
   );
 }
@@ -411,25 +366,34 @@ function RectMark({ cx, cy, fill, stroke, sw }: { cx: number; cy: number; fill: 
   return <rect x={cx - 9} y={cy - 9} width={18} height={18} rx={4} fill={fill} stroke={stroke} strokeWidth={sw} />;
 }
 
+const GROUP_LEGEND_KINDS = new Set(["issuer", "center", "sector"]);
+const NODE_LEGEND_ENTRIES: Record<string, readonly [string, string]> = {
+  chunk: ["source chunk", CHART_HEX.success],
+  claim: ["claim", CHART_HEX.accent],
+  evidence: ["evidence", CHART_HEX.muted],
+  module: ["module", "#3a4a6a"],
+  driver: ["risk driver", CHART_HEX.warning],
+  "point-bull": ["bull point", CHART_HEX.success],
+  "point-bear": ["bear point", CHART_HEX.critical],
+  metric: ["metric", CHART_HEX.accent],
+};
+
+function legendEntryForNode(node: GraphNode): readonly [string, string] | null {
+  if (GROUP_LEGEND_KINDS.has(node.kind)) return node.group ? [node.group, hueFor(node.group)] : null;
+  if (node.kind.startsWith("finding")) return ["QA finding", CHART_HEX.warning];
+  return NODE_LEGEND_ENTRIES[node.kind] ?? null;
+}
+
 function legendFor(nodes: GraphNode[]): { label: string; color: string }[] {
   const out: { label: string; color: string }[] = [];
   const seen = new Set<string>();
   const add = (label: string, color: string) => {
     if (!seen.has(label)) { seen.add(label); out.push({ label, color }); }
   };
-  for (const n of nodes) {
-    if (n.kind === "issuer" || n.kind === "center" || n.kind === "sector") {
-      if (n.group) add(n.group, hueFor(n.group));
-      if (n.exposed) add("exposed", CHART_HEX.warning);
-    } else if (n.kind === "chunk") add("source chunk", CHART_HEX.success);
-    else if (n.kind === "claim") add("claim", CHART_HEX.accent);
-    else if (n.kind === "evidence") add("evidence", CHART_HEX.muted);
-    else if (n.kind === "module") add("module", "#3a4a6a");
-    else if (n.kind === "driver") add("risk driver", CHART_HEX.warning);
-    else if (n.kind === "point-bull") add("bull point", CHART_HEX.success);
-    else if (n.kind === "point-bear") add("bear point", CHART_HEX.critical);
-    else if (n.kind.startsWith("finding")) add("QA finding", CHART_HEX.warning);
-    else if (n.kind === "metric") add("metric", CHART_HEX.accent);
+  for (const node of nodes) {
+    const entry = legendEntryForNode(node);
+    if (entry) add(...entry);
+    if (GROUP_LEGEND_KINDS.has(node.kind) && node.exposed) add("exposed", CHART_HEX.warning);
   }
   return out.slice(0, 8);
 }

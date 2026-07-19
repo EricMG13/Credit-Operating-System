@@ -1,4 +1,4 @@
-import { api } from "@/lib/api";
+import { api, type DecisionVote } from "@/lib/api";
 import type { AuthorityEnvelope } from "@/lib/analysis-workbench";
 
 export type AgendaStatus = "draft" | "ready" | "decided" | "cancelled";
@@ -97,14 +97,6 @@ export interface FinalizedDecision {
 export interface FinalizeResult {
   agenda: CommitteeAgendaItem;
   decision: FinalizedDecision;
-}
-
-export interface DecisionVote {
-  id: string;
-  member: string;
-  vote: "approve" | "dissent" | "abstain";
-  dissent_note: string | null;
-  created_at: string;
 }
 
 export interface DecisionBookItem extends FinalizedDecision {

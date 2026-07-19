@@ -40,7 +40,7 @@ import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { fromModelEngine } from "@/lib/provenance";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
-import type { DecisionContextState } from "@/lib/decision-state";
+import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
 import { useAnalysisContext } from "@/lib/analysis-workbench";
 import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
 import { derivedFreshness, useIssuerFreshness } from "@/lib/engine/useFreshness";
@@ -118,176 +118,202 @@ const CASCADE_ROWS = new Set(["netlev", "srsec"]);
 // only reshapes opex) — their KPI impact stays in the scrubbed year.
 const NON_CASH_DRIVERS = new Set(["dGpm", "daPct"]);
 
-function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) {
-  const searchParams = useSearchParams();
-  const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
-  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
-  // No display-name source exists in useModelEngine; the issuerId is the honest
-  // minimum for a live name — do NOT fabricate a company name.
-  const issuerName = isReference ? "Atlas Forge Industrials" : issuerId;
-  const analysis = useAnalysisContext({ name: `${issuerName} model` });
+function checkpointFailureMessage(reason: unknown) {
+  if (!axios.isAxiosError(reason)) return "Checkpoint could not be saved.";
+  return String(reason.response?.data?.detail ?? "Checkpoint could not be saved.");
+}
+
+function checkpointContextNotice(error: string | null) {
+  if (error) return "Working draft saved. Checkpoint unavailable: " + error;
+  return "Working draft saved. Checkpoint will be available when analysis context is ready.";
+}
+
+function useModelHistoryKeyboard(undo: () => void, redo: () => void) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      event.preventDefault();
+      if (event.shiftKey) redo();
+      else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+}
+
+function pasteNoticeMessage(result: PasteResult) {
+  const parts = [
+    result.applied > 0 ? "pasted " + result.applied + " cell" + (result.applied === 1 ? "" : "s") : null,
+    result.skippedNotEditable > 0 ? result.skippedNotEditable + " not editable" : null,
+    result.invalid.length > 0 ? result.invalid.length + " invalid value" + (result.invalid.length === 1 ? "" : "s") + " discarded" : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function useModelGridUi(issuerId: string) {
   const [hl, setHl] = useState<string | null>(null);
   const [sel, setSel] = useState<CellRef | null>({ row: "netlev", col: "l1" });
   const [evModal, setEvModal] = useState<string | null>(null);
-  const severity = 1; // downside built at CP-2B base pathway (P1); no analyst severity dial
-  const [showQuarters, setShowQuarters] = useState(true);
-  const [showScenarios, setShowScenarios] = useState(true);
-  const [showAssumptions, setShowAssumptions] = useState(true);
   const [editing, setEditing] = useState<CellRef | null>(null);
   const [hlCells, setHlCells] = useState<Set<string> | null>(null);
   const history = useModelHistory(issuerId);
-  const {
-    overrides, setOverrides, replaceOverrides, undo, redo, canUndo, canRedo,
-    checkpoints, checkpoint, restoreCheckpoint, deleteCheckpoint,
-    persistenceState, persistenceError,
-  } = history;
   const [pasteNotice, setPasteNotice] = useState<string | null>(null);
-  const pasteNoticeTimer = useRef<number | null>(null);
-  const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
-  const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
-  const [savedAt, setSavedAt] = useState<string | null>(null);
-  // True when a DB-saved model exists but the restore fetch failed (network/500):
-  // the analyst is looking at the local draft and must be told, with a retry.
-  const [restoreError, setRestoreError] = useState(false);
-  const [restoreNonce, setRestoreNonce] = useState(0);
-  const [hydratedIssuerId, setHydratedIssuerId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(false);
-  // True when a save was rejected because this issuer's model was saved
-  // elsewhere since it was last loaded here (another tab, same analyst) —
-  // distinct from saveError so the recovery affordance (reload) can differ
-  // from a generic failure (retry the same save).
-  const [saveConflict, setSaveConflict] = useState(false);
-  const [serverCheckpoints, setServerCheckpoints] = useState<ModelCheckpointDTO[]>([]);
-  const [serverCheckpointsIssuerId, setServerCheckpointsIssuerId] = useState<string | null>(null);
-  const [checkpointing, setCheckpointing] = useState(false);
-  const [checkpointNotice, setCheckpointNotice] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [armReset, setArmReset] = useState(false);
-  const savedSnapshot = useRef<string | null>(null);
+  const pasteNoticeTimer = useRef<number | null>(null);
   const editErrTimer = useRef<number | null>(null);
   const armTimer = useRef<number | null>(null);
-  const hydrateGeneration = useRef(0);
-  const hydrated = hydratedIssuerId === issuerId;
-
-  // evidence modal cited-by needs the report set
-  const reports = useMemo(() => legacyRuntime.buildReports(), [legacyRuntime]);
-
-  // clear transient timers on unmount
   useEffect(() => () => {
     if (editErrTimer.current) window.clearTimeout(editErrTimer.current);
     if (armTimer.current) window.clearTimeout(armTimer.current);
     if (pasteNoticeTimer.current) window.clearTimeout(pasteNoticeTimer.current);
   }, []);
-
-  // ⌘Z / ⌘⇧Z (or Ctrl+Z / Ctrl+Y) undo/redo the override grid — G3. Skipped
-  // while a text field has focus (the Assumptions sliders' number inputs, a
-  // Deep-Dive-style search box, or an open CellInput) so the browser's own
-  // native input-undo isn't fought; the CellInput editor closes on blur before
-  // any of this could double-fire on the same keystroke in practice, but the
-  // guard is cheap insurance regardless.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      e.preventDefault();
-      if (e.shiftKey) redo(); else undo();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo]);
-
+  useModelHistoryKeyboard(history.undo, history.redo);
   const flashPasteNotice = (text: string) => {
     setPasteNotice(text);
     if (pasteNoticeTimer.current) window.clearTimeout(pasteNoticeTimer.current);
     pasteNoticeTimer.current = window.setTimeout(() => setPasteNotice(null), 3500);
   };
   const onPasteCells = (result: PasteResult) => {
-    if (result.applied > 0) setOverrides((o) => ({ ...o, ...result.patch }));
-    const parts = [
-      result.applied > 0 ? `pasted ${result.applied} cell${result.applied === 1 ? "" : "s"}` : null,
-      result.skippedNotEditable > 0 ? `${result.skippedNotEditable} not editable` : null,
-      result.invalid.length > 0 ? `${result.invalid.length} invalid value${result.invalid.length === 1 ? "" : "s"} discarded` : null,
-    ].filter(Boolean);
-    if (parts.length === 0) return; // nothing landed and nothing to report — a no-op paste
-    flashPasteNotice(parts.join(" · "));
+    if (result.applied > 0) history.setOverrides((current) => ({ ...current, ...result.patch }));
+    const notice = pasteNoticeMessage(result);
+    if (notice) flashPasteNotice(notice);
   };
+  return {
+    ...history, hl, setHl, sel, setSel, evModal, setEvModal, editing, setEditing,
+    hlCells, setHlCells, pasteNotice, editError, setEditError, editErrTimer,
+    armReset, setArmReset, armTimer, onPasteCells,
+  };
+}
 
-  // Overrides session key is per-issuer so a live issuer never inherits the
-  // reference demo's fabricated overrides (cross-issuer contamination). Legacy
-  // global key is adopted once, and only by the reference issuer.
-  const ovKey = "caos-d-overrides:" + issuerId;
+type ModelGridUi = ReturnType<typeof useModelGridUi>;
 
+function useModelDraftState() {
+  const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
+  const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState(false);
+  const [restoreNonce, setRestoreNonce] = useState(0);
+  const [hydratedIssuerId, setHydratedIssuerId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const [saveConflict, setSaveConflict] = useState(false);
+  const [serverCheckpoints, setServerCheckpoints] = useState<ModelCheckpointDTO[]>([]);
+  const [serverCheckpointsIssuerId, setServerCheckpointsIssuerId] = useState<string | null>(null);
+  const [checkpointing, setCheckpointing] = useState(false);
+  const [checkpointNotice, setCheckpointNotice] = useState<string | null>(null);
+  const savedSnapshot = useRef<string | null>(null);
+  const hydrateGeneration = useRef(0);
+  return {
+    assumptions, setAssumptions, collapsedRows, setCollapsedRows, savedAt, setSavedAt,
+    restoreError, setRestoreError, restoreNonce, setRestoreNonce, hydratedIssuerId,
+    setHydratedIssuerId, saving, setSaving, saveError, setSaveError, saveConflict,
+    setSaveConflict, serverCheckpoints, setServerCheckpoints, serverCheckpointsIssuerId,
+    setServerCheckpointsIssuerId, checkpointing, setCheckpointing, checkpointNotice,
+    setCheckpointNotice, savedSnapshot, hydrateGeneration,
+  };
+}
+
+type ModelDraftState = ReturnType<typeof useModelDraftState>;
+
+function serializeSavable(assumptions: Assumptions, overrides: Overrides, collapsedRows: Set<string>) {
+  return JSON.stringify({ a: assumptions, o: overrides, c: [...collapsedRows].sort() });
+}
+
+function resetDraftForHydration(draft: ModelDraftState, replaceOverrides: (overrides: Overrides) => void) {
+  draft.setHydratedIssuerId(null);
+  replaceOverrides({});
+  draft.setAssumptions({ base: { ...DEFAULT_CASE }, down: { ...DEFAULT_CASE }, baseYears: {}, downYears: {} });
+  draft.setCollapsedRows(new Set());
+  draft.setSavedAt(null);
+  draft.setRestoreError(false);
+  draft.setSaveError(false);
+  draft.setSaveConflict(false);
+  draft.setSaving(false);
+  draft.setCheckpointing(false);
+  draft.setCheckpointNotice(null);
+  draft.savedSnapshot.current = null;
+}
+
+function loadLocalModelDraft(issuerId: string, storageKey: string, isReference: boolean) {
+  let overrides: Overrides = {};
+  let assumptions = DEFAULT_ASSUMPTIONS;
+  const collapsedRows = new Set<string>();
+  try {
+    let raw = sessionStorage.getItem(storageKey);
+    if (raw == null && isReference) {
+      const legacy = localStorage.getItem("caos-d-overrides");
+      if (legacy != null) {
+        raw = legacy;
+        localStorage.removeItem("caos-d-overrides");
+      }
+    }
+    overrides = sanitizeOverrides(JSON.parse(raw || "{}")) ?? {};
+    assumptions = loadAssumptions(issuerId);
+  } catch {
+    // First visit or unavailable storage keeps guarded defaults.
+  }
+  return { overrides, assumptions, collapsedRows };
+}
+
+function applySavedDraft(
+  parsed: NonNullable<ReturnType<typeof parseSavedPayload>>,
+  local: ReturnType<typeof loadLocalModelDraft>,
+  draft: ModelDraftState,
+  replaceOverrides: (overrides: Overrides) => void,
+) {
+  if (parsed.o) replaceOverrides(parsed.o);
+  if (parsed.a) draft.setAssumptions(parsed.a);
+  if (parsed.c) draft.setCollapsedRows(parsed.c);
+  draft.setSavedAt(parsed.updatedAt);
+  draft.savedSnapshot.current = serializeSavable(
+    parsed.a ?? local.assumptions,
+    parsed.o ?? local.overrides,
+    parsed.c ?? local.collapsedRows,
+  );
+}
+
+function useModelHydration(issuerId: string, isReference: boolean, grid: ModelGridUi, draft: ModelDraftState) {
+  const storageKey = "caos-d-overrides:" + issuerId;
   useEffect(() => {
-    // Cancel-safe: a slow getSavedModel for the PRIOR issuer must not land on the
-    // new issuer's grid (and then get persisted under it) when the analyst navigates
-    // A -> B mid-fetch. (audit F1)
     let stale = false;
-    const generation = ++hydrateGeneration.current;
-    setHydratedIssuerId(null);
-    replaceOverrides({});
-    setAssumptions({
-      base: { ...DEFAULT_CASE }, down: { ...DEFAULT_CASE }, baseYears: {}, downYears: {},
-    });
-    setCollapsedRows(new Set());
-    setSavedAt(null);
-    setRestoreError(false);
-    setSaveError(false);
-    setSaveConflict(false);
-    setSaving(false);
-    setCheckpointing(false);
-    setCheckpointNotice(null);
-    savedSnapshot.current = null;
-    // locals track what was actually loaded so the dirty-baseline snapshot below
-    // reflects restored state, not the stale render closure.
-    let lo: Overrides = {};
-    let la: Assumptions = DEFAULT_ASSUMPTIONS;
-    const lc: Set<string> = new Set();
-    try {
-      let raw = sessionStorage.getItem(ovKey);
-      if (raw == null && isReference) {
-        const legacy = localStorage.getItem("caos-d-overrides");
-        if (legacy != null) {
-          raw = legacy; // reference issuer inherits old demo state once
-          localStorage.removeItem("caos-d-overrides");
-        }
-      }
-      const o = sanitizeOverrides(JSON.parse(raw || "{}"));
-      if (o) { lo = o; replaceOverrides(o); }
-      la = loadAssumptions(issuerId);
-      setAssumptions(la);
-    } catch { /* first visit */ }
-    // baseline dirty at local-storage state; refined below if a DB model restores
-    savedSnapshot.current = serializeSavable(la, lo, lc);
-    getSavedModel(issuerId).then((saved) => {
-      if (stale || generation !== hydrateGeneration.current) return;
-      const parsed = parseSavedPayload(saved);
-      if (parsed) {
-        const { o, a, c, updatedAt } = parsed;
-        if (o) replaceOverrides(o);
-        if (a) setAssumptions(a);
-        if (c) setCollapsedRows(c);
-        setSavedAt(updatedAt);
-        savedSnapshot.current = serializeSavable(a ?? la, o ?? lo, c ?? lc);
-      }
-      setHydratedIssuerId(issuerId);
-    }).catch(() => {
-      if (!stale && generation === hydrateGeneration.current) setRestoreError(true);
-    });
+    const generation = ++draft.hydrateGeneration.current;
+    resetDraftForHydration(draft, grid.replaceOverrides);
+    const local = loadLocalModelDraft(issuerId, storageKey, isReference);
+    if (Object.keys(local.overrides).length) grid.replaceOverrides(local.overrides);
+    draft.setAssumptions(local.assumptions);
+    draft.savedSnapshot.current = serializeSavable(local.assumptions, local.overrides, local.collapsedRows);
+    getSavedModel(issuerId)
+      .then((saved) => {
+        if (stale || generation !== draft.hydrateGeneration.current) return;
+        const parsed = parseSavedPayload(saved);
+        if (parsed) applySavedDraft(parsed, local, draft, grid.replaceOverrides);
+        draft.setHydratedIssuerId(issuerId);
+      })
+      .catch(() => {
+        if (!stale && generation === draft.hydrateGeneration.current) draft.setRestoreError(true);
+      });
     return () => { stale = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [issuerId, ovKey, isReference, restoreNonce]);
-  // Retry a failed DB-model restore by re-running the guarded hydrate effect above —
-  // the retry then inherits the same SEC-H1 stale-flag. (A bespoke getSavedModel here
-  // had no stale guard, so a retry left in-flight across an issuer switch landed A's
-  // model on B's state and persisted it under B's keys — the exact H-1 race, on the
-  // retry path. The local draft the effect re-reads from storage equals current state:
-  // the persist effects below write through on every change once hydrated.)
-  const retryRestore = () => setRestoreNonce((n) => n + 1);
-  // persist only after restore — writing earlier clobbers stored state with defaults
-  useEffect(() => { if (hydrated) try { sessionStorage.setItem(ovKey, JSON.stringify(overrides)); } catch {} }, [hydrated, ovKey, overrides]);
-  useEffect(() => { if (hydrated) saveAssumptions(issuerId, assumptions); }, [hydrated, issuerId, assumptions]);
+  }, [issuerId, storageKey, isReference, draft.restoreNonce]);
+  const hydrated = draft.hydratedIssuerId === issuerId;
+  const retryRestore = () => draft.setRestoreNonce((nonce) => nonce + 1);
+  useEffect(() => {
+    if (!hydrated) return;
+    try { sessionStorage.setItem(storageKey, JSON.stringify(grid.overrides)); } catch {}
+  }, [hydrated, storageKey, grid.overrides]);
+  useEffect(() => {
+    if (hydrated) saveAssumptions(issuerId, draft.assumptions);
+  }, [hydrated, issuerId, draft.assumptions]);
+  return { hydrated, retryRestore };
+}
+
+function useModelPanels(hydrated: boolean) {
+  const [showQuarters, setShowQuarters] = useState(true);
+  const [showScenarios, setShowScenarios] = useState(true);
+  const [showAssumptions, setShowAssumptions] = useState(true);
   useEffect(() => {
     const onCollapse = () => {
       const next = !(showAssumptions || showScenarios);
@@ -297,70 +323,56 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
     window.addEventListener("caos:collapse-toggle", onCollapse);
     return () => window.removeEventListener("caos:collapse-toggle", onCollapse);
   }, [showAssumptions, showScenarios]);
-
-  // Keyhole guard: the two fixed flank panels (Assumptions 348 + Scenario 372)
-  // starve the sheet below ~1280 and push the action buttons off-canvas. On
-  // hydrate, collapse the flanks that don't fit; on resize ONE-WAY collapse as
-  // width crosses below a threshold (never force-expand — respect the user's
-  // choice above threshold). SSR-guarded via the hydrated gate.
   useEffect(() => {
     if (!hydrated || typeof window === "undefined") return;
-    const w0 = window.innerWidth;
-    if (w0 < 1280) setShowScenarios(false);
-    if (w0 < 1024) setShowAssumptions(false);
-    let prev = w0;
+    const initialWidth = window.innerWidth;
+    if (initialWidth < 1280) setShowScenarios(false);
+    if (initialWidth < 1024) setShowAssumptions(false);
+    let previousWidth = initialWidth;
     const onResize = () => {
-      const w = window.innerWidth;
-      if (prev >= 1280 && w < 1280) setShowScenarios(false);
-      if (prev >= 1024 && w < 1024) setShowAssumptions(false);
-      prev = w;
+      const width = window.innerWidth;
+      if (previousWidth >= 1280 && width < 1280) setShowScenarios(false);
+      if (previousWidth >= 1024 && width < 1024) setShowAssumptions(false);
+      previousWidth = width;
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
+  return { showQuarters, setShowQuarters, showScenarios, setShowScenarios, showAssumptions, setShowAssumptions };
+}
 
-  // Prefer a live CP-1 run for the LTM/PF anchor. Only the ATLF reference page
-  // may fall back to the seeded demo model.
-  const eng = useModelEngine(issuerId);
-  const activeCheckpointId = analysis.context?.artifacts.model_checkpoint_id;
-  const freshnessRead = useIssuerFreshness({
-    contextId: analysis.context?.id,
-    runId: eng.runId,
-    artifactRevision: `${analysis.context?.updated_at ?? ""}:${activeCheckpointId ?? ""}`,
-  });
-  const modelFreshness = derivedFreshness(freshnessRead, activeCheckpointId);
+type ModelPanels = ReturnType<typeof useModelPanels>;
+type ModelAnalysisContext = ReturnType<typeof useAnalysisContext>;
 
-  // Bind the existing spreadsheet instrument to the shared analysis identity.
-  // This is additive metadata only: calculations and grid state remain owned by
-  // the pre-existing Model Builder implementation above.
-  const syncContext = analysis.context;
-  const patchContext = analysis.patch;
+function useModelContextBinding(
+  analysis: ModelAnalysisContext,
+  issuerId: string,
+  runId: string | null,
+  setNotice: (notice: string | null) => void,
+) {
+  const context = analysis.context;
+  const patch = analysis.patch;
   useEffect(() => {
-    const active = syncContext;
-    if (!active) return;
-    const issuerIds = active.issuer_ids.includes(issuerId)
-      ? active.issuer_ids
-      : [...active.issuer_ids, issuerId];
-    const nextRunId = eng.runId ?? active.artifacts.issuer_run_id;
-    if (issuerIds === active.issuer_ids && nextRunId === active.artifacts.issuer_run_id) return;
-    void patchContext({
-      issuer_ids: issuerIds,
-      artifacts: { issuer_run_id: nextRunId },
-    }).catch(() => setCheckpointNotice("Analysis context could not be updated."));
-  }, [eng.runId, issuerId, patchContext, syncContext]);
+    if (!context) return;
+    const issuerIds = context.issuer_ids.includes(issuerId) ? context.issuer_ids : [...context.issuer_ids, issuerId];
+    const nextRunId = runId ?? context.artifacts.issuer_run_id;
+    if (issuerIds === context.issuer_ids && nextRunId === context.artifacts.issuer_run_id) return;
+    void patch({ issuer_ids: issuerIds, artifacts: { issuer_run_id: nextRunId } })
+      .catch(() => setNotice("Analysis context could not be updated."));
+  }, [context, issuerId, patch, runId, setNotice]);
+}
 
+function useServerCheckpointLoad(issuerId: string, draft: ModelDraftState) {
+  const { setServerCheckpoints, setServerCheckpointsIssuerId } = draft;
   useEffect(() => {
     let cancelled = false;
-    const requestedIssuerId = issuerId;
-    // Do not leave issuer A's restore controls mounted during issuer B's fetch.
     setServerCheckpoints([]);
     setServerCheckpointsIssuerId(null);
     getModelCheckpoints(issuerId)
       .then((rows) => {
-        if (cancelled || rows.some((row) => row.issuer_id !== requestedIssuerId)) return;
+        if (cancelled || rows.some((row) => row.issuer_id !== issuerId)) return;
         setServerCheckpoints(rows);
-        setServerCheckpointsIssuerId(requestedIssuerId);
+        setServerCheckpointsIssuerId(issuerId);
       })
       .catch(() => {
         if (!cancelled) {
@@ -369,72 +381,117 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         }
       });
     return () => { cancelled = true; };
-  }, [issuerId]);
-  const model = useMemo(
-    () => legacyRuntime.buildModel(severity, overrides, eng.anchor ?? undefined, assumptions),
-    [legacyRuntime, severity, overrides, eng.anchor, assumptions],
-  );
-  const hasIssuerModel = isReference || !!eng.anchor;
-  // While a live issuer's engine anchor is still loading, hasIssuerModel is
-  // false but the empty state ("Run the issuer first") is a wrong, alarming
-  // conclusion — the run may be perfectly good. Gate on eng.loading so the
-  // workspace shows a neutral "linking engine…" panel until the fetch settles,
-  // and only assert the empty state once loading is false and no anchor exists.
-  const engineLoading = !isReference && eng.loading;
-  const ovCount = Object.keys(overrides).length;
-  const prevModel = useRef<Model | null>(null);
+  }, [issuerId, setServerCheckpoints, setServerCheckpointsIssuerId]);
+}
 
-  // Stable serialization of the savable payload — Report Studio reads only the
-  // DB-saved model, so compare current savable state against the last-saved
-  // snapshot to signal unsaved edits.
-  const serializeSavable = (a: Assumptions, o: Overrides, c: Set<string>): string =>
-    JSON.stringify({ a, o, c: [...c].sort() });
-  const currentSnapshot = serializeSavable(assumptions, overrides, collapsedRows);
-  const dirty = hasIssuerModel && savedSnapshot.current !== null && currentSnapshot !== savedSnapshot.current;
-  const modelAsOf = eng.asOf ? fmtUtcDateTime(eng.asOf) : (isReference ? "2026-05-31 · reference fixture" : null);
-  const modelProv = {
-    ...fromModelEngine(eng),
-    ...(eng.live ? { freshness: toProvFreshness(modelFreshness) } : {}),
+function changedModelCells(previous: Model, current: Model) {
+  const changed = new Set<string>();
+  for (const row of ROWS) {
+    if (!row.g) continue;
+    for (const column of current.columns) {
+      const before = row.g(previous.cols[column.key]);
+      const after = row.g(current.cols[column.key]);
+      const bothNaN = typeof before === "number" && typeof after === "number" && Number.isNaN(before) && Number.isNaN(after);
+      if (before !== after && !bothNaN) changed.add(row.id + ":" + column.key);
+    }
+  }
+  return changed;
+}
+
+function useChangedModelHighlight(model: Model, setHighlight: (cells: Set<string> | null | ((current: Set<string> | null) => Set<string> | null)) => void) {
+  const previousModel = useRef<Model | null>(null);
+  useEffect(() => {
+    const previous = previousModel.current;
+    previousModel.current = model;
+    if (!previous) return;
+    const changed = changedModelCells(previous, model);
+    if (!changed.size) return;
+    setHighlight(changed);
+    const timer = window.setTimeout(() => setHighlight((current) => (current === changed ? null : current)), 650);
+    return () => window.clearTimeout(timer);
+  }, [model, setHighlight]);
+}
+
+function modelProvenance(eng: ModelEngineState, freshness: FreshnessEvaluation | null, asOf: string | null) {
+  const provenance = fromModelEngine(eng);
+  return {
+    ...provenance,
+    ...(eng.live ? { freshness: toProvFreshness(freshness) } : {}),
     detail: eng.live
-      ? modelFreshness ? freshnessDetail(modelFreshness) : "Central anchor-run freshness unavailable."
-      : fromModelEngine(eng).detail,
-    asOf: modelAsOf ?? undefined,
+      ? freshness ? freshnessDetail(freshness) : "Central anchor-run freshness unavailable."
+      : provenance.detail,
+    asOf: asOf ?? undefined,
   };
-  const modelAuthority = modelAsOf ? { provenance: modelProv, approval: "UNRATIFIED" as const } : undefined;
-  const modelUnavailable = eng.loading
-    ? { kind: "loading" as const, message: "Linking latest engine run…" }
-    : eng.phase === "error"
-      ? { kind: "error" as const, message: "Live model anchor could not be loaded" }
-      : { kind: "unavailable" as const, message: "No completed CP-1 anchor available" };
-  const modelDecision: DecisionContextState = hasIssuerModel && modelAsOf
-    ? {
-        whatChanged: { kind: "ready", value: `Down case FCF ${model.cols.d0.fcf < 0 ? "turns negative" : "remains positive"} · FY27 ${model.cols.d0.fcf.toFixed(0)}`, asOf: modelAsOf, authority: modelAuthority },
-        whyItMatters: model.cols.d0.netlev != null
-          ? { kind: "ready", value: `Down-case net leverage ${model.cols.d0.netlev.toFixed(1)}×`, asOf: modelAsOf, authority: modelAuthority }
-          : { kind: "partial", value: "Down-case leverage unavailable", missingSources: ["net leverage"], asOf: modelAsOf, authority: modelAuthority },
-        requiredAction: { kind: "ready", value: dirty ? "Save changes before Report Studio" : "Review downside and affirm the credit view", asOf: modelAsOf, authority: modelAuthority },
-        evidenceHealth: {
-          kind: !eng.live || modelFreshness?.state === "stale" ? "stale" : modelFreshness?.state === "current" ? "ready" : "partial",
-          value: <span className="inline-flex items-center gap-2"><FreshnessIndicator evaluation={modelFreshness} />{modelProv.detail ?? "Model lineage available"}</span>,
-          missingSources: !modelFreshness || modelFreshness.state === "unknown" ? ["central anchor-run freshness"] : modelFreshness.state === "due" ? ["anchor run refresh due"] : [],
-          asOf: modelAsOf,
-          authority: modelAuthority,
-        },
-      }
-    : { whatChanged: modelUnavailable, whyItMatters: modelUnavailable, requiredAction: modelUnavailable, evidenceHealth: modelUnavailable };
+}
 
-  // Export masthead: reference keeps the ATLF demo lineage verbatim; a live
-  // issuer must NOT carry fabricated M-118 / #2641 lineage.
-  const exportMeta = isReference
-    ? { header: "Atlas Forge Industrials — cash-flow model M-118", subheader: "YE 31-Dec · $m · RUN #2641 · * derived period (G-02)", filename: "ATLF Cash-Flow Model M-118.xlsx" }
-    : { header: `${issuerName} — cash-flow model`, subheader: `YE 31-Dec · $m${eng.runId ? " · RUN " + eng.runId : ""} · * derived period (G-02)`, filename: `${issuerName} Cash-Flow Model.xlsx` };
+function unavailableModelDecision(eng: ModelEngineState) {
+  if (eng.loading) return { kind: "loading" as const, message: "Linking latest engine run…" };
+  if (eng.phase === "error") return { kind: "error" as const, message: "Live model anchor could not be loaded" };
+  return { kind: "unavailable" as const, message: "No completed CP-1 anchor available" };
+}
 
-  // C9: committee-pack .xlsx. Headline metric_facts come from the issuer
-  // profile (server-owned data — the one piece that must cross the network);
-  // the model grid/scenarios/assumptions are already in memory, so the export
-  // itself is async (ExcelJS's writeBuffer is Promise-based). A failed
-  // profile fetch degrades to an empty Headline Facts sheet rather than
-  // blocking the export.
+function evidenceHealthState(
+  eng: ModelEngineState,
+  freshness: FreshnessEvaluation | null,
+  provenance: ReturnType<typeof modelProvenance>,
+  asOf: string,
+  authority: DecisionAuthority,
+): DecisionDatumState {
+  const kind: "stale" | "ready" | "partial" = !eng.live || freshness?.state === "stale" ? "stale" : freshness?.state === "current" ? "ready" : "partial";
+  const missingSources = !freshness || freshness.state === "unknown"
+    ? ["central anchor-run freshness"]
+    : freshness.state === "due" ? ["anchor run refresh due"] : [];
+  return {
+    kind,
+    value: <span className="inline-flex items-center gap-2"><FreshnessIndicator evaluation={freshness} />{provenance.detail ?? "Model lineage available"}</span>,
+    missingSources,
+    asOf,
+    authority,
+  };
+}
+
+function buildModelDecision(
+  eng: ModelEngineState,
+  model: Model,
+  freshness: FreshnessEvaluation | null,
+  asOf: string | null,
+  dirty: boolean,
+): DecisionContextState {
+  const unavailable = unavailableModelDecision(eng);
+  if (!asOf) return { whatChanged: unavailable, whyItMatters: unavailable, requiredAction: unavailable, evidenceHealth: unavailable };
+  const provenance = modelProvenance(eng, freshness, asOf);
+  const authority = { provenance, approval: "UNRATIFIED" as const };
+  const leverage = model.cols.d0.netlev;
+  return {
+    whatChanged: { kind: "ready", value: "Down case FCF " + (model.cols.d0.fcf < 0 ? "turns negative" : "remains positive") + " · FY27 " + model.cols.d0.fcf.toFixed(0), asOf, authority },
+    whyItMatters: leverage != null
+      ? { kind: "ready", value: "Down-case net leverage " + leverage.toFixed(1) + "×", asOf, authority }
+      : { kind: "partial", value: "Down-case leverage unavailable", missingSources: ["net leverage"], asOf, authority },
+    requiredAction: { kind: "ready", value: dirty ? "Save changes before Report Studio" : "Review downside and affirm the credit view", asOf, authority },
+    evidenceHealth: evidenceHealthState(eng, freshness, provenance, asOf, authority),
+  };
+}
+
+function modelExportMeta(isReference: boolean, issuerName: string, runId: string | null) {
+  if (isReference) {
+    return { header: "Atlas Forge Industrials — cash-flow model M-118", subheader: "YE 31-Dec · $m · RUN #2641 · * derived period (G-02)", filename: "ATLF Cash-Flow Model M-118.xlsx" };
+  }
+  return {
+    header: issuerName + " — cash-flow model",
+    subheader: "YE 31-Dec · $m" + (runId ? " · RUN " + runId : "") + " · * derived period (G-02)",
+    filename: issuerName + " Cash-Flow Model.xlsx",
+  };
+}
+
+function useModelExport(
+  issuerId: string,
+  model: Model,
+  panels: ModelPanels,
+  overrides: Overrides,
+  assumptions: Assumptions,
+  exportMeta: ReturnType<typeof modelExportMeta>,
+  eng: ModelEngineState,
+) {
   const [exporting, setExporting] = useState(false);
   const handleExport = async () => {
     setExporting(true);
@@ -443,595 +500,632 @@ function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) 
         import("@/components/model/export"),
         getIssuerProfile(issuerId).catch(() => null),
       ]);
-      await exportModel(model, showQuarters, overrides, exportMeta, {
+      await exportModel(model, panels.showQuarters, overrides, exportMeta, {
         prov: fromModelEngine(eng), runId: eng.runId, assumptions, metrics: profile?.metrics ?? [],
       });
     } finally {
       setExporting(false);
     }
   };
+  return { exporting, handleExport };
+}
 
-  useEffect(() => {
-    const prev = prevModel.current;
-    prevModel.current = model;
-    if (!prev) return;
-    const changed = new Set<string>();
-    for (const row of ROWS) {
-      if (!row.g) continue;
-      for (const col of model.columns) {
-        const a = row.g(prev.cols[col.key]);
-        const b = row.g(model.cols[col.key]);
-        if (a !== b && !(typeof a === "number" && typeof b === "number" && Number.isNaN(a) && Number.isNaN(b))) changed.add(row.id + ":" + col.key);
-      }
-    }
-    if (!changed.size) return;
-    setHlCells(changed);
-    const t = window.setTimeout(() => setHlCells((cur) => (cur === changed ? null : cur)), 650);
-    return () => window.clearTimeout(t);
-  }, [model]);
-
+function useModelEditingActions(grid: ModelGridUi) {
   const flashEditError = (bad: string) => {
-    setEditError(bad);
-    if (editErrTimer.current) window.clearTimeout(editErrTimer.current);
-    editErrTimer.current = window.setTimeout(() => setEditError(null), 2500);
+    grid.setEditError(bad);
+    if (grid.editErrTimer.current) window.clearTimeout(grid.editErrTimer.current);
+    grid.editErrTimer.current = window.setTimeout(() => grid.setEditError(null), 2500);
   };
-  const commitEdit = (txt: string | null) => {
-    if (!editing) return;
-    if (txt != null) {
-      const trimmed = txt.trim();
-      const v = parseNum(txt);
-      if (v != null) {
-        const field = ovField(editing.row);
-        const key = editing.col + ":" + field;
-        setOverrides((o) => ({ ...o, [key]: v * OV_SIGN[field] }));
-        setSel({ row: editing.row, col: editing.col });
-      } else if (trimmed) {
-        // non-empty but unparseable — don't silently discard; surface it briefly
-        flashEditError(trimmed);
-        setSel({ row: editing.row, col: editing.col });
-      }
+  const commitEdit = (text: string | null) => {
+    if (!grid.editing) return;
+    const trimmed = text?.trim() ?? "";
+    const value = text == null ? null : parseNum(text);
+    if (value != null) {
+      const field = ovField(grid.editing.row);
+      const key = grid.editing.col + ":" + field;
+      grid.setOverrides((current) => ({ ...current, [key]: value * OV_SIGN[field] }));
+      grid.setSel({ row: grid.editing.row, col: grid.editing.col });
+    } else if (trimmed) {
+      flashEditError(trimmed);
+      grid.setSel({ row: grid.editing.row, col: grid.editing.col });
     }
-    setEditing(null);
+    grid.setEditing(null);
   };
-  const resetCell = (key: string) => setOverrides((o) => { const n = { ...o }; delete n[key]; return n; });
-  const resetAll = () => setOverrides({});
-  const saveCurrentModel = async () => {
-    if (!hydrated) {
-      setSaveError(true);
-      return null;
-    }
-    const generation = hydrateGeneration.current;
-    const targetIssuerId = issuerId;
-    setSaving(true);
-    setSaveError(false);
-    setSaveConflict(false);
-    try {
-      const saved = await saveIssuerModel(targetIssuerId, {
-        version: 1,
-        assumptions,
-        overrides,
-        collapsedRows: [...collapsedRows],
-        view: { showQuarters, showAssumptions, showScenarios },
-        model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
-      }, savedAt);
-      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return null;
-      setSavedAt(saved.updated_at);
-      // re-baseline the dirty flag to the just-saved state
-      savedSnapshot.current = serializeSavable(assumptions, overrides, collapsedRows);
-      return saved;
-    } catch (e) {
-      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return null;
-      if (axios.isAxiosError(e) && e.response?.status === 409) setSaveConflict(true);
-      else setSaveError(true);
-      return null;
-    } finally {
-      if (generation === hydrateGeneration.current) setSaving(false);
-    }
-  };
+  const resetCell = (key: string) => grid.setOverrides((current) => {
+    const next = { ...current };
+    delete next[key];
+    return next;
+  });
+  const resetAll = () => grid.setOverrides({});
+  return { commitEdit, resetCell, resetAll };
+}
 
-  const saveCheckpoint = async () => {
-    if (!hydrated) return;
-    const generation = hydrateGeneration.current;
-    const targetIssuerId = issuerId;
-    setCheckpointing(true);
-    setCheckpointNotice(null);
-    try {
-      const saved = await saveCurrentModel();
-      if (!saved || generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return;
-      if (!analysis.context) {
-        setCheckpointNotice(analysis.error
-          ? `Working draft saved. Checkpoint unavailable: ${analysis.error}`
-          : "Working draft saved. Checkpoint will be available when analysis context is ready.");
-        return;
-      }
-      const checkpoint = await createModelCheckpoint(targetIssuerId, {
-        context_id: analysis.context.id,
-        label: `Checkpoint ${fmtLocalDateTime(new Date())}`,
-        issuer_run_id: eng.runId ?? undefined,
-        parent_checkpoint_id: analysis.context.artifacts.model_checkpoint_id ?? undefined,
-        expected_updated_at: saved.updated_at,
-      });
-      if (
-        generation !== hydrateGeneration.current
-        || hydratedIssuerId !== targetIssuerId
-        || checkpoint.issuer_id !== targetIssuerId
-      ) return;
-      setServerCheckpoints((rows) => [checkpoint, ...rows.filter((row) => row.id !== checkpoint.id)]);
-      setServerCheckpointsIssuerId(targetIssuerId);
-      await analysis.patch({
-        artifacts: {
-          issuer_run_id: eng.runId ?? analysis.context.artifacts.issuer_run_id,
-          model_checkpoint_id: checkpoint.id,
-        },
-      });
-      setCheckpointNotice(`Checkpoint ${checkpoint.id.slice(0, 8)} saved.`);
-    } catch (reason) {
-      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return;
-      setCheckpointNotice(axios.isAxiosError(reason)
-        ? String(reason.response?.data?.detail ?? "Checkpoint could not be saved.")
-        : "Checkpoint could not be saved.");
-    } finally {
-      if (generation === hydrateGeneration.current) setCheckpointing(false);
-    }
-  };
+function hydrationRequestIsStale(draft: ModelDraftState, generation: number, issuerId: string) {
+  return generation !== draft.hydrateGeneration.current || draft.hydratedIssuerId !== issuerId;
+}
 
-  const restoreServerCheckpoint = async (checkpoint: ModelCheckpointDTO) => {
-    if (!hydrated || serverCheckpointsIssuerId !== issuerId || checkpoint.issuer_id !== issuerId) {
-      setCheckpointNotice("Checkpoint list changed with the active issuer. Reload the issuer before restoring.");
+type SavedIssuerModel = Awaited<ReturnType<typeof saveIssuerModel>>;
+
+async function saveCurrentModel(params: {
+  issuerId: string;
+  hydrated: boolean;
+  draft: ModelDraftState;
+  grid: ModelGridUi;
+  panels: ModelPanels;
+  model: Model;
+}): Promise<SavedIssuerModel | null> {
+  const { issuerId, hydrated, draft, grid, panels, model } = params;
+  if (!hydrated) {
+    draft.setSaveError(true);
+    return null;
+  }
+  const generation = draft.hydrateGeneration.current;
+  draft.setSaving(true);
+  draft.setSaveError(false);
+  draft.setSaveConflict(false);
+  try {
+    const saved = await saveIssuerModel(issuerId, {
+      version: 1,
+      assumptions: draft.assumptions,
+      overrides: grid.overrides,
+      collapsedRows: [...draft.collapsedRows],
+      view: { showQuarters: panels.showQuarters, showAssumptions: panels.showAssumptions, showScenarios: panels.showScenarios },
+      model: { columns: model.columns, cols: model.cols, provenance: model.provenance },
+    }, draft.savedAt);
+    if (hydrationRequestIsStale(draft, generation, issuerId)) return null;
+    draft.setSavedAt(saved.updated_at);
+    draft.savedSnapshot.current = serializeSavable(draft.assumptions, grid.overrides, draft.collapsedRows);
+    return saved;
+  } catch (error) {
+    if (hydrationRequestIsStale(draft, generation, issuerId)) return null;
+    if (axios.isAxiosError(error) && error.response?.status === 409) draft.setSaveConflict(true);
+    else draft.setSaveError(true);
+    return null;
+  } finally {
+    if (generation === draft.hydrateGeneration.current) draft.setSaving(false);
+  }
+}
+
+async function saveCheckpoint(params: {
+  issuerId: string;
+  hydrated: boolean;
+  draft: ModelDraftState;
+  analysis: ModelAnalysisContext;
+  eng: ModelEngineState;
+  saveDraft: () => Promise<SavedIssuerModel | null>;
+}) {
+  const { issuerId, hydrated, draft, analysis, eng, saveDraft } = params;
+  if (!hydrated) return;
+  const generation = draft.hydrateGeneration.current;
+  draft.setCheckpointing(true);
+  draft.setCheckpointNotice(null);
+  try {
+    const saved = await saveDraft();
+    if (!saved || hydrationRequestIsStale(draft, generation, issuerId)) return;
+    const context = analysis.context;
+    if (!context) {
+      draft.setCheckpointNotice(checkpointContextNotice(analysis.error));
       return;
     }
-    if (dirty && !window.confirm("Restore this immutable checkpoint and replace the current unsaved draft?")) return;
-    const generation = hydrateGeneration.current;
-    const targetIssuerId = issuerId;
-    setCheckpointing(true);
-    setCheckpointNotice(null);
-    try {
-      const restored = await restoreModelCheckpoint(checkpoint.id, savedAt);
-      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return;
-      setSavedAt(restored.updated_at);
-      setRestoreNonce((nonce) => nonce + 1);
-      setCheckpointNotice(`Restored ${checkpoint.label}.`);
-    } catch (reason) {
-      if (generation !== hydrateGeneration.current || hydratedIssuerId !== targetIssuerId) return;
-      setCheckpointNotice(axios.isAxiosError(reason)
-        ? String(reason.response?.data?.detail ?? "Checkpoint could not be restored.")
-        : "Checkpoint could not be restored.");
-    } finally {
-      if (generation === hydrateGeneration.current) setCheckpointing(false);
-    }
-  };
+    const checkpoint = await createModelCheckpoint(issuerId, {
+      context_id: context.id,
+      label: "Checkpoint " + fmtLocalDateTime(new Date()),
+      issuer_run_id: eng.runId ?? undefined,
+      parent_checkpoint_id: context.artifacts.model_checkpoint_id ?? undefined,
+      expected_updated_at: saved.updated_at,
+    });
+    if (hydrationRequestIsStale(draft, generation, issuerId) || checkpoint.issuer_id !== issuerId) return;
+    draft.setServerCheckpoints((rows) => [checkpoint, ...rows.filter((row) => row.id !== checkpoint.id)]);
+    draft.setServerCheckpointsIssuerId(issuerId);
+    await analysis.patch({
+      artifacts: {
+        issuer_run_id: eng.runId ?? context.artifacts.issuer_run_id,
+        model_checkpoint_id: checkpoint.id,
+      },
+    });
+    draft.setCheckpointNotice("Checkpoint " + checkpoint.id.slice(0, 8) + " saved.");
+  } catch (reason) {
+    if (!hydrationRequestIsStale(draft, generation, issuerId)) draft.setCheckpointNotice(checkpointFailureMessage(reason));
+  } finally {
+    if (generation === draft.hydrateGeneration.current) draft.setCheckpointing(false);
+  }
+}
 
-  const yearsKey = (caseKey: "base" | "down"): "baseYears" | "downYears" => (caseKey === "base" ? "baseYears" : "downYears");
+async function restoreServerCheckpoint(params: {
+  checkpoint: ModelCheckpointDTO;
+  issuerId: string;
+  hydrated: boolean;
+  dirty: boolean;
+  draft: ModelDraftState;
+}) {
+  const { checkpoint, issuerId, hydrated, dirty, draft } = params;
+  if (!hydrated || draft.serverCheckpointsIssuerId !== issuerId || checkpoint.issuer_id !== issuerId) {
+    draft.setCheckpointNotice("Checkpoint list changed with the active issuer. Reload the issuer before restoring.");
+    return;
+  }
+  if (dirty && !window.confirm("Restore this immutable checkpoint and replace the current unsaved draft?")) return;
+  const generation = draft.hydrateGeneration.current;
+  draft.setCheckpointing(true);
+  draft.setCheckpointNotice(null);
+  try {
+    const restored = await restoreModelCheckpoint(checkpoint.id, draft.savedAt);
+    if (hydrationRequestIsStale(draft, generation, issuerId)) return;
+    draft.setSavedAt(restored.updated_at);
+    draft.setRestoreNonce((nonce) => nonce + 1);
+    draft.setCheckpointNotice("Restored " + checkpoint.label + ".");
+  } catch (reason) {
+    if (hydrationRequestIsStale(draft, generation, issuerId)) return;
+    draft.setCheckpointNotice(axios.isAxiosError(reason)
+      ? String(reason.response?.data?.detail ?? "Checkpoint could not be restored.")
+      : "Checkpoint could not be restored.");
+  } finally {
+    if (generation === draft.hydrateGeneration.current) draft.setCheckpointing(false);
+  }
+}
+
+function yearsKey(caseKey: "base" | "down"): "baseYears" | "downYears" {
+  return caseKey === "base" ? "baseYears" : "downYears";
+}
+
+function highlightedDriverCells(caseKey: "base" | "down", field: keyof CaseAssumptions, scope: "all" | FY) {
+  const rows = DRIVER_ROWS[field] ?? [];
+  const prefix = caseKey === "base" ? "b" : "d";
+  const cascades = !NON_CASH_DRIVERS.has(field as string);
+  const cells = new Set<string>();
+  rows.forEach((row) => {
+    const years = scope === "all" ? [0, 1, 2]
+      : cascades && CASCADE_ROWS.has(row) ? [0, 1, 2].filter((year) => year >= scope)
+        : [scope];
+    years.forEach((year) => cells.add(row + ":" + prefix + year));
+  });
+  return cells;
+}
+
+function useAssumptionActions(draft: ModelDraftState, grid: ModelGridUi) {
   const setAsmp = (caseKey: "base" | "down", field: keyof CaseAssumptions, value: number) =>
-    setAssumptions((a) => ({ ...a, [caseKey]: { ...a[caseKey], [field]: value } }));
+    draft.setAssumptions((current) => ({ ...current, [caseKey]: { ...current[caseKey], [field]: value } }));
   const setAsmpYear = (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions, value: number) =>
-    setAssumptions((a) => {
-      const yk = yearsKey(caseKey);
-      const years = a[yk] ?? {};
-      return { ...a, [yk]: { ...years, [year]: { ...years[year], [field]: value } } };
+    draft.setAssumptions((current) => {
+      const key = yearsKey(caseKey);
+      const years = current[key] ?? {};
+      return { ...current, [key]: { ...years, [year]: { ...years[year], [field]: value } } };
     });
   const resetCase = (caseKey: "base" | "down") =>
-    setAssumptions((a) => ({ ...a, [caseKey]: { ...DEFAULT_CASE }, [yearsKey(caseKey)]: {} }));
-  // Flash the sheet cells a driver feeds while it is scrubbed: its row(s) ×
-  // the case's forecast columns. ALL → all three years. A single year → that
-  // column, except cash-based KPIs (net/sr-sec leverage) which roll forward via
-  // cash, so a year-scoped change to a cash-affecting driver also moves them in
-  // every LATER year — highlight those too.
-  const scrubHighlight = (caseKey: "base" | "down", field: keyof CaseAssumptions, scope: "all" | FY) => {
-    const rows = DRIVER_ROWS[field] ?? [];
-    const pre = caseKey === "base" ? "b" : "d";
-    const cascades = !NON_CASH_DRIVERS.has(field as string);
-    const set = new Set<string>();
-    rows.forEach((r) => {
-      const yrs = scope === "all" ? [0, 1, 2]
-        : cascades && CASCADE_ROWS.has(r) ? [0, 1, 2].filter((y) => y >= scope)
-          : [scope];
-      yrs.forEach((y) => set.add(r + ":" + pre + y));
-    });
-    setHlCells(set);
-  };
-  // Clear one year's override for a single driver (cell tracks the ALL value again).
+    draft.setAssumptions((current) => ({ ...current, [caseKey]: { ...DEFAULT_CASE }, [yearsKey(caseKey)]: {} }));
+  const scrubHighlight = (caseKey: "base" | "down", field: keyof CaseAssumptions, scope: "all" | FY) =>
+    grid.setHlCells(highlightedDriverCells(caseKey, field, scope));
   const clearYearDriver = (caseKey: "base" | "down", year: FY, field: keyof CaseAssumptions) =>
-    setAssumptions((a) => {
-      const yk = yearsKey(caseKey);
-      const years = { ...(a[yk] ?? {}) };
-      const yo = { ...(years[year] ?? {}) };
-      delete yo[field];
-      if (Object.keys(yo).length) years[year] = yo; else delete years[year];
-      return { ...a, [yk]: years };
+    draft.setAssumptions((current) => {
+      const key = yearsKey(caseKey);
+      const years = { ...(current[key] ?? {}) };
+      const yearOverrides = { ...(years[year] ?? {}) };
+      delete yearOverrides[field];
+      if (Object.keys(yearOverrides).length) years[year] = yearOverrides;
+      else delete years[year];
+      return { ...current, [key]: years };
     });
+  return { setAsmp, setAsmpYear, resetCase, scrubHighlight, clearYearDriver };
+}
 
-  const narrowContract: NarrowContract = {
+function narrowModelContract(panels: ModelPanels): NarrowContract {
+  return {
     essentialControls: (
       <>
-        <button
-          onClick={() => setShowQuarters(!showQuarters)}
-          className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
-            (showQuarters ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-          }
-        >
-          QTRS
-        </button>
-        <button
-          onClick={() => setShowAssumptions(!showAssumptions)}
-          title="Toggle the Assumptions panel"
-          className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
-            (showAssumptions ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-          }
-        >
-          ASMP
-        </button>
-        <button
-          onClick={() => setShowScenarios(!showScenarios)}
-          title="Toggle the Scenario & Sensitivity panel"
-          className={
-            "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
-            (showScenarios ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-          }
-        >
-          SCEN
-        </button>
+        <ModelToggle label="QTRS" active={panels.showQuarters} onClick={() => panels.setShowQuarters(!panels.showQuarters)} />
+        <ModelToggle label="ASMP" active={panels.showAssumptions} title="Toggle the Assumptions panel" onClick={() => panels.setShowAssumptions(!panels.showAssumptions)} />
+        <ModelToggle label="SCEN" active={panels.showScenarios} title="Toggle the Scenario & Sensitivity panel" onClick={() => panels.setShowScenarios(!panels.showScenarios)} />
       </>
     ),
   };
+}
 
+function modelIssuerIdentity(searchParams: { get(name: string): string | null }) {
+  const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
+  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+  return {
+    issuerId,
+    isReference,
+    issuerName: isReference ? "Atlas Forge Industrials" : issuerId,
+  };
+}
+
+function modelAsOfValue(eng: ModelEngineState, isReference: boolean) {
+  if (eng.asOf) return fmtUtcDateTime(eng.asOf);
+  if (isReference) return "2026-05-31 · reference fixture";
+  return null;
+}
+
+function decisionForModel(
+  available: boolean,
+  eng: ModelEngineState,
+  model: Model,
+  freshness: FreshnessEvaluation | null,
+  asOf: string | null,
+  dirty: boolean,
+) {
+  if (available) return buildModelDecision(eng, model, freshness, asOf, dirty);
+  const unavailable = unavailableModelDecision(eng);
+  return { whatChanged: unavailable, whyItMatters: unavailable, requiredAction: unavailable, evidenceHealth: unavailable };
+}
+
+function useModelEngineState(
+  legacyRuntime: LegacyModelRuntime,
+  identity: ReturnType<typeof modelIssuerIdentity>,
+  analysis: ModelAnalysisContext,
+  grid: ModelGridUi,
+  draft: ModelDraftState,
+) {
+  const eng = useModelEngine(identity.issuerId);
+  const activeCheckpointId = analysis.context?.artifacts.model_checkpoint_id;
+  const freshnessRead = useIssuerFreshness({
+    contextId: analysis.context?.id,
+    runId: eng.runId,
+    artifactRevision: (analysis.context?.updated_at ?? "") + ":" + (activeCheckpointId ?? ""),
+  });
+  const modelFreshness = derivedFreshness(freshnessRead, activeCheckpointId);
+  const severity = 1;
+  const model = useMemo(
+    () => legacyRuntime.buildModel(severity, grid.overrides, eng.anchor ?? undefined, draft.assumptions),
+    [legacyRuntime, severity, grid.overrides, eng.anchor, draft.assumptions],
+  );
+  useChangedModelHighlight(model, grid.setHlCells);
+  const hasIssuerModel = identity.isReference || !!eng.anchor;
+  const dirty = hasIssuerModel && draft.savedSnapshot.current !== null
+    && serializeSavable(draft.assumptions, grid.overrides, draft.collapsedRows) !== draft.savedSnapshot.current;
+  const modelAsOf = modelAsOfValue(eng, identity.isReference);
+  return {
+    eng, modelFreshness, severity, model, hasIssuerModel, dirty, modelAsOf,
+    engineLoading: !identity.isReference && eng.loading,
+    modelDecision: decisionForModel(hasIssuerModel, eng, model, modelFreshness, modelAsOf, dirty),
+    exportMeta: modelExportMeta(identity.isReference, identity.issuerName, eng.runId),
+  };
+}
+
+function useModelBuilderController({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) {
+  const identity = modelIssuerIdentity(useSearchParams());
+  const analysis = useAnalysisContext({ name: identity.issuerName + " model" });
+  const grid = useModelGridUi(identity.issuerId);
+  const draft = useModelDraftState();
+  const hydration = useModelHydration(identity.issuerId, identity.isReference, grid, draft);
+  const panels = useModelPanels(hydration.hydrated);
+  const engine = useModelEngineState(legacyRuntime, identity, analysis, grid, draft);
+  useModelContextBinding(analysis, identity.issuerId, engine.eng.runId, draft.setCheckpointNotice);
+  useServerCheckpointLoad(identity.issuerId, draft);
+  const modelExport = useModelExport(identity.issuerId, engine.model, panels, grid.overrides, draft.assumptions, engine.exportMeta, engine.eng);
+  const editingActions = useModelEditingActions(grid);
+  const assumptionActions = useAssumptionActions(draft, grid);
+  const reports = useMemo(() => legacyRuntime.buildReports(), [legacyRuntime]);
+  const saveDraft = () => saveCurrentModel({ issuerId: identity.issuerId, hydrated: hydration.hydrated, draft, grid, panels, model: engine.model });
+  const saveModelCheckpoint = () => saveCheckpoint({ issuerId: identity.issuerId, hydrated: hydration.hydrated, draft, analysis, eng: engine.eng, saveDraft });
+  const restoreCheckpointFromServer = (checkpoint: ModelCheckpointDTO) =>
+    restoreServerCheckpoint({ checkpoint, issuerId: identity.issuerId, hydrated: hydration.hydrated, dirty: engine.dirty, draft });
+  return {
+    analysis, ...grid, ...draft, ...panels, ...editingActions, ...assumptionActions,
+    ...modelExport, hydrated: hydration.hydrated, retryRestore: hydration.retryRestore,
+    ...identity, ...engine, reports,
+    ovCount: Object.keys(grid.overrides).length,
+    narrowContract: narrowModelContract(panels),
+    saveCheckpoint: saveModelCheckpoint,
+    restoreServerCheckpoint: restoreCheckpointFromServer,
+  };
+}
+
+type ModelBuilderController = ReturnType<typeof useModelBuilderController>;
+
+function ModelIdentityBadge({ state }: { state: ModelBuilderController }) {
+  if (state.isReference) {
+    return <span className="tabular text-caos-md text-caos-accent truncate min-w-[8ch]" title="MODEL M-118">MODEL M-118</span>;
+  }
+  if (state.eng.runId) {
+    return <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">RUN {state.eng.runId.slice(0, 8)}</span>;
+  }
+  return null;
+}
+
+function ModelSaveState({ state }: { state: ModelBuilderController }) {
+  if (state.restoreError) {
+    return (
+      <span role="alert" className="inline-flex">
+        <button type="button" onClick={state.retryRestore} title="Couldn't load this issuer's saved model — showing your local draft. Click to retry." className="focus-ring min-h-6 tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}>
+          <span className="md:hidden">⚠ MODEL · RETRY</span>
+          <span className="hidden md:inline">⚠ SAVED MODEL UNAVAILABLE · RETRY</span>
+        </button>
+      </span>
+    );
+  }
+  if (!state.isReference && state.eng.phase === "error") {
+    return <span role="alert" title="Could not load this issuer's live run — showing the local/seeded model, not a confirmed no-run." className="tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}>⚠ LIVE RUN UNAVAILABLE</span>;
+  }
+  if (state.saveConflict) {
+    return (
+      <span role="alert" className="inline-flex">
+        <button type="button" onClick={() => { state.setSaveConflict(false); state.retryRestore(); }} title="This model was saved elsewhere (e.g. another tab) since you loaded it — your edits were NOT saved. Click to reload the latest version, then reapply your changes." className="focus-ring min-h-6 tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border" style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 40%, transparent)" }}>
+          <span className="md:hidden">✗ CONFLICT · RELOAD</span>
+          <span className="hidden md:inline">✗ SAVED ELSEWHERE · RELOAD</span>
+        </button>
+      </span>
+    );
+  }
+  if (state.saveError) return <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>✗ SAVE FAILED</span>;
+  if (state.dirty) return <span className="tabular text-caos-2xs whitespace-nowrap" title="You have edits not yet saved to the database. Report Studio reads the last saved version." style={{ color: "var(--caos-warning)" }}>● UNSAVED</span>;
+  if (state.savedAt) return <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {fmtLocalDateTime(state.savedAt)}</span>;
+  return null;
+}
+
+function ModelIdentity({ state }: { state: ModelBuilderController }) {
   return (
-    <EnterprisePage kind="editor"
-      identity={
-        <ShellIdentity
-          tag="MODEL"
-          badges={isReference ? (
-            <span className="tabular text-caos-md text-caos-accent truncate min-w-[8ch]" title="MODEL M-118">MODEL M-118</span>
-          ) : eng.runId ? (
-            <span className="tabular text-caos-md text-caos-accent whitespace-nowrap">RUN {eng.runId.slice(0, 8)}</span>
-          ) : null}
-          title={`${issuerName} — cash-flow model`}
-        >
-          <ModelProvenance eng={eng} model={model} allowSeededFallback={isReference} freshness={modelFreshness} />
-          {/* Save status — paired with the provenance badge since both describe model state */}
-          {restoreError ? (
-            <span role="alert" className="inline-flex">
-              <button
-                type="button"
-                onClick={retryRestore}
-                title="Couldn't load this issuer's saved model — showing your local draft. Click to retry."
-                className="focus-ring min-h-6 tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
-                style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
-              >
-                <span className="md:hidden">⚠ MODEL · RETRY</span>
-                <span className="hidden md:inline">⚠ SAVED MODEL UNAVAILABLE · RETRY</span>
-              </button>
-            </span>
-          ) : !isReference && eng.phase === "error" ? (
-            // M-5: eng (useModelEngine) collapsed a genuine backend error into the
-            // same empty state as "no run yet" before the phase field existed —
-            // surface it distinctly, same posture as restoreError above (no retry
-            // action here: useModelEngine has no on-demand refetch to wire).
-            <span
-              role="alert"
-              title="Could not load this issuer's live run — showing the local/seeded model, not a confirmed no-run."
-              className="tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
-              style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}
-            >
-              ⚠ LIVE RUN UNAVAILABLE
-            </span>
-          ) : saveConflict ? (
-            <span role="alert" className="inline-flex">
-              <button
-                type="button"
-                onClick={() => { setSaveConflict(false); retryRestore(); }}
-                title="This model was saved elsewhere (e.g. another tab) since you loaded it — your edits were NOT saved. Click to reload the latest version, then reapply your changes."
-                className="focus-ring min-h-6 tabular text-caos-2xs uppercase tracking-wide whitespace-nowrap px-1.5 py-px rounded border"
-                style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 40%, transparent)" }}
-              >
-                <span className="md:hidden">✗ CONFLICT · RELOAD</span>
-                <span className="hidden md:inline">✗ SAVED ELSEWHERE · RELOAD</span>
-              </button>
-            </span>
-          ) : saveError ? (
-            <span role="alert" className="tabular text-caos-2xs whitespace-nowrap" style={{ color: "var(--caos-critical)" }}>
-              ✗ SAVE FAILED
-            </span>
-          ) : dirty ? (
-            <span
-              className="tabular text-caos-2xs whitespace-nowrap"
-              title="You have edits not yet saved to the database. Report Studio reads the last saved version."
-              style={{ color: "var(--caos-warning)" }}
-            >
-              ● UNSAVED
-            </span>
-          ) : savedAt ? (
-            <span className="tabular text-caos-2xs text-caos-muted whitespace-nowrap">SAVED {fmtLocalDateTime(savedAt)}</span>
-          ) : null}
-        </ShellIdentity>
-      }
-      primaryAction={
-        <>
-          <button
-            onClick={() => { if (hasIssuerModel && hydrated && !saving && !checkpointing && !analysis.loading) saveCheckpoint(); }}
-            aria-disabled={(!hasIssuerModel || !hydrated || saving || checkpointing || analysis.loading) || undefined}
-            aria-label="Save model checkpoint"
-            title={!hasIssuerModel
-              ? "Load an issuer model first — the reference fixture cannot be checkpointed"
-              : !hydrated || analysis.loading
-              ? "Preparing the model workspace…"
-              : "Save the working model, then create an immutable checkpoint for downstream reporting"}
-            className="caos-action-primary focus-ring"
-          >
-            {saving || checkpointing ? "Saving..." : "Save checkpoint"}
-          </button>
-          <button
-            onClick={() => { if (hasIssuerModel && !exporting) handleExport(); }}
-            aria-disabled={(!hasIssuerModel || exporting) || undefined}
-            title={!hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : "Export the committee pack (.xlsx — model grid, scenarios, assumptions, headline facts, overrides)"}
-            // `disabled:` is a Tailwind alias for the native :disabled pseudo-class,
-            // which never matches aria-disabled — this button used the native
-            // `disabled` attribute's CSS on an element that (deliberately, so it
-            // stays focusable/announced per the desk's disabled-with-reason
-            // convention) never carries `disabled`, so it rendered fully opaque
-            // and clickable-looking regardless of state. aria-disabled: is
-            // Tailwind's variant for the actual attribute in use here.
-            className="hidden md:inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring aria-disabled:opacity-40 aria-disabled:saturate-[0.35] aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent aria-disabled:hover:text-caos-accent"
-          >
-            {exporting ? "EXPORTING..." : "▦ EXPORT MODEL"}
-          </button>
-        </>
-      }
-      status={
-        <span className="flex items-center gap-2">
-          {modelAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Anchor {modelAsOf}</span> : null}
-          {checkpointNotice ? <span role="status" className="tabular text-caos-2xs text-caos-muted">{checkpointNotice}</span> : null}
-        </span>
-      }
-      contextualControls={
-        <span className="flex items-center gap-2">
-          <ModelHistoryControls
-            canUndo={canUndo}
-            canRedo={canRedo}
-            onUndo={undo}
-            onRedo={redo}
-            checkpoints={checkpoints}
-            onCheckpoint={checkpoint}
-            onRestore={restoreCheckpoint}
-            onDelete={deleteCheckpoint}
-            disabled={!hydrated}
-            status={persistenceState}
-            error={persistenceError}
-          />
-        </span>
-      }
+    <ShellIdentity tag="MODEL" badges={<ModelIdentityBadge state={state} />} title={state.issuerName + " — cash-flow model"}>
+      <ModelProvenance eng={state.eng} model={state.model} allowSeededFallback={state.isReference} freshness={state.modelFreshness} />
+      <ModelSaveState state={state} />
+    </ShellIdentity>
+  );
+}
+
+function checkpointActionTitle(state: ModelBuilderController) {
+  if (!state.hasIssuerModel) return "Load an issuer model first — the reference fixture cannot be checkpointed";
+  if (!state.hydrated || state.analysis.loading) return "Preparing the model workspace…";
+  return "Save the working model, then create an immutable checkpoint for downstream reporting";
+}
+
+function ModelPrimaryActions({ state }: { state: ModelBuilderController }) {
+  const checkpointDisabled = !state.hasIssuerModel || !state.hydrated || state.saving || state.checkpointing || state.analysis.loading;
+  const exportDisabled = !state.hasIssuerModel || state.exporting;
+  return (
+    <>
+      <button onClick={() => { if (!checkpointDisabled) state.saveCheckpoint(); }} aria-disabled={checkpointDisabled || undefined} aria-label="Save model checkpoint" title={checkpointActionTitle(state)} className="caos-action-primary focus-ring">
+        {state.saving || state.checkpointing ? "Saving..." : "Save checkpoint"}
+      </button>
+      <button onClick={() => { if (!exportDisabled) state.handleExport(); }} aria-disabled={exportDisabled || undefined} title={!state.hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : "Export the committee pack (.xlsx — model grid, scenarios, assumptions, headline facts, overrides)"} className="hidden md:inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring aria-disabled:opacity-40 aria-disabled:saturate-[0.35] aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent aria-disabled:hover:text-caos-accent">
+        {state.exporting ? "EXPORTING..." : "▦ EXPORT MODEL"}
+      </button>
+    </>
+  );
+}
+
+function ModelStatus({ state }: { state: ModelBuilderController }) {
+  return (
+    <span className="flex items-center gap-2">
+      {state.modelAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Anchor {state.modelAsOf}</span> : null}
+      {state.checkpointNotice ? <span role="status" className="tabular text-caos-2xs text-caos-muted">{state.checkpointNotice}</span> : null}
+    </span>
+  );
+}
+
+function ModelHistory({ state }: { state: ModelBuilderController }) {
+  return (
+    <span className="flex items-center gap-2">
+      <ModelHistoryControls
+        canUndo={state.canUndo}
+        canRedo={state.canRedo}
+        onUndo={state.undo}
+        onRedo={state.redo}
+        checkpoints={state.checkpoints}
+        onCheckpoint={state.checkpoint}
+        onRestore={state.restoreCheckpoint}
+        onDelete={state.deleteCheckpoint}
+        disabled={!state.hydrated}
+        status={state.persistenceState}
+        error={state.persistenceError}
+      />
+    </span>
+  );
+}
+
+function ServerCheckpointButton({ state, item }: { state: ModelBuilderController; item: ModelCheckpointDTO }) {
+  const disabled = !state.hydrated || state.checkpointing || item.issuer_id !== state.issuerId;
+  return (
+    <button
+      type="button"
+      onClick={() => { if (!disabled) void state.restoreServerCheckpoint(item); }}
+      aria-disabled={disabled || undefined}
+      title={item.issuer_id !== state.issuerId ? "Checkpoint belongs to a different issuer" : undefined}
+      className="focus-ring flex w-full items-center justify-between gap-3 rounded px-2 py-1.5 text-left text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text"
+    >
+      <span className="truncate">{item.label}</span>
+      <span className="tabular shrink-0">{new Date(item.created_at).toLocaleDateString("en-CA")}</span>
+    </button>
+  );
+}
+
+function ModelServerCheckpoints({ state }: { state: ModelBuilderController }) {
+  if (state.serverCheckpointsIssuerId !== state.issuerId || !state.serverCheckpoints.length) return null;
+  return (
+    <details className="relative">
+      <summary className="caos-secondary-action focus-ring cursor-pointer">Server checkpoints · {state.serverCheckpoints.length}</summary>
+      <div className="absolute right-0 top-full z-40 mt-1 w-80 max-h-72 overflow-auto rounded border border-caos-border bg-caos-panel p-1 shadow-xl">
+        {state.serverCheckpoints.map((item) => <ServerCheckpointButton key={item.id} state={state} item={item} />)}
+      </div>
+    </details>
+  );
+}
+
+function ModelToggle({ label, active, title, onClick }: { label: string; active: boolean; title?: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} title={title} className={"tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " + (active ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")}>
+      {label}
+    </button>
+  );
+}
+
+function requestOverrideReset(state: ModelBuilderController) {
+  if (state.armReset) {
+    if (state.armTimer.current) window.clearTimeout(state.armTimer.current);
+    state.setArmReset(false);
+    state.resetAll();
+    return;
+  }
+  state.setArmReset(true);
+  if (state.armTimer.current) window.clearTimeout(state.armTimer.current);
+  state.armTimer.current = window.setTimeout(() => state.setArmReset(false), 3000);
+}
+
+function ModelOverrideReset({ state }: { state: ModelBuilderController }) {
+  if (!state.ovCount) return null;
+  const critical = state.armReset;
+  return (
+    <button onClick={() => requestOverrideReset(state)} title={critical ? "Click again to confirm — clears every manual override" : "Clear all manual overrides"} aria-pressed={critical} className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring" style={critical ? { color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 60%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 10%, transparent)" } : { color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)" }}>
+      {critical ? <>▲ CONFIRM RESET?</> : <>↶ {state.ovCount} OVERRIDE{state.ovCount > 1 ? "S" : ""} · RESET</>}
+    </button>
+  );
+}
+
+function ModelUtilityControls({ state }: { state: ModelBuilderController }) {
+  const exportDisabled = !state.hasIssuerModel || state.exporting;
+  return (
+    <>
+      {state.restoreError ? <button type="button" onClick={state.retryRestore} className="md:hidden caos-action-secondary focus-ring w-full justify-start">Retry saved model</button> : null}
+      {state.saveConflict ? <button type="button" onClick={() => { state.setSaveConflict(false); state.retryRestore(); }} className="md:hidden caos-action-secondary focus-ring w-full justify-start">Reload saved model</button> : null}
+      <button type="button" onClick={() => { if (!exportDisabled) state.handleExport(); }} aria-disabled={exportDisabled || undefined} title={!state.hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : undefined} className="md:hidden caos-action-secondary focus-ring w-full justify-start">{state.exporting ? "Exporting model…" : "Export model"}</button>
+      <button type="button" onClick={() => state.setShowAssumptions(true)} className="caos-action-secondary focus-ring w-full justify-start">Open assumptions</button>
+      <button type="button" onClick={() => state.setShowScenarios(true)} className="caos-action-secondary focus-ring w-full justify-start">Open scenarios</button>
+      <ModelServerCheckpoints state={state} />
+      <ModelToggle label="QUARTERS" active={state.showQuarters} onClick={() => state.setShowQuarters(!state.showQuarters)} />
+      <ModelToggle label="ASSUMPTIONS" active={state.showAssumptions} title="Toggle the Assumptions panel — sliders to nudge the agent's base/downside forecast drivers" onClick={() => state.setShowAssumptions(!state.showAssumptions)} />
+      <ModelToggle label="SCENARIOS" active={state.showScenarios} title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)" onClick={() => state.setShowScenarios(!state.showScenarios)} />
+      <ModelOverrideReset state={state} />
+      <span className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden xl:inline" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}>
+        forecast cells unaudited — CP-5 scope is actuals only
+      </span>
+    </>
+  );
+}
+
+function ModelEditorNotice({ state }: { state: ModelBuilderController }) {
+  return (
+    <>
+      {state.editError ? <div role="alert" className="tabular text-caos-2xs px-2 py-1 rounded border whitespace-nowrap self-start" style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 50%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 8%, transparent)" }}>✗ &ldquo;{state.editError}&rdquo; is not a valid number — override discarded</div> : null}
+      {state.pasteNotice ? <div role="status" className="tabular text-caos-2xs px-2 py-1 rounded border whitespace-nowrap self-start" style={{ color: "var(--caos-accent)", borderColor: "color-mix(in srgb, var(--caos-accent) 40%, transparent)", background: "color-mix(in srgb, var(--caos-accent) 8%, transparent)" }}>{state.pasteNotice}</div> : null}
+    </>
+  );
+}
+
+function ModelAssumptionsRail({ state }: { state: ModelBuilderController }) {
+  if (!state.showAssumptions) return <CollapsedRail side="left" label="Assumptions" onExpand={() => state.setShowAssumptions(true)} />;
+  return (
+    <AssumptionsPanel
+      assumptions={state.assumptions}
+      onChange={state.setAsmp}
+      onChangeYear={state.setAsmpYear}
+      onResetCase={state.resetCase}
+      onResetYearCell={state.clearYearDriver}
+      onScrub={state.scrubHighlight}
+      onScrubEnd={() => state.setHlCells(null)}
+      onCollapse={() => state.setShowAssumptions(false)}
+    />
+  );
+}
+
+function toggleCollapsedRow(state: ModelBuilderController, row: string) {
+  state.setCollapsedRows((current) => {
+    const next = new Set(current);
+    if (next.has(row)) next.delete(row);
+    else next.add(row);
+    return next;
+  });
+}
+
+function ModelSheetRegion({ state }: { state: ModelBuilderController }) {
+  return (
+    <div className="model-sheet-region flex-1 min-w-0 min-h-0 flex">
+      <Sheet
+        model={state.model}
+        showQ={state.showQuarters}
+        isReference={state.isReference}
+        hl={state.hl}
+        hlCells={state.hlCells}
+        sel={state.sel}
+        onSel={state.setSel}
+        editing={state.editing}
+        onEdit={state.setEditing}
+        onCommit={state.commitEdit}
+        onPasteCells={state.onPasteCells}
+        collapsedRows={state.collapsedRows}
+        onToggleRow={(row) => toggleCollapsedRow(state, row)}
+      />
+    </div>
+  );
+}
+
+function ModelScenarioRail({ state }: { state: ModelBuilderController }) {
+  if (!state.showScenarios) return <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => state.setShowScenarios(true)} />;
+  return <ScenarioPanel model={state.model} downside={state.eng.downside} downsideState={state.eng.downsideState} issuerId={state.issuerId} runId={state.eng.runId} onCollapse={() => state.setShowScenarios(false)} />;
+}
+
+function AvailableModelWorkspace({ state }: { state: ModelBuilderController }) {
+  return (
+    <>
+      <Manifest hl={state.hl} setHl={state.setHl} isReference={state.isReference} />
+      <FormulaBar model={state.model} sel={state.sel} severity={state.severity} overrides={state.overrides} onResetCell={state.resetCell} onOpenEvidence={state.setEvModal} showQ={state.showQuarters} collapsedRows={state.collapsedRows} isReference={state.isReference} />
+      <ModelEditorNotice state={state} />
+      <div className="model-editor-layout flex-1 min-h-0 flex gap-2">
+        <ModelAssumptionsRail state={state} />
+        <ModelSheetRegion state={state} />
+        <ModelScenarioRail state={state} />
+      </div>
+    </>
+  );
+}
+
+function MissingModelWorkspace({ state }: { state: ModelBuilderController }) {
+  if (state.engineLoading) {
+    return (
+      <div className="flex-1 min-h-0 rounded border border-caos-border bg-caos-panel flex flex-col items-center justify-center gap-2 text-center px-6" role="status" aria-live="polite">
+        <div className="flex items-center gap-2 tabular text-caos-md text-caos-muted">
+          <span className="w-1.5 h-1.5 rounded-sm animate-pulse motion-reduce:animate-none" style={{ background: "var(--caos-accent)" }} />
+          Linking engine…
+        </div>
+        <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Loading {state.issuerName} CP-1 anchor</div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex-1 min-h-0 rounded border border-caos-border bg-caos-panel flex flex-col items-center justify-center gap-3 text-center px-6">
+      <div className="tabular text-caos-xl text-caos-text">No issuer-specific model output</div>
+      <div className="text-caos-md text-caos-muted max-w-[520px] leading-relaxed">Model Builder needs a completed run with a usable CP-1 anchor. Run the issuer first; the seeded Atlas Forge grid is available only in the reference demo.</div>
+      <a href={"/deepdive?issuer=" + encodeURIComponent(state.issuerId)} className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap">Open {state.issuerName} in Deep-Dive →</a>
+    </div>
+  );
+}
+
+function ModelEditorWorkspace({ state }: { state: ModelBuilderController }) {
+  return (
+    <div className="model-editor-workspace flex flex-1 min-h-0 flex-col gap-2 p-2">
+      {state.hasIssuerModel ? <AvailableModelWorkspace state={state} /> : <MissingModelWorkspace state={state} />}
+    </div>
+  );
+}
+
+function ModelPrimary({ state }: { state: ModelBuilderController }) {
+  return (
+    <div className="h-full min-h-0 flex flex-col">
+      <ModelEditorWorkspace state={state} />
+      {state.evModal ? <EvidenceModal id={state.evModal} reports={state.reports} isLiveRun={!state.isReference} onClose={() => state.setEvModal(null)} /> : null}
+    </div>
+  );
+}
+
+function ModelBuilderView({ state }: { state: ModelBuilderController }) {
+  return (
+    <EnterprisePage
+      kind="editor"
+      identity={<ModelIdentity state={state} />}
+      primaryAction={<ModelPrimaryActions state={state} />}
+      status={<ModelStatus state={state} />}
+      contextualControls={<ModelHistory state={state} />}
       utilityLabel="Model tools"
-      utilityControls={
-        <>
-          {restoreError ? (
-            <button type="button" onClick={retryRestore} className="md:hidden caos-action-secondary focus-ring w-full justify-start">
-              Retry saved model
-            </button>
-          ) : null}
-          {saveConflict ? (
-            <button type="button" onClick={() => { setSaveConflict(false); retryRestore(); }} className="md:hidden caos-action-secondary focus-ring w-full justify-start">
-              Reload saved model
-            </button>
-          ) : null}
-          <button type="button" onClick={() => { if (hasIssuerModel && !exporting) handleExport(); }} aria-disabled={(!hasIssuerModel || exporting) || undefined} title={!hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : undefined} className="md:hidden caos-action-secondary focus-ring w-full justify-start">
-            {exporting ? "Exporting model…" : "Export model"}
-          </button>
-          {/* Lower-frequency editors live in the drawer to keep the top bar at
-              the <=5 visible-actions contract (Save, Export, undo, redo, Checkpoints). */}
-          <button type="button" onClick={() => setShowAssumptions(true)} className="caos-action-secondary focus-ring w-full justify-start">Open assumptions</button>
-          <button type="button" onClick={() => setShowScenarios(true)} className="caos-action-secondary focus-ring w-full justify-start">Open scenarios</button>
-          {serverCheckpointsIssuerId === issuerId && serverCheckpoints.length ? (
-            <details className="relative">
-              <summary className="caos-secondary-action focus-ring cursor-pointer">Server checkpoints · {serverCheckpoints.length}</summary>
-              <div className="absolute right-0 top-full z-40 mt-1 w-80 max-h-72 overflow-auto rounded border border-caos-border bg-caos-panel p-1 shadow-xl">
-                {serverCheckpoints.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => { if (hydrated && !checkpointing && item.issuer_id === issuerId) void restoreServerCheckpoint(item); }}
-                    aria-disabled={(!hydrated || checkpointing || item.issuer_id !== issuerId) || undefined}
-                    title={item.issuer_id !== issuerId ? "Checkpoint belongs to a different issuer" : undefined}
-                    className="focus-ring flex w-full items-center justify-between gap-3 rounded px-2 py-1.5 text-left text-caos-xs text-caos-muted hover:bg-caos-elevated hover:text-caos-text"
-                  >
-                    <span className="truncate">{item.label}</span>
-                    <span className="tabular shrink-0">{new Date(item.created_at).toLocaleDateString("en-CA")}</span>
-                  </button>
-                ))}
-              </div>
-            </details>
-          ) : null}
-          <button
-            onClick={() => setShowQuarters(!showQuarters)}
-            className={
-              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
-              (showQuarters ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-            }
-          >
-            QUARTERS
-          </button>
-          <button
-            onClick={() => setShowAssumptions(!showAssumptions)}
-            title="Toggle the Assumptions panel — sliders to nudge the agent's base/downside forecast drivers"
-            className={
-              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
-              (showAssumptions ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-            }
-          >
-            ASSUMPTIONS
-          </button>
-          <button
-            onClick={() => setShowScenarios(!showScenarios)}
-            title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)"
-            className={
-              "tabular text-caos-xs px-1.5 h-6 rounded border transition-caos focus-ring whitespace-nowrap " +
-              (showScenarios ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")
-            }
-          >
-            SCENARIOS
-          </button>
-          {ovCount ? (
-            <button
-              onClick={() => {
-                if (armReset) {
-                  if (armTimer.current) window.clearTimeout(armTimer.current);
-                  setArmReset(false);
-                  resetAll();
-                } else {
-                  setArmReset(true);
-                  if (armTimer.current) window.clearTimeout(armTimer.current);
-                  armTimer.current = window.setTimeout(() => setArmReset(false), 3000);
-                }
-              }}
-              title={armReset ? "Click again to confirm — clears every manual override" : "Clear all manual overrides"}
-              aria-pressed={armReset}
-              className="flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border transition-caos whitespace-nowrap hover:bg-caos-elevated focus-ring"
-              style={
-                armReset
-                  ? { color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 60%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 10%, transparent)" }
-                  : { color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 50%, transparent)" }
-              }
-            >
-              {armReset
-                ? <>▲ CONFIRM RESET?</>
-                : <>↶ {ovCount} OVERRIDE{ovCount > 1 ? "S" : ""} · RESET</>}
-            </button>
-          ) : null}
-          <span
-            className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden xl:inline"
-            style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}
-          >
-            forecast cells unaudited — CP-5 scope is actuals only
-          </span>
-        </>
-      }
-      narrowContract={narrowContract}
+      utilityControls={<ModelUtilityControls state={state} />}
+      narrowContract={state.narrowContract}
     >
       <div className="caos-persona-route model-workbench flex-1 min-h-0">
-      <PersonaWorkbench
-        surface="model"
-        decision={<DecisionHeader state={modelDecision} defaultOpen={false} />}
-        primary={<div className="h-full min-h-0 flex flex-col">
-      {/* workspace */}
-      <div className="model-editor-workspace flex flex-1 min-h-0 flex-col gap-2 p-2">
-        {hasIssuerModel ? (
-          <>
-            <Manifest hl={hl} setHl={setHl} isReference={isReference} />
-            <FormulaBar
-              model={model}
-              sel={sel}
-              severity={severity}
-              overrides={overrides}
-              onResetCell={resetCell}
-              onOpenEvidence={setEvModal}
-              showQ={showQuarters}
-              collapsedRows={collapsedRows}
-              isReference={isReference}
-            />
-            {editError ? (
-              <div
-                role="alert"
-                className="tabular text-caos-2xs px-2 py-1 rounded border whitespace-nowrap self-start"
-                style={{ color: "var(--caos-critical)", borderColor: "color-mix(in srgb, var(--caos-critical) 50%, transparent)", background: "color-mix(in srgb, var(--caos-critical) 8%, transparent)" }}
-              >
-                ✗ &ldquo;{editError}&rdquo; is not a valid number — override discarded
-              </div>
-            ) : null}
-            {pasteNotice ? (
-              <div
-                role="status"
-                className="tabular text-caos-2xs px-2 py-1 rounded border whitespace-nowrap self-start"
-                style={{ color: "var(--caos-accent)", borderColor: "color-mix(in srgb, var(--caos-accent) 40%, transparent)", background: "color-mix(in srgb, var(--caos-accent) 8%, transparent)" }}
-              >
-                {pasteNotice}
-              </div>
-            ) : null}
-            <div className="model-editor-layout flex-1 min-h-0 flex gap-2">
-              {showAssumptions ? (
-                <AssumptionsPanel
-                  assumptions={assumptions}
-                  onChange={setAsmp}
-                  onChangeYear={setAsmpYear}
-                  onResetCase={resetCase}
-                  onResetYearCell={clearYearDriver}
-                  onScrub={scrubHighlight}
-                  onScrubEnd={() => setHlCells(null)}
-                  onCollapse={() => setShowAssumptions(false)}
-                />
-              ) : (
-                <CollapsedRail side="left" label="Assumptions" onExpand={() => setShowAssumptions(true)} />
-              )}
-              <div className="model-sheet-region flex-1 min-w-0 min-h-0 flex">
-                <Sheet
-                  model={model}
-                  showQ={showQuarters}
-                  isReference={isReference}
-                  hl={hl}
-                  hlCells={hlCells}
-                  sel={sel}
-                  onSel={setSel}
-                  editing={editing}
-                  onEdit={setEditing}
-                  onCommit={commitEdit}
-                  onPasteCells={onPasteCells}
-                  collapsedRows={collapsedRows}
-                  onToggleRow={(row) => setCollapsedRows((cur) => {
-                    const next = new Set(cur);
-                    if (next.has(row)) next.delete(row); else next.add(row);
-                    return next;
-                  })}
-                />
-              </div>
-              {showScenarios ? (
-                <ScenarioPanel model={model} downside={eng.downside} downsideState={eng.downsideState} issuerId={issuerId} runId={eng.runId} onCollapse={() => setShowScenarios(false)} />
-              ) : (
-                <CollapsedRail side="right" label="Scenario & Sensitivity" onExpand={() => setShowScenarios(true)} />
-              )}
-            </div>
-          </>
-        ) : engineLoading ? (
-          <div
-            className="flex-1 min-h-0 rounded border border-caos-border bg-caos-panel flex flex-col items-center justify-center gap-2 text-center px-6"
-            role="status"
-            aria-live="polite"
-          >
-            <div className="flex items-center gap-2 tabular text-caos-md text-caos-muted">
-              <span
-                className="w-1.5 h-1.5 rounded-sm animate-pulse motion-reduce:animate-none"
-                style={{ background: "var(--caos-accent)" }}
-              />
-              Linking engine…
-            </div>
-            <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
-              Loading {issuerName} CP-1 anchor
-            </div>
-          </div>
-        ) : (
-          <div className="flex-1 min-h-0 rounded border border-caos-border bg-caos-panel flex flex-col items-center justify-center gap-3 text-center px-6">
-            <div className="tabular text-caos-xl text-caos-text">No issuer-specific model output</div>
-            <div className="text-caos-md text-caos-muted max-w-[520px] leading-relaxed">
-              Model Builder needs a completed run with a usable CP-1 anchor. Run the
-              issuer first; the seeded Atlas Forge grid is available only in the reference demo.
-            </div>
-            <a
-              href={`/deepdive?issuer=${encodeURIComponent(issuerId)}`}
-              className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap"
-            >
-              Open {issuerName} in Deep-Dive →
-            </a>
-          </div>
-        )}
-      </div>
-
-      {/* isLiveRun: a live issuer's E-xx id must hit the explicit unresolved
-          panel, never shadow-resolve to the seeded ATLF excerpt as "VERIFIED". */}
-      {evModal ? <EvidenceModal id={evModal} reports={reports} isLiveRun={!isReference} onClose={() => setEvModal(null)} /> : null}
-        </div>}
-      />
+        <PersonaWorkbench surface="model" decision={<DecisionHeader state={state.modelDecision} defaultOpen={false} />} primary={<ModelPrimary state={state} />} />
       </div>
     </EnterprisePage>
   );
+}
+
+function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) {
+  const state = useModelBuilderController({ legacyRuntime });
+  return <ModelBuilderView state={state} />;
 }
 
 // Thin expandable rail shown in place of a collapsed side panel: a vertical
@@ -1056,46 +1150,75 @@ function CollapsedRail({ side, label, onExpand }: { side: "left" | "right"; labe
 // a live CP-1 run or the seeded demo model, plus a tie-out reconciling the
 // leverage the grid actually DISPLAYS against CP-1's separately-reported figure.
 // Status is always glyph-paired (dot / ✓ / ⚠), never carried by color alone.
-function ModelProvenance({ eng, model, allowSeededFallback, freshness }: { eng: ModelEngineState; model: Model; allowSeededFallback: boolean; freshness: FreshnessEvaluation | null }) {
-  if (eng.loading) {
-    return <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">· linking engine…</span>;
-  }
-  if (!eng.live || !eng.anchor) {
-    if (!allowSeededFallback) {
-      return (
-        <span
-          className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap text-caos-muted"
-          title="No completed run with usable CP-1 anchor found; seeded model suppressed for issuer-scoped view."
-        >
-          <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-idle)" }} />
-          NO MODEL OUTPUT
-        </span>
-      );
-    }
+function MissingModelProvenance({ eng, allowSeededFallback }: { eng: ModelEngineState; allowSeededFallback: boolean }) {
+  if (!allowSeededFallback) {
     return (
-      <span className="flex items-center gap-1.5 whitespace-nowrap">
-        <ProvenanceChip prov={fromModelEngine(eng)} />
-        <span className="tabular text-caos-xs text-caos-muted">RUN #2641</span>
+      <span
+        className="flex items-center gap-1.5 tabular text-caos-xs whitespace-nowrap text-caos-muted"
+        title="No completed run with usable CP-1 anchor found; seeded model suppressed for issuer-scoped view."
+      >
+        <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--caos-idle)" }} />
+        NO MODEL OUTPUT
       </span>
     );
   }
-  // CP-1's separately-reported adj. net leverage (net_leverage_adj_ltm).
-  const cp1 = eng.anchor.netLeverage;
-  // What the grid actually DISPLAYS for the anchored LTM column: net debt / adj
-  // EBITDA recomputed from the live anchor (see applyAnchor + deriveCreditKpis).
-  // This — not the pre-anchor seeded value — is the number the analyst reads, so
-  // it is the number the tie-out must reconcile. (null if a denominator degraded.)
-  const shown = model.cols.l1.netlev;
-  // Only claim a tie when the DISPLAYED leverage equals CP-1's reported figure
-  // within tolerance. CP-1 may report on a different net-debt/EBITDA basis, so a
-  // recomputed netDebt/adjEbitda can legitimately differ — never fabricate "ties".
-  const drift = shown != null ? Math.abs(shown - cp1) : null;
+  return (
+    <span className="flex items-center gap-1.5 whitespace-nowrap">
+      <ProvenanceChip prov={fromModelEngine(eng)} />
+      <span className="tabular text-caos-xs text-caos-muted">RUN #2641</span>
+    </span>
+  );
+}
+
+function leverageTieOut(shown: number | null, cp1: number) {
+  const drift = shown == null ? null : Math.abs(shown - cp1);
   const ties = drift != null && drift <= 0.05;
+  if (shown == null) {
+    return {
+      ties,
+      title: "Grid LTM net leverage is undefined (degenerate denominator); CP-1 reports " + cp1.toFixed(2) + "x.",
+      label: <><StatusGlyph kind="warning" /> CP-1 {cp1.toFixed(2)}x · grid n/a</>,
+    };
+  }
+  if (ties) {
+    return {
+      ties,
+      title: "Grid LTM net leverage (" + shown.toFixed(2) + "x = net debt / adj. EBITDA) ties CP-1 reported (" + cp1.toFixed(2) + "x).",
+      label: <>✓ net lev ties CP-1 {cp1.toFixed(2)}x</>,
+    };
+  }
+  return {
+    ties,
+    title: "Grid shows " + shown.toFixed(2) + "x (net debt / adj. EBITDA) but CP-1 reports " + cp1.toFixed(2) + "x — likely a different net-debt / EBITDA basis. Shown side by side, not reconciled.",
+    label: <><StatusGlyph kind="warning" /> grid {shown.toFixed(2)}x vs CP-1 {cp1.toFixed(2)}x</>,
+  };
+}
+
+function LeverageTieOut({ shown, cp1 }: { shown: number | null; cp1: number }) {
+  const tieOut = leverageTieOut(shown, cp1);
+  const color = tieOut.ties ? "var(--caos-success)" : "var(--caos-warning)";
+  return (
+    <span
+      className="flex items-center gap-1 tabular text-caos-xs px-1.5 py-px rounded border"
+      style={{
+        color,
+        borderColor: "color-mix(in srgb, " + color + " 40%, transparent)",
+        background: "color-mix(in srgb, " + color + " 8%, transparent)",
+      }}
+      title={tieOut.title}
+    >
+      {tieOut.label}
+    </span>
+  );
+}
+
+function LiveModelProvenance({ eng, model, freshness }: { eng: ModelEngineState; model: Model; freshness: FreshnessEvaluation | null }) {
+  const cp1 = eng.anchor!.netLeverage;
   return (
     <span className="flex items-center gap-2 whitespace-nowrap">
       <span
         className="flex items-center gap-1.5"
-        title={`Anchored to live CP-1 from run ${eng.runId} · committee: ${eng.committeeStatus ?? "—"}`}
+        title={"Anchored to live CP-1 from run " + eng.runId + " · committee: " + (eng.committeeStatus ?? "—")}
       >
         <ProvenanceChip prov={fromModelEngine(eng)} />
         <FreshnessIndicator evaluation={freshness} />
@@ -1103,27 +1226,13 @@ function ModelProvenance({ eng, model, allowSeededFallback, freshness }: { eng: 
           CP-1 · RUN {eng.runId?.slice(0, 8) ?? "—"}
         </span>
       </span>
-      <span
-        className="flex items-center gap-1 tabular text-caos-xs px-1.5 py-px rounded border"
-        style={
-          ties
-            ? { color: "var(--caos-success)", borderColor: "color-mix(in srgb, var(--caos-success) 40%, transparent)", background: "color-mix(in srgb, var(--caos-success) 8%, transparent)" }
-            : { color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }
-        }
-        title={
-          shown == null
-            ? `Grid LTM net leverage is undefined (degenerate denominator); CP-1 reports ${cp1.toFixed(2)}x.`
-            : ties
-            ? `Grid LTM net leverage (${shown.toFixed(2)}x = net debt / adj. EBITDA) ties CP-1 reported (${cp1.toFixed(2)}x).`
-            : `Grid shows ${shown.toFixed(2)}x (net debt / adj. EBITDA) but CP-1 reports ${cp1.toFixed(2)}x — likely a different net-debt / EBITDA basis. Shown side by side, not reconciled.`
-        }
-      >
-        {ties
-          ? <>✓ net lev ties CP-1 {cp1.toFixed(2)}x</>
-          : shown == null
-          ? <><StatusGlyph kind="warning" /> CP-1 {cp1.toFixed(2)}x · grid n/a</>
-          : <><StatusGlyph kind="warning" /> grid {shown.toFixed(2)}x vs CP-1 {cp1.toFixed(2)}x</>}
-      </span>
+      <LeverageTieOut shown={model.cols.l1.netlev} cp1={cp1} />
     </span>
   );
+}
+
+function ModelProvenance({ eng, model, allowSeededFallback, freshness }: { eng: ModelEngineState; model: Model; allowSeededFallback: boolean; freshness: FreshnessEvaluation | null }) {
+  if (eng.loading) return <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">· linking engine…</span>;
+  if (!eng.live || !eng.anchor) return <MissingModelProvenance eng={eng} allowSeededFallback={allowSeededFallback} />;
+  return <LiveModelProvenance eng={eng} model={model} freshness={freshness} />;
 }

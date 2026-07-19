@@ -126,7 +126,7 @@ interface Msg extends ChatMessage {
   err?: boolean;
 }
 
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Chat lifecycle, evidence context, and honest degradation share one boundary.
 export function IssuerChat({ tab, onClose, live, issuerName }: {
   tab: string;
   onClose: () => void;

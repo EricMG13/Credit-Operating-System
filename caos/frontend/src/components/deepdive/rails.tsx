@@ -71,7 +71,7 @@ function CouncilReview({ council, state }: { council: FindingDTO[]; state: "load
           enabled; flagged reasoning surfaces here and gates the run alongside CP-5B.
         </div>
       ) : (
-        // fallow-ignore-next-line complexity
+        // fallow-ignore-next-line complexity -- Static finding-row projection keeps severity and evidence local.
         ordered.map((f) => (
           <div key={f.finding_id} className="px-3 py-2 border-b border-caos-border/50">
             <div className="flex items-center gap-2">
@@ -97,7 +97,7 @@ function CouncilReview({ council, state }: { council: FindingDTO[]; state: "load
   );
 }
 
-// fallow-ignore-next-line complexity
+// fallow-ignore-next-line complexity -- Evidence grouping, selection, and reference state belong to one source rail.
 export function SourceRail({
   ev,
   open,
@@ -169,7 +169,7 @@ export function SourceRail({
             ))}
           </Panel>
           <Panel title="Evidence Trace · CP-5B drivers" className="flex-[3]">
-            {/* fallow-ignore-next-line complexity */}
+            {/* fallow-ignore-next-line complexity -- Static driver projection keeps evidence and rating semantics local. */}
             {DRIVERS.map((d) => {
               const hot = !!(active && d.evs.includes(active)) || !!(ev && d.evs.includes(ev));
               return (

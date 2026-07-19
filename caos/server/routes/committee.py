@@ -416,7 +416,7 @@ async def _validate_analyst_opinion(
     opinion = await db.get(AnalystOpinionVersion, opinion_id)
     if opinion is None or opinion.issuer_id != issuer_id or opinion.analyst_id != owner_id:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Analyst opinion must belong to the agenda owner and issuer.",
         )
     return opinion
@@ -910,7 +910,7 @@ async def request_evidence_exception(
         raise HTTPException(status.HTTP_409_CONFLICT, {"message": "Agenda item changed elsewhere.", "current_revision": item.revision})
     today = datetime.now(timezone.utc).date()
     if body.expires_at < today or body.expires_at > today + timedelta(days=_EXCEPTION_MAX_DAYS):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Exception expiry must be within the next 30 days.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Exception expiry must be within the next 30 days.")
     failures = await _readiness_failures(db, caller, item)
     run = await db.get(Run, item.run_id) if item.run_id else None
     findings = list((await db.execute(

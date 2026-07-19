@@ -1,50 +1,10 @@
-"""Shared test setup.
-
-Routes the server at a throwaway SQLite database and vault dir so tests never
-touch the real dev database, and puts the server dir on sys.path. pytest imports
-conftest before any test module, so even top-level imports that pull in
-``database`` bind to the temp DB.
-"""
+"""Server-only fixtures layered on the suite-root isolation bootstrap."""
 
 import os
 import re
 import sqlite3
-import sys
-import tempfile
-from pathlib import Path
 
 import pytest
-
-SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
-sys.path.insert(0, str(SERVER_DIR))
-
-_TMP = tempfile.mkdtemp(prefix="caos-tests-")
-os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_TMP}/caos_tests.db")
-os.environ.setdefault("CAOS_STORAGE_DIR", f"{_TMP}/vault")
-# Force-blank (NOT setdefault): with a real key exported, run-creating tests flip
-# from the fixture path to LIVE synth — fixture-path assertions break and the
-# suite spends real tokens (BE9-1). Export CAOS_TEST_LIVE=1 to deliberately keep
-# your exported keys for a live lane.
-if not os.environ.get("CAOS_TEST_LIVE"):
-    os.environ["ANTHROPIC_API_KEY"] = ""
-    os.environ["GEMINI_API_KEY"] = ""
-    os.environ["OPENROUTER_API_KEY"] = ""
-os.environ.setdefault("CAOS_TEST", "1")  # NullPool so async + TestClient loops don't share pooled conns
-# Demo seeding is now OFF by default (prod safe-by-default, #34); the TestClient
-# lifespan suite relies on the seeded demo issuers / reference deal, so opt in here.
-os.environ.setdefault("CAOS_DEMO_SEED", "true")
-# main.py hashes every inline <script> under the static Next export ONCE at
-# import time (module-level _INLINE_SCRIPT_HASHES) and its deployed-posture
-# lifespan guard refuses to boot without at least one hash. Some test modules
-# `from main import app` at their own top level, importing main during pytest
-# collection — before any fixture (even session-scoped) can run — so this has
-# to be a real file on disk, staged here, before conftest finishes importing.
-_STATIC_DIR = Path(f"{_TMP}/static")
-_STATIC_DIR.mkdir(parents=True, exist_ok=True)
-(_STATIC_DIR / "index.html").write_text(
-    "<!doctype html><html><body><script>window.__caosTestBoot=1;</script></body></html>"
-)
-os.environ.setdefault("CAOS_STATIC_DIR", str(_STATIC_DIR))
 
 import pytest_asyncio
 

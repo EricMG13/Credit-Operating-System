@@ -10,13 +10,18 @@ const LEV_ROWS = new Set(["srsec", "totlev", "netlev"]);
 const ORANGE = [245, 165, 36];
 const RED = [239, 68, 68];
 
-export function kpiDistressColor(rowId: string, v: number | null): string | null {
+function kpiDistressRatio(rowId: string, v: number | null): number | null {
   if (v == null) return null;
   let t: number | null = null;
   if (LEV_ROWS.has(rowId)) t = (v - 6) / 2;        // 6x → 0 (orange), 8x → 1 (red)
   else if (rowId === "intcov") t = (2 - v) / 1.5;  // 2x → 0 (orange), 0.5x → 1 (red)
-  if (t == null || t < 0) return null;
-  t = Math.min(1, t);
+  return t == null || t < 0 ? null : t;
+}
+
+export function kpiDistressColor(rowId: string, v: number | null): string | null {
+  const ratio = kpiDistressRatio(rowId, v);
+  if (ratio == null) return null;
+  const t = Math.min(1, ratio);
   const c = ORANGE.map((o, i) => Math.round(o + (RED[i] - o) * t));
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
@@ -26,17 +31,27 @@ export function kpiDistressColor(rowId: string, v: number | null): string | null
 // mandate). null where the color is null (benign); "crit" at the red end where
 // the interpolation clamps (t >= 1); "warn" through the orange→red ramp.
 export function kpiDistressLevel(rowId: string, v: number | null): "warn" | "crit" | null {
-  if (v == null) return null;
-  let t: number | null = null;
-  if (LEV_ROWS.has(rowId)) t = (v - 6) / 2;
-  else if (rowId === "intcov") t = (2 - v) / 1.5;
-  if (t == null || t < 0) return null;
-  return t >= 1 ? "crit" : "warn";
+  const ratio = kpiDistressRatio(rowId, v);
+  return ratio == null ? null : ratio >= 1 ? "crit" : "warn";
 }
 
 // Glyph paired with each distress band (▲ = critical, ■ = warning) so the
 // KPI shading meaning survives without color. Drawn glyphs, no emoji.
 export const KPI_DISTRESS_GLYPH: Record<"warn" | "crit", string> = { warn: "■", crit: "▲" };
+
+const percentTextColor = (v: number | null): string =>
+  v != null && v < 0 ? "var(--caos-critical)" : "var(--caos-accent)";
+
+const standardTextColor = (
+  v: number | null,
+  bold: boolean,
+  rowFmt?: string,
+): string => {
+  if (bold) return "var(--caos-text)";
+  return v != null && v < 0 && rowFmt === "m"
+    ? "var(--caos-muted)"
+    : "var(--caos-text)";
+};
 
 // Cell text color: KPI distress shading wins; otherwise override > pct sign >
 // key-account emphasis > negative-money muting > default. Bold totals remain
@@ -50,20 +65,10 @@ export function cellTextColor(opts: {
   rowFmt?: string;
 }): string {
   const { rowId, v, isOv, pct, bold, rowFmt } = opts;
-  return (
-    kpiDistressColor(rowId, v) ??
-    (isOv
-      ? "var(--caos-warning)"
-      : pct
-      ? v != null && v < 0
-        ? "var(--caos-critical)"
-        : "var(--caos-accent)"
-      : bold
-      ? "var(--caos-text)"
-      : v != null && v < 0 && rowFmt === "m"
-      ? "var(--caos-muted)"
-      : "var(--caos-text)")
-  );
+  const distress = kpiDistressColor(rowId, v);
+  if (distress) return distress;
+  if (isOv) return "var(--caos-warning)";
+  return pct ? percentTextColor(v) : standardTextColor(v, bold, rowFmt);
 }
 
 // Cell background: selection > flashed cell > column/row highlight > shade band.
