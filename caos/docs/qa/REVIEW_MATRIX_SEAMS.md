@@ -1,5 +1,11 @@
 # Seams Review Matrix
 
+> **2026-07-20 update:** explicit Pipeline/Monitor LIVE/REFERENCE controllers
+> improve authority disclosure, but do not activate enterprise email, licensed
+> market data, external providers, or spec-only modules. Current promise and
+> activation gates remain PD-06 in
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
+
 > **2026-07-18 release note:** this remains the pickup input for integration
 > work, not proof that the seams are closed. The final audit retains C3
 > Monitor/email, C5 licensed market data, C13 CP-SR/CP-RENDER equivalence, and

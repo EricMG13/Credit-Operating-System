@@ -1,5 +1,11 @@
 # Frontend Review Matrix
 
+> **2026-07-20 update:** current frontend static/unit gates pass at 1,833 tests,
+> but one test used configured retry; the dependency walk has 17 candidates and
+> the current 390px matrix has two serious target-size plus two layout failures.
+> See
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
+
 > **2026-07-18 release note:** this verified-finding matrix is an audit input,
 > not a current all-green/all-open register; line numbers and dispositions can
 > drift as fixes land. The final closure pass independently re-confirmed the

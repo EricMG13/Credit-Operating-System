@@ -761,7 +761,7 @@ main table:not(.rd-table):not(.rv-table):not(.caos-data-table) thead th {
 :root { --caos-strip-bg: color-mix(in srgb, var(--caos-panel) 40%, var(--caos-bg)); }
 
 /* ===== Report Studio: rendered document (rd-*) — Concept E ===== */
-.rd-paper { position: relative; width: 980px; color: var(--paper-ink); font-family: var(--font-sans), system-ui, sans-serif; padding: 40px 46px 26px; box-shadow: var(--paper-shadow); }
+.rd-paper { position: relative; width: 980px; overflow: hidden; color: var(--paper-ink); font-family: var(--font-sans), system-ui, sans-serif; padding: 40px 46px 26px; box-shadow: var(--paper-shadow); }
 
 @media (max-width: 767px) {
   body { font-size: 14px; }
@@ -779,18 +779,19 @@ main table:not(.rd-table):not(.rv-table):not(.caos-data-table) thead th {
 .rd-h-sub { font-family: var(--font-mono), monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: var(--paper-meta); text-transform: none; }
 
 .rd-table { width: 100%; border-collapse: collapse; }
-.rd-table th { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--paper-meta); text-align: left; padding: 1px 0 3px; border-bottom: 1px solid var(--paper-rule); vertical-align: bottom; line-height: 1.25; white-space: nowrap; }
-.rd-table td { font-size: 11px; padding: 2px 0; vertical-align: top; line-height: 1.45; }
+.rd-table thead th { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--paper-meta); text-align: left; padding: 1px 0 3px; border-bottom: 1px solid var(--paper-rule); vertical-align: bottom; line-height: 1.25; white-space: nowrap; }
+.rd-table tbody :is(th, td) { font-size: 11px; padding: 2px 0; vertical-align: top; line-height: 1.45; }
+.rd-table tbody th { color: inherit; font-weight: 400; letter-spacing: normal; text-align: left; text-transform: none; }
 /* Consistent gap between adjacent columns so a right-aligned number never butts
    against the next column's text; first column stays flush-left, last flush-right. */
-.rd-table th + th, .rd-table td + td { padding-left: 14px; }
+.rd-table thead th + th, .rd-table tbody th + td, .rd-table td + td { padding-left: 14px; }
 .rd-table th.rd-r, .rd-table td.rd-r { text-align: right; }
 .rd-num { font-family: var(--font-mono), monospace; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.rd-table tr.rd-b td { font-weight: 600; }
-.rd-table tr.rd-it td { color: var(--paper-note); font-size: 11px; font-style: italic; }
-.rd-table tr.rd-it td.rd-num { font-size: 11px; }
-.rd-table tr.rd-line td { border-top: 1px solid var(--paper-rule-strong); }
-.rd-table tr.rd-gapr td { padding-top: 8px; }
+.rd-table tr.rd-b :is(th, td) { font-weight: 600; }
+.rd-table tr.rd-it :is(th, td) { color: var(--paper-note); font-size: 11px; font-style: italic; }
+.rd-table tr.rd-it :is(th, td).rd-num { font-size: 11px; }
+.rd-table tr.rd-line :is(th, td) { border-top: 1px solid var(--paper-rule-strong); }
+.rd-table tr.rd-gapr :is(th, td) { padding-top: 8px; }
 .rd-lbl0 { font-family: var(--font-mono), monospace; font-size: 10px; font-weight: 600; color: var(--paper-meta); font-style: normal; padding-left: 10px; }
 .rd-note { font-size: 10px; font-style: italic; color: var(--paper-note); margin-top: 4px; }
 
@@ -801,9 +802,10 @@ main table:not(.rd-table):not(.rv-table):not(.caos-data-table) thead th {
 .rd-model-appendix .rd-h { margin-bottom: 2px; padding-bottom: 1px; }
 .rd-model-appendix .rd-h span:first-child { font-size: 10px; letter-spacing: 0.04em; }
 .rd-model-appendix .rd-h-sub { font-size: 10px; }
-.rd-model-appendix .rd-table th { font-size: 10px; line-height: 1.2; padding-bottom: 1px; letter-spacing: 0; color: var(--paper-meta); }
-.rd-model-appendix .rd-table td { font-size: 10px; line-height: 1.2; padding: 1px 0; }
+.rd-model-appendix .rd-table thead th { font-size: 10px; line-height: 1.2; padding-bottom: 1px; letter-spacing: 0; color: var(--paper-meta); }
+.rd-model-appendix .rd-table tbody :is(th, td) { font-size: 10px; line-height: 1.2; padding: 1px 0; }
 .rd-model-appendix .rd-table th + th,
+.rd-model-appendix .rd-table tbody th + td,
 .rd-model-appendix .rd-table td + td { padding-left: 3px; }
 .rd-model-appendix .rd-table :is(th, td).rd-group-start {
   padding-left: 6px;
@@ -811,9 +813,9 @@ main table:not(.rd-table):not(.rv-table):not(.caos-data-table) thead th {
 }
 .rd-model-appendix .rd-table th.rd-group-start { color: var(--paper-ink); }
 .rd-model-appendix .rd-num { font-size: 10px; }
-.rd-model-appendix .rd-table tr.rd-b td { font-size: 10px; }
-.rd-model-appendix .rd-table tr.rd-line td { border-top-color: var(--paper-rule-strong); background: color-mix(in srgb, var(--paper-ink) 3.5%, transparent); }
-.rd-model-appendix .rd-table tr.rd-gapr td { padding-top: 2px; }
+.rd-model-appendix .rd-table tr.rd-b :is(th, td) { font-size: 10px; }
+.rd-model-appendix .rd-table tr.rd-line :is(th, td) { border-top-color: var(--paper-rule-strong); background: color-mix(in srgb, var(--paper-ink) 3.5%, transparent); }
+.rd-model-appendix .rd-table tr.rd-gapr :is(th, td) { padding-top: 2px; }
 .rd-model-appendix .rd-lbl0 { font-size: 10px; padding-left: 4px; }
 
 .rd-profile { display: flex; flex-direction: column; }
@@ -827,6 +829,7 @@ main table:not(.rd-table):not(.rv-table):not(.caos-data-table) thead th {
    the readable band; the cap holds the column while tables/charts keep the
    full sheet width. */
 .rd-body { font-size: 12px; line-height: 1.62; margin: 0; text-wrap: pretty; max-width: 72ch; }
+.rd-sec[data-report-field="issuer-investment-thesis"] .rd-body { min-height: 3.25em; }
 .rd-lblock { font-size: 12px; line-height: 1.55; margin-top: 6px; }
 .rd-lblock-l { font-weight: 650; }
 
@@ -849,6 +852,13 @@ main table:not(.rd-table):not(.rv-table):not(.caos-data-table) thead th {
 .rd-editing [contenteditable="true"]:hover { outline-color: color-mix(in srgb, var(--tranche-2l) 50%, transparent); background: color-mix(in srgb, var(--tranche-2l) 7%, transparent); cursor: text; }
 .rd-editing [contenteditable="true"]:focus { outline: 1px solid color-mix(in srgb, var(--tranche-2l) 85%, transparent); background: color-mix(in srgb, var(--tranche-2l) 9%, transparent); }
 .rd-editing [contenteditable="true"]:empty { display: inline-block; min-width: 14px; min-height: 1em; }
+.rd-editing .rd-body [contenteditable="true"][data-placeholder]:empty { width: 100%; min-height: 3.25em; }
+.rd-editing [contenteditable="true"][data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--paper-note);
+  font-style: italic;
+  pointer-events: none;
+}
 
 .rd-srcline { margin-top: 18px; font-family: var(--font-mono), monospace; font-size: 10px; font-weight: 500; color: var(--paper-note); letter-spacing: 0.04em; line-height: 1.7; }
 
@@ -891,8 +901,59 @@ button.rd-cite:focus-visible { outline: 2px solid var(--paper-link); outline-off
 .rd-paper .report-visualization__table :is(th, td) { padding: 2px 4px; border-bottom: 1px solid var(--paper-rule); text-align: left; }
 .rd-colophon { margin-top: 10px; font-family: var(--font-mono), monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.05em; color: var(--paper-warning); text-transform: uppercase; }
 
-.rd-wm { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 4; display: flex; flex-direction: column; justify-content: space-around; align-items: center; transform: rotate(-16deg); }
-.rd-wm span { font-family: var(--font-mono), monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.32em; white-space: nowrap; color: color-mix(in srgb, var(--paper-watermark) 18%, transparent); }
+/* Filed preview density — restore the pre-f4c790f4 document scale only while
+   reading a report on screen. Edit/proof mode retains the larger type above,
+   and the print portal retains the explicit point-size floors below. This
+   keeps the committee sheet composed like a research deliverable without
+   shrinking authoring controls or exported text. */
+@media screen {
+  .rd-paper:not(.rd-editing) { text-rendering: optimizeLegibility; }
+  .rd-paper:not(.rd-editing) .rd-mast-brand { font-size: 9px; }
+  .rd-paper:not(.rd-editing) .rd-mark { font-size: 8px; }
+  .rd-paper:not(.rd-editing) .rd-mast-meta { font-size: 8.5px; }
+  .rd-paper:not(.rd-editing) .rd-subtitle { font-size: 9.5px; }
+  .rd-paper:not(.rd-editing) .rd-h { font-size: 9px; letter-spacing: 0.1em; }
+  .rd-paper:not(.rd-editing) .rd-h-sub { font-size: 8px; }
+  .rd-paper:not(.rd-editing) .rd-table thead th { font-size: 8px; }
+  .rd-paper:not(.rd-editing) .rd-table tbody :is(th, td) { font-size: 9.3px; }
+  .rd-paper:not(.rd-editing) .rd-num { font-size: 8.8px; }
+  .rd-paper:not(.rd-editing) .rd-table tr.rd-it :is(th, td) { font-size: 8.4px; }
+  .rd-paper:not(.rd-editing) .rd-table tr.rd-it :is(th, td).rd-num { font-size: 8.2px; }
+  .rd-paper:not(.rd-editing) .rd-lbl0,
+  .rd-paper:not(.rd-editing) .rd-note { font-size: 8px; }
+  .rd-paper:not(.rd-editing) .rd-prow { font-size: 9.3px; }
+  .rd-paper:not(.rd-editing) .rd-subhead { font-size: 8.5px; }
+  .rd-paper:not(.rd-editing) .rd-body { font-size: 9.4px; max-width: none; }
+  .rd-paper:not(.rd-editing) .rd-lblock,
+  .rd-paper:not(.rd-editing) .rd-list li { font-size: 9.2px; }
+  .rd-paper:not(.rd-editing) .rd-srcline { font-size: 7.8px; }
+  .rd-paper:not(.rd-editing) .rd-sources-h,
+  .rd-paper:not(.rd-editing) .rd-cite-chip,
+  .rd-paper:not(.rd-editing) .rd-foot,
+  .rd-paper:not(.rd-editing) .rd-colophon { font-size: 8px; }
+  .rd-paper:not(.rd-editing) .rd-sources li { font-size: 8.2px; }
+  .rd-paper:not(.rd-editing) .semantic-visualization__header :is(h2, h3) { font-size: 9px; }
+  .rd-paper:not(.rd-editing) .semantic-visualization__summary { font-size: 8.5px; }
+  .rd-paper:not(.rd-editing) .semantic-visualization__note,
+  .rd-paper:not(.rd-editing) .semantic-visualization__table-toggle,
+  .rd-paper:not(.rd-editing) .report-visualization__table,
+  .rd-paper:not(.rd-editing) .report-visualization__table summary { font-size: 8px; }
+  .rd-paper:not(.rd-editing) .semantic-visualization__meta,
+  .rd-paper:not(.rd-editing) .semantic-visualization__sources { font-size: 7.5px; }
+
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-subtitle { font-size: 7px; }
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-h span:first-child { font-size: 7px; }
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-h-sub { font-size: 6.5px; }
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-table thead th { font-size: 5.4px; line-height: 1.05; }
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-table tbody :is(th, td) { font-size: 5.7px; line-height: 1.08; padding-block: 0.4px; }
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-num { font-size: 5.3px; }
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-table tr.rd-b :is(th, td) { font-size: 5.9px; }
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-lbl0 { font-size: 5.4px; }
+}
+
+.rd-wm { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 4; }
+.rd-wm svg { display: block; overflow: hidden; }
+.rd-wm text { transform: rotate(-16deg); transform-box: fill-box; transform-origin: center; fill: color-mix(in srgb, var(--paper-watermark) 18%, transparent); font-family: var(--font-mono), monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.32em; white-space: nowrap; }
 
 /* ===== Deep Research: the report files as a paper tear-sheet =====
    A deliverable, so it's the deliberate LIGHT counterpoint to the dark

@@ -1,5 +1,13 @@
 # Performance Baseline
 
+> **2026-07-20 capacity addendum:** retain the SQLite numbers below as the
+> original workstation baseline. The current Postgres/two-worker first-fault
+> record is
+> [FIRST_FAULT_STRESS_REPORT_2026-07-19.md](FIRST_FAULT_STRESS_REPORT_2026-07-19.md):
+> a reproduced 320-user latency fault followed by three zero-failure 300-user
+> passes after bounded-pool/raw-ASGI remediation. It is not a silent rebase and
+> does not close the target-image L25 gate.
+
 First-audit baseline (2026-07-10). Update only for intentional accepted shifts —
 each entry dated with cause. Never silently rebase over a FAIL.
 

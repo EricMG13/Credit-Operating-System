@@ -2,8 +2,30 @@
 
 How CAOS authenticates, authorizes, and protects data, and the boundaries of
 its current threat model. Companion to [AUDIT.md](AUDIT.md). Last reviewed
-2026-07-18; the release-specific evidence and blockers are in
-[PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](qa/reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
+2026-07-20; the release-specific evidence and blockers are in
+[PRE_DEPLOYMENT_UPDATE_2026-07-20.md](qa/reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
+
+## 0. 2026-07-20 release-security delta
+
+- The request-policy path now uses a consolidated raw-ASGI
+  `HTTPPolicyMiddleware`, removing the measured latency amplification of four
+  stacked `BaseHTTPMiddleware` layers. Postgres pools are explicit and bounded
+  per worker (20 persistent + 5 overflow by default); the intended two-worker
+  maximum therefore reserves at most 50 application connections against the
+  default 100-connection database budget. These are capacity protections, not
+  substitutes for authorization or target telemetry.
+- The current server+stress+cohort aggregate produced **2,594 passed / 15
+  skipped** in the restricted lane. Seven AV fake-socket cases were sandbox
+  denials; the entire nine-case AV file passed unrestricted, giving effective
+  current evidence of **2,601 passed / 15 skipped**.
+- Explicit `LIVE`/`REFERENCE` UI modes improve data-authority disclosure. They
+  do not change storage custody: original bytes are vaulted; structured work
+  product is in Postgres; unsaved drafts/preferences can be in browser storage;
+  logs and recovery copies use operator-controlled stores.
+- The application does not itself prove encryption at rest for the target DB,
+  vault volume, logs, or backup media. Release remains blocked on the target's
+  encryption, least privilege, retention/legal-hold, paired-backup freshness
+  and alerting, and remote-only restore evidence (PD-08/L26).
 
 ## 1. Authentication & identity
 

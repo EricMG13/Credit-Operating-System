@@ -1,6 +1,18 @@
 # Mock Ledger — seeded/sample/sim data burndown (C1)
 
-> **2026-07-18 reconciliation:** the original 2026-07-12 table is retained as
+> **2026-07-20 authority-mode update:** Pipeline and Monitor now expose
+> explicit, separately controlled `LIVE` and `REFERENCE` states; Sector RV
+> retains per-result LIVE/DEMO/REFERENCE authority; Deep-Dive, Reports, and
+> Issuers keep visibly labelled reference/demo paths. This improves truth
+> disclosure but does not activate licensed market data, enterprise email, or
+> spec-only analytical modules. The current frontend walk reports 17
+> reachability candidates, including the superseded Command RV/dislocation
+> stack and several query/shared support paths; L24 must disposition each row.
+> No all-clear follows from visible labels alone: L9/L23/L27 must rescan and
+> exercise the exact H0 image. Current status:
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
+
+> **2026-07-18 reconciliation — historical baseline:** the original 2026-07-12 table is retained as
 > history, but several ownership rows have moved. The current main Command
 > datasets use live portfolio/context APIs; the old `SectorRV`/
 > `ActionableDislocations` stack is a reachability candidate and `/sector-rv`
@@ -12,7 +24,7 @@
 > mock was found in the 2026-07-18 import/route sweep, but this is **not release
 > closure**: C3/C5/C13, L9, L23, and L27 must prove the immutable production
 > build, current route journeys, and honest unavailable states. See
-> [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
 
 ## 2026-07-18 delta register
 

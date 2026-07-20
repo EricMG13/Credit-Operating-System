@@ -1,11 +1,22 @@
 # CAOS — Feature → User-Story Sweep (2026-06-25)
 
-> **2026-07-18 reconciliation:** this is a historical sweep of the application
+> **2026-07-20 release-coverage update:** this remains a historical June sweep.
+> The 2026-07-19 quality seal now maps 683 canonical features, 4,917 cases,
+> 4,638 executed automation nodes, 710 controls, 173 AST handler rows, and 17
+> processes; its browser set records 165 passing nodes across 14 specs without
+> retry. Production files in `f4c790f4` are newer, five routed concepts still
+> lack dedicated E2E, and 1,207 scenarios remain Designed. Use
+> [APPLICATION_SURFACE_MATRIX_2026-07-20.csv](APPLICATION_SURFACE_MATRIX_2026-07-20.csv),
+> L23/L27, and
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md)
+> for current release coverage.
+
+> **2026-07-18 reconciliation — historical baseline:** this is a historical sweep of the application
 > as it existed in June, not proof of every current feature. The canonical CSV
 > has since grown to 355 historical Pass rows, while the production export now
 > has 18 page endpoints and newer Portfolio Lab, Decisions/IC Book, Sponsors,
 > RV, analysis-context, and recovery flows that are not all represented by
-> dedicated current rows. Use
+> dedicated current rows. That reconciliation used
 > [APPLICATION_SURFACE_MATRIX_2026-07-18.csv](APPLICATION_SURFACE_MATRIX_2026-07-18.csv),
 > L23/L27, and
 > [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md)

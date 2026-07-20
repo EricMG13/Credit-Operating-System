@@ -2825,3 +2825,150 @@ layout stabilization warrant similarly bounded changes.
 Decision: proceed with the route-local Portfolio substitution and re-measure.
 Model and Command optimization remain gated on separate evidence and must not be
 declared complete from Portfolio results.
+
+## 2026-07-20 — Pre-deployment latest-state reconciliation critic pass
+
+Decision under review: promote the 19–20 July quality, browser, accessibility,
+capacity, and data-mode work into the operative pre-deployment plan without
+confusing a strong moving-worktree snapshot with an immutable release decision.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-676 | Release-integrity reviewer | The quality tracker reports 98% confidence, 683/683 features with direct automation, and zero open defects, but the application commit `f4c790f4` contains production files newer than the workbook seal. Treating the workbook as current release evidence would approve bytes it did not observe. | Critical | Resolved in plan design | Preserve the workbook as a dated 2026-07-19 evidence seal. The application tree is now commit-pinned, but the operative verdict remains NO-GO until H0 creates the canonical image/config manifest and L23/L27 regenerate the inventories and browser evidence against its digest. |
+| RT-2026-07-20-677 | Test-governance reviewer | “Direct automation” can mean one exact assertion while 1,207 scenario rows remain Designed and 388 rely on suite evidence; it is not proof that every control succeeds, persists, fails safely, and recovers. | Critical | Resolved in evidence wording | Report the complete scenario-status distribution, keep source/control inventory separate from executed effect coverage, and require the missing route journeys plus current three-browser no-retry run before closing PD-02/PD-03. |
+| RT-2026-07-20-678 | Accessibility reviewer | The prior 36-cell route matrix was clean, but the current export now has two serious target-size nodes and two narrow-layout failures. Carrying forward the older clean status would conceal a release regression. | Critical | Confirmed blocker | Archive `axe-2026-07-20.json`; add PD-10; require zero axe nodes, scan errors, clipped controls, and layout failures at desktop, 390px, coarse pointer, reduced motion, and native 200% zoom on the frozen candidate. |
+| RT-2026-07-20-679 | Capacity reviewer | Three successful 300-user Postgres/two-worker repetitions after the middleware/pool fix are strong headroom evidence, but they used a dirty local topology, offline providers, 30 issuers, and did not prove the target image, storage, authenticated heavy-job burst, or host recovery. | High | Resolved in scope | Credit the result as fault-remediation evidence and strong support that 15 mixed users are below the measured read-path knee. Keep PD-07 open for the immutable target’s 15-principal heavy-operation/fault run and host telemetry. |
+| RT-2026-07-20-680 | Code-health reviewer | The refreshed dependency walk still identifies 17 runtime-unreachable frontend paths, including large duplicate RV surfaces and a newly test-only color policy module; deleting them mechanically could remove framework/dynamic seams, while retaining them without owners invites fixes in code users never execute. | High | Confirmed blocker | Keep all 17 as candidates only. L24 requires owner-by-owner remove/restore/retained-support disposition and a post-disposition lint/type/unit/build/browser rerun. |
+| RT-2026-07-20-681 | Data-governance reviewer | The new LIVE/REFERENCE controls improve authority disclosure but do not change custody: source bytes live in the vault, structured work product in Postgres, transient drafts in browser storage, and logs/backups in operator stores. | Critical | Resolved in storage wording; target control open | Retain the record-class custody matrix and prohibit “all data is in the vault.” PD-08 remains non-waivable until target encryption, retention/legal hold, paired backup freshness, alerting, and remote-only restore are evidenced. |
+| RT-2026-07-20-682 | Recovery reviewer | Shared root/global error components and unit tests can be a valid alternative to eighteen bespoke boundaries, but six segment boundaries plus component tests do not prove that route failures preserve issuer/context/draft state in a real browser. | High | Confirmed blocker | Reframe PD-05 around deliberate boundary equivalence rather than raw boundary count. Close only with injected browser failures, preserved analyst context, named failed operation, and successful retry across every route class. |
+| RT-2026-07-20-683 | Inventory reviewer | The 173-handler workbook count is broader than the older 137-route GitNexus map because aliases and current uncommitted handlers are represented differently. Publishing one number without method/alias semantics would create false drift. | High | Resolved in canonical-inventory rule | Use the current AST-derived tracker as the release inventory, retain method and trailing-slash aliases as distinct handler rows, and regenerate GitNexus/route parity after the candidate is frozen; explain count semantics in the closure report. |
+
+Decision: update the plan and audit records, but retain **NO-GO**. The 19 July
+E2E and 300-user results close historical defects on their tested snapshots;
+the commit-pinned current application is stronger than the earlier moving tree,
+but the current accessibility, target-host, data-custody, canonical-image, and
+release-provenance gates remain open.
+
+## 2026-07-20 — Report deliverable quality-restoration critic pass
+
+Decision under review: restore the pre-`f4c790f4` filed-document density in
+Report Studio preview without changing report truth, workflow chrome, or any
+non-report surface.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-684 | Typography reviewer | Blindly shrinking all report text would recreate the older density but make editing and printed exports unreadable. | High | Resolve by mode separation | Apply the historical compact scale only to non-editing screen preview; retain the existing proofing/edit and print floors. |
+| RT-2026-07-20-685 | Document-integrity reviewer | A visual rollback could also remove authority, freshness, evidence, immutable-section, or watermark behavior added after the older captures. | Critical | Resolve by CSS-only restoration | Change only `.rd-*` presentation rules; retain current JSX, data builders, authority blocks, citations, and export gates. |
+| RT-2026-07-20-686 | Table reviewer | The enlarged scale causes the transaction table to wrap into scan-hostile fragments, but aggressive fixed widths could truncate issuer or instrument text. | High | Resolve through historical scale | Restore the proven prior font ratios and column spacing without adding clipping, ellipsis, or hard column widths. |
+| RT-2026-07-20-687 | Accessibility reviewer | Compact visible ink can reduce citation and edit-control targets below the keyboard/touch contract. | Critical | Resolve by preserving controls | Keep counter-scaled 24px citation/revert hit areas and focus treatment unchanged; only inner document type changes. |
+| RT-2026-07-20-688 | Print reviewer | Screen improvements can silently degrade PDF pagination or print sizes because the same `.rd-*` selectors feed the print portal. | Critical | Resolve by screen scoping | Scope the historical scale to `@media screen` and `.rd-paper:not(.rd-editing)`; leave print-root overrides intact and verify generated pagination. |
+| RT-2026-07-20-689 | Scope reviewer | Editing shared shell, Report Studio controls, builders, or other surfaces would exceed the user's explicit report-only boundary. | Critical | Resolve by selector boundary | Touch only the report document CSS plus report-specific tests/evidence; do not change page composition, navigation, data, or workflow actions. |
+
+Decision: proceed with a non-editing screen-preview type restoration. Reopen if
+any report data, authority label, citation target, print floor, editor behavior,
+or non-report surface changes.
+
+## 2026-07-20 — Earnings Update analytical-density critic pass
+
+Decision under review: expand the Earnings Update deliverable to an eight-quarter
+operating dashboard, LTM analyst-model comparison, and rolling-LTM leverage view
+without changing another report or any Report Studio workflow behavior.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-690 | Credit analyst | A denser top sheet can present quarterly and LTM figures as comparable when their bases differ. | Critical | Resolve with explicit bases | Put quarter, QoQ, YoY, LTM, and LTM YoY in named columns; reserve basis-point deltas for margin rows and multiple deltas for leverage/coverage. |
+| RT-2026-07-20-691 | Model-governance reviewer | Reusing the existing quarterly saved-base variance would continue the false implication that the analyst model is a quarter model. | Critical | Resolve with LTM-only comparison | Replace the variance section with a clearly titled saved-analyst-LTM versus actual-LTM table and state the as-of period in both columns. |
+| RT-2026-07-20-692 | Data-truth reviewer | Eight leverage points cannot be manufactured when the rolling-LTM calculation begins only after four normalized quarters. | Critical | Resolve by honest availability | Render the six available rolling-LTM periods (Dec-24 through Mar-26), disclose why earlier periods are absent, and never backfill invented leverage. |
+| RT-2026-07-20-693 | Visualization reviewer | Four leverage/coverage lines with no point values are hard to read; adding labels can create collisions and illegible ink. | High | Resolve with report-scale chart geometry | Use one shared scale, distinct signal colors, period-aligned series, visible formatted point values, a text legend, and a taller chart region. |
+| RT-2026-07-20-694 | Accessibility reviewer | A long-form equivalent table forces screen-reader users to reconstruct each period and conflicts with the visual comparison. | Critical | Resolve with opt-in transpose | Add an opt-in report-chart table orientation that renders metric rows and period column headers; leave every existing chart table unchanged. |
+| RT-2026-07-20-695 | Scope reviewer | A shared visualization rewrite could alter other deliverables despite the report-only request. | Critical | Resolve by additive flags and exact tests | Gate point labels and transposed tables behind new chart-section flags used only by Earnings Update; retain all existing defaults and add non-regression assertions. |
+
+Decision: proceed with the Earnings Update-only data contract and additive chart
+flags. Reopen if another deliverable changes, unavailable leverage is synthesized,
+or the analyst comparison returns to quarterly basis.
+
+## 2026-07-20 — Committee-deliverable editorial refactor critic pass
+
+Decision under review: give each Reference-mode committee paper one distinct
+decision job, shorten the IC memo, turn Monitoring into an exceptions report,
+add governed scenario/trade/evidence papers from existing data, and preserve the
+Report Studio shell unchanged.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-696 | Committee-chair reviewer | Removing repeated diligence material can make the memo shorter while also deleting the facts needed to challenge the recommendation. | Critical | Resolve through layered papers | Lead with decision, sizing, contested claims, downside, and approval conditions; retain exact supporting facts in named scenario, covenant, earnings, evidence, and model papers rather than deleting them from the packet. |
+| RT-2026-07-20-697 | Truth-contract reviewer | A polished Monitoring exceptions sheet can imply live observations even though the report builder contains seeded reference facts and no observation service. | Critical | Resolve with explicit reference/as-of language | Label every observation as a reference observation with an as-of date, distinguish observed, pending, and unresolved states, and never describe the paper as a live feed or successful current check. |
+| RT-2026-07-20-698 | Evidence-governance reviewer | Adding evidence counts or a QA certificate can falsely imply claim-level coverage that the current report DSL cannot compute. | Critical | Resolve through bounded claims | Publish the document inventory, registered evidence IDs, open QA item, and explicit limitation that claim-level coverage is not computed; do not convert counts into a pass state. |
+| RT-2026-07-20-699 | Analytical-visualization reviewer | Adding charts to every paper would replace one form of ceremony with another and can obscure exact legal or financial values. | High | Resolve by medium discipline | Use charts only for time paths, capacity composition, recovery erosion, or scenario comparison; keep transaction terms, exact clauses, triggers, and the raw model tabular. |
+| RT-2026-07-20-700 | Consumer-compatibility reviewer | Renaming or adding deliverables can break id-based selection, first-report fallback, frozen previews, or Pipeline/Deep-Dive consumers. | Critical | Resolve with stable identifiers and dispatch tests | Preserve all six existing ids and fallback order, append new ids, keep the shared `Report`/`Section` contract unchanged, and assert exact dispatch for every returned paper. |
+| RT-2026-07-20-701 | Earnings-basis reviewer | Separating quarterly and LTM credit data can accidentally remove the eight-quarter operating detail or recreate unavailable historical leverage. | Critical | Resolve with explicit bases and honest periods | Keep the transposed eight-quarter table, move leverage/coverage into named rolling-LTM regions, show only the six available periods, and retain the saved-analyst LTM comparison. |
+| RT-2026-07-20-702 | Scope/parallel-WIP reviewer | Shared report CSS, renderer changes, or broad cleanup could alter Report Studio chrome or overwrite the earlier Earnings work and unrelated QA WIP. | Critical | Resolve by builder-local implementation | Reuse the existing report DSL and lightweight chart primitives; edit the builder and focused tests only unless rendered evidence proves a report-paper defect, and inspect scoped diffs without staging unrelated files. |
+
+Decision: proceed with stable report ids, explicit Reference observation
+language, bounded evidence claims, chart/table/narrative discipline, and
+builder-level regression tests. Reopen if the shell changes, a seeded fact is
+described as live, evidence counts are presented as coverage, or a supporting
+fact becomes unreachable from the committee packet.
+
+## 2026-07-20 — Snapshot restoration and consolidated IC memo critic pass
+
+Decision under review: restore the pre-editorial Credit Snapshot as page one,
+retain the newer decision view as page two, and expand the IC Credit Memo into a
+consolidated Deep-Dive record with a deliberately short historical/LTM/scenario
+model.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-703 | Portfolio-manager reviewer | Putting the original binder-style snapshot first can bury the action and make page two feel like an appendix rather than the decision. | High | Accepted by explicit user direction with navigation guard | Restore the original page verbatim in structure, label the newer page `Decision View`, and retain its decision-at-a-glance opening so the two-page document has distinct reference and action layers. |
+| RT-2026-07-20-704 | Committee-chair reviewer | A consolidated memo can become a document dump that repeats every supporting paper without a committee narrative. | Critical | Resolve with six named decision stages | Organize the memo as Decision, Business & Earnings, Risk & Challenge, Capital & Documentation, Compact Model, and Committee Controls; include only the evidence needed to challenge or authorize the recommendation. |
+| RT-2026-07-20-705 | Model-governance reviewer | Calling the model short while carrying the full raw appendix would contradict the requested deliverable and recreate the earlier overload. | Critical | Resolve with a bounded period-and-line contract | Include FY22A–FY25A, latest LTM, FY26e–FY28e base, and FY26e–FY28e downside across a compact set of operating, cash-flow, balance-sheet, leverage, and coverage rows; leave the full model in Model Appendix. |
+| RT-2026-07-20-706 | Truth-contract reviewer | A compact table can imply that historical, LTM, and forecast columns share the same status or source basis. | Critical | Resolve with visible period groups and basis note | Mark Historic, Latest LTM, Base case, and Downside case column groups, use actual/estimate suffixes, and disclose that Reference inputs are seeded unless a persisted CP-1 anchor is supplied. |
+| RT-2026-07-20-707 | Renderer reviewer | Adding page groups to Credit Snapshot would make the shared paged masthead falsely label it `IC CREDIT MEMO`. | High | Resolve with report-derived masthead identity | Render the paged masthead from the actual report title; add a renderer regression assertion so Snapshot and Memo keep their own identities. |
+| RT-2026-07-20-708 | Scope/parallel-WIP reviewer | Restoring removed helpers or touching shared paper rendering can collide with the larger dirty tree and alter unrelated surfaces. | Critical | Resolve with narrow symbol restoration | Reintroduce only the report-paper helpers required by Snapshot/Memo, change only the paged-paper title string in the renderer, update focused tests, and do not stage or commit unrelated work. |
+
+Decision: proceed with the user-directed two-page Snapshot and six-stage IC
+Memo. Reopen if the current decision view is lost, the compact model omits any
+requested basis, the full raw model returns to the memo, or another Report
+Studio surface changes.
+
+## 2026-07-20 — Snapshot recommendation and analyst-thesis custody critic pass
+
+Decision under review: apply the supplied five-point recommendation guidance to
+Credit Snapshot only, separate the system-generated thesis from the analyst's
+authored thesis, and make a manual thesis version durable in both Postgres and
+the configured analyst vault before it appears as saved report composition.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-709 | Methodology reviewer | The supplied image defines three ordinal scales but no formula for combining fundamentals and valuation. Inventing an average or lookup rule would turn visual guidance into an unsupported model. | Critical | Resolve without inference | Present the three scales exactly as guidance, state that the recommendation is a joint analyst assessment, and do not calculate or imply a mechanical mapping. |
+| RT-2026-07-20-710 | Deliverable-scope reviewer | `companySummarySections` also feeds the IC Memo, so a shared edit could silently alter a deliverable the user did not ask to change. | Critical | Resolve with a Snapshot-only option | Gate the COAS recommendation profile and methodology table behind an explicit Snapshot option; keep the Memo's existing company summary unchanged. |
+| RT-2026-07-20-711 | Authorship reviewer | Renaming the generated paragraph while leaving it in the editable Investment Thesis field would continue to blur system analysis with the analyst's own view. | Critical | Resolve with two fields | Move the existing generated narrative to `COAS THESIS` immediately above Credit Summary; keep `INVESTMENT THESIS` in its prior location with an empty, clearly authorable body and unchanged catalysts block. |
+| RT-2026-07-20-712 | Data-custody reviewer | Report-draft autosave is a Postgres composition record, not a vault write. Claiming that an inline edit is vaulted merely because it appears after reload would be false. | Critical | Resolve with vault-gated manual versions | Route non-empty analyst-thesis edits through the existing manual thesis-version API, require a configured writable vault, write an append-only Analyst-Memos note, then accept the report overlay only after that operation succeeds. |
+| RT-2026-07-20-713 | Workflow reviewer | Making the shared `create_thesis_version` helper always require a vault would break decision and committee system events that create governed thesis history without direct user authorship. | Critical | Resolve at the public manual route | Keep the shared helper DB-only. Add vault custody only to user-authored `POST /api/thesis` manual submissions so automated decision/alert paths retain their current contract. |
+| RT-2026-07-20-714 | Failure-consistency reviewer | A filesystem write and database transaction cannot be committed atomically; a late DB commit failure can leave an orphan note, while accepting the report edit before the vault succeeds can leave a false saved state. | High | Mitigate and fail closed in UI | Check configuration before creating the row, write after the version is flushed, fail the request if the vault write fails, and only add the Report Studio edit after a successful response. Preserve append-only notes for reconciliation rather than risk deleting a durable analyst record after an ambiguous commit failure. |
+| RT-2026-07-20-715 | Accessibility reviewer | A truly empty contenteditable paragraph can collapse to an invisible target, so the requested blank field may not be discoverable by keyboard or sighted users. | High | Resolve with non-persisted placeholder | Add an accessible placeholder and minimum editable area in edit mode; keep the persisted base value empty so placeholder copy never enters the report or vault. |
+| RT-2026-07-20-716 | Reference-truth reviewer | Reference mode can tempt the UI to simulate a successful vault save even when its fixture issuer is absent from the live database. | Critical | Resolve by using the real API boundary | Never synthesize success. Submit against the report's issuer id and restore the blank field with an explicit failure message if tenancy, issuer existence, or vault configuration rejects it. |
+
+Decision: proceed with a Snapshot-only methodology, explicit system-versus-
+analyst thesis fields, and fail-closed manual thesis custody. Reopen if any
+combination formula is invented, the Memo changes, a blank placeholder is
+persisted, or Report Studio claims success before both the thesis version and
+vault note have been accepted.
+
+## 2026-07-20 — Snapshot thesis hierarchy refinement critic pass
+
+Decision under review: leave the analyst-authored Investment Thesis as the only
+thesis in its authoring area, reserve visible writing space above catalysts, and
+move the generated COAS Thesis into the left summary column directly above the
+Credit Summary.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-717 | Authorship reviewer | Moving the analyst field into a nested column would change its stable edit path and could bypass the existing vault-backed save contract. | Critical | Resolve by keeping it top-level | Keep `issuer-investment-thesis` as the same top-level section; move only the generated COAS paragraph into the summary column. |
+| RT-2026-07-20-718 | Committee-document reviewer | Moving Credit Summary lower without a clear local hierarchy could separate the section from the system conclusion it is meant to substantiate. | High | Resolve through adjacency | Put COAS Thesis first and Credit Summary second in the same left column, while Financials remains the parallel right column. |
+| RT-2026-07-20-719 | Report-renderer reviewer | A blank thesis value collapses in preview, so the document can satisfy the data contract while still providing no visible writing area. | High | Resolve with field-scoped space | Add a report-field marker and reserve 3.25em only for the analyst thesis body; do not persist filler text or change other report sections. |
+| RT-2026-07-20-720 | Scope reviewer | Shared report styling could alter another deliverable or Report Studio chrome. | Critical | Resolve with an exact selector | Scope the minimum height to `[data-report-field="issuer-investment-thesis"]`; keep all shell, workflow, and other deliverable composition unchanged. |
+
+Decision: proceed with the field-scoped paper spacing and Snapshot-only section
+move. Reopen if the analyst edit path changes, COAS Thesis remains in the
+authoring area, or another deliverable's layout changes.

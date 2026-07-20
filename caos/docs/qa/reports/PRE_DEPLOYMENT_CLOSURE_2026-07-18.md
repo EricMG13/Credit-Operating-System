@@ -1,5 +1,10 @@
 # CAOS — Final Pre-Deployment Closure Audit
 
+> **Superseded for current status:** this is the immutable historical record of
+> the 2026-07-18 snapshot. The operative verdict, current counts, and PD-01…10
+> ledger are in
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
+
 **Audit date:** 2026-07-18  
 **Code observed:** `codex/112@040f298e44b0` plus pre-existing and concurrent
 uncommitted frontend WIP; the worktree changed during the audit  

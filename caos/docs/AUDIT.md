@@ -3,11 +3,11 @@
 **Audit date:** 2026-06-16 (full re-audit after the EDGAR engine stack (#13),
 the DM/loans re-model (#14), and the retention / N+1 / async / budgeting work;
 supersedes the 2026-06-14 pass).
-**Last reconciled:** 2026-07-18 — final pre-deployment closure audit across
+**Last reconciled:** 2026-07-20 — consolidated pre-deployment audit across
 the routed UI, API/platform services, feature/control wiring, code
 reachability, audit loops, 15-user throughput, persistence, vault, backup,
 and security posture. See
-[PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](qa/reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
+[PRE_DEPLOYMENT_UPDATE_2026-07-20.md](qa/reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
 **Scope:** `caos/` — FastAPI server, Next.js frontend, config, CI, deploy/backup,
 and tests. The `Modular OS/` corpus is
 analytical-methodology prose, not code, and is out of scope.
@@ -19,23 +19,34 @@ analytical-methodology prose, not code, and is out of scope.
 
 ## Health snapshot
 
-Frontend: eslint ✓ · `tsc --noEmit` (strict) ✓ · production static export of
-**18 page endpoints** ✓ · **1,438 Vitest tests / 234 files ✓**. Server:
-**2,405 pytest passed / 15 skipped** in the restricted lane; the seven
-socket-denied ClamAV cases passed on an unrestricted rerun, yielding an
-effective **2,412 passed / 15 skipped**. Rendered axe/layout: **36
-route/viewport scans, zero findings**. Fresh 15-user local load: **2,913
-requests, zero failures, p95 7 ms**; the dated production-like Postgres/
-two-worker run remains **2,584 requests, zero failures, p95 89 ms**.
+Application snapshot: `codex/112@f4c790f4`. Frontend: eslint ✓ · strict
+`tsc --noEmit` ✓ · production export of **18 business page endpoints** ✓ ·
+**1,833 Vitest tests / 263 files ✓** (one freshness-transition case required
+the configured retry). Server: **2,594 passed / 15 skipped** in the restricted
+aggregate; the seven socket-denied ClamAV cases are covered by a nine-case
+unrestricted AV rerun, giving effective current evidence of **2,601 passed /
+15 skipped**. Backend Vulture is clean at ≥80% confidence; the refreshed
+frontend dependency walk has **17 reachability candidates** requiring owner
+disposition.
 
-The feature tracker still contains **355/355 historical Pass** rows, but it
-covers 14 concepts and is not a whole-application release manifest: newer
-Portfolio Lab, Decisions/IC Book, Sponsors, and several current RV/context
-flows need dedicated rows. The 2026-07-18 three-browser inventory is
-**125 passed / 15 failed / 1 flaky**, so dynamic control wiring is not green.
-The current checkout is also dirty and cannot be treated as an immutable RC.
-Parallel frontend WIP changed during this audit, so the command results are
-diagnostic snapshots rather than evidence from one stable candidate.
+The quality workbook sealed on 2026-07-19 maps **683 canonical features**,
+**4,917 cases**, **4,638 executed automation nodes**, **710 UI controls**,
+**173 AST handler rows**, and **17 business processes**. All 683 features link
+to direct automation, but the status mix is **3,060 direct passes**, **388
+suite-evidence**, **1,207 Designed**, and **262 N/A**. Its three-browser run
+sealed **165 passed nodes across 14 specs without retry**, closing the older
+125/15/1 defects for that snapshot. Production files in `f4c790f4` are newer,
+so the seal is not current-candidate release proof; five routed business
+concepts also lack dedicated E2E specs.
+
+Current rendered evidence is **red**: the 18-route × desktop/390px real-axe
+matrix has no scan errors but reports two serious target-size nodes and two
+narrow-layout failures. Capacity evidence is much stronger: after a measured
+320-user latency fault and middleware/pool remediation, three 300-user
+Postgres/two-worker repetitions completed with zero failures and aggregate
+p95 46/120/35 ms. This strongly supports that 15 mixed users are below the
+measured read-path knee, but the exact image/host's authenticated heavy-work,
+provider-fault, custody, and recovery legs remain open.
 CI ([.github/workflows/ci.yml](../../.github/workflows/ci.yml)) runs lint + tsc +
 vitest + build on the frontend job, pytest on the server job, and a Docker image
 build — so the tests and the deploy image are gated. No committed secrets/DB/vault
@@ -43,12 +54,14 @@ build — so the tests and the deploy image are gated. No committed secrets/DB/v
 no `eval`/`exec`, no `shell=True` (except the operator-configured markitdown spike,
 list-form), Alembic chain linear, `tsconfig` strict.
 
-**Verdict:** a well-built codebase with no newly confirmed P0/P1 defect in the
-historical findings register, but **NO-GO for pre-deployment release today**.
-PD-01…PD-09 in [PRE_DEPLOYMENT_PLAN.md](PRE_DEPLOYMENT_PLAN.md) block an
-immutable candidate: current E2E contracts, surface/tracker parity, dead-code
-disposition, recovery boundaries, live/reference seams, target capacity,
-encryption/off-host recovery, and evidence-to-artifact integrity.
+**Verdict:** a well-built, substantially mapped codebase with no newly
+confirmed security/engine P0 in this reconciliation, but **NO-GO for
+pre-deployment release today**. PD-01…PD-10 in
+[PRE_DEPLOYMENT_PLAN.md](PRE_DEPLOYMENT_PLAN.md) block release: canonical image
+provenance, current no-retry browser proof, candidate surface/scenario parity,
+17 code-relevance dispositions, recovery equivalence, live/reference seam
+truth, target capacity, encryption/governance/off-host recovery,
+evidence-to-artifact integrity, and the current accessibility/layout failures.
 
 > **Status (as of the shipped engine):** the engine now wires **21 implemented
 > modules** (+ 4 spec-only) per [`registry.py`](../server/engine/registry.py) — the
@@ -80,7 +93,7 @@ CP-MON are explicit Phase-2 roadmap constraints.
 | DATA-1 | P3 | Storage | `metric_facts` run-derived rows accumulating unbounded per run. | **Resolved** — on run completion the runner deletes the issuer's older `provenance="run"` rows ([runner.py](../server/engine/runner.py) "Retention (DATA-1)"); seed facts untouched; covered by [test_retention.py](../tests/server/test_retention.py). |
 | PERF-1 | P3 | Query | Hybrid `execute()` issued one `retrieve_corpus` per ranked issuer (N+1). | **Resolved** — `retrieve_corpus_by_issuer` ([retrieval.py](../server/retrieval.py)) does one query + one BM25 pass for the best chunk per issuer ([nlquery.py](../server/nlquery.py)). P4-2 is also merged: [runner.py](../server/engine/runner.py) builds one issuer BM25 index per run and reuses `rank_with_index`; parity is pinned in [test_engine.py](../tests/server/test_engine.py). |
 | PERF-2 | P3 | Bundle | `/deepdive` first-load JS was **643 kB** and the largest route before code splitting. | **Resolved** — heavy module tabs, seeded step outputs, chat, and evidence overlays load through `next/dynamic` ([deepdive/page.tsx](../frontend/src/app/deepdive/page.tsx)). Fresh 2026-07-11 production export: the 229,048-byte seeded payload is an async chunk absent from initial HTML; `/deepdive` initial scripts total 350,256 gzip bytes versus `/reports` at 354,855, so Deep-Dive is no longer the largest route. |
-| F-1 | P2 | Tests | RTL component coverage was thin. | **Resolved** — RTL render/interaction tests now cover `EdgarImport`, `evidence-sync`, `primitives`, `issuer-chat-context`, **`NlQuery`** ([NlQuery.test.tsx](../frontend/src/components/command/NlQuery.test.tsx)), **`CitationViewer`**, and **`ScenarioPanel`** with mocked API / offline coverage. |
+| F-1 | P2 | Tests | RTL component coverage was thin. | **Resolved** — RTL render/interaction tests now cover `EdgarImport`, `evidence-sync`, `primitives`, `issuer-chat-context`, the historical **`NlQuery`** surface, **`CitationViewer`**, and **`ScenarioPanel`** with mocked API / offline coverage. The current Query workbench has its own route/component interaction suites. |
 | DOC-1 | P3 | Docs/Deploy | **Stale "Databricks" references** survive the self-hosted-Docker pivot ([LAUNCH_PHASE1](LAUNCH_PHASE1.md)): [retrieval.py](../server/retrieval.py) docstring (Databricks Vector Search), [routes/auth.py](../server/routes/auth.py) + [identity.py](../server/identity.py) + SECURITY.md §1 (Databricks-Apps auth model). **Functionally sound** — `ENVIRONMENT=production` is fixed in the stack so the identity gate still fails closed, and Caddy strips client `X-Forwarded-*` (both verified in LAUNCH_PHASE1 §5) — but `DATABRICKS_APP_PORT` was still read as a vestigial no-op trigger. | **Resolved** — retrieval/auth docstrings + SECURITY §1 refreshed; the vestigial `DATABRICKS_APP_PORT` branch removed — `config.is_deployed` / identity.py now key on `ENVIRONMENT != development` only. |
 | S-4 | P3 | Authz | No per-issuer / row-level authz — any authenticated analyst can read any issuer; `/query/*` + `/scenario` widen this cross-issuer surface. | **Enforcement scaffold shipped (opt-in, default off)** — [tenancy.py](../server/tenancy.py) adds `require_issuer` / `scope_issuers` / `require_run_access` / `block_if_tenancy_unscoped` wired across the issuer-derived spine; `CAOS_TENANCY_ENABLED` (default **off**) gates it, so default behaviour is unchanged single-team. Cross-issuer aggregate lanes fail closed (501) under tenancy; `team_id` on issuers/analysts (migration 0037). `test_tenancy` pins the isolation. Documented [SECURITY.md](SECURITY.md) §2; flip on when multi-user, entitlement-restricted (Bloomberg/MNPI) data lands (Phase-2 entry criterion). |
 | F-2 | P3 | Types | Localized `any` was confined to [reports/model.ts](../frontend/src/lib/reports/model.ts) + whole-file `eslint-disable` on the large mock-data files. | **Resolved** — model finalizers use narrow `ModelCol` structural types; blanket disables were removed from the four Deep-Dive fixture files (verified: no `eslint-disable` remains in either file). Strict TypeScript, full eslint, and 40 focused model/scenario tests pass. |

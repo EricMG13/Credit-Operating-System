@@ -102,7 +102,14 @@ async def test_decision_freezes_authoritative_snapshot_and_appends_thesis(client
 
 
 @pytest.mark.asyncio
-async def test_manual_thesis_prediction_can_be_realized(client):
+async def test_manual_thesis_prediction_is_vaulted_and_can_be_realized(client, monkeypatch, tmp_path):
+    import config
+    import vault_export
+
+    patched = config.get_settings().model_copy(update={"vault_export_dir": str(tmp_path)})
+    monkeypatch.setattr(config, "get_settings", lambda: patched)
+    vault_export._last_vault_mtime = 0.0
+    vault_export._last_vault_file_count = 0
     issuer_id, _ = await _make_run(client, "Prediction Co", "Committee Ready")
     response = client.post("/api/thesis", json={
         "issuer_id": issuer_id,
@@ -111,7 +118,33 @@ async def test_manual_thesis_prediction_can_be_realized(client):
         "predictions": [{"metric": "net_leverage", "horizon": "2026-12-31", "predicted": 4.5}],
     })
     assert response.status_code == 201, response.text
+    version = response.json()
+    assert version["thesis_md"] == "Leverage should decline after the seasonal working-capital release."
+    notes = list((tmp_path / vault_export.MEMOS_DIR).glob("*.md"))
+    assert len(notes) == 1
+    note = notes[0].read_text(encoding="utf-8")
+    assert "[[Prediction Co]]" in note
+    assert version["thesis_md"] in note
+    assert f'"thesis-version:{version["id"]}"' in note
+    profile_versions = client.get("/api/thesis", params={"issuer_id": issuer_id}).json()
+    assert profile_versions[0]["id"] == version["id"]
     prediction = response.json()["predictions"][0]
     realized = client.patch(f"/api/thesis/predictions/{prediction['id']}", json={"realized": 4.8})
     assert realized.status_code == 200
     assert realized.json()["realized"] == 4.8
+
+
+@pytest.mark.asyncio
+async def test_manual_thesis_fails_closed_without_a_vault(client, monkeypatch):
+    import config
+
+    patched = config.get_settings().model_copy(update={"vault_export_dir": ""})
+    monkeypatch.setattr(config, "get_settings", lambda: patched)
+    issuer_id, _ = await _make_run(client, "No Thesis Vault Co", "Committee Ready")
+    response = client.post("/api/thesis", json={
+        "issuer_id": issuer_id,
+        "thesis_md": "This must not become a database-only saved state.",
+    })
+    assert response.status_code == 503
+    assert "no thesis version was saved" in response.json()["detail"].lower()
+    assert client.get("/api/thesis", params={"issuer_id": issuer_id}).json() == []

@@ -110,7 +110,7 @@ describe("ReportDoc period groups", () => {
     );
 
     expect(container.querySelector(".rd-paper")?.getAttribute("style")).toContain("rgb(255, 255, 255)");
-    expect(container.querySelectorAll(".rd-wm span")).toHaveLength(3);
+    expect(container.querySelectorAll(".rd-wm text")).toHaveLength(3);
     expect(screen.getByTestId("authority-block").textContent).toContain("run-live");
     // The masthead identity must come from the real run, never a hardcoded
     // "RUN #2641" — every deliverable used to print the same fixture run/date
@@ -159,6 +159,35 @@ describe("ReportDoc period groups", () => {
     expect(screen.getByText("no registered evidence id")).toBeTruthy();
   });
 
+  it("keeps an empty analyst thesis discoverable without persisting placeholder copy", () => {
+    const onEdit = vi.fn();
+    const { container, rerender } = render(
+      <ReportDoc
+        rep={report({ sections: [{
+          t: "text",
+          title: "INVESTMENT THESIS",
+          body: "",
+          placeholder: "Write your investment thesis…",
+          fieldId: "issuer-investment-thesis",
+        }] })}
+        onEdit={onEdit}
+      />,
+    );
+    const field = screen.getByRole("textbox", { name: "Edit report field s0.body" });
+    expect(field.textContent).toBe("");
+    expect(field.getAttribute("data-placeholder")).toBe("Write your investment thesis…");
+    expect(field.getAttribute("aria-placeholder")).toBe("Write your investment thesis…");
+    expect(field.closest('[data-report-field="issuer-investment-thesis"]')).toBeTruthy();
+    expect(container.textContent).not.toContain("Write your investment thesis…");
+
+    field.innerText = "  Analyst-owned downside view.  ";
+    fireEvent.blur(field);
+    expect(onEdit).toHaveBeenCalledWith("s0.body", "  Analyst-owned downside view.  ");
+
+    rerender(<ReportDoc rep={report({ sections: [{ t: "text", title: "INVESTMENT THESIS", body: "" }] })} />);
+    expect(screen.queryByText("Write your investment thesis…")).toBeNull();
+  });
+
   it("groups paged sections, omits requested content, prints citations, and shows the defensive authority note", () => {
     const paged = report({
       watermark: "IC",
@@ -182,6 +211,7 @@ describe("ReportDoc period groups", () => {
     );
 
     expect(container.querySelectorAll(".rd-page-container")).toHaveLength(3);
+    expect(screen.getByText(/CAOS · CREDIT MEMO · SUMMARY/)).toBeTruthy();
     expect(screen.getByText(/SUMMARY/)).toBeTruthy();
     expect(screen.getByText(/DETAILS/)).toBeTruthy();
     expect(screen.getByText(/PAGE GROUP/)).toBeTruthy();

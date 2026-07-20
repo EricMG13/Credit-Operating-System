@@ -23,7 +23,19 @@ interface EditCtx {
 /* ---------- editable text leaf ---------- */
 // Cap per-field length so a stray large paste can't bloat the deliverable.
 const EDIT_MAX_LEN = 2000;
-function E({ p, v, ctx, className }: { p: string; v: string | number | null | undefined; ctx: EditCtx; className?: string }) {
+function E({
+  p,
+  v,
+  ctx,
+  className,
+  placeholder,
+}: {
+  p: string;
+  v: string | number | null | undefined;
+  ctx: EditCtx;
+  className?: string;
+  placeholder?: string;
+}) {
   const base = v == null ? "" : String(v);
   const text = ctx.edits && ctx.edits[p] != null ? ctx.edits[p] : base;
   const isModified = ctx.edits && ctx.edits[p] != null && ctx.edits[p] !== base;
@@ -41,6 +53,8 @@ function E({ p, v, ctx, className }: { p: string; v: string | number | null | un
       role="textbox"
       aria-label={`Edit report field ${p}`}
       aria-multiline="true"
+      aria-placeholder={placeholder}
+      data-placeholder={placeholder}
       spellCheck={false}
       onInput={(e) => {
         // Let native paste complete, then normalize any inserted rich markup
@@ -187,10 +201,10 @@ function RDSubhead({ p, value, ctx }: { p: string; value?: string; ctx: EditCtx 
 
 function RDText({ s, p, ctx }: { s: Extract<Section, { t: "text" }>; p: string; ctx: EditCtx }) {
   return (
-    <div className="rd-sec">
+    <div className="rd-sec" data-report-field={s.fieldId}>
       <RDHead p={p} title={s.title} ctx={ctx} />
       <RDSubhead p={p} value={s.subhead} ctx={ctx} />
-      <p className="rd-body"><E p={p + ".body"} v={s.body} ctx={ctx} /></p>
+      <p className="rd-body"><E p={p + ".body"} v={s.body} ctx={ctx} placeholder={s.placeholder} /></p>
       {s.label ? (
         <div className="rd-lblock">
           <span className="rd-lblock-l"><E p={p + ".label"} v={s.label} ctx={ctx} /> — </span>
@@ -380,7 +394,13 @@ function sectionEditContext(item: IndexedSection, props: ReportDocProps, state: 
 
 function ReportWatermark({ watermark }: { watermark: string | undefined }) {
   if (!watermark) return null;
-  return <div className="rd-wm" aria-hidden="true"><span>{watermark}</span><span>{watermark}</span><span>{watermark}</span></div>;
+  return <div className="rd-wm" aria-hidden="true">
+    <svg width="100%" height="100%" focusable="false">
+      <text x="50%" y="18%" textAnchor="middle">{watermark}</text>
+      <text x="50%" y="50%" textAnchor="middle">{watermark}</text>
+      <text x="50%" y="82%" textAnchor="middle">{watermark}</text>
+    </svg>
+  </div>;
 }
 
 function ReferenceAuthorityNote() {
@@ -419,7 +439,7 @@ function ReportColophon({ text }: { text: string }) {
 function PagedReportPage({ page, pageIndex, pages, props, state }: { page: ReportPage; pageIndex: number; pages: ReportPage[]; props: ReportDocProps; state: ReportRenderState }) {
   return <div className="rd-page-container border-b border-dashed border-caos-border/40 pb-6 mb-6 last:border-0 last:pb-0 last:mb-0">
     <div className="rd-mast">
-      <span className="rd-mast-brand"><span className="rd-mark">C</span><span>CAOS · IC CREDIT MEMO · {page.name.toUpperCase()}</span></span>
+      <span className="rd-mast-brand"><span className="rd-mark">C</span><span>CAOS · {props.rep.title.toUpperCase()} · {page.name.toUpperCase()}</span></span>
       <span className="rd-mast-meta">{state.mastRunLabel} · PAGE {pageIndex + 1} of {pages.length}</span>
     </div>
     {pageIndex === 0 ? <ReportTitle rep={props.rep} ctx={state.ctx} /> : null}

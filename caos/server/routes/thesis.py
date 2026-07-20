@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import asyncio
+from datetime import date, datetime, timezone
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,7 +12,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import Decision, Issuer, ThesisPrediction, ThesisVersion, get_db
+import vault_export
+from database import (
+    Decision,
+    Issuer,
+    ThesisPrediction,
+    ThesisVersion,
+    get_db,
+    register_rollback_cleanup,
+)
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity, get_write_identity
 from tenancy import require_issuer
@@ -113,6 +122,58 @@ async def _out(db: AsyncSession, row: ThesisVersion) -> ThesisVersionOut:
     )
 
 
+async def _vault_user_thesis(
+    db: AsyncSession,
+    row: ThesisVersion,
+    caller: CallerIdentity,
+    vault_dir: str,
+) -> None:
+    """Write one append-only analyst note and bind its issuer wikilink.
+
+    The route-owned database transaction is still open. If any work below
+    fails before commit, the registered cleanup removes only the new note; an
+    ambiguous commit-time failure retains it for reconciliation.
+    """
+    issuer = await db.get(Issuer, row.issuer_id)
+    require_issuer(caller, issuer)
+    assert issuer is not None  # narrowed by require_issuer
+    body, linked = vault_export.autolink_issuers(
+        f"{issuer.name}\n\n## Investment thesis\n\n{row.thesis_md}",
+        [(issuer.name, issuer.ticker)],
+    )
+    if issuer.name not in linked:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Investment Thesis could not be linked to the issuer vault record.",
+        )
+    subject = issuer.ticker or issuer.name
+    title = vault_export.memo_note_title(f"{subject} Investment Thesis V{row.version}")
+    markdown = vault_export.render_memo(
+        title,
+        "research",
+        caller.email,
+        f"thesis-version:{row.id}",
+        body,
+        date=datetime.now(timezone.utc).date().isoformat(),
+    )
+    try:
+        path = await asyncio.to_thread(vault_export.write_memo, vault_dir, title, markdown)
+    except OSError as exc:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Investment Thesis vault write failed; no thesis version was saved.",
+        ) from exc
+
+    register_rollback_cleanup(db, lambda: path.unlink(missing_ok=True))
+    try:
+        await vault_export.sync_analyst_memos(db)
+    except Exception as exc:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Investment Thesis vault link failed; no thesis version was saved.",
+        ) from exc
+
+
 @router.post("", response_model=ThesisVersionOut, status_code=status.HTTP_201_CREATED)
 async def create_thesis(
     body: ThesisVersionIn,
@@ -128,7 +189,20 @@ async def create_thesis(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Thesis rate limit reached — try again in a minute.",
         )
+    # Direct POSTs are analyst-authored regardless of the caller-supplied
+    # trigger label. System decision/committee events call
+    # ``create_thesis_version`` directly and retain their existing DB-only
+    # governed-history contract.
+    from config import get_settings
+
+    settings = get_settings()
+    if not settings.vault_export_dir:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Investment Thesis vault is not configured; no thesis version was saved.",
+        )
     row = await create_thesis_version(db, body, caller)
+    await _vault_user_thesis(db, row, caller, settings.vault_export_dir)
     return await _out(db, row)
 
 

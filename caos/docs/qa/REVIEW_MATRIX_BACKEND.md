@@ -1,5 +1,11 @@
 # Backend Review Matrix — caos/server
 
+> **2026-07-20 update:** current effective server evidence is **2,601 passed /
+> 15 skipped**; the bounded pool and raw-ASGI HTTP policy remediation is also
+> represented in the first-fault report. This matrix remains historical input;
+> current route/custody/capacity gates are in
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
+
 > **2026-07-18 release note:** this bootstrap matrix is historical audit input,
 > not a current readiness verdict. The effective current server suite is 2,412
 > passed / 15 skipped, but individual findings remain open until re-adjudicated

@@ -24,6 +24,7 @@ import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import {
+  createThesisVersion,
   getReportDraft,
   getReportVersion,
   getSavedModel,
@@ -32,6 +33,7 @@ import {
   previewReportVersion,
   publishReportVersion,
   saveReportDraft,
+  toErrorMessage,
   type ReportVersionDTO,
   type ReportVersionPreviewDTO,
 } from "@/lib/api";
@@ -285,6 +287,8 @@ function ReportStudioWorkspace({ issuerId, isReference }: { issuerId: string; is
   const draftRevisionRef = useRef<number | null>(null);
   const draftSaveGeneration = useRef(0);
   const draftSaveChain = useRef<Promise<void>>(Promise.resolve());
+  const thesisSaveGeneration = useRef(0);
+  const thesisSavesInFlight = useRef(new Set<string>());
   const draftWorkspaceScope = useRef(workspaceScope);
   draftWorkspaceScope.current = workspaceScope;
   const targetRunId = exactRunId ?? live.runId;
@@ -298,6 +302,8 @@ function ReportStudioWorkspace({ issuerId, isReference }: { issuerId: string; is
     setDraftRevision(null);
     draftRevisionRef.current = null;
     draftSaveGeneration.current += 1;
+    thesisSaveGeneration.current += 1;
+    thesisSavesInFlight.current.clear();
     setServerDraftReady(false);
     setPublishState("idle");
     setPublishMessage(null);
@@ -422,7 +428,11 @@ function ReportStudioWorkspace({ issuerId, isReference }: { issuerId: string; is
           draftRevisionRef.current = draft.revision;
           setDraftRevision(draft.revision);
           if (draftSaveGeneration.current === saveGeneration) {
-            setPublishMessage("Draft autosaved");
+            setPublishMessage((message) =>
+              message?.includes("saved to vault and issuer profile")
+                ? message
+                : "Draft autosaved"
+            );
           }
         } catch {
           if (
@@ -594,6 +604,47 @@ function ReportStudioWorkspace({ issuerId, isReference }: { issuerId: string; is
       && frozenReviewedSectionCount !== null
       && Number(sectionMatch[1]) >= frozenReviewedSectionCount
     ) return;
+    const sectionIndex = sectionMatch ? Number(sectionMatch[1]) : null;
+    const editedSection = sectionIndex == null ? null : editableRep.sections[sectionIndex];
+    const isIssuerInvestmentThesis = (
+      editableRep.id === "snapshot"
+      && path === `s${sectionIndex}.body`
+      && editedSection?.t === "text"
+      && editedSection.fieldId === "issuer-investment-thesis"
+    );
+    if (isIssuerInvestmentThesis && text != null) {
+      const thesis = text.trim();
+      if (!thesis) {
+        setEdits((current) => {
+          const reportEdits = { ...current[editableRep.id] };
+          delete reportEdits[path];
+          return { ...current, [editableRep.id]: reportEdits };
+        });
+        return;
+      }
+      const saveScope = workspaceScope;
+      const saveKey = `${saveScope}:${thesis}`;
+      if (thesisSavesInFlight.current.has(saveKey)) return;
+      thesisSavesInFlight.current.add(saveKey);
+      const saveGeneration = ++thesisSaveGeneration.current;
+      void createThesisVersion({ issuer_id: issuerId, thesis_md: thesis, trigger: "manual" })
+        .then((version) => {
+          if (draftWorkspaceScope.current !== saveScope || thesisSaveGeneration.current !== saveGeneration) return;
+          setEdits((current) => ({
+            ...current,
+            [editableRep.id]: { ...current[editableRep.id], [path]: version.thesis_md },
+          }));
+          setPublishState("idle");
+          setPublishMessage(`Investment Thesis V${version.version} saved to vault and issuer profile.`);
+        })
+        .catch((reason) => {
+          if (draftWorkspaceScope.current !== saveScope || thesisSaveGeneration.current !== saveGeneration) return;
+          setPublishState("error");
+          setPublishMessage(toErrorMessage(reason, "Investment Thesis was not saved; verify issuer access and vault configuration."));
+        })
+        .finally(() => thesisSavesInFlight.current.delete(saveKey));
+      return;
+    }
     setEdits((e) => {
       const cur = { ...e[editableRep.id] };
       if (text == null) delete cur[path]; else cur[path] = text;

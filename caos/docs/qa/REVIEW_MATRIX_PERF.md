@@ -1,5 +1,11 @@
 # Performance Review Matrix
 
+> **2026-07-20 update:** after reproducing the 320-user read-latency fault,
+> three remediated 300-user Postgres/two-worker repetitions completed with zero
+> failures and aggregate p95 46/120/35 ms. This does not close target-image
+> authenticated heavy-work/fault evidence; see
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
+
 > **2026-07-18 release note:** this code-review matrix remains a finding input;
 > the new 15-user passes do not automatically close its N+1, unbounded-read, or
 > synchronous-vault hypotheses because the mixed harness may not saturate those

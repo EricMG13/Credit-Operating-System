@@ -1,9 +1,10 @@
 # CAOS — Pre-Deployment Program Plan
 
-> **Latest status:** the **2026-07-18 final closure audit** below is the
-> operative status source. Its PD-01…PD-09 rows are the release-blocker ledger.
-> The PG, UW, and UF registers remain traceable history and feed those rows, but
-> do not override the current **NO-GO** verdict.
+> **Latest status:** the **2026-07-20 consolidated update** below is the
+> operative status source. Its PD-01…PD-10 rows are the release-blocker ledger.
+> The 2026-07-18 closure, 2026-07-19 quality seal, and the PG/UW/UF registers
+> remain traceable historical evidence, but do not override the current
+> **NO-GO** verdict.
 
 > **For agentic workers:** this is the **master program plan** (current state
 > → enterprise transfer). It tracks **status** only — status verdicts,
@@ -24,7 +25,7 @@
 **pre-deployment** release: one immutable candidate whose product scope,
 control wiring, capacity, security, and recovery claims all resolve to dated
 evidence. Enterprise email and licensed market-data activation remain planned
-transfer seams, but they are not the only current blockers; PD-01…PD-09 must be
+transfer seams, but they are not the only current blockers; PD-01…PD-10 must be
 closed before the candidate can be called ready.
 
 **Architecture of the plan:** eight gated phases (A–H). Each phase has work
@@ -35,7 +36,49 @@ ordering in [DEVELOPMENT_PHASES.md](DEVELOPMENT_PHASES.md) where they
 conflict (DEVELOPMENT_PHASES "Phase 5 market-data cutover" happens *after*
 transfer — it is outstanding item #2 by design).
 
-### 2026-07-18 final closure audit — operative release status
+### 2026-07-20 consolidated update — operative release status
+
+The canonical status and evidence-boundary report is
+[PRE_DEPLOYMENT_UPDATE_2026-07-20.md](qa/reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md),
+with the current route/platform/custody inventory in
+[APPLICATION_SURFACE_MATRIX_2026-07-20.csv](qa/APPLICATION_SURFACE_MATRIX_2026-07-20.csv).
+The application files are commit-pinned at `codex/112@f4c790f4`, but no clean,
+reconciled, digest-addressed H0 release image exists. The branch was one commit
+behind and 63 ahead of `origin/main` at audit time; the audit-document changes
+were not part of the application commit.
+
+| Check | Current evidence | Status |
+|---|---|---|
+| Frontend compile/regression | eslint, strict TypeScript, production export of 18 business page endpoints, **1,833 tests / 263 files** | PASS; one test used configured Vitest retry, so final no-retry proof remains open |
+| Server regression | **2,594 passed / 15 skipped** restricted aggregate; all nine AV tests pass unrestricted, making effective current evidence **2,601 / 15** | PASS for current snapshot |
+| Rendered accessibility/layout | 18 routes × desktop/390px, real axe, no scan errors | **BLOCKED** — two serious target-size nodes and two narrow-layout failures |
+| Three-browser workflow inventory | 2026-07-19 seal: **165 passed** across 14 specs without retry | Historical defect-closure evidence; newer production files require candidate rerun |
+| Feature/control inventory | 683 features, 710 UI controls, 173 AST handler rows, 17 processes; 683 features link to direct automation | Strong structural map; 1,207 Designed and 388 suite-evidence scenarios prevent an all-effects-tested claim |
+| Code relevance | backend Vulture clean; **17 frontend reachability candidates** | Owner disposition required; do not delete automatically |
+| Capacity | three post-fix 300-user PG/two-worker passes, zero failures, aggregate p95 46/120/35 ms | Strong headroom/fix evidence; target 15-principal heavy/fault run remains open |
+| Data/vault | original bytes in vault; structured work product in Postgres; drafts/preferences in browser; logs/backups in operator stores | **BLOCKED** — target encryption, governance, freshness/alerting, and remote-only recovery proof absent |
+
+#### Final blocker ledger
+
+| ID | Blocking condition | Completion gate |
+|---|---|---|
+| **PD-01** | No canonical release image; branch reconciliation and digest/schema/config/flag/SBOM provenance are open | Clean H0 candidate tied to commit and image digest, schema head, config fingerprint, flags, final SBOM/scan |
+| **PD-02** | Sealed 165-case E2E predates current production changes; five routed concepts lack dedicated journeys; one current unit test used retry | L27 all primary/affected journeys green in Chromium, Firefox, and WebKit without retry |
+| **PD-03** | Tracker predates current files and includes 1,207 Designed plus 388 suite-evidence scenarios | L23 regenerate candidate route/nav/API/process/control/tracker parity and execute every release-required scenario |
+| **PD-04** | 17 frontend reachability candidates have no owner disposition | L24 remove/restore/retain decision plus green lint/type/unit/build/affected E2E |
+| **PD-05** | Shared/root and six segment error surfaces lack injected-browser equivalence and context-preservation proof | L27 deliberate boundary/equivalence map plus named failure, preserved state, safe retry/no duplicate effect |
+| **PD-06** | Reference/manual/enterprise seams remain in analytical modules, Monitor/email, market data, and providers | Promise-to-runtime map, honest unavailable/reference state, enabled-seam activation/failure evidence |
+| **PD-07** | 300-user fix evidence is not the immutable target's authenticated heavy-operation/fault profile | L25 exact image, 15 principals, target data, jobs/uploads/provider faults, queue/pool/memory/isolation/recovery telemetry |
+| **PD-08** | At-rest encryption, record governance, paired-backup freshness/alerting, and off-host recovery are not proven on target | E8/G8/G9 + L22/L26 encrypted target/off-host custody, policy, alarms, remote-only restore |
+| **PD-09** | Final audit evidence is not tied to released bytes | One archived digest-addressed H0/H1/H2 evidence bundle and signed decision |
+| **PD-10** | Current 390px axe/layout matrix is red; frontend no-retry stability is open | Zero axe/layout/clipping/scan failures at required desktop, 390px/coarse pointer, reduced motion, native 200% zoom; no-retry pass |
+
+**Release order:** fix PD-10 and disposition PD-04; close the missing
+journey/recovery/seam work; reconcile and freeze H0; regenerate L23 and execute
+L27 against the exact image; execute L25/L26 on the target-shaped host; archive
+PD-09; then decide go/no-go. PD-01/02/03/06/07/08/09/10 are non-waivable.
+
+### 2026-07-18 final closure audit — historical baseline (superseded)
 
 The canonical evidence report is
 [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](qa/reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md),

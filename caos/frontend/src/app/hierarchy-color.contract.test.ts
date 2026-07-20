@@ -31,8 +31,8 @@ describe("shared semantic hierarchy and report proofing contracts", () => {
 
   it("enforces screen and print proofing floors without scaled-down report headings", () => {
     expect(block(".rd-body")).toContain("font-size: 12px");
-    expect(block(".rd-table td")).toContain("font-size: 11px");
-    expect(block(".rd-model-appendix .rd-table td")).toContain("font-size: 10px");
+    expect(block(".rd-table tbody :is(th, td)")).toContain("font-size: 11px");
+    expect(block(".rd-model-appendix .rd-table tbody :is(th, td)")).toContain("font-size: 10px");
     expect(css).toContain(".print-root :is(.rd-body");
     expect(css).toContain("font-size: 9.5pt");
     expect(css).toContain("font-size: 8pt");

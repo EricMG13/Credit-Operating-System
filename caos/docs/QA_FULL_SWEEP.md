@@ -695,3 +695,48 @@ and new release loops L23–L27 in
 [PRE_DEPLOYMENT_QA_LOOPS.md](PRE_DEPLOYMENT_QA_LOOPS.md). The plan is finalized;
 the application is not released until the evidence tied to a clean image closes the
 ledger.
+
+---
+
+## Session 10 — 2026-07-20 consolidated current-snapshot sweep
+
+**Application snapshot:** `codex/112@f4c790f4`. This session re-grounded the
+release plan after the 2026-07-19 quality, browser, design, and first-fault
+capacity work. It did not modify application code or designate a release image.
+
+### Verification performed
+
+- Frontend: eslint, strict TypeScript, and production build passed; all 18
+  business page endpoints exported; **1,833 tests across 263 files passed**.
+  One freshness-transition case passed via configured Vitest retry, so the
+  final no-retry contract is not closed.
+- Server: **2,594 passed / 15 skipped** in the restricted server+stress+cohort
+  aggregate. Seven AV cases were sandbox socket denials; the entire nine-case
+  AV file passed unrestricted, giving effective evidence of **2,601 / 15**.
+- Code relevance: backend Vulture clean; frontend framework-aware walk found
+  **17 candidates** from 279 production TS/TSX files and 27 roots (262 reached).
+- Accessibility/layout: **36 route/viewport cells**, no scan errors, but **two
+  serious target-size nodes** (`/decisions`, `/settings`) and **two 390px
+  layout failures** (`/command`, `/monitor`). The archived result is
+  [axe-2026-07-20.json](qa/reports/axe-2026-07-20.json).
+- The 2026-07-19 quality seal maps **683 features, 4,917 cases, 4,638 executed
+  automation nodes, 710 controls, 173 AST handler rows, and 17 processes**.
+  It records 165 passing browser nodes across 14 specs without retry, but its
+  application evidence predates `f4c790f4`; five routed business concepts lack
+  dedicated specs and 1,207 scenarios remain Designed.
+- Capacity: after reproducing a 320-user read-latency fault and applying the
+  bounded-pool/raw-ASGI remediation, three 300-user Postgres/two-worker runs
+  completed with zero failure and aggregate p95 46/120/35 ms. This is strong
+  15-user headroom evidence for the measured mix, not target-image heavy-work,
+  custody, or recovery proof.
+
+### Verdict and artifacts
+
+**NO-GO.** The operative PD-01…PD-10 ledger is in
+[PRE_DEPLOYMENT_PLAN.md](PRE_DEPLOYMENT_PLAN.md); full answers and evidence
+boundaries are in
+[PRE_DEPLOYMENT_UPDATE_2026-07-20.md](qa/reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md),
+and the whole-application map is
+[APPLICATION_SURFACE_MATRIX_2026-07-20.csv](qa/APPLICATION_SURFACE_MATRIX_2026-07-20.csv).
+The 2026-07-18 session above remains historical and is superseded for current
+status.

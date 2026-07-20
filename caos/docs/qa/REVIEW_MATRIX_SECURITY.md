@@ -1,5 +1,11 @@
 # Security Review Matrix
 
+> **2026-07-20 update:** application security regressions pass in the current
+> effective server evidence, and policy/pool controls have been consolidated,
+> but target encryption, retention/legal hold, backup freshness/alerting, and
+> remote-only recovery remain release blockers. See
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
+
 > **2026-07-18 release note:** this matrix is retained as a finding register,
 > not a current deployment verdict. Edge-origin enforcement, tenancy, roles,
 > and route coverage have evolved since some rows were written; each surviving

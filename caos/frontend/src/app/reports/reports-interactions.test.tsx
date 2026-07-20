@@ -3,6 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createThesisVersion,
   exportReportVersionBinary,
   getReportVersion,
   getReportDraft,
@@ -103,6 +104,12 @@ vi.mock("@/components/reports/ReportDoc", () => ({
       {onEdit ? <button onClick={() => onEdit("s9.title", "Blocked appendix edit")}>Apply appendix edit</button> : null}
       {onEdit ? <button onClick={() => onEdit("freeform", "Second edit")}>Apply second edit</button> : null}
       {onEdit ? <button onClick={() => onEdit("freeform", null as unknown as string)}>Delete second edit</button> : null}
+      {onEdit && rep.sections.findIndex((section) => section.t === "text" && section.fieldId === "issuer-investment-thesis") >= 0 ? (
+        <button onClick={() => {
+          const index = rep.sections.findIndex((section) => section.t === "text" && section.fieldId === "issuer-investment-thesis");
+          onEdit(`s${index}.body`, "Analyst-authored downside view.");
+        }}>Apply Investment Thesis</button>
+      ) : null}
       {onOpenEvidence ? <button onClick={() => onOpenEvidence("E-44")}>Open document evidence</button> : null}
     </section>
   ),
@@ -193,6 +200,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   previewReportVersion: vi.fn(),
   publishReportVersion: vi.fn(),
   exportReportVersionBinary: vi.fn(),
+  createThesisVersion: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -239,6 +247,19 @@ beforeEach(() => {
   vi.mocked(previewReportVersion).mockReset();
   vi.mocked(publishReportVersion).mockReset();
   vi.mocked(exportReportVersionBinary).mockReset();
+  vi.mocked(createThesisVersion).mockReset();
+  vi.mocked(createThesisVersion).mockResolvedValue({
+    id: "thesis-4",
+    issuer_id: "a71f0000-0000-0000-0000-000000000001",
+    version: 4,
+    thesis_md: "Analyst-authored downside view.",
+    trigger: "manual",
+    linked_decision_id: null,
+    linked_alert_key: null,
+    created_by: "local-dev",
+    created_at: "2026-07-20T12:00:00Z",
+    predictions: [],
+  });
   localStorage.clear();
 });
 
@@ -344,6 +365,30 @@ describe("Report Studio interactions", () => {
     fireEvent.keyDown(editor, { key: "1" });
     expect(screen.getByRole("button", { name: "Select model" }).getAttribute("aria-pressed")).toBe("true");
     editor.remove();
+  });
+
+  it("accepts the authored Snapshot thesis only after the vault-backed version succeeds", async () => {
+    render(<ReportsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "EDIT DOCUMENT" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply Investment Thesis" }));
+
+    await waitFor(() => expect(createThesisVersion).toHaveBeenCalledWith({
+      issuer_id: "a71f0000-0000-0000-0000-000000000001",
+      thesis_md: "Analyst-authored downside view.",
+      trigger: "manual",
+    }));
+    expect(await screen.findByText("Investment Thesis V4 saved to vault and issuer profile.")).toBeTruthy();
+    await waitFor(() => expect(screen.getByLabelText("Document snapshot").textContent).toContain("Analyst-authored downside view."));
+  });
+
+  it("fails closed when the Snapshot thesis cannot be vaulted", async () => {
+    vi.mocked(createThesisVersion).mockRejectedValueOnce(new Error("Investment Thesis vault is not configured."));
+    render(<ReportsPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "EDIT DOCUMENT" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply Investment Thesis" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Investment Thesis vault is not configured.");
+    expect(screen.getByLabelText("Document snapshot").textContent).not.toContain("Analyst-authored downside view.");
   });
 
   it("surfaces saved-model failure and retries the reference inputs", async () => {

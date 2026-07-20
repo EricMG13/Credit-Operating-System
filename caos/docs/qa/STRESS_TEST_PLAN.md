@@ -1,6 +1,21 @@
 # CAOS Stress Test Plan
 
-> **2026-07-18 reconciliation — operative status:** §§1–8 below are the
+> **2026-07-20 first-fault update — operative capacity status:** a 320-user
+> Postgres/two-worker run reproduced a read-latency fault. The remediation made
+> the SQLAlchemy pool explicit/bounded and consolidated four
+> `BaseHTTPMiddleware` layers into one raw-ASGI HTTP policy layer. Three
+> subsequent 300-user repetitions completed with **zero failures** across
+> 51,105 / 49,770 / 51,109 requests; aggregate p95 was **46 / 120 / 35 ms** and
+> issuer-probe p95 was **33 / 129 / 147 ms**. See
+> [FIRST_FAULT_STRESS_REPORT_2026-07-19.md](perf/FIRST_FAULT_STRESS_REPORT_2026-07-19.md).
+> This is strong defect-remediation and 15-user read-headroom evidence, but it
+> used a local/offline-provider, 30-issuer topology. PD-07/L25 remains open for
+> the exact image/target host with 15 separate principals, target-size data,
+> simultaneous heavy work, provider/storage faults, and host telemetry. The
+> operative decision is in
+> [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
+
+> **2026-07-18 reconciliation — historical baseline:** §§1–8 below are the
 > original 2026-06-26 break-it hypothesis register. They are retained to show
 > what was suspected, but their present-tense “no cap/no timeout/single worker”
 > statements are **not current architecture claims**. The runnable harness now
@@ -13,7 +28,7 @@
 > [PRE_DEPLOYMENT_QA_LOOPS.md](../PRE_DEPLOYMENT_QA_LOOPS.md), not the original
 > unverified severity list.
 
-## 2026-07-18 capacity evidence and remaining gate
+## 2026-07-18 capacity evidence — historical baseline
 
 | Profile | Result | Interpretation |
 |---|---|---|
@@ -34,9 +49,9 @@ Postgres/two-worker host with 15 separate principals, target-size data, simultan
 runs/research/reports/uploads, queue/pool/memory observation, and mocked slow/429/529
 providers. Archive p50/p95/p99, 5xx, rejections, queue depth, memory, pool use, and
 recovery. Zero failures in the read mix, bounded resource use, no cross-principal
-data exposure, and honest backpressure are required. See
-[PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](reports/PRE_DEPLOYMENT_CLOSURE_2026-07-18.md)
-§8 and PD-07.
+data exposure, and honest backpressure are required. See the superseding
+[PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md)
+and PD-07.
 
 **Goal:** overload every surface — the 5 concepts, the API, the CP-X engine, the
 external lanes, and the deploy/auth layer — catalogue what breaks, and rank the
