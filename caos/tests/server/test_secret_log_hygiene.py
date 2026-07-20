@@ -20,9 +20,13 @@ from fastapi.testclient import TestClient
 import config
 
 # env var -> sentinel. Values are unique and grep-proof (never legitimate output).
+# Deployed-posture startup now rejects any production credential under 32
+# UTF-8 bytes (main.py _require_deployed_credential_strength) — these two
+# sentinels must clear that floor too, or app boot fails before this test's
+# own assertions ever run.
 SECRET_SENTINELS = {
-    "SESSION_SECRET": "sentinel-session-9f3a1c77e2",
-    "EDGE_PROXY_SECRET": "sentinel-edge-41bb2d90aa",
+    "SESSION_SECRET": "sentinel-session-9f3a1c77e2-x9k2mQ7z",
+    "EDGE_PROXY_SECRET": "sentinel-edge-41bb2d90aa-p4vN8wZq2r",
     "ANALYST_SIGNUP_CODE": "sentinel-signup-7cd0e3f512",
     "ANTHROPIC_API_KEY": "",   # stays blank — a truthy key flips lanes live (conftest BE9-1);
     "GEMINI_API_KEY": "",      # the keyed-path echo risk is covered by the llm-safety playbook.
