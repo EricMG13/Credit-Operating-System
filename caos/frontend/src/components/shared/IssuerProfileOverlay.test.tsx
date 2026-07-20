@@ -17,7 +17,7 @@ vi.mock("next/link", () => ({
   default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => <a href={href} {...props}>{children}</a>,
 }));
 
-import { DEMO_UNIVERSE } from "@/lib/issuers";
+import { DEMO_UNIVERSE } from "@/lib/issuer-demo";
 import { IssuerProfileOverlay, IssuerProfileOverlayProvider, useIssuerProfileOverlay } from "./IssuerProfileOverlay";
 
 function Controls() {

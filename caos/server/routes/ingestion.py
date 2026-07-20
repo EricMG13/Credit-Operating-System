@@ -186,9 +186,10 @@ async def _vault_document(
     # Off-thread the vault write (up to MAX_UPLOAD_MB) so a large/slow disk write
     # doesn't block the event loop — matching the extract_* calls in the callers.
     key = await asyncio.to_thread(ingest.store, content, file.filename or "upload.bin")
-    register_rollback_cleanup(
-        db, lambda stored_key=key: ingest.remove_uncommitted(stored_key)
-    )
+    def cleanup_uncommitted() -> None:
+        ingest.remove_uncommitted(key)
+
+    register_rollback_cleanup(db, cleanup_uncommitted)
     doc = Document(
         issuer_id=issuer_id,
         analyst_id=caller.id,

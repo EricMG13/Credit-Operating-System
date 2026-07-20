@@ -31,26 +31,26 @@ def client():
 HAPPY_PATH_CASES = [
     pytest.param("API-001", "GET", "/api/alerts/events", None, 200, id="API-001"),
     pytest.param("API-003", "POST", "/api/alerts/refresh", None, 200, id="API-003"),
-    pytest.param("API-100", "GET", "/api/qa/findings", None, 200, id="API-100"),
-    pytest.param("API-108", "GET", "/api/query/insights", None, 200, id="API-108"),
+    pytest.param("API-105", "GET", "/api/qa/findings", None, 200, id="API-105"),
+    pytest.param("API-113", "GET", "/api/query/insights", None, 200, id="API-113"),
 ]
 
 INVALID_INPUT_CASES = [
-    pytest.param("API-042", "GET", "/api/edgar/exhibits", None, 422, id="API-042"),
-    pytest.param("API-103", "POST", "/api/query/answer", {}, 422, id="API-103"),
-    pytest.param("API-113", "POST", "/api/query/overlay", {}, 422, id="API-113"),
-    pytest.param("API-114", "POST", "/api/query/route", {}, 422, id="API-114"),
-    pytest.param("API-147", "POST", "/api/scenario/propagate", {}, 422, id="API-147"),
+    pytest.param("API-045", "GET", "/api/edgar/exhibits", None, 422, id="API-045"),
+    pytest.param("API-108", "POST", "/api/query/answer", {}, 422, id="API-108"),
+    pytest.param("API-118", "POST", "/api/query/overlay", {}, 422, id="API-118"),
+    pytest.param("API-119", "POST", "/api/query/route", {}, 422, id="API-119"),
+    pytest.param("API-152", "POST", "/api/scenario/propagate", {}, 422, id="API-152"),
 ]
 
 FEATURE_GATED_CASES = [
     pytest.param(
-        "API-083",
+        "API-088",
         "POST",
         "/api/models/v2/missing/workbook/import/commit",
         None,
         404,
-        id="API-083",
+        id="API-088",
     ),
 ]
 
@@ -64,28 +64,28 @@ MISSING_RESOURCE_CASES = [
         id="API-002",
     ),
     pytest.param(
-        "API-048",
+        "API-051",
         "GET",
         "/api/ingestion/manifests/missing-manifest",
         None,
         404,
-        id="API-048",
+        id="API-051",
     ),
     pytest.param(
-        "API-059",
+        "API-064",
         "POST",
         "/api/issuers/missing-issuer/documents/missing-document/withdraw",
         None,
         404,
-        id="API-059",
+        id="API-064",
     ),
     pytest.param(
-        "API-118",
+        "API-123",
         "POST",
         "/api/query/runs/missing-run/cancel",
         None,
         404,
-        id="API-118",
+        id="API-123",
     ),
 ]
 

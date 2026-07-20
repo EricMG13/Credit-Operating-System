@@ -582,7 +582,12 @@ async def commit_market_snapshot_import(
                 created_at=now,
             ))
         for issue in [*parsed.issues, *mapping_issues]:
-            raw_issue = issue.model_dump(mode="json") if hasattr(issue, "model_dump") else issue
+            if isinstance(issue, BaseModel):
+                raw_issue: dict[str, Any] = issue.model_dump(mode="json")
+            elif isinstance(issue, dict):
+                raw_issue = issue
+            else:  # Defensive: parser and mapping resolver expose only these forms.
+                raise TypeError("Unsupported market import issue payload")
             db.add(MarketImportIssue(
                 snapshot_id=snapshot.id,
                 severity=str(raw_issue["severity"]),

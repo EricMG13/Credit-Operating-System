@@ -201,7 +201,7 @@ describe("AlertInbox", () => {
     render(<AlertInbox />);
     await waitFor(() => expect(screen.getByText("unassigned")).toBeTruthy());
 
-    fireEvent.change(screen.getByPlaceholderText("assign to…"), { target: { value: "j.mora" } });
+    fireEvent.change(screen.getByLabelText("Alert assignee"), { target: { value: "j.mora" } });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Assign" }));
     });
@@ -251,7 +251,7 @@ describe("AlertInbox", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
     });
-    fireEvent.change(screen.getByPlaceholderText("resolution note (optional)…"), {
+    fireEvent.change(screen.getByLabelText("Alert resolution note"), {
       target: { value: "Refinanced, no longer material." },
     });
     await act(async () => {
@@ -282,7 +282,7 @@ describe("AlertInbox", () => {
       assignee: "j.mora", note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
     });
     render(<AlertInbox />);
-    const input = await screen.findByPlaceholderText("assign to…") as HTMLInputElement;
+    const input = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "j.mora" } });
     fireEvent.click(screen.getByRole("button", { name: "Assign" }));
 
@@ -371,7 +371,7 @@ describe("AlertInbox", () => {
     await screen.findByText("Ack/assigned");
     expect(patchAlertEvent).toHaveBeenNthCalledWith(1, "event-1", "ack", undefined);
 
-    fireEvent.change(screen.getByPlaceholderText("assign to…"), { target: { value: "credit.desk" } });
+    fireEvent.change(screen.getByLabelText("Alert assignee"), { target: { value: "credit.desk" } });
     fireEvent.click(screen.getByRole("button", { name: "Assign" }));
     await screen.findByText("credit.desk");
     expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "event-1", "ack", { assignee: "credit.desk" });
@@ -408,9 +408,9 @@ describe("AlertInbox", () => {
     });
     render(<AlertInbox />);
     fireEvent.click(await screen.findByRole("button", { name: "Resolve" }));
-    fireEvent.change(screen.getByPlaceholderText("resolution note (optional)…"), { target: { value: "discard me" } });
+    fireEvent.change(screen.getByLabelText("Alert resolution note"), { target: { value: "discard me" } });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByPlaceholderText("resolution note (optional)…")).toBeNull();
+    expect(screen.queryByLabelText("Alert resolution note")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm resolve" }));

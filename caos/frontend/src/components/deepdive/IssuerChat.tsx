@@ -282,6 +282,8 @@ export function IssuerChat({ tab, onClose, live, issuerName }: {
       <div className="shrink-0 border-t border-caos-border bg-caos-panel px-2.5 py-2 flex items-center gap-2">
         <TextInput
           ref={inputRef}
+          name="issuer-chat-query"
+          autoComplete="off"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}

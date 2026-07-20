@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Literal, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -23,7 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from analysis_contracts import AuthorityEnvelope, QueryRun
+from analysis_contracts import AnalysisJobState, AuthorityEnvelope, QueryRun
 from database import (
     AnalysisContextRecord,
     AnalysisQueryRun,
@@ -40,10 +40,21 @@ from engine.metrics import catalog_dicts
 from identity import CallerIdentity, get_identity, get_write_identity
 from routes.analysis import _validate_context_subjects
 from tenancy import block_if_tenancy_unscoped, require_issuer, scope_issuers
-from nlquery import QueryError, execute, execute_semantic, execute_synthesis, plan
+from nlquery import (
+    QueryError,
+    QuerySpec,
+    SemanticSpec,
+    SynthesisSpec,
+    execute,
+    execute_semantic,
+    execute_synthesis,
+    plan,
+)
 
 logger = logging.getLogger("caos")
 router = APIRouter()
+
+_RESOURCE_ID = Annotated[str, Field(max_length=36)]
 
 _QUERY_MAX_PER_MINUTE = 20
 _READ_MAX_PER_MINUTE = 60  # catalog/chunk reads — looser than the NL POST, still bounded
@@ -163,7 +174,7 @@ class WatchlistResponse(BaseModel):
 
 
 class WatchlistUpdate(BaseModel):
-    issuer_ids: list[str] = Field(min_length=0, max_length=_WATCHLIST_MAX_ISSUERS)
+    issuer_ids: list[_RESOURCE_ID] = Field(min_length=0, max_length=_WATCHLIST_MAX_ISSUERS)
 
 
 @router.get("/watchlist", response_model=WatchlistResponse)
@@ -389,7 +400,7 @@ class AcceptLinkRequest(BaseModel):
     target_issuer_id: str = Field(min_length=1, max_length=36)
     capability_id: str = Field(min_length=1, max_length=64)
     rationale: str = Field(default="", max_length=300)
-    chunk_ids: list[str] = Field(default_factory=list, max_length=8)
+    chunk_ids: list[_RESOURCE_ID] = Field(default_factory=list, max_length=8)
     confidence: str = Field(default="Low", max_length=16)
     model: str = Field(default="", max_length=128)
 
@@ -546,15 +557,15 @@ async def get_chunk(
         kind, pk = chunk_id.split(":", 1)
         if kind == "m":
             from database import ModuleOutput, Run
-            row = (await db.execute(
+            module_row = (await db.execute(
                 select(ModuleOutput, Run, Issuer)
                 .join(Run, ModuleOutput.run_id == Run.id)
                 .join(Issuer, Run.issuer_id == Issuer.id)
                 .where(ModuleOutput.id == pk)
             )).first()
-            if row is None:
+            if module_row is None:
                 raise HTTPException(404, "Module output not found")
-            m_out, run, issuer = row
+            m_out, run, issuer = module_row
             require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
             import json
             text = (
@@ -568,16 +579,16 @@ async def get_chunk(
             )
         elif kind == "c":
             from database import Claim, ModuleOutput, Run
-            row = (await db.execute(
+            claim_row = (await db.execute(
                 select(Claim, ModuleOutput, Run, Issuer)
                 .join(ModuleOutput, Claim.module_output_id == ModuleOutput.id)
                 .join(Run, ModuleOutput.run_id == Run.id)
                 .join(Issuer, Run.issuer_id == Issuer.id)
                 .where(Claim.id == pk)
             )).first()
-            if row is None:
+            if claim_row is None:
                 raise HTTPException(404, "Claim not found")
-            claim, m_out, run, issuer = row
+            claim, m_out, run, issuer = claim_row
             require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
             text = f"Claim {claim.claim_id} ({m_out.module_name}):\n\n{claim.claim_text}"
             return ChunkResponse(
@@ -586,15 +597,15 @@ async def get_chunk(
             )
         elif kind == "f":
             from database import QAFinding, Run
-            row = (await db.execute(
+            finding_row = (await db.execute(
                 select(QAFinding, Run, Issuer)
                 .join(Run, QAFinding.run_id == Run.id)
                 .join(Issuer, Run.issuer_id == Issuer.id)
                 .where(QAFinding.id == pk)
             )).first()
-            if row is None:
+            if finding_row is None:
                 raise HTTPException(404, "QA Finding not found")
-            finding, run, issuer = row
+            finding, run, issuer = finding_row
             require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
             text = (
                 f"QA Finding {finding.finding_id} ({finding.severity})\n"
@@ -607,15 +618,15 @@ async def get_chunk(
                 doc=f"QA Finding {finding.finding_id}", doc_type="finding", seq=0, text=text
             )
 
-    row = (await db.execute(
+    chunk_row = (await db.execute(
         select(DocumentChunk, Document, Issuer)
         .join(Document, Document.id == DocumentChunk.document_id)
         .join(Issuer, Issuer.id == Document.issuer_id)
         .where(DocumentChunk.id == chunk_id)
     )).first()
-    if row is None:
+    if chunk_row is None:
         raise HTTPException(404, "Chunk not found")
-    chunk, doc, issuer = row
+    chunk, doc, issuer = chunk_row
     require_issuer(caller, issuer)  # tenancy: no cross-team click-to-source
     return ChunkResponse(
         chunk_id=chunk.id, issuer_id=issuer.id, issuer_name=issuer.name,
@@ -650,11 +661,16 @@ async def nl_query(
             detail=f"Couldn't map that to a known metric — {e}. See /api/query/catalog.",
         ) from e
     # Structured questions rank the metric store; qualitative ones search evidence.
-    if mode == "semantic":
+    if mode == "semantic" and isinstance(spec, SemanticSpec):
         return await execute_semantic(db, spec)
-    if mode == "synthesis":
+    if mode == "synthesis" and isinstance(spec, SynthesisSpec):
         return await execute_synthesis(db, spec)
-    return await execute(db, spec)
+    if mode == "structured" and isinstance(spec, QuerySpec):
+        return await execute(db, spec)
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail="Query planner returned an inconsistent execution mode.",
+    )
 
 
 # ── Versioned Query investigations ──────────────────────────────────────────
@@ -662,7 +678,7 @@ async def nl_query(
 class QueryRunCreate(BaseModel):
     context_id: str = Field(min_length=1, max_length=36)
     question: str = Field(min_length=1, max_length=500)
-    selected_lane: str = Field(pattern="^(metric|graph|grounded)$")
+    selected_lane: Literal["metric", "graph", "grounded"]
     capability_id: Optional[str] = Field(default=None, max_length=64)
     issuer_id: Optional[str] = Field(default=None, max_length=36)
     method_override: Optional[str] = Field(default=None, max_length=64)
@@ -685,9 +701,9 @@ def _run_out(row: AnalysisQueryRun) -> QueryRun:
         id=row.id,
         context_id=row.context_id,
         question=row.question,
-        selected_lane=row.selected_lane,
+        selected_lane=cast(Literal["metric", "graph", "grounded"], row.selected_lane),
         method_override=row.method_override,
-        status=row.status,
+        status=cast(AnalysisJobState, row.status),
         result=row.result or {},
         authority=AuthorityEnvelope.model_validate(row.authority),
         error=row.error,
@@ -817,12 +833,14 @@ async def create_query_run(
         else:
             block_if_tenancy_unscoped()
             mode, spec = await plan(body.question)
-            if mode == "semantic":
+            if mode == "semantic" and isinstance(spec, SemanticSpec):
                 row.result = await execute_semantic(db, spec)
-            elif mode == "synthesis":
+            elif mode == "synthesis" and isinstance(spec, SynthesisSpec):
                 row.result = await execute_synthesis(db, spec)
-            else:
+            elif mode == "structured" and isinstance(spec, QuerySpec):
                 row.result = await execute(db, spec)
+            else:
+                raise QueryError("planner returned an inconsistent execution mode")
             row.status = "observed-empty" if _is_observed_empty(row.result) else "ready"
     except (QueryError, KeyError) as exc:
         row.status = "error"

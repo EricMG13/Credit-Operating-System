@@ -7,7 +7,7 @@ import type { Report, Section } from "@/lib/reports/builders";
 import { citeCount, secLabel } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
 import { sevSurface } from "@/lib/pipeline/sev";
-import { EvChip } from "./EvidenceModal";
+import { EvChip } from "./EvChip";
 import { ExportToVaultButton } from "./ExportToVaultButton";
 import { Panel } from "@/components/shared/Panel";
 

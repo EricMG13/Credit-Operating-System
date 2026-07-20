@@ -37,7 +37,6 @@ export function EdgarImport({
   const [notConfigured, setNotConfigured] = useState(false);
 
   const vault = async () => {
-    if (vaulting) return; // guard against double-submit (would fire duplicate vault uploads)
     const u = url.trim();
     // Guard vaulting in the handler, not just the button: the Enter key (onKeyDown)
     // calls vault() directly, so a second quick Enter would fire a duplicate batch
@@ -74,10 +73,12 @@ export function EdgarImport({
         <div className="flex gap-2">
           <TextInput
             type="url"
+            name="edgar-document-urls"
+            autoComplete="off"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && vault()}
-            placeholder="https://www.sec.gov/Archives/edgar/data/..."
+            placeholder="https://www.sec.gov/Archives/edgar/data/…"
             aria-label="Public EDGAR document URLs"
             className="flex-1 px-2.5 py-1.5 text-caos-lg"
           />

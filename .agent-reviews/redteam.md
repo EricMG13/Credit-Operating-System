@@ -1690,3 +1690,532 @@ Reopen if either exclusion expands beyond the two designated environment roots;
 first-party code moves under an excluded root; a clean checkout and a local
 `.venv311` checkout produce different first-party findings; or either scanner no
 longer covers all of `caos/server` and `caos/scripts`.
+
+## 2026-07-19 — Audit remediation critic pass
+
+Decision under review: close every actionable audit finding across deployment,
+security, worker correctness, resource governance, frontend delivery, and test
+reliability without weakening existing controls or overwriting parallel work.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-451 | Production-safety reviewer | Enabling document egress merely because a provider key exists could send restricted credit documents off-host without an explicit operator decision. | Critical | Resolved in configuration contract | Pass the egress flag and provider/model settings through Compose, but retain the fail-closed `false` default and document that live synthesis requires an explicit `CAOS_DOCUMENT_EGRESS_ENABLED=true`. Test both disabled and enabled paths. |
+| RT-2026-07-19-452 | Authentication reviewer | A CSRF control that trusts only `SameSite=Lax` is incomplete, while a token-only retrofit can break static-export clients, login bootstrap, or non-browser API consumers. | Critical | Resolved in layered boundary | Enforce same-origin `Origin`/`Referer` and Fetch Metadata on unsafe cookie-authenticated browser requests, provide a server-issued token for same-origin clients, and exempt only unauthenticated/bootstrap or explicitly non-cookie calls where the threat does not apply. Cover accepted and rejected paths with route-level tests. |
+| RT-2026-07-19-453 | Authorization reviewer | Replacing the role denylist with an allowlist can lock out legitimate custom or historical roles, but retaining unknown-role write access fails closedness. | Critical | Resolved in migration boundary | Inventory persisted role values and declared role literals first; allow only documented writer roles, normalize legacy aliases deliberately, and reject unknown roles for writes while preserving read access. Add validation at both API and persistence boundaries where compatible with existing data. |
+| RT-2026-07-19-454 | Distributed-systems reviewer | Moving rate limits into Postgres can add a database dependency to login, create a hot row, or fail open during database errors. | High | Resolved in bounded design | Use short-lived, source-keyed database buckets only when a shared database is configured, keep atomic increments and expiry cleanup bounded, and fail closed for protected login attempts. Retain an isolated test/local fallback only where a single process is explicit. Verify two limiter instances share a budget. |
+| RT-2026-07-19-455 | Job-integrity reviewer | Adding worker IDs to claims is insufficient if progress, success, cancellation, or failure writes can still land after lease loss. | Critical | Resolved in complete fencing | Carry `(job_id, attempt, worker_id)` through the entire research execution path and predicate every mutable job write on all three values plus active status. Treat zero-row updates as lease loss, not success, and test stale-worker races. |
+| RT-2026-07-19-456 | Cost-governance reviewer | Reserving maximum tokens per call can prevent overspend but strand budget on failures or sharply reduce useful concurrency. | High | Resolved in accounting contract | Atomically reserve the configured worst-case input/output allowance before dispatch, reconcile against actual usage in `finally`, and make reservation state observable. Never admit a call whose reservation exceeds the remaining issuer budget. Test simultaneous admissions at the boundary. |
+| RT-2026-07-19-457 | Performance reviewer | Splitting the 351 KB command dataset can simply trade initial bundle weight for interaction stalls, duplicate chunks, or broken static export. | High | Resolved in interaction contract | Keep the small command index eager, load large route-specific payloads only when the launcher needs them, prefetch on launcher intent, and compare per-route raw/gzip output before and after. Preserve keyboard behavior and offline/static-export operation. |
+| RT-2026-07-19-458 | Ingestion reviewer | Lowering the upload cap hides the memory problem and can break legitimate model documents; streaming alone does not help if downstream parsers duplicate the full payload. | Critical | Resolved in end-to-end memory boundary | Trace the complete upload-to-parser path, eliminate redundant byte copies or move parsing to file-backed inputs, and enforce a proxy/app cap with a calculated worst case below the container limit. If a parser cannot stream, constrain its concurrency explicitly and test the cap. |
+| RT-2026-07-19-459 | Supply-chain reviewer | Digest-pinning an image without preserving its human-readable version or update automation can freeze security patches invisibly. | High | Resolved in maintenance contract | Pin tag-plus-digest from current official registry metadata, keep the version tag visible, update Dependabot coverage, and validate Compose resolution. Do not substitute a different major version during pinning. |
+| RT-2026-07-19-460 | Change-integrity reviewer | “Fix all” across a dirty repository can absorb unrelated work or turn historical baseline debt into an unreviewable rewrite. | Critical | Resolved in workflow | Preserve the pre-existing modified tracker file, patch only audited findings, inspect path-specific diffs before each edit, and do not stage or commit. Report external/provider/runtime verification gaps as blocked rather than fabricating closure. |
+
+### Critic reopen conditions (audit remediation)
+
+Reopen if document egress becomes implicit; an unsafe cookie-authenticated request
+can mutate state cross-origin; an unknown role can write; two production workers
+receive separate login budgets; a stale research worker can update a reclaimed
+job; admitted LLM work can exceed the hard issuer budget; route bundles do not
+materially shrink or launcher interaction regresses; upload peak memory remains
+unbounded relative to the container; an image tag is still mutable; or the
+pre-existing quality-tracker modification is changed or attributed to this pass.
+
+## 2026-07-19 — QA-flag tenancy critic pass
+
+Decision under review: close the QA-flag cross-team read/write seam while
+preserving the deliberately non-gating, durable audit-record contract.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-461 | Authorization reviewer | A caller can forge another team's `issuer_id` when creating a flag or enumerate that team's analyst notes through an unscoped list. | Critical | Resolved in interface | Validate supplied issuer IDs with the existing non-enumerable issuer guard before insert. Under tenancy, scope every flag-list query to visible issuer IDs and require explicit issuer filters to resolve through the same guard. |
+| RT-2026-07-19-462 | Audit-integrity reviewer | Adding foreign keys or requiring a live run would destroy the existing guarantee that a flag survives deletion of its subject and never participates in the CP-5 export gate. | High | Resolved in bounded design | Keep `issuer_id`/`run_id` as nullable plain audit references and leave `qa_findings` untouched. Validate only a supplied live issuer at request time; preserve unbound historical flags in shared-desk mode. |
+| RT-2026-07-19-463 | Frontend-context reviewer | Hiding ATLF inside a reusable QA control makes a future live caller silently count and write flags against the reference issuer. | High | Resolved in explicit contract | Make `issuerId` a required control prop. The two seeded reference callers pass the ATLF ID explicitly; no live page signature or evidence-resolution path changes. |
+
+### Critic reopen conditions (QA-flag tenancy)
+
+Reopen if a foreign issuer ID can be created or listed without a non-enumerable
+404; an unfiltered tenancy-on list includes null/foreign issuer flags; the shared
+control regains an implicit issuer default; or analyst flags begin gating runs or
+committee exports.
+
+## 2026-07-19 — Production-like E2E TLS critic pass
+
+Decision under review: make the production-like browser lane prove the same
+Secure-cookie boundary used by a deployed TLS edge.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-464 | Security-evidence reviewer | Accepting a plain-HTTP target under `ENVIRONMENT=production` splits Secure-cookie API contexts from browser fetches, so analyst-owned setup data and UI reads can resolve as different principals. A red or green result is therefore not valid production evidence. | Critical | Resolved in runner contract | Require a loopback HTTPS target before CSP preflight or Playwright starts. Keep self-signed local certificates supported through the existing `E2E_IGNORE_HTTPS_ERRORS=1` path. |
+| RT-2026-07-19-465 | Test-operator reviewer | Silently relaxing the production cookie or turning off `Secure` for loopback would make the lane easier to run but stop testing the deployed session boundary. | High | Resolved by fail-fast behavior | Leave application cookie policy untouched. The runner rejects HTTP with an actionable TLS message; local orchestration must terminate TLS or use the real edge. |
+| RT-2026-07-19-466 | CSRF reviewer | Once TLS makes the profile cookie active, direct Playwright API mutations can fail 403 or tempt an application-side test exemption because they omit the browser's double-submit header. | Critical | Resolved in fixture boundary | An authenticated E2E API fixture reads the project's fresh storage state, reuses its session and CSRF cookies, and sends the matching `X-CSRF-Token` plus same-origin `Origin`. The server guard receives no exemption or test flag. |
+
+### Critic reopen conditions (production-like E2E TLS)
+
+Reopen if the production-like runner accepts HTTP; production cookies are made
+non-Secure for test convenience; or a cited production-like result bypasses the
+TLS edge/session boundary. Also reopen if an authenticated E2E mutation bypasses
+the signed double-submit contract or uses a hard-coded CSRF token.
+
+## 2026-07-19 — Context-free Settings strip critic pass
+
+Decision under review: settle the shared analysis-context strip on the Settings
+utility route without changing the shared `EnterprisePage` interface or creating
+a meaningless persisted analysis context.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-464 | Shared-shell reviewer | `EnterprisePage` is a CRITICAL hub with 21 direct consumers; adding a route-specific prop can regress 19 modules to fix one utility page. | Critical | Resolved in scope | Leave `EnterprisePage` unchanged. Confine the behavior to the LOW-risk `AnalysisContextStrip`, whose single direct caller remains untouched. |
+| RT-2026-07-19-465 | Workflow-continuity reviewer | Treating every missing context as inactive could erase the reserved loading geometry and hide slow or failed context creation on analytical routes. | High | Resolved in exact route contract | Recognize only `/settings` without an explicit `context` query as context-free. Every analytical route retains the existing resolving, loaded, and unavailable states. |
+| RT-2026-07-19-466 | Accessibility reviewer | Removing the busy strip can create layout shift or leave assistive technology with an unexplained gap in the shared shell. | Moderate | Resolved in settled status | Preserve the strip's existing geometry and render a neutral, non-busy `Workspace configuration · no analysis context` status on Settings. |
+
+### Critic reopen conditions (context-free Settings strip)
+
+Reopen if an analytical route can suppress its context state; a Settings URL
+carrying an explicit context fails to load it; the shared shell geometry changes;
+or `EnterprisePage` gains route-specific interface surface for this exception.
+
+## 2026-07-19 — Whole-frontend Web Interface Guidelines critic pass
+
+Decision under review: remediate deterministic Web Interface Guidelines faults
+across every CAOS frontend route and shared component, then repeat static,
+build, accessibility, and rendered-layout gates until no fault remains.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-467 | Analyst-density reviewer | Applying consumer-web defaults mechanically can enlarge controls, weaken terminal density, or turn specialist workbenches into generic forms. | Critical | Resolved in scope | Preserve all existing geometry and hierarchy. Limit this pass to semantic metadata, focus/touch/browser behavior, copy typography, and verified accessibility faults; rendered target-size checks remain the authority for layout. |
+| RT-2026-07-19-468 | Report-integrity reviewer | Removing the report editor's paste cancellation can reintroduce rich markup or oversized clipboard payloads into committee-ready output. | Critical | Resolved in input contract | Permit the browser paste event, then normalize the editable leaf to capped plain text during `input`; retain the 2,000-character boundary and add a focused regression test proving paste is not cancelled and markup is removed. |
+| RT-2026-07-19-469 | Shared-flow reviewer | Native `name`/`autocomplete` and placeholder changes touch HIGH-risk auth, profile, QA, and filter components even though the intended behavior is cosmetic. | High | Resolved in isolation | Add only stable field identifiers, correct browser autocomplete tokens, accessible names, and typographic ellipses. Do not alter state, submit handlers, URL state, focus order, API payloads, or component props; run focused tests for every HIGH-risk surface. |
+| RT-2026-07-19-470 | Accessibility reviewer | Static regex findings can be false positives for implicit labels, compound focus rings, ARIA grids, and modal backdrops, creating churn while real rendered defects remain hidden. | High | Resolved in evidence hierarchy | Fix only deterministic source violations, use the repository's actual axe runner with best-practice tags, and require clean desktop and phone route matrices. Keep implicit native labels and intentional grid patterns when axe and keyboard contracts validate them. |
+| RT-2026-07-19-471 | Change-integrity reviewer | The worktree already contains unrelated frontend and audit WIP, so a whole-codebase loop can overwrite or absorb another task's changes. | Critical | Resolved in workflow | Preserve every pre-existing dirty hunk, use additive or line-local patches, inspect path-specific diffs, and do not stage or commit. Treat the untracked browser-health harness as user-owned unless an isolated change is required and verified. |
+
+### Critic reopen conditions (whole-frontend guidelines)
+
+Reopen if row/control geometry changes; report paste can retain markup or exceed
+its cap; auth/filter/API behavior changes; static findings are accepted without
+rendered evidence; any route develops an axe, clipping, target-size, overflow,
+console, or build fault; or pre-existing WIP is replaced or attributed to this
+pass.
+
+## 2026-07-19 — Closed Ask result-renderer split critic pass
+
+Decision under review: remove graph-rendering code from every route's initial
+authenticated shell while keeping the global Ask launcher and query controls
+immediately available.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-472 | Interaction reviewer | Deferring the whole Ask surface would improve page LCP by moving the delay onto the analyst's first Alt+K or launcher interaction. | High | Resolved in boundary | Keep `AskProvider`, `AskLauncher`, issuer chat, modal controls, and capability routing eager. Defer only the four result renderers, which cannot be needed before a query returns. |
+| RT-2026-07-19-473 | Performance reviewer | Four lazy imports can add duplicate chunks or delay the first result on a constrained connection. | High | Resolved in intent prefetch | Reuse one loader per renderer and start all four imports when Ask opens or receives pointer/focus intent. Compare production route JavaScript and constrained-mobile LCP before and after. |
+| RT-2026-07-19-474 | Accessibility reviewer | A slow renderer import could leave the result region blank or produce an unannounced layout jump. | High | Resolved in fallback contract | Give every deferred renderer the same visible `role=status`, `aria-live=polite` result-loading surface with reserved minimum height; repeat axe and rendered-layout checks. |
+| RT-2026-07-19-475 | Static-export reviewer | A client-only split can compile in development but omit chunks or fail under the exported production artifact. | High | Resolved in verification gate | Require a clean static production build, exercise the Ask graph/RV/scatter/lineage paths in focused tests, and rerun the production performance harness against `out/`. |
+
+### Critic reopen conditions (closed Ask result-renderer split)
+
+Reopen if opening Ask itself waits on a visualization chunk; a result renderer
+is unavailable offline after the initial application load; any Ask keyboard,
+focus, citation, or pinning contract regresses; the exported artifact omits a
+renderer chunk; or initial-route JavaScript and constrained-mobile LCP do not
+materially improve.
+
+## 2026-07-19 — Mobile async-geometry stabilization critic pass
+
+Decision under review: reserve the final geometry of four asynchronous mobile
+surfaces that exceed the 0.1 CLS threshold, without changing their data,
+interaction, or responsive contracts.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-476 | Shared-shell reviewer | `WorkbenchToolbar` is CRITICAL (14 impacted symbols across seven modules); changing its markup or interface to fix two title rows can regress unrelated worklists. | Critical | Resolved in route scope | Leave the component untouched. Reserve the observed two-line title geometry only beneath `.issuers-workbench` and `.sponsors-workbench` at phone widths. |
+| RT-2026-07-19-477 | Decision-contract reviewer | `DecisionHeader` is CRITICAL (26 impacted symbols across nine modules); globally expanding repeated loading cells would add noise and reduce density. | Critical | Resolved in route scope | Leave its logic and accessibility tree untouched. Reserve the measured four-cell height only for Monitor's single-child loading grid; ready/offline/error states keep natural geometry. |
+| RT-2026-07-19-478 | Analytical-density reviewer | Giving every finalization bar the Sector phone height would waste scarce viewport space on routes whose actions fit one line. | High | Resolved in route scope | Use the existing `.sector-workbench` ownership marker to reserve 78px only for Sector Review's wrapping three-action finalization bar. |
+| RT-2026-07-19-479 | Lazy-loading reviewer | A generic Deep-Dive spinner is 134px shorter than the scenario panel and shifts the complete evidence workspace when its chunk arrives. | High | Resolved in component-specific fallback | Keep all other tab fallbacks unchanged. Give only the low-risk Scenario Network loader the measured 153px phone / 127px desktop content height. |
+| RT-2026-07-19-480 | Verification reviewer | Hard-coded reserves can merely move the shift, clip translated copy, or conceal a changed natural height. | High | Resolved in measurement gate | Values come from final rendered bounding boxes. Repeat focused CLS traces first, then the full phone/desktop matrix, axe, clipping, overflow, and target checks; reopen on any mismatch. |
+
+### Critic reopen conditions (mobile async geometry)
+
+Reopen if a shared component interface or state contract changes; any reserve
+clips content; Monitor's loading and settled decision regions differ in height;
+the issuer/sponsor title row or Sector actions outgrow the reserve; Deep-Dive's
+lazy replacement changes height; or any final route remains above 0.1 CLS.
+
+## 2026-07-19 — Source-link protocol boundary critic pass
+
+Decision under review: harden the shared `SourceRef` link sink against persisted
+active-content URLs without changing evidence actions or valid source routes.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-476 | Evidence-integrity reviewer | Rewriting a rejected URL to a generic destination would make an unavailable source look verified and clickable. | High | Resolved in fail-closed state | Preserve valid relative and absolute HTTP(S) destinations exactly. Render the existing explicit `Source unavailable` state for every rejected destination; never substitute or normalize it into a different source. |
+| RT-2026-07-19-477 | Browser-security reviewer | A scheme prefix check can miss whitespace, mixed-case, protocol-relative, credential-bearing, or escaped active-content URLs. | Critical | Resolved in parsed allowlist | Reject control/whitespace characters and protocol-relative URLs, parse against a fixed local base, allow only relative application routes or absolute `http:`/`https:` URLs, and reject credentials. Cover each bypass class in the component test. |
+| RT-2026-07-19-478 | Shared-component reviewer | `SourceRef` is HIGH risk: seven direct consumers span Sector, Portfolio, Profile, and Monitor, and a broad contract change could disable local evidence actions. | High | Resolved in narrow branch | Leave `onOpen` actions and the public prop union unchanged. Apply validation only inside the `href` branch and rerun the direct component plus sector caller tests. |
+
+### Critic reopen conditions (source-link protocol boundary)
+
+Reopen if an active-content or protocol-relative URL renders as a link; valid
+relative or HTTP(S) evidence links change destination; an `onOpen` source loses
+its action; or the sector source-register caller no longer renders honest source
+availability.
+
+## 2026-07-19 — EDGAR redirect SSRF critic pass
+
+Decision under review: enforce the SEC network allowlist before the initial EDGAR
+request and before each redirect rather than checking only the final response URL.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-479 | SSRF reviewer | A final-response host check detects an off-SEC redirect only after `urllib` has already made the external/internal request. | Critical | Resolved at dispatch boundary | Validate the initial URL before constructing the request and install a redirect handler that validates each resolved target before `urllib` follows it. Retain the final response check as defense in depth. |
+| RT-2026-07-19-480 | EDGAR-availability reviewer | Disabling redirects entirely can break legitimate SEC canonicalization and subdomain routing. | High | Resolved in exact allowlist | Permit redirects only to HTTPS `sec.gov` or its subdomains on the default HTTPS port; reject credentials, non-HTTPS schemes, malformed ports, and all other hosts. |
+| RT-2026-07-19-481 | Change-integrity reviewer | `_http_get` is HIGH risk with four direct callers and 17 affected symbols; replacing the HTTP stack could regress throttling, fair-access identity, caps, or error translation. | High | Resolved in narrow transport seam | Keep `urllib`, request headers, throttle, timeout, bounded reads, and exception mapping unchanged. Add only the validating redirect handler and focused pre-dispatch tests, then run the complete EDGAR suite. |
+
+### Critic reopen conditions (EDGAR redirect SSRF)
+
+Reopen if any non-HTTPS, credential-bearing, non-SEC, or non-default-port URL can
+reach the transport; an off-allowlist redirect is followed before rejection; a
+legitimate SEC subdomain redirect is blocked; or EDGAR caps/fair-access behavior
+regresses.
+
+## 2026-07-19 — Registration credential-boundary critic pass
+
+Decision under review: raise the self-registration passcode floor to the OWASP
+ASVS-aligned 12 characters and bound each recovery credential before hashing.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-482 | Authentication reviewer | Applying the new minimum to login would strand existing accounts whose stored credential predates the policy. | Critical | Resolved at creation boundary | Enforce 12 characters only in `RegisterRequest`; retain the bounded 1–128 login input contract so existing hashes can authenticate and users are not locked out. |
+| RT-2026-07-19-483 | Availability reviewer | Capping only the recovery-word list length still lets three near-request-sized strings reach repeated PBKDF2 work. | High | Resolved in element schema | Bound each recovery word to 1–80 characters and each optional hint to 160 characters in both registration and recovery request schemas, matching the existing browser controls. |
+| RT-2026-07-19-484 | Shared-flow reviewer | The login form is CRITICAL because every protected route depends on it; backend-only enforcement would leave misleading UI readiness and copy. | Critical | Resolved in contract parity | Change only sign-up readiness, explanatory copy, and the short-passcode message to 12; keep sign-in and recovery behavior unchanged. Run the focused UI and complete auth suites. |
+| RT-2026-07-19-485 | Password-policy reviewer | Composition rules or forced character classes can reduce usability and conflict with password-manager-generated credentials. | High | Resolved in length-only policy | Keep the 128-character maximum, permit spaces and Unicode, and add no character-class rules. Continue using the existing salted PBKDF2 verifier and constant-work failure path. |
+
+### Critic reopen conditions (registration credential boundary)
+
+Reopen if login rejects a valid legacy credential solely for being under 12
+characters; registration accepts fewer than 12; any recovery word or hint is
+unbounded at the API; or browser readiness/copy diverges from server validation.
+
+## 2026-07-19 — Pre-parse request-body boundary critic pass
+
+Decision under review: enforce content-type-aware request limits in ASGI before
+FastAPI parses a body, while retaining the configured large-document upload lane.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-486 | Availability reviewer | Route validators and rate limits run only after FastAPI has buffered and decoded JSON, so an authenticated caller can repeatedly allocate near the 250 MiB upload ceiling before a 413 or 429. | Critical | Resolved before parsing | Install an ASGI receive boundary that rejects declared and chunked JSON bodies over 8 MiB before route parsing; keep existing route-specific persisted-payload limits as the narrower second gate. |
+| RT-2026-07-19-487 | Document-ingestion reviewer | Applying the JSON ceiling globally would break legitimate PDF/XLSX multipart uploads up to the operator-configured `MAX_UPLOAD_MB`. | Critical | Resolved by media type | Use 8 MiB only for `application/json` and structured `+json`; all other request bodies retain the configured upload ceiling and existing upload semaphore, incremental read, malware scan, and parser limits. |
+| RT-2026-07-19-488 | Protocol reviewer | A `Content-Length` check alone is bypassed by HTTP/1.1 chunked transfer or an HTTP/2 body without that header. | High | Resolved in receive stream | Reject an oversized declared length immediately, then wrap ASGI `receive` and count actual `http.request` bytes so undeclared/chunked bodies fail at the same boundary. |
+| RT-2026-07-19-489 | Shared-boundary reviewer | The FastAPI application is a cross-cutting surface; a middleware error can strip security headers, suppress access telemetry, or interfere with WebSockets/lifespan. | Critical | Resolved in ordering and scope | Register the limiter as the innermost user middleware, leave non-HTTP scopes untouched, and retain the existing edge/auth, CSRF, access-log, and security-header wrappers. Verify declared, chunked, JSON, non-JSON, exact-limit, and non-HTTP cases independently. |
+
+### Critic reopen conditions (pre-parse request-body boundary)
+
+Reopen if JSON over 8 MiB reaches a handler or parser; chunked transfer bypasses
+the limit; a valid configured-size multipart upload is rejected; an oversized
+response lacks the normal API security headers/access record; or a non-HTTP ASGI
+scope changes behavior.
+
+## 2026-07-19 — Persisted analyst-state size critic pass
+
+Decision under review: cap the remaining analyst-authored arbitrary JSON maps at
+their domain write boundaries, after merge semantics but before database flush.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-490 | Storage-availability reviewer | The 8 MiB transport cap prevents a single extreme allocation but still permits repeated multi-megabyte context, finding, and RV rows that are replayed on reads and can grow Postgres without a domain quota. | Critical | Resolved at persistence seam | Bound combined context navigation state to 100 KiB, finding evidence to 250 KiB, and RV filter state to 32 KiB before the first flush; retain the shared 45/min and RV write rate gates. |
+| RT-2026-07-19-491 | State-merge reviewer | Validating only an incoming context patch lets a caller accumulate an oversized record through many individually small merges. | High | Resolved after merge | Calculate the cap against the final `surface_state` + legacy `filters` + `selected` values after existing patch merge semantics and before assigning/flushing them. |
+| RT-2026-07-19-492 | Evidence reviewer | A cap that is too small could reject legitimate citation bundles and destroy committee traceability. | High | Resolved with proportional headroom | Give finding evidence 250 KiB—well above identifiers/citations but far below a document—and reject with 413 without truncation, so evidence is never silently altered. |
+| RT-2026-07-19-493 | Data-integrity reviewer | Python JSON serialization can persist `NaN`/infinity even though they are not interoperable JSON and can poison downstream numerical reads. | High | Resolved in strict serializer | Measure canonical UTF-8 JSON with `allow_nan=False`; return 422 for non-JSON/non-finite values and 413 only for a valid value beyond its domain ceiling. |
+
+### Critic reopen conditions (persisted analyst-state size)
+
+Reopen if incremental patches can exceed a record cap; legitimate citation or
+navigation state approaches a ceiling in observed use; any value is truncated;
+non-finite numbers persist; or a rejected write partially mutates a row.
+
+## 2026-07-19 — Route-schema resource-bound critic pass
+
+Decision under review: close the remaining mutation-schema gaps with maxima
+aligned to database columns/vocabularies and bound legacy decision capture.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-494 | Decision-integrity reviewer | Legacy direct decision capture accepts an arbitrary client snapshot and has no per-caller write budget, allowing repeated large immutable rows even after the transport ceiling. | Critical | Resolved at decision boundary | Require write capability first, apply a 20/min caller budget, and reject client snapshot JSON over 250 KiB or containing non-finite values before loading the run or assembling the authoritative snapshot. |
+| RT-2026-07-19-495 | Compatibility reviewer | Bounding fields more tightly than their persisted columns or closed vocabularies could reject valid existing clients. | High | Resolved by existing contracts | Match issuer/run/decision identifiers to their 36-character columns, EDGAR document fields to 64/512/16-character columns, URLs to 2,048, and already-anchored lane/mode vocabularies to their longest legal value. Do not alter accepted in-range values. |
+| RT-2026-07-19-496 | Parser-cost reviewer | An anchored regex without `max_length` can still scan an 8 MiB string before rejecting it. | High | Resolved before regex work | Add explicit maxima to research-report mode and query lane fields so Pydantic rejects pathological strings at the schema boundary before downstream work. |
+| RT-2026-07-19-497 | Sector-workflow reviewer | A broad schema rewrite could alter date parsing, canonical sector resolution, or signal lookup behavior. | High | Resolved as length-only validation | Add only length constraints to sector/timeframe/as-of/signal identifiers; preserve `_parse_dt`, canonical taxonomy, response shapes, and all valid defaults. |
+| RT-2026-07-19-498 | Evidence-preservation reviewer | Silently truncating decision conditions or EDGAR metadata would make committee/audit records misleading. | Critical | Resolved fail closed | Reject over-limit values with normal validation or 413; never trim except where the existing handler already intentionally strips whitespace after validation. |
+
+### Critic reopen conditions (route-schema resource bounds)
+
+Reopen if a legal in-range request regresses; a decision snapshot over 250 KiB
+or non-finite JSON persists; more than 20 direct decisions per caller/minute are
+accepted; EDGAR metadata exceeds its database column; or any input is truncated.
+
+## 2026-07-19 — Request-target size critic pass
+
+Decision under review: reject an excessive raw URI path plus query string at the
+same innermost ASGI boundary as body limits, before routing or query parsing.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-499 | Availability reviewer | Caddy/HTTP-server header allowances are much larger than any CAOS route needs, so a caller can force repeated parsing/routing of very large query strings before route-specific rate limits execute. | High | Resolved before routing | Reject `raw_path` + `query_string` over 16 KiB with 414 in the ASGI middleware before calling FastAPI. |
+| RT-2026-07-19-500 | Compatibility reviewer | A global URI ceiling could break dense filter links or signed pagination cursors. | High | Resolved with headroom | The largest current cursor/filter requests are orders of magnitude below 16 KiB; count raw bytes, permit the exact boundary, and add focused path/query tests. |
+| RT-2026-07-19-501 | Middleware reviewer | Expanding a body limiter into a target limiter may accidentally consume the request stream or affect non-HTTP scopes. | Critical | Resolved as independent early branch | Inspect only HTTP scope bytes, do not call `receive` on a 414, and preserve the existing non-HTTP passthrough plus outer telemetry/security-header ordering. |
+
+### Critic reopen conditions (request-target size)
+
+Reopen if an over-limit target reaches a route; an exact-limit target is rejected;
+the 414 body is consumed first; security headers/access logging disappear; or a
+real CAOS workflow approaches the 16 KiB ceiling.
+
+## 2026-07-19 — Collection-item bound critic pass
+
+Decision under review: complement existing list-count ceilings with per-string
+maxima on analyst-authored collections that are persisted or used in DB lookups.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-502 | Storage reviewer | A list capped at 50/500/1,000 elements can still approach the full transport ceiling when each string is unbounded, producing oversized JSON rows and expensive `IN` predicates. | High | Resolved per item | Bound context subject identifiers to 36, sub-segments/sectors to 128, committee/opinion prose items to 2,000, and persisted link/watchlist identifiers to 36 characters. |
+| RT-2026-07-19-503 | Compatibility reviewer | Adding minimum lengths or stricter vocabularies would change existing cleanup semantics for blank list items. | High | Resolved as maxima only | Add only `max_length` to item types; retain existing blank filtering, deduplication, canonicalization, and downstream ownership checks. |
+| RT-2026-07-19-504 | Shared-model reviewer | Context and Query models are MEDIUM blast radius (19 and 30 impacted symbols respectively), so a nested type change could alter valid payload serialization. | High | Resolved with focused schema tests | Keep container types and response models unchanged, constrain only inbound item validation, and run the full Analysis/Query/committee/opinion/sector route suites. |
+
+### Critic reopen conditions (collection-item bounds)
+
+Reopen if a valid existing identifier/prose item is rejected; output serialization
+changes; blank-item cleanup changes; oversized list members reach a handler; or
+context/query/committee/opinion workflows regress.
+
+## 2026-07-19 — Expensive and append-only action rate critic pass
+
+Decision under review: add worker-shared per-caller budgets to the remaining
+append-only governance writes and CPU-heavy report rendering endpoints.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-505 | Resource-abuse reviewer | Authenticated analysts can append committee agendas, opinion versions, or thesis versions without a request budget, growing storage and forcing lock/validation work. | High | Resolved before DB work | Apply 60 writes/min to committee authoring and 30/min independently to opinions and direct thesis creation, keyed by verified caller ID in the worker-shared limiter. |
+| RT-2026-07-19-506 | CPU reviewer | Report-version XLSX/PDF rendering and run committee-report assembly can be repeated without a budget even though export generation is materially more expensive than a read. | High | Resolved before lookup/render | Apply 10 exports/min to immutable report versions and the existing 12/min run budget to committee-report assembly before DB/export work. |
+| RT-2026-07-19-507 | Workflow reviewer | Rate-limiting the shared `create_thesis_version` helper would double-charge decision/finalization flows or make an atomic committee action fail after its parent gate. | Critical | Resolved at public route only | Gate only the public `create_thesis` handler; internally appended thesis versions remain governed by their decision/committee parent action. |
+| RT-2026-07-19-508 | Authorization reviewer | Consuming a budget before role validation could let an unauthorized request receive 429 instead of the required 403. | High | Resolved after capability check | Committee’s guard checks `_require_committee_write` first, then consumes the rate budget. Other handlers already use `get_write_identity`; export routes require authenticated identity. |
+| RT-2026-07-19-509 | Availability reviewer | A budget too low could block normal multi-item IC preparation or retries after a validation error. | High | Resolved with lane separation/headroom | Use separate caller buckets per domain and intentionally generous interactive ceilings; validation failures consume capacity to prevent malicious invalid-request work from bypassing the budget. |
+
+### Critic reopen conditions (expensive and append-only action rates)
+
+Reopen if unauthorized callers see 429 before 403; one lane exhausts another;
+internal decision/finalization thesis creation is double-charged; normal IC/export
+work approaches a ceiling; or invalid requests can bypass budget consumption.
+
+## 2026-07-19 — Cookie/CSRF cryptographic-input bound critic pass
+
+Decision under review: reject oversized attacker-controlled session and CSRF
+values before HMAC/base64 work without changing minted token formats.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-510 | Authentication reviewer | `read_session_token` is CRITICAL (168 impacted symbols, 61 flows); an overly tight or malformed check could log every analyst out. | Critical | Resolved with format headroom | Accept the existing token format unchanged and reject only non-string/over-4-KiB inputs, many times larger than a minted profile token. Run the complete auth, CSRF, role, tenancy, and protected-route suites. |
+| RT-2026-07-19-511 | Availability reviewer | A caller-controlled megabyte-scale cookie/header reaches HMAC and base64 parsing before rejection, creating linear CPU/allocation work per authenticated request. | High | Resolved before crypto | Check session token length before split/HMAC/decode and CSRF signed/cookie/header lengths before `compare_digest`. |
+| RT-2026-07-19-512 | CSRF reviewer | Returning a distinct error for an oversized token could create a browser oracle or diverge from ordinary tamper handling. | High | Resolved as invalid credential | Return the existing generic invalid-session fallthrough and `Invalid CSRF token` response; expose neither the configured ceiling nor which value was oversized. |
+| RT-2026-07-19-513 | Unicode reviewer | Character limits can understate encoded byte work for non-ASCII attacker input. | High | Resolved with byte ceilings | Measure UTF-8 bytes using the same error-tolerant encoding mode used by HMAC comparison, rejecting encoded values above the ceiling. |
+
+### Critic reopen conditions (cookie/CSRF cryptographic inputs)
+
+Reopen if a server-minted session/CSRF pair is rejected; over-limit values reach
+HMAC/base64; errors reveal which credential differed; Unicode bypasses the byte
+ceiling; or any protected-route authentication/role/tenancy test regresses.
+
+## 2026-07-19 — QA flag subject-coherence critic pass
+
+Decision under review: close the remaining relationship-level bypass between an
+analyst QA flag's optional issuer and run subjects while preserving historical
+audit rows after their subject is deleted.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-490 | Tenancy reviewer | Validating only `issuer_id` still lets a caller attach a flag to an existing foreign `run_id` by omitting the issuer. | Critical | Resolved at current-subject boundary | When the run exists, require normal run access before insertion and derive the persisted issuer from that run. Cross-team and cross-analyst foreign runs remain non-enumerable 404s. |
+| RT-2026-07-19-491 | Evidence-integrity reviewer | Independently supplied issuer and run identifiers can produce a contradictory audit record even when both objects are individually accessible. | High | Resolved by coherence check | Reject an existing run paired with a different issuer as 422; otherwise persist the run's canonical issuer. |
+| RT-2026-07-19-492 | Audit-retention reviewer | Requiring every referenced run to exist would break the table's deliberate no-FK contract and prevent an analyst from recording a flag against a deleted historical subject. | High | Resolved by existence-aware validation | Preserve unknown/deleted run identifiers as historical audit references. Apply access and coherence checks whenever the referenced run still exists. |
+
+### Critic reopen conditions (QA flag subject coherence)
+
+Reopen if a caller can flag an existing inaccessible run; an existing run can be
+stored with the wrong issuer; deriving a current run's issuer loses visibility;
+or a deleted historical run can no longer be referenced in an audit flag.
+
+## 2026-07-19 — MoreDrawer fallback-focus critic pass
+
+Decision under review: make the shared non-modal utility drawer's documented
+focus fallback real without changing its trigger, portal, or scroll behavior.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-493 | Accessibility reviewer | The empty/read-only drawer calls `.focus()` on a plain `div`, so focus remains behind the open dialog and keyboard context is lost. | High | Resolved at focus target | Give the dialog `tabIndex=-1`; it becomes programmatically focusable without entering the normal Tab order. Assert the settled active element in the existing read-only contract. |
+| RT-2026-07-19-494 | Shared-shell reviewer | `MoreDrawer` has CRITICAL blast radius across three execution flows and eight modules; changing close, portal, or trigger semantics could regress unrelated workbenches. | Critical | Resolved by one-attribute patch | Leave effects, public props, geometry, focus trap, and dismissal logic untouched. Add only the native focus target and rerun direct component, SubHeader, ConceptNav, shell, Issuers, Profile, and Upload coverage. |
+
+### Critic reopen conditions (MoreDrawer fallback focus)
+
+Reopen if a drawer without child controls leaves focus outside its dialog; the
+dialog becomes an ordinary Tab stop; or any trigger, portal, geometry, scroll,
+outside-pointer, Escape, or focus-cycle contract changes.
+
+## 2026-07-19 — Sponsors mobile register-geometry critic pass
+
+Decision under review: give the asynchronously populated Sponsors register a
+fixed phone-height viewport so its record pane does not move when loading settles.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-490 | Credit-workflow reviewer | A fixed register height could hide covered sponsors and make a partial list look complete. | High | Resolved in scroll contract | Fix only the outer phone-height at the measured 215px settled-state geometry. `PanelBody` retains overflow detection, keyboard focus, its panel-title accessible label, and scrolling for every additional row. |
+| RT-2026-07-19-491 | Responsive-layout reviewer | Applying the constraint at desktop widths would shrink the primary selector and waste the independent-height split-pane layout. | High | Resolved in route scope | Target a new `.sponsor-register-panel` ownership class only inside the existing max-767px breakpoint; desktop keeps its current `md:w-80` natural/flex height. |
+| RT-2026-07-19-492 | Verification reviewer | The measured offline state may be taller than a populated list but shorter than future copy or browser font geometry. | High | Resolved in rendered gates | Re-run constrained production CLS, axe, focusability, clipping, and horizontal-overflow checks. Reopen if the body is not keyboard-scrollable when clipped or the phone panel itself exceeds the reserve. |
+
+### Critic reopen conditions (Sponsors mobile register geometry)
+
+Reopen if any sponsor row is unreachable by keyboard; the panel loses its
+accessible scroll-region label; desktop register sizing changes; translated or
+updated state copy clips outside the scroll body; or Sponsors remains above 0.1 CLS.
+
+## 2026-07-19 — Command/Monitor initial-graph critic pass
+
+Decision under review: separate the Monitor replay stream from the legacy
+portfolio view module and defer selection-only governance/detail surfaces so
+unrelated authored datasets do not block first paint.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-493 | Governance-contract reviewer | `GovernancePanel` is HIGH risk: four direct consumers and eight affected symbols span Command, Monitor, and Model. A lazy boundary could alter QA defaults or lose the selected dataset. | High | Resolved without contract change | Keep the component, props, call sites, and dataset resolution unchanged. Defer only its module evaluation on Command/Monitor and render an accessible, geometry-reserved loading status while the selected Governance dataset resolves. |
+| RT-2026-07-19-494 | Evidence-workflow reviewer | Moving the alert/email stream could break the one-click source-email link, modal focus cycle, replay order, or severity filtering. | High | Resolved by verbatim extraction | Move `EmailWindow`, `EmailIntel`, and `AlertFeed` together with their existing data and accessibility dependencies; retain a compatibility re-export and run their interaction suite plus rendered axe. |
+| RT-2026-07-19-495 | Data-integrity reviewer | Splitting the portfolio and monitor fixtures can create two editable sources whose counts, source indexes, or QA rows drift. | High | Resolved in single ownership | Move, rather than copy, the complete monitor/governance tail into one module and re-export its public contract from the legacy path. Direct runtime imports use the narrow owner; compatibility callers see the same values. |
+| RT-2026-07-19-496 | First-interaction reviewer | Deferring the issuer detail strip can make a selected row appear inert on a slow link. | High | Resolved in selected-only fallback | The strip is never present before a live row is selected. Keep selection immediate and expose a visible `role=status` strip-height fallback until the unchanged detail component arrives. |
+| RT-2026-07-19-497 | Performance reviewer | A module split can look cleaner in analysis but fail to reduce transferred JavaScript or LCP. | High | Resolved in measured gate | Compare cold constrained-mobile resource graphs and three-run route p75 values before/after. Revert or reopen if Command/Monitor bytes and LCP do not materially improve. |
+
+### Critic reopen conditions (Command/Monitor initial graph)
+
+Reopen if any Governance dataset, replay row, source email, issuer detail,
+keyboard/focus contract, or compatibility import changes; if a deferred fallback
+collapses geometry; or if the measured initial graph and LCP do not improve.
+
+## 2026-07-19 — Pipeline evidence-modal startup critic pass
+
+Decision under review: remove report construction and evidence-modal code from
+Pipeline's initial route graph while preserving its one-click evidence workflow.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-498 | Evidence-integrity reviewer | Deferring the modal could change which report/evidence rows resolve for a selected `E-xx` identifier. | High | Resolved in isolated wrapper | Keep `EvidenceModal`, `buildReports()`, live mode, and selected identifier unchanged; move them together behind a selection-only module boundary and retain the same props. |
+| RT-2026-07-19-499 | Accessibility reviewer | On a slow connection, activating evidence could leave no focusable dialog or announced feedback while the chunk loads. | High | Resolved with modal-state feedback | Render an immediate visible `role=status` overlay describing the pending evidence record until the unchanged dialog mounts; verify the loaded modal's focus and Escape contracts. |
+| RT-2026-07-19-500 | Performance reviewer | A source split without an actual dynamic boundary would leave report builders on the startup graph and provide no LCP benefit. | High | Resolved in measured gate | Use a route-level dynamic import, confirm the builder/modal chunks are absent before activation, and compare three constrained-mobile Pipeline runs before and after. |
+| RT-2026-07-19-501 | Shared-evidence reviewer | `EvChip` is CRITICAL risk: 11 direct consumers and 34 affected symbols span five modules, so a behavior rewrite could break cross-pane source synchronization far beyond Pipeline. | Critical | Resolved as exact move | Move the existing implementation byte-for-byte to a narrow module, compatibility re-export it from `EvidenceModal`, and repoint runtime consumers without changing props, markup, event order, or styling. Run the direct sync contract and affected surface suites. |
+
+### Critic reopen conditions (Pipeline evidence modal)
+
+Reopen if evidence identifiers resolve differently; live/reference badges drift;
+activation has no announced loading state; dialog focus/Escape regresses; or the
+report builder remains on Pipeline's pre-activation resource graph.
+
+## 2026-07-19 — Report Studio below-fold/dialog startup critic pass
+
+Decision under review: contain offscreen document sections and remove two
+closed-by-default dialogs from Report Studio's constrained-mobile startup path.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-502 | Committee-output reviewer | Layout containment could alter the print/PDF document, hide report sections, or change the filed paper geometry. | Critical | Resolved in screen-only scope | Apply `content-visibility` only under `@media screen`; retain every DOM section, all print rules, and the measured 1,928px rendered paper height. Re-run paper geometry, print tests, and scroll-to-tail inspection. |
+| RT-2026-07-19-503 | Layout-stability reviewer | A guessed intrinsic block size could shift the paper as lower sections become visible. | High | Resolved with browser-retained sizing and measured gate | Use `contain-intrinsic-size: auto 180px`, which lets Chromium retain each section's real size after layout; require unchanged cold-load CLS and verify progressive scroll geometry before/after. |
+| RT-2026-07-19-504 | Evidence/decision reviewer | Deferring `EvidenceModal` or `DecisionRoomDrawer` could break exact evidence resolution, live-run decision eligibility, focus, or Escape handling. | Critical | Resolved at module boundary only | Keep both implementations, state gates, and props unchanged. Add immediate announced overlays while their modules load, then run Report Studio evidence and decision interaction contracts plus rendered axe. |
+| RT-2026-07-19-505 | Performance reviewer | Containment alone measured only 160–168ms better and remained borderline; lazy imports can still be prefetched or accidentally retained through another import. | High | Resolved in production resource gate | Combine both safe mechanisms, inspect the production chunk graph before activation, and accept only if three cold constrained-mobile runs place p75 LCP below 2.5s without CLS or interaction regressions. |
+| RT-2026-07-19-506 | Preference-hydration reviewer | Hiding the whole paper until a passive effect reads zoom delays LCP; simply showing the default first could flash or shift for analysts with a remembered zoom. | High | Rejected after production measurement | A normal production build showed no LCP improvement (2.648s p75); the earlier injected-response A/B had bypassed part of the throttled document path. Reinstate the visibility gate so remembered zoom never flashes at the wrong geometry. |
+| RT-2026-07-19-507 | Document-completeness reviewer | Creating only the visible report lead first could transiently omit evidence, sources, or financial tables and accidentally leak into print/export. | Critical | Resolved in preview-only staging | Stage only the interactive screen preview's first four top-level sections for one painted frame, mark it `aria-busy`, then render the exact full report object. `ComposePanel`, publish payloads, downloads, and the independent `PrintPortal` always receive the complete report. Verify the tail and source register after staged settlement. |
+| RT-2026-07-19-508 | Deliverable-routing reviewer | Avoiding construction of all six reference deliverables on the first frame could show the wrong report for a deep link or make later rail items differ from the canonical builders. | Critical | Resolved with canonical single-report dispatch | Add a single-report dispatcher that invokes the same private builder functions and model inputs as `buildReports`; assert every dispatched report deep-equals its canonical list counterpart. Seed the first frame from the requested report ID, then replace it with the full canonical list before the preview settles. |
+
+### Critic reopen conditions (Report Studio startup)
+
+Reopen if any paper section is missing or unreachable; screen and print output
+diverge semantically; paper height or CLS regresses; evidence/decision focus or
+eligibility changes; or measured p75 LCP remains above 2.5 seconds.
+
+## 2026-07-19 — Report reference/live authority critic pass
+
+Decision under review: require an accepted CP-1 model anchor—not merely a run
+identifier—before labelling reference-report figures as live-run backed.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-509 | Provenance reviewer | A completed run with missing, blocked, synthetic, or malformed CP-1 leaves `eng.anchor=null`/`eng.live=false`; using only `eng.runId` falsely says fixture figures reflect that run. | Critical | Resolved at authority predicate | Gate the mixed-reference disclosure and `liveRunBacked` authority on `eng.live`, which is already the canonical accepted-anchor predicate. |
+| RT-2026-07-19-510 | Freshness reviewer | Binding a rejected run's freshness to static fallback figures makes a current run badge appear to validate numbers that did not come from that run. | Critical | Resolved by reference target guard | For the reference path, pass a run freshness target only when `eng.live`; keep non-reference and immutable-version target resolution unchanged. |
+| RT-2026-07-19-511 | Publication reviewer | Tightening the draft reference predicate could accidentally strip authority from immutable published versions or live non-reference reports. | High | Resolved by narrow branch | Preserve selected-version authority precedence and the entire non-reference route; change only the unfrozen reference fallback predicate. Run the caveat, frozen-preview, publication, and rendered authority suites. |
+
+### Critic reopen conditions (report authority)
+
+Reopen if a rejected CP-1 anchor is labelled live-backed or current; an accepted
+anchor loses its mixed-reference disclosure; or published/non-reference report
+authority, freshness, or publication eligibility changes.
+
+## 2026-07-19 — Production credential-strength boot-gate critic pass
+
+Decision under review: make deployed startup reject structurally weak session,
+edge-proof, and analyst-signup secrets in addition to the known public defaults.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-514 | Authentication reviewer | A one-character `SESSION_SECRET` passes the current deny-list and makes every analyst cookie cheaply forgeable. | Critical | Resolve at startup | Require at least 32 UTF-8 bytes for session signing material before the server accepts traffic. |
+| RT-2026-07-19-515 | Edge-trust reviewer | A short `EDGE_PROXY_SECRET` preserves the appearance of a trusted proxy proof while remaining guessable by any process able to reach the internal app network. | Critical | Resolve at startup | Apply the same 32-byte minimum to the edge credential and keep constant-time request comparison unchanged. |
+| RT-2026-07-19-516 | Registration reviewer | The signup gate is an online credential, but requiring 32 bytes would break valid high-entropy invite formats and existing operator workflows. | High | Resolve with proportionate floor | Require at least 16 UTF-8 bytes for the signup code, retain the existing public-placeholder deny-list, and keep the shared source/global attempt budgets. |
+| RT-2026-07-19-517 | Unicode/config reviewer | Character counts can overstate entropy and silently accept fewer bytes than the stated policy; logging the value during failure would expose it. | High | Resolve on encoded length | Validate UTF-8 byte length, emit only the variable name and minimum, and never log or echo the configured value. |
+
+### Critic reopen conditions (production credential strength)
+
+Reopen if any deployed boot accepts a sub-minimum credential; development
+defaults stop working locally; a valid 32-byte session/edge value or 16-byte
+signup value is rejected; or a failure message reveals credential contents.
+
+## 2026-07-19 — CSV leading-line-feed neutralization critic pass
+
+Decision under review: treat a leading LF as spreadsheet-active input at the
+shared CSV cell boundary, matching the existing tab/CR/formula-prefix policy.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-518 | Spreadsheet-security reviewer | A text cell beginning with LF followed by `=`, `+`, `-`, or `@` can cross a row/cell interpretation boundary without receiving the existing apostrophe neutralizer. | High | Resolve in shared encoder | Add LF to the anchored dangerous-prefix class so every CSV producer receives the same protection. |
+| RT-2026-07-19-519 | Data-fidelity reviewer | Prefixing every whitespace-leading value would mutate ordinary analyst-authored labels and create visible artifacts in non-spreadsheet consumers. | High | Resolve narrowly | Change only the omitted LF case; preserve ordinary spaces and all numeric handling. |
+| RT-2026-07-19-520 | Regression reviewer | `csvCell` feeds issuer and Query exports; a quoting-order change could emit invalid multiline CSV. | High | Resolve with exact output tests | Keep neutralization before RFC-style quoting, then assert LF-plus-formula output and existing quotes/newlines behavior. |
+
+### Critic reopen conditions (CSV LF neutralization)
+
+Reopen if a leading LF is not apostrophe-neutralized; embedded LF quoting becomes
+invalid; numeric negatives are converted to text; or issuer/Query export tests fail.
+
+## 2026-07-19 — Route-layer type-gate expansion critic pass
+
+Decision under review: expand the existing Python 3.11 mypy gate from the
+analytical engine alone to the engine and FastAPI route layer after bringing all
+104 modules to a clean baseline.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-521 | API-correctness reviewer | Leaving routes outside the gate permits nullable database rows and unconstrained persisted strings to drift back into response models, recreating the 121 faults found in this review. | High | Resolved in gate scope | Add `routes` to the existing configured file set and retain the same Python 3.11/mypy 2.1.0 CI leg that verified the clean baseline. |
+| RT-2026-07-19-522 | Signal-quality reviewer | SQLAlchemy typing gaps can create noisy false positives that encourage blanket ignores and reduce trust in the gate. | High | Resolved without blanket suppression | Fix every current route diagnostic through explicit row names, validated Literal casts, and nullable guards; add no route-wide ignore and preserve the existing targeted dynamic-engine exclusions only. |
+| RT-2026-07-19-523 | Delivery reviewer | Doubling the checked surface could materially slow CI or produce version-dependent local/CI results. | Medium | Resolved by pinned measurement | Keep the existing pinned mypy 2.1.0 CI install and Python 3.11 config; the full 104-module local run completes in about one second. |
+| RT-2026-07-19-524 | Behavior reviewer | Type-driven rewrites in freshness and artifact ownership code could silently change authorization or lineage semantics. | Critical | Resolved in verification scope | Restrict changes to type narrowing plus a fail-closed unsupported-kind guard; run the dependent analysis, lineage, query, RV, report, digest, and run suites, then repeat the full backend suite. |
+
+### Critic reopen conditions (route-layer type gate)
+
+Reopen if route-wide ignores are introduced; CI uses a different mypy/Python
+pair than the verified baseline; the gate exceeds the normal backend-job budget;
+or authorization, freshness, lineage, query, RV, report, or digest tests regress.
+
+## 2026-07-19 — First-fault stress protocol critic pass
+
+Decision under review: execute a staged local stress ramp against the current
+CAOS working tree and stop only after the first unexpected application fault is
+reproduced and documented.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-525 | Data-safety reviewer | A destructive seed or load run against the user's live `:8000` process or its database could corrupt active work. | Critical | Resolved by isolation | Bind a new server to `127.0.0.1:8011`, use a fresh database and storage directory under `/tmp`, blank all provider keys, and leave the existing `:8000` and `:8010` listeners untouched. |
+| RT-2026-07-19-526 | Failure-oracle reviewer | Treating designed `429`, `409`, or queue rejection as a fault would misclassify honest backpressure as an outage. | High | Resolved in oracle | Accept only endpoint-specific documented control responses. Stop on unexpected status, timeout, crash, integrity mismatch, or a fixed-budget breach; record controlled rejection rates separately. |
+| RT-2026-07-19-527 | Reproducibility reviewer | One transient localhost timeout can come from test-driver saturation or an unrelated workstation process. | High | Resolved by confirmation | Capture client and server evidence, then rerun the smallest failing stage once against the same isolated target. List a fault only when its signature repeats or the server emits a deterministic exception. |
+| RT-2026-07-19-528 | Change-attribution reviewer | The worktree contains extensive pre-existing edits, so a failure cannot automatically be attributed to the base branch or released application. | High | Accepted with explicit scope | Label findings as current-dirty-tree evidence, preserve the tested commit and `git status`, and require later clean-candidate confirmation before release attribution. Do not modify product code during this fault-finding goal. |
+| RT-2026-07-19-529 | Cost/privacy reviewer | Stressing live LLM, EDGAR, or other external lanes can spend money, leak test content, or trigger provider abuse controls. | Critical | Resolved offline | Blank Anthropic, OpenRouter, Gemini, and Google credentials. The first-fault ramp targets local health/read/report/query-fixture behavior only; provider fault injection remains local-mock-only. |
+
+### Critic reopen conditions (first-fault stress protocol)
+
+Reopen if any request reaches `:8000` or `:8010`; the scratch database or
+storage path is not demonstrably isolated; a provider credential is present;
+expected backpressure is reported as a defect; the claimed fault cannot be
+reproduced; or product code is changed before the observed fault is recorded.

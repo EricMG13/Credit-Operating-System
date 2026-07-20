@@ -8,6 +8,7 @@ llm_client.create's control flow, not the SDK's exception taxonomy.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -122,7 +123,6 @@ async def test_create_emits_trace_line_tagged_with_run_id(caplog):
 
 @pytest.mark.asyncio
 async def test_create_retries_on_fallback_overload(monkeypatch):
-    import asyncio
     monkeypatch.setattr(llm_client, "is_overloaded", lambda e: isinstance(e, _Overload))
     async def async_noop(*args, **kwargs):
         pass
@@ -135,3 +135,43 @@ async def test_create_retries_on_fallback_overload(monkeypatch):
     )
     assert client.calls == ["big-model", "cheap-model", "cheap-model", "cheap-model"]
     assert resp.model == "cheap-model"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_calls_share_one_preflight_budget(monkeypatch):
+    """Two calls cannot both spend the same apparent remaining headroom."""
+    active = 0
+    peak = 0
+    ceilings: list[int] = []
+
+    class SlowClient:
+        def __init__(self):
+            self.messages = self
+
+        async def create(self, **kwargs):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            ceilings.append(kwargs["max_tokens"])
+            await asyncio.sleep(0.01)
+            active -= 1
+            return _Resp(kwargs["model"])
+
+    async def record_only(resp, **_kwargs):
+        budget.record_usage(resp)
+
+    monkeypatch.setattr(budget, "_input_reservation", lambda _kwargs, copies=1: 10)
+    monkeypatch.setattr(llm_client, "_trace", record_only)
+    b = budget.RunBudget(limit=30)
+    budget.set_budget(b)
+    try:
+        await asyncio.gather(*(
+            llm_client.create(SlowClient(), lane=f"lane-{index}", model="m", max_tokens=15, messages=[])
+            for index in range(2)
+        ))
+    finally:
+        budget.set_budget(None)
+
+    assert peak == 1
+    assert ceilings == [15, 5]
+    assert b.used == 30 and b.reserved == 0

@@ -430,6 +430,97 @@ describe("Model Engine v2 workbench", () => {
     expect(revenueRow.textContent).not.toContain("● LIVE");
   });
 
+  it("labels every persisted authority origin and unavailable node shape", async () => {
+    const draft = makeRecord();
+    const basePeriod = draft.payload.periods[0];
+    const baseCalculationPeriod = draft.calculation.periods[0];
+    const authorities = [
+      ["FY2027", "analyst", [], "Analyst model input"],
+      ["FY2028", "reference", [], "Reference case"],
+      ["FY2029", "imported", ["workbook-1"], "Imported workbook"],
+    ] as const;
+    draft.payload = {
+      ...draft.payload,
+      periods: [
+        basePeriod,
+        ...authorities.map(([periodKey, origin, sourceIds, method]) => ({
+          ...basePeriod,
+          period_key: periodKey,
+          label: periodKey.slice(2),
+          authority: {
+            origin,
+            method,
+            source_ids: [...sourceIds],
+            as_of: authority.as_of,
+          },
+        })),
+      ],
+      debt_instruments: [{
+        instrument_id: "tlb-1",
+        name: "Term Loan B",
+        priority: 1,
+        seniority: "first_lien",
+        currency: "USD",
+        rate_type: "floating",
+        maturity: "2030-06-30",
+        amortization: null,
+        benchmark_curve: "SOFR",
+        periods: [],
+        sources: ["run-exact"],
+        authority,
+      }],
+    };
+    draft.calculation = {
+      ...draft.calculation,
+      periods: [{
+        ...baseCalculationPeriod,
+        nodes: [
+          ...baseCalculationPeriod.nodes,
+          {
+            node_id: "input:FY2026:unavailable",
+            value: null,
+            original_value: null,
+            formula: null,
+            overridden: false,
+            override_reason: null,
+          },
+          {
+            node_id: "debt:tlb-1:closing_balance",
+            value: 80,
+            original_value: 80,
+            formula: null,
+            overridden: false,
+            override_reason: null,
+          },
+          {
+            node_id: "other:FY2026:unmapped",
+            value: 1,
+            original_value: 1,
+            formula: null,
+            overridden: false,
+            override_reason: null,
+          },
+        ],
+      }, ...authorities.map(([periodKey]) => ({
+        ...baseCalculationPeriod,
+        period_key: periodKey,
+        label: periodKey.slice(2),
+        nodes: [{
+          ...baseCalculationPeriod.nodes[0],
+          node_id: `input:${periodKey}:revenue`,
+        }],
+      }))],
+    };
+    renderWorkbench(response(draft));
+
+    expect((await screen.findByRole("row", { name: /input:FY2027:revenue/ })).textContent).toContain("△ ANALYST");
+    expect(screen.getByRole("row", { name: /input:FY2028:revenue/ }).textContent).toContain("◇ REFERENCE");
+    expect(screen.getByRole("row", { name: /input:FY2029:revenue/ }).textContent).toContain("↧ IMPORTED");
+    expect(screen.getByRole("row", { name: /input:FY2026:unavailable/ }).textContent).toContain("○ UNAVAILABLE");
+    expect(screen.getByRole("row", { name: /debt:tlb-1:closing_balance/ }).textContent).toContain("● LIVE");
+    expect(screen.getByRole("row", { name: /other:FY2026:unmapped/ }).textContent).toContain("○ UNAVAILABLE");
+  });
+
   it("renders a stale saved revision against the current calculation and requires an explicit save before checkpoint or export", async () => {
     const staleRecord = makeRecord(false, 2);
     const current = currentRecalculation();
@@ -692,6 +783,24 @@ describe("Model Engine v2 workbench", () => {
     expect((screen.getByLabelText("Scenario value") as HTMLInputElement).value).toBe("16");
   });
 
+  it("keeps sensitivity inputs available when the server calculation fails", async () => {
+    vi.mocked(calculateModelV2).mockRejectedValue(new Error("sensitivity offline"));
+    renderWorkbench();
+    await screen.findByText("input:FY2026:adjusted_ebitda");
+
+    fireEvent.change(screen.getByLabelText("Scenario node"), {
+      target: { value: "input:FY2026:adjusted_ebitda" },
+    });
+    fireEvent.change(screen.getByLabelText("Scenario value"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview sensitivity" }));
+
+    expect(await screen.findByText("sensitivity offline")).toBeTruthy();
+    expect((screen.getByLabelText("Scenario node") as HTMLSelectElement).value)
+      .toBe("input:FY2026:adjusted_ebitda");
+    expect((screen.getByLabelText("Scenario value") as HTMLInputElement).value).toBe("15");
+    expect(screen.queryByRole("table", { name: "Sensitivity decision deltas" })).toBeNull();
+  });
+
   it("requires a fresh preview when another override is queued while a preview is in flight", async () => {
     const previewA = deferred<ModelV2Calculation>();
     vi.mocked(calculateModelV2)
@@ -735,6 +844,19 @@ describe("Model Engine v2 workbench", () => {
 
     fireEvent.click(commitTwo);
     await waitFor(() => expect(mutateModelV2OverridesBatch).toHaveBeenCalledOnce());
+  });
+
+  it("preserves pending edits when their server preview fails", async () => {
+    vi.mocked(calculateModelV2).mockRejectedValue(new Error("preview offline"));
+    renderWorkbench();
+    await screen.findByText("input:FY2026:revenue");
+
+    editNode("input:FY2026:revenue", "125");
+    fireEvent.click(screen.getByRole("button", { name: "Preview pending" }));
+
+    expect(await screen.findByText("preview offline")).toBeTruthy();
+    expect(screen.getByText(/1 local · not saved/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Commit 1 pending" }).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("preserves a dirty editor by blocking edit-switch and restore row actions", async () => {
@@ -834,6 +956,19 @@ describe("Model Engine v2 workbench", () => {
       expect((undo as HTMLButtonElement).getAttribute("aria-disabled")).toBeNull();
       expect((redo as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
     });
+  });
+
+  it("disables replay after malformed or unresolvable history groups", async () => {
+    const original = historyEvent("set", 2, null, { id: "event-a" });
+    const unknownUndo = historyEvent("undo", 3, "missing-original", { id: "undo-missing" });
+    const emptyIdOriginal = historyEvent("set", 4, null, { id: "" });
+    vi.mocked(getModelV2History).mockResolvedValue([emptyIdOriginal, unknownUndo, original]);
+    renderWorkbench();
+
+    await waitFor(() => expect(getModelV2History).toHaveBeenCalledWith("issuer-1"));
+    expect(screen.getByRole("button", { name: "Undo" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Redo" }).getAttribute("aria-disabled")).toBe("true");
+    expect(replayModelV2Override).not.toHaveBeenCalled();
   });
 
   it("creates and restores immutable server checkpoints with revision guards", async () => {
@@ -1130,6 +1265,36 @@ describe("Model Engine v2 workbench", () => {
     expect(screen.getByText(/Duplicate header selection recorded locally/)).toBeTruthy();
   });
 
+  it("rejects an ambiguity that does not match the preview mapping layout", async () => {
+    const mismatchedMapping = {
+      ...closeFormatMapping,
+      assumptions: { layout: "unknown_layout" },
+    } as unknown as ModelV2LegacyWorkbookMapping;
+    vi.mocked(previewModelV2Workbook).mockResolvedValue(workbookPreview({
+      mode: "mapped_legacy",
+      mapping: mismatchedMapping,
+      draft_payload: null,
+      calculation: null,
+      ambiguities: [{
+        table: "assumptions",
+        field: "revenue",
+        selector: "column",
+        candidates: ["Revenue (2)"],
+        message: "Choose revenue column.",
+      }],
+      blocking_count: 1,
+      preview_token: null,
+    }));
+    renderWorkbench();
+    const file = new File(["xlsx"], "mismatch.xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    fireEvent.change(await screen.findByLabelText("Model workbook"), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview workbook" }));
+
+    const selector = await screen.findByLabelText("Source column for assumptions revenue");
+    fireEvent.change(selector, { target: { value: "2" } });
+    expect(await screen.findByText("The selected ambiguity does not match this mapping layout.")).toBeTruthy();
+  });
+
   it("surfaces invalid mapping, preview, and commit failures without mutating the draft", async () => {
     vi.mocked(previewModelV2Workbook)
       .mockRejectedValueOnce(new Error("preview offline"))
@@ -1416,6 +1581,53 @@ describe("Model Engine v2 workbench", () => {
       context_id: "context-1",
     })));
     await waitFor(() => expect(screen.getByRole("button", { name: "Edit input:FY2026:revenue" }).getAttribute("aria-disabled")).toBeNull());
+  });
+
+  it("shows the in-flight suggested save", async () => {
+    const saved = deferred<ModelV2DraftRecord>();
+    vi.mocked(saveModelV2).mockReturnValue(saved.promise);
+    renderWorkbench(response(null));
+    await screen.findByText("input:FY2026:revenue");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save suggested draft" }));
+
+    expect(await screen.findByRole("button", { name: "Saving…" })).toBeTruthy();
+
+    await act(async () => {
+      saved.resolve(makeRecord(false, 1));
+      await saved.promise;
+    });
+  });
+
+  it("blocks sensitivity reset while another saved-model action is running", async () => {
+    const savedCheckpoint = deferred<ModelV2Checkpoint>();
+    vi.mocked(createModelV2Checkpoint).mockReturnValue(savedCheckpoint.promise);
+    renderWorkbench();
+    await screen.findByText("input:FY2026:revenue");
+
+    fireEvent.change(screen.getByLabelText("Scenario node"), {
+      target: { value: "input:FY2026:adjusted_ebitda" },
+    });
+    fireEvent.change(screen.getByLabelText("Scenario value"), { target: { value: "15" } });
+    fireEvent.change(screen.getByLabelText("Checkpoint label"), { target: { value: "Busy case" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create checkpoint" }));
+
+    await waitFor(() => expect(createModelV2Checkpoint).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button", { name: "Reset sensitivity" }).getAttribute("aria-disabled")).toBe("true");
+
+    await act(async () => {
+      savedCheckpoint.resolve(checkpoint());
+      await savedCheckpoint.promise;
+    });
+  });
+
+  it("keeps a suggestion read-only when the exact source-run save contract is absent", async () => {
+    renderWorkbench({ ...response(null), suggested_source_run_id: null });
+
+    expect(await screen.findByText("Suggested draft cannot be saved")).toBeTruthy();
+    expect(screen.getByText(/did not identify the exact owned source run/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save suggested draft" }).getAttribute("aria-disabled")).toBe("true");
+    expect(saveModelV2).not.toHaveBeenCalled();
   });
 
   it.each([

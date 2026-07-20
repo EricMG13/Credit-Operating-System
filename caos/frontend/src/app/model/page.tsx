@@ -873,10 +873,10 @@ function ModelPrimaryActions({ state }: { state: ModelBuilderController }) {
   return (
     <>
       <button onClick={() => { if (!checkpointDisabled) state.saveCheckpoint(); }} aria-disabled={checkpointDisabled || undefined} aria-label="Save model checkpoint" title={checkpointActionTitle(state)} className="caos-action-primary focus-ring">
-        {state.saving || state.checkpointing ? "Saving..." : "Save checkpoint"}
+        {state.saving || state.checkpointing ? "Saving…" : "Save checkpoint"}
       </button>
       <button onClick={() => { if (!exportDisabled) state.handleExport(); }} aria-disabled={exportDisabled || undefined} title={!state.hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : "Export the committee pack (.xlsx — model grid, scenarios, assumptions, headline facts, overrides)"} className="hidden md:inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring aria-disabled:opacity-40 aria-disabled:saturate-[0.35] aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent aria-disabled:hover:text-caos-accent">
-        {state.exporting ? "EXPORTING..." : "▦ EXPORT MODEL"}
+        {state.exporting ? "EXPORTING…" : "▦ EXPORT MODEL"}
       </button>
     </>
   );

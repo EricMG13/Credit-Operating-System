@@ -148,11 +148,13 @@ async def list_portfolios(
         })
 
     con_by_pid = defaultdict(list)
-    for c in con_rows:
-        con_by_pid[c.portfolio_id].append({
-            "code": c.code, "category": c.category, "parameter": c.parameter,
-            "limit_text": c.limit_text, "limit_value": c.limit_value, "limit_unit": c.limit_unit,
-            "limit_op": c.limit_op, "breach_type": c.breach_type, "source_document": c.source_document,
+    for constraint_row in con_rows:
+        con_by_pid[constraint_row.portfolio_id].append({
+            "code": constraint_row.code, "category": constraint_row.category,
+            "parameter": constraint_row.parameter, "limit_text": constraint_row.limit_text,
+            "limit_value": constraint_row.limit_value, "limit_unit": constraint_row.limit_unit,
+            "limit_op": constraint_row.limit_op, "breach_type": constraint_row.breach_type,
+            "source_document": constraint_row.source_document,
         })
 
     out: List[PortfolioSummary] = []
@@ -163,8 +165,8 @@ async def list_portfolios(
         
         breaches = 0
         watches = 0
-        for c in comp:
-            status = c["status"]
+        for compliance_row in comp:
+            status = compliance_row["status"]
             if status == "Breach":
                 breaches += 1
             elif status == "Watch":
@@ -657,7 +659,7 @@ async def get_analytics(
     analytics = pf.compute_portfolio_analytics(
         [_position_payload(row) for row in rows],
         constraints,
-        as_of=effective_as_of,
+        as_of=effective_as_of.date().isoformat() if effective_as_of is not None else None,
         portfolio_id=portfolio.id,
     )
     if as_of is not None and not requested_supported:

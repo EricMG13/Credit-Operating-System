@@ -747,6 +747,9 @@ def test_qa_routes_rate_limits_create_and_apply_optional_filters(
             return []
 
     class ListDB:
+        async def get(self, _model, _identifier):
+            return SimpleNamespace(team_id=None)
+
         async def execute(self, _statement):
             return Rows()
 
@@ -756,7 +759,7 @@ def test_qa_routes_rate_limits_create_and_apply_optional_filters(
         issuer_id="issuer",
         run_id="run",
         db=ListDB(),
-        _caller=caller,
+        caller=caller,
     )) == []
 
 

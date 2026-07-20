@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 import vault_export
+from access_log import sanitize_field
 from analysis_contracts import ArtifactRef
 from config import get_settings
 from context_lineage import bind_context_artifacts, typed_refs_from_artifacts
@@ -377,6 +378,7 @@ async def create_run(
         # Bind a portfolio: the explicit choice, else auto-bind the one book that
         # holds this issuer (so CP-3C's concentration goes live with no extra step;
         # ambiguous when held in several → left unbound rather than guessing).
+        portfolio_id: Optional[str]
         if explicit_portfolio is not None:
             portfolio_id = explicit_portfolio.id
         else:
@@ -652,6 +654,15 @@ async def export_committee_report(
     The refusal (409) carries the blocking findings so the caller knows what to
     remediate.
     """
+    if not rate_limit.hit(
+        f"run-reports:{caller.id}",
+        max_attempts=_RUNS_MAX_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Committee report rate limit reached — try again in a minute.",
+        )
     run = await require_run_access(caller, await db.get(Run, run_id), db)
 
     if not committee_export_allowed(run.committee_status):
@@ -714,6 +725,6 @@ async def export_to_vault(
     try:
         paths = await vault_export.export_run(db, run_id, settings.vault_export_dir)
     except OSError as e:  # unwritable / bad VAULT_EXPORT_DIR — a config issue, not a server fault
-        logger.warning("vault export write failed for run %s: %s", run_id, e)
+        logger.warning("vault export write failed for run %s: %s", sanitize_field(run_id), e)
         raise HTTPException(500, "Vault export failed — check VAULT_EXPORT_DIR exists and is writable.") from e
     return {"written": [p.name for p in paths], "vault_dir": settings.vault_export_dir}

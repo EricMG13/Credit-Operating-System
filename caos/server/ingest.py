@@ -16,6 +16,7 @@ import shlex
 import subprocess
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional, TypeVar
 
@@ -46,12 +47,53 @@ _MAX_XLSX_NONEMPTY_CELLS = 500_000
 _MAX_XLSX_CELL_TEXT = 4_096
 _MAX_XLSX_EXTRACTED_CHARS = 8_000_000
 _T = TypeVar("_T")
+_FILE_BACKED_ARG_THRESHOLD = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class _FileBackedBytes:
+    path: str
+
+
+def _stage_parser_args(args: tuple) -> tuple[tuple, list[Path]]:
+    """Replace large byte arguments with secure temporary-file descriptors.
+
+    ``spawn`` otherwise pickles each full upload through a multiprocessing pipe,
+    transiently adding another file-sized parent/IPC copy before the child even
+    begins parsing. The child reads the secure 0600 tempfile directly instead.
+    """
+    staged: list[object] = []
+    paths: list[Path] = []
+    try:
+        for value in args:
+            if isinstance(value, bytes) and len(value) >= _FILE_BACKED_ARG_THRESHOLD:
+                with tempfile.NamedTemporaryFile(
+                    prefix="caos-parser-", suffix=".bin", delete=False
+                ) as handle:
+                    handle.write(value)
+                    path = Path(handle.name)
+                paths.append(path)
+                staged.append(_FileBackedBytes(str(path)))
+            else:
+                staged.append(value)
+        return tuple(staged), paths
+    except Exception:
+        for path in paths:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def _restore_parser_args(args: tuple) -> tuple:
+    return tuple(
+        Path(value.path).read_bytes() if isinstance(value, _FileBackedBytes) else value
+        for value in args
+    )
 
 
 def _parser_process_entry(send_conn, parser: Callable[..., _T], args: tuple) -> None:
     """Run one trusted parser in an isolated child and return its result/error."""
     try:
-        send_conn.send((True, parser(*args)))
+        send_conn.send((True, parser(*_restore_parser_args(args))))
     except BaseException as exc:  # noqa: BLE001 — marshal parser failures to parent
         try:
             send_conn.send((False, exc))
@@ -63,11 +105,12 @@ def _parser_process_entry(send_conn, parser: Callable[..., _T], args: tuple) -> 
 
 def _run_parser_process(parser: Callable[..., _T], args: tuple, timeout: float) -> _T:
     """Run a parser in a killable spawned process with a hard deadline."""
+    staged_args, staged_paths = _stage_parser_args(args)
     ctx = multiprocessing.get_context("spawn")
     recv_conn, send_conn = ctx.Pipe(duplex=False)
     process = ctx.Process(
         target=_parser_process_entry,
-        args=(send_conn, parser, args),
+        args=(send_conn, parser, staged_args),
         name="caos-upload-parser",
         daemon=True,
     )
@@ -97,6 +140,8 @@ def _run_parser_process(parser: Callable[..., _T], args: tuple, timeout: float) 
         if process.is_alive():
             process.terminate()
             process.join(timeout=1)
+        for path in staged_paths:
+            path.unlink(missing_ok=True)
 
 
 async def parse_bounded(parser: Callable[..., _T], *args) -> _T:
@@ -124,18 +169,22 @@ async def read_capped(file: UploadFile, *, max_bytes: int | None = None) -> byte
     settings = get_settings()
     configured_limit = settings.max_upload_mb * 1024 * 1024
     limit = configured_limit if max_bytes is None else min(configured_limit, max_bytes)
-    buf = bytearray()
+    buf = io.BytesIO()
+    size = 0
     while chunk := await file.read(_READ_CHUNK):
-        buf.extend(chunk)
-        if len(buf) > limit:
+        size += len(chunk)
+        if size > limit:
             if limit % (1024 * 1024) == 0:
                 label = f"{limit // (1024 * 1024)} MB"
             else:
                 label = f"{limit} byte"
             raise HTTPException(413, f"File exceeds the {label} limit")
-    if not buf:
+        buf.write(chunk)
+    if size == 0:
         raise HTTPException(400, "Empty upload")
-    return bytes(buf)
+    # BytesIO avoids the guaranteed full-size bytearray→bytes duplication from
+    # the former implementation (CPython can hand out its cached immutable value).
+    return buf.getvalue()
 
 
 def sniff_pdf(content: bytes) -> None:

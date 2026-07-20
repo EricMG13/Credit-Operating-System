@@ -79,7 +79,8 @@ function Sparkline({ pts, color, fmt }: { pts: { period: string; value: number }
   const vals = pts.map((p) => p.value);
   const lo = Math.min(...vals), top = Math.max(...vals);
   const span = top - lo || Math.abs(top) || 1;
-  const px = (i: number) => pl + (W - pl - pr) * (pts.length < 2 ? 0.5 : i / (pts.length - 1));
+  // TrendPlot only mounts a sparkline for a series with at least two points.
+  const px = (i: number) => pl + (W - pl - pr) * (i / (pts.length - 1));
   const py = (v: number) => pt + (H - pt - pb) * (1 - (v - lo) / span);
   const poly = pts.map((p, i) => `${px(i).toFixed(1)},${py(p.value).toFixed(1)}`).join(" ");
   const area = `M${px(0).toFixed(1)},${py(pts[0].value).toFixed(1)} L${pts.map((p, i) => `${px(i).toFixed(1)},${py(p.value).toFixed(1)}`).join(" L")} L${px(pts.length - 1).toFixed(1)},${(H - pb).toFixed(1)} L${pl},${(H - pb).toFixed(1)} Z`;
@@ -336,8 +337,8 @@ function KpiTile({ m, delta, deepHref, provMixed, anyPriorDelta }: {
     ? (delta >= 0) === d.higherIsBetter ? "pass" : "high"
     : null;
   return (
-    <div className="rounded border border-caos-border bg-caos-panel px-3 py-2" title={METRIC_TOOLTIP[m.metric_key] || ""}>
-      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{METRIC_LABEL[m.metric_key] || m.metric_key}</div>
+    <div className="rounded border border-caos-border bg-caos-panel px-3 py-2" title={METRIC_TOOLTIP[m.metric_key]}>
+      <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{METRIC_LABEL[m.metric_key]}</div>
       <div className="flex items-baseline gap-2 mt-1">
         <span
           className="tabular font-semibold leading-none inline-flex items-center gap-1"
@@ -346,7 +347,7 @@ function KpiTile({ m, delta, deepHref, provMixed, anyPriorDelta }: {
           {sev ? (
             // role="img" so the threshold note is an accessible name AT announces —
             // the breach severity must not be color-alone for SR users.
-            <span role="img" style={{ color: sevSurface(sev).color }} title={BREACH_NOTE[m.metric_key] || "breaches a credit threshold"} aria-label={`${sev === "critical" ? "Critical" : "Warning"} — ${BREACH_NOTE[m.metric_key] || "breaches a credit threshold"}`}>
+            <span role="img" style={{ color: sevSurface(sev).color }} title={BREACH_NOTE[m.metric_key]} aria-label={`${sev === "critical" ? "Critical" : "Warning"} — ${BREACH_NOTE[m.metric_key]}`}>
               <StatusGlyph kind="warning" size={11} />
             </span>
           ) : null}
@@ -649,11 +650,11 @@ export function Profile({
         const asOf = profileAsOf as string;
         return {
           whatChanged: { kind: "ready", value: deskRead, asOf, authority: profileAuthority },
-          whyItMatters: { kind: "ready", value: pmPosture ? `${pmPosture.label} · ${pmRisk}` : pmRisk, asOf, authority: profileAuthority },
+          whyItMatters: { kind: "ready", value: `${pmPosture!.label} · ${pmRisk}`, asOf, authority: profileAuthority },
           requiredAction: { kind: "ready", value: <Link href={pmAction.href} className="text-caos-accent hover:text-caos-text transition-caos focus-ring rounded outline-none">{pmAction.label} →</Link>, asOf, authority: profileAuthority },
           evidenceHealth: {
             kind: profileFreshness?.state === "stale" ? "stale" : profileFreshness?.state === "current" && !totalFindings ? "ready" : "partial",
-            value: <span className="inline-flex items-center gap-2" style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] ?? "var(--caos-text)" }}><FreshnessIndicator evaluation={profileFreshness} />{pmEvidence.label}</span>,
+            value: <span className="inline-flex items-center gap-2" style={{ color: EVIDENCE_SEV_COLOR[pmEvidence.sev] }}><FreshnessIndicator evaluation={profileFreshness} />{pmEvidence.label}</span>,
             missingSources: [...(totalFindings ? [`${totalFindings} QA finding${totalFindings === 1 ? "" : "s"}`] : []), ...(!profileFreshness || profileFreshness.state === "unknown" ? ["central freshness evaluation"] : [])],
             asOf,
             authority: profileAuthority,
@@ -1080,7 +1081,7 @@ export function AnalystNotesPanel({ issuerId, issuerName, ticker }: { issuerId: 
     >
       <div className="px-3 py-2 flex flex-col gap-2">
         {loading ? (
-          <Empty>Loading analyst notes...</Empty>
+          <Empty>Loading analyst notes…</Empty>
         ) : error ? (
           <div className="flex items-start gap-1.5 tabular text-caos-sm text-caos-warning">
             <span className="mt-0.5 shrink-0"><StatusGlyph kind="warning" size={10} /></span>

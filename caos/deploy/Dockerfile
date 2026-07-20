@@ -7,8 +7,8 @@
 # ─── Stage 1: build the Next.js static export (output: "export" → ./out) ─────
 # Base images pinned by digest for reproducibility (#24); the tag is kept for
 # readability. Refresh the digest deliberately when bumping the base for CVEs:
-#   docker buildx imagetools inspect node:26-slim --format '{{.Manifest.Digest}}'
-FROM node:26-slim@sha256:ffc78385a788964bb3cbab5e434ff79a10bdc25b8ae6db03fe5fe6cb14053c09 AS frontend
+#   docker buildx imagetools inspect node:24-slim --format '{{.Manifest.Digest}}'
+FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci

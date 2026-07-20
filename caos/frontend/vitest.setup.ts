@@ -16,7 +16,7 @@ configure({ asyncUtilTimeout: 8000 });
 // unless the process runs with --localstorage-file. That broken global shadows
 // jsdom's per-window storage in component tests, so any bare
 // `localStorage.getItem/clear` throws "Cannot read properties of undefined"
-// on CI (Node 26) while passing locally on older Node. Replace it with a tiny
+// on CI (Node 24) while passing locally on older Node. Replace it with a tiny
 // in-memory Storage so tests behave the same on every Node.
 //
 // The replacement must be a real `class` (not a plain object): several tests

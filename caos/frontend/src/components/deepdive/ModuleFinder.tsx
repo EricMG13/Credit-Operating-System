@@ -191,7 +191,10 @@ function ModuleFinderModal({
         <div className="border-b border-caos-border px-3">
           <input
             ref={inputRef}
+            name="module-finder"
+            autoComplete="off"
             role="combobox"
+            aria-label="Find a module"
             aria-expanded="true"
             aria-controls="module-finder-listbox"
             aria-activedescendant={results[active] ? `module-finder-row-${active}` : undefined}

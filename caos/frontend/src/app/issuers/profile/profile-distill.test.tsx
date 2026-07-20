@@ -10,8 +10,12 @@ import { useSearchParams } from "next/navigation";
 
 const freshnessState = vi.hoisted(() => ({
   checkpointId: null as string | null,
+  reportVersionId: null as string | null,
   updatedAt: "2026-07-13T00:00:00Z",
   calls: [] as Array<Record<string, unknown>>,
+  surfaceState: {} as Record<string, unknown>,
+  issuerIds: ["iss-1"] as string[],
+  issuerRunId: "run-1" as string | null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -24,17 +28,17 @@ vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: 
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
   useAnalysisContext: () => ({
-    context: freshnessState.checkpointId ? {
+    context: freshnessState.checkpointId || freshnessState.reportVersionId ? {
       id: "context-profile", name: "Profile", sector_id: null, sub_segments: [],
-      issuer_ids: ["iss-1"], instrument_ids: [], portfolio_scope: null, as_of: null,
+      issuer_ids: freshnessState.issuerIds, instrument_ids: [], portfolio_scope: null, as_of: null,
       sector_review_run_id: null, rv_snapshot_id: null, rv_run_id: null,
       query_session_id: null,
       artifacts: {
-        issuer_run_id: "run-1", source_manifest_id: null, research_job_id: null,
-        model_checkpoint_id: freshnessState.checkpointId, report_version_id: null,
+        issuer_run_id: freshnessState.issuerRunId, source_manifest_id: null, research_job_id: null,
+        model_checkpoint_id: freshnessState.checkpointId, report_version_id: freshnessState.reportVersionId,
         alert_event_id: null, sponsor_id: null,
       },
-      surface_state: {}, filters: {}, selected: {},
+      surface_state: freshnessState.surfaceState, filters: {}, selected: {},
       created_at: "2026-07-13T00:00:00Z", updated_at: freshnessState.updatedAt,
     } : null,
     loading: false, error: null,
@@ -45,9 +49,9 @@ vi.mock("@/lib/engine/useFreshness", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/engine/useFreshness")>()),
   useIssuerFreshness: (args: Record<string, unknown>) => {
     freshnessState.calls.push(args);
-    const id = freshnessState.checkpointId;
+    const id = freshnessState.checkpointId ?? freshnessState.reportVersionId;
     const evaluation = id ? {
-      state: id === "checkpoint-1" ? "stale" as const : "due" as const,
+      state: id === "checkpoint-1" ? "stale" as const : id === "checkpoint-current" ? "current" as const : id === "checkpoint-unknown" ? "unknown" as const : "due" as const,
       source_kind: "derived_artifact" as const,
       observed_at: "2026-07-10T00:00:00Z", effective_period_end: null,
       expected_next_at: null, due_at: "2026-07-14T00:00:00Z", age_days: 4,
@@ -78,8 +82,12 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 afterEach(() => {
   cleanup();
   freshnessState.checkpointId = null;
+  freshnessState.reportVersionId = null;
   freshnessState.updatedAt = "2026-07-13T00:00:00Z";
   freshnessState.calls.length = 0;
+  freshnessState.surfaceState = {};
+  freshnessState.issuerIds = ["iss-1"];
+  freshnessState.issuerRunId = "run-1";
   vi.clearAllMocks();
   window.history.replaceState({}, "", "/issuers/profile");
 });
@@ -286,6 +294,7 @@ describe("Profile (distilled)", () => {
     fireEvent.keyDown(snapshot.closest('[role="tablist"]')!, { key: "ArrowLeft" });
     expect(screen.getByRole("tab", { name: "Evidence / QA" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(screen.getByRole("tab", { name: "Evidence / QA" }).closest('[role="tablist"]')!, { key: "ArrowRight" });
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Snapshot" }).closest('[role="tablist"]')!, { key: "Escape" });
 
     fireEvent.click(screen.getByRole("tab", { name: "Financials" }));
     expect(screen.getByText("Margin compression")).toBeTruthy();
@@ -324,7 +333,7 @@ describe("Profile (distilled)", () => {
       runs: [], metrics: [], signals: {}, coverage: {}, findings: {}, business: [], sponsor: {}, strengths: [], weaknesses: [],
       earnings: undefined as unknown as IssuerProfile["earnings"],
     };
-    render(<Profile id="issuer empty" data={empty} />);
+    render(<Profile id="issuer-empty" data={empty} />);
     expect(screen.getByText("no run")).toBeTruthy();
     expect(screen.getByText(/No headline metrics yet/)).toBeTruthy();
     expect(screen.getAllByText(/No completed run yet/).length).toBeGreaterThan(0);
@@ -339,6 +348,222 @@ describe("Profile (distilled)", () => {
     expect(screen.getByText("No runs yet.")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Evidence / QA" }));
     expect(screen.getByText("Unavailable — no completed run")).toBeTruthy();
+  });
+
+  it("renders sparse valid sections without inventing optional detail", () => {
+    freshnessState.checkpointId = "checkpoint-exact";
+    freshnessState.surfaceState = {
+      "issuer-profile": { active_id: "iss-1", selected_ids: ["run-1"], view: "snapshot" },
+    };
+    const sparse: IssuerProfile = {
+      ...data,
+      signals: { recommendation: "NEUTRAL", addback_cap_pct: 0.2 },
+      business: [{ fact_area: "profile", code: "transaction", statement: "Take-private financing", chunk_id: null }],
+      sponsor: { ledger: [] },
+      strengths: [],
+      weaknesses: ["Single refinancing risk"],
+      earnings: {
+        latest_period: "Q2 2026",
+        prior_period: null,
+        revenue_growth_pct: 0,
+        ebitda_growth_pct: null,
+        margin_change_pp: null,
+        monitoring_signals: [],
+      },
+    };
+    render(<Profile id="iss-1" data={sparse} />);
+
+    expect(screen.getAllByText("NEUTRAL").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Financials" }));
+    expect(screen.getByText("Single refinancing risk")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Structure & Covenant" }));
+    expect(screen.getByText("20% of EBITDA")).toBeTruthy();
+    expect(screen.getByText("Take-private financing")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Events" }));
+    expect(screen.getByText("No deterioration signals.")).toBeTruthy();
+    expect(screen.queryByText(/→ Q2 2026 · YoY/)).toBeNull();
+  });
+
+  it("renders ownership facts without requiring a sponsor ledger", () => {
+    const ownershipOnly: IssuerProfile = {
+      ...data,
+      business: [{ fact_area: "profile", code: "ownership", statement: "Founder controlled", chunk_id: null }],
+      sponsor: { ledger: [] },
+    };
+    render(<Profile id="iss-1" data={ownershipOnly} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Structure & Covenant" }));
+    expect(screen.getByText("Founder controlled")).toBeTruthy();
+  });
+
+  it("covers flat trends, neutral thresholds, and unknown feed classifications", () => {
+    const edges: IssuerProfile = {
+      ...data,
+      metrics: [
+        metric("revenue", "FY2024", 0, "$M"),
+        metric("revenue", "FY2025", 0, "$M"),
+        metric("revenue", "LTM", 0, "$M", true),
+        metric("net_leverage", "FY2024", 5, "x"),
+        metric("net_leverage", "FY2025", 5, "x", true),
+        metric("interest_coverage", "LTM", 3, "x", true, "mystery"),
+        metric("altman_z", "LTM", 3, "score", true),
+      ],
+      signals: { revenue_growth_pct: 0, recommendation: "UNMAPPED" },
+    };
+    const view = render(<Profile id="iss-1" data={edges} />);
+
+    expect(screen.getByText("n/l")).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Warning — elevated leverage/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Financials" }));
+    const sparklines = screen.getAllByRole("img", { name: /Metric trend sparkline/ });
+    fireEvent.keyDown(sparklines[0], { key: "ArrowLeft" });
+    expect(screen.getAllByText(/■ 0\.0 over/).length).toBeGreaterThan(0);
+
+    view.rerender(<Profile id="iss-1" data={{
+      ...edges,
+      metrics: [
+        metric("net_leverage", "LTM", 3, "x", true),
+        metric("interest_coverage", "LTM", 2, "x", true),
+        metric("altman_z", "LTM", 2, "score", true),
+      ],
+    }} />);
+    expect(screen.getAllByRole("img", { name: /Warning — thin coverage|Warning — distress zone/, hidden: true })).toHaveLength(2);
+
+    view.rerender(<Profile id="iss-1" data={{
+      ...edges,
+      metrics: [metric("interest_coverage", "LTM", 3, "x", true)],
+    }} />);
+    expect(screen.queryByRole("img", { name: /thin coverage/, hidden: true })).toBeNull();
+
+    view.rerender(<Profile id="iss-1" data={{
+      ...edges,
+      metrics: [metric("fcf", "LTM", 1, "$M", true, "demo_fixture")],
+    }} />);
+    expect(screen.getByText("FAB")).toBeTruthy();
+  });
+
+  it("covers context, authority, timestamp, run, and sponsor fallbacks", () => {
+    freshnessState.reportVersionId = "checkpoint-current";
+    freshnessState.issuerIds = ["another-issuer"];
+    freshnessState.issuerRunId = "context-run";
+    freshnessState.surfaceState = {
+      "issuer-profile": { active_id: "iss-1", selected_ids: ["run-unknown"], view: "events" },
+    };
+    const unknownRun: ProfileRun = {
+      ...data.latest_run!,
+      id: "run-unknown",
+      status: "future-status",
+      committee_status: "Future Committee State",
+      analyst_id: null,
+      as_of_date: null,
+    };
+    const edgeData: IssuerProfile = {
+      ...data,
+      issuer: { ...data.issuer, name: "", ticker: null },
+      latest_run: unknownRun,
+      runs: [unknownRun],
+      metrics: [],
+      signals: {},
+      findings: { CRITICAL: 0, MATERIAL: 0, MINOR: 1 },
+      business: [{ fact_area: "profile", code: "ownership", statement: "Founder controlled", chunk_id: null }],
+      sponsor: { ledger: [{ flag: "No independent chair" }] },
+    };
+    const view = render(<Profile id="iss-1" data={edgeData} />);
+
+    expect(document.title).toBe("Issuer · Issuer Profile · CAOS");
+    expect(screen.getByText("Latest run timestamp unavailable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Events" }));
+    expect(screen.getByText("future-status")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Structure & Covenant" }));
+    expect(screen.getByText("No independent chair")).toBeTruthy();
+
+    view.rerender(<Profile id="iss-1" data={{
+      ...edgeData,
+      latest_run: { ...unknownRun, committee_status: "Approved" },
+      runs: [],
+      findings: {},
+    }} />);
+    expect(screen.getByText("Approved")).toBeTruthy();
+  });
+
+  it("covers retained multi-date snapshots and add-back warning bands", () => {
+    const retained: IssuerProfile = {
+      ...data,
+      signal_run_id: "run-current",
+      metrics: [
+        { ...metric("revenue", "LTM", 100, "$M", true), run_id: "run-old", source_run_as_of: "2026-03-31" },
+        { ...metric("net_leverage", "LTM", 5, "x", true), run_id: "run-old", source_run_as_of: "2026-06-30" },
+      ],
+      signals: { addback_cap_pct: 0.25, addback_utilization_pct: 85, addback_breach: false },
+      business: [{ fact_area: "profile", code: "transaction", statement: "Transaction", chunk_id: null }],
+    };
+    const view = render(<Profile id="iss-1" data={retained} />);
+    expect(screen.getByRole("heading", { name: "Credit snapshot" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Structure & Covenant" }));
+    expect(screen.getByText("25% of EBITDA · 85% used")).toBeTruthy();
+
+    view.rerender(<Profile id="iss-1" data={{
+      ...retained,
+      signals: { addback_cap_pct: 0.25, addback_utilization_pct: 50, addback_breach: false },
+    }} />);
+    expect(screen.getByText("25% of EBITDA · 50% used")).toBeTruthy();
+  });
+
+  it("uses the context artifact when a no-run profile is opened", () => {
+    freshnessState.reportVersionId = "report-only";
+    freshnessState.issuerIds = [];
+    freshnessState.issuerRunId = "context-run";
+    render(<Profile id="iss-1" data={{ ...data, latest_run: null, metrics: [], runs: [] }} />);
+
+    expect(screen.getByText("no run")).toBeTruthy();
+  });
+
+  it("syncs an empty run selection when neither the profile nor context has a run", () => {
+    freshnessState.reportVersionId = "report-only";
+    freshnessState.issuerRunId = null;
+    render(<Profile id="iss-1" data={{ ...data, latest_run: null, metrics: [], runs: [] }} />);
+
+    expect(screen.getByText("no run")).toBeTruthy();
+  });
+
+  it("covers clean empty-snapshot, material-finding, and earnings-signal variants", () => {
+    freshnessState.checkpointId = "checkpoint-current";
+    const variants: IssuerProfile = {
+      ...data,
+      metrics: [],
+      findings: { CRITICAL: 0, MATERIAL: 1, MINOR: 0 },
+      coverage: { readiness_score: 0.5, documents: 2 },
+      earnings: {
+        latest_period: "Q2 2026",
+        prior_period: "Q2 2025",
+        revenue_growth_pct: 2,
+        ebitda_growth_pct: null,
+        margin_change_pp: null,
+        monitoring_signals: ["Signal one", "Signal two"],
+      },
+    };
+    const view = render(<Profile id="iss-1" data={variants} />);
+    expect(screen.getByRole("heading", { name: "Credit snapshot · as of 2026-06-30" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Structure & Covenant" }));
+    expect(screen.getByText("50% · 2 docs")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Events" }));
+    expect(screen.getAllByText(/2 monitoring signals flagged/)).toHaveLength(2);
+
+    view.rerender(<Profile id="iss-1" data={{
+      ...variants,
+      metrics: [metric("altman_z", "LTM", 3, "score", true)],
+      coverage: { readiness_score: 0.5, documents: 0 },
+      earnings: {
+        ...variants.earnings,
+        monitoring_signals: undefined as unknown as string[],
+      },
+    }} />);
+    expect(screen.getByText("No deterioration signals.")).toBeTruthy();
+  });
+
+  it("renders an overlay without a close callback", () => {
+    render(<Profile id="iss-1" data={data} isOverlay />);
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 
   it("exposes overlay close controls without taking ownership of the page title", () => {
@@ -398,5 +623,12 @@ describe("Issuer profile route states", () => {
     second.unmount();
     resolve(data);
     await waitFor(() => expect(document.body.textContent).not.toContain("VMO2"));
+
+    let reject!: (reason: unknown) => void;
+    vi.mocked(getIssuerProfile).mockImplementationOnce(() => new Promise((_done, fail) => { reject = fail; }));
+    const third = render(<IssuerProfilePage />);
+    third.unmount();
+    reject(new Error("late failure"));
+    await waitFor(() => expect(document.body.textContent).not.toContain("late failure"));
   });
 });

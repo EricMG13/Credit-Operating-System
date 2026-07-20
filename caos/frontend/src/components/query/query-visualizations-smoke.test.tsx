@@ -47,4 +47,82 @@ describe("query visualization smoke", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Net leverage/i })[0]);
     expect(select).toHaveBeenCalled();
   });
+
+  it("renders an explicit empty graph state", () => {
+    render(<GraphCanvas graph={{ ...graph, title: "No relationships", nodes: [], edges: [], meta: ["No qualifying links"] }} onOpenChunk={vi.fn()} />);
+    expect(screen.getByText("No relationships")).toBeTruthy();
+    expect(screen.getByText("No qualifying links")).toBeTruthy();
+  });
+
+  it("highlights adjacency, opens chunks, and renders a wiki-linked sector pill", () => {
+    const openChunk = vi.fn();
+    const select = vi.fn();
+    const interactive: GraphResult = {
+      ...graph,
+      nodes: [
+        { id: "sector", label: "Telecommunications Services and Infrastructure", kind: "sector", x: 0.2, y: 0.3, group: "Telecom", obsidian_url: "obsidian://open?vault=Credit&file=Telecom" },
+        { id: "chunk", label: "Covenant extract", kind: "chunk", x: 0.5, y: 0.5, chunk_id: "chunk-77" },
+        { id: "peer", label: "Peer issuer", kind: "issuer", x: 0.8, y: 0.7, group: "Telecom" },
+      ],
+      edges: [
+        { source: "sector", target: "chunk", kind: "seq" },
+        { source: "peer", target: "sector", kind: "bear" },
+      ],
+    };
+    render(<GraphCanvas graph={interactive} onOpenChunk={openChunk} onSelectNode={select} />);
+    const sector = screen.getByRole("button", { name: /Select Telecommunications/ });
+    fireEvent.mouseEnter(sector.parentElement!);
+    fireEvent.mouseLeave(sector.parentElement!);
+    fireEvent.click(screen.getByRole("button", { name: "Select Covenant extract" }));
+    expect(openChunk).toHaveBeenCalledWith("chunk-77", "Covenant extract");
+    const wiki = screen.getByRole("link", { name: /Reveal Telecommunications/ });
+    const stopPropagation = vi.fn();
+    fireEvent.mouseDown(wiki, { stopPropagation });
+    expect(wiki.getAttribute("href")).toContain("obsidian://open");
+  });
+
+  it("supports scatter hover, focus, click, and keyboard activation", () => {
+    const select = vi.fn();
+    render(<ScatterCanvas graph={graph} selectedNodeId="center" onSelectNode={select} />);
+    const metric = screen.getByRole("button", { name: "Select Net leverage (metric)" });
+
+    fireEvent.focus(metric);
+    fireEvent.blur(metric);
+    fireEvent.mouseEnter(metric);
+    fireEvent.click(metric);
+    fireEvent.keyDown(metric, { key: "Escape" });
+    fireEvent.keyDown(metric, { key: "Enter" });
+    fireEvent.keyDown(metric, { key: " " });
+    fireEvent.mouseLeave(metric);
+
+    expect(select).toHaveBeenCalledTimes(3);
+    expect(select).toHaveBeenLastCalledWith(expect.objectContaining({ id: "metric" }));
+  });
+
+  it("renders normalized scatter fallbacks and ignores missing edge endpoints without a selector", () => {
+    const sparse: GraphResult = {
+      ...graph,
+      meta: ["x = normalized position →"],
+      nodes: [
+        { id: "plain", label: "Unclassified point", kind: "unknown", x: 0.4, y: 0.6 },
+        { id: "peer", label: "Peer point", kind: "issuer", x: 0.7, y: 0.3 },
+      ],
+      edges: [{ source: "plain", target: "missing", kind: "dep" }],
+    };
+    const view = render(<ScatterCanvas graph={sparse} />);
+    expect(screen.getByText("x = normalized position →")).toBeTruthy();
+    expect(screen.getAllByText("0.00").length).toBeGreaterThan(0);
+
+    const plain = screen.getByRole("button", { name: "Select Unclassified point (unknown)" });
+    fireEvent.click(plain);
+    fireEvent.keyDown(plain, { key: "Enter" });
+    view.rerender(<ScatterCanvas graph={sparse} selectedNodeId="plain" />);
+    expect(screen.getByRole("button", { name: "Select Unclassified point (unknown)" })).toBeTruthy();
+
+    view.rerender(<ScatterCanvas graph={{
+      ...sparse,
+      meta: ["xdomain=bad|8", "ydomain=0|bad"],
+    }} />);
+    expect(screen.getByText("positions normalized 0 → 1 (no metric axes)")).toBeTruthy();
+  });
 });

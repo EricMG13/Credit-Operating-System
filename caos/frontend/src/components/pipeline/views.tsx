@@ -11,7 +11,7 @@ import {
 import { type Sim, type SimEvent } from "@/lib/pipeline/sim-engine";
 import { planCounts } from "@/lib/pipeline/sim";
 import { sevVar } from "@/lib/pipeline/sev";
-import { EvChip } from "@/components/reports/EvidenceModal";
+import { EvChip } from "@/components/reports/EvChip";
 import { Bar, Dot, Tag } from "./atoms";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { SurfaceState } from "@/components/shared/SurfaceState";
@@ -83,7 +83,7 @@ function GraphEdgePath({ edge, index, selected, scope, up, down }: { edge: (type
 }
 
 function GraphEdges({ selected, scope, up, down }: { selected: string | null; scope: Set<string>; up: Set<string>; down: Set<string> }) {
-  return <svg width={GW} height={GH} className="absolute inset-0">{EDGES.map((edge, index) => <GraphEdgePath key={index} edge={edge} index={index} selected={selected} scope={scope} up={up} down={down} />)}</svg>;
+  return <svg width={GW} height={GH} className="absolute inset-0" aria-hidden="true" focusable="false">{EDGES.map((edge, index) => <GraphEdgePath key={index} edge={edge} index={index} selected={selected} scope={scope} up={up} down={down} />)}</svg>;
 }
 
 function GraphNodeBadges({ inScope, moduleId, state }: { inScope: boolean; moduleId: string; state: string }) {

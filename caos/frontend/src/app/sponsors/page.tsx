@@ -207,7 +207,7 @@ function SponsorRegisterContent({ controller }: { controller: SponsorsController
 }
 
 function SponsorRegister({ controller }: { controller: SponsorsController }) {
-  return <Panel title="Sponsors · by coverage" className="w-full shrink-0 md:w-80">
+  return <Panel title="Sponsors · by coverage" className="sponsor-register-panel w-full shrink-0 md:w-80">
     <SponsorRegisterContent controller={controller} />
   </Panel>;
 }

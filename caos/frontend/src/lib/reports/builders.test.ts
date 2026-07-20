@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReports } from "./builders";
+import { buildReferenceReport, buildReports } from "./builders";
 import { ROWS } from "@/components/model/rows";
 
 // review run-2 #F2/#F1: the Credit Snapshot capital-structure table must tie to the
@@ -26,6 +26,21 @@ describe("creditSnapshot capital structure", () => {
     const mult = (c: string) => Number(c.replace("x", ""));
     expect(mult(sub.cells[7])).toBeLessThan(mult(total.cells[7]));
     expect(sub.cells[7]).not.toBe(total.cells[7]);
+  });
+});
+
+describe("reference report dispatch", () => {
+  it("returns the exact canonical report for every deliverable id", () => {
+    const reports = buildReports();
+    for (const report of reports) {
+      expect(JSON.stringify(buildReferenceReport(report.id))).toBe(JSON.stringify(report));
+    }
+  });
+
+  it("falls back to the snapshot for an unknown or absent id", () => {
+    const snapshot = buildReports()[0];
+    expect(JSON.stringify(buildReferenceReport(undefined))).toBe(JSON.stringify(snapshot));
+    expect(JSON.stringify(buildReferenceReport("unknown"))).toBe(JSON.stringify(snapshot));
   });
 });
 

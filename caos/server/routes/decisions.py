@@ -7,7 +7,7 @@ import json
 import base64
 import hmac
 from datetime import date, datetime, timezone
-from typing import Dict, List, Literal, Optional, Union
+from typing import Annotated, Dict, List, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -15,22 +15,29 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import rate_limit
 from config import get_settings
 from database import Decision, DecisionVote, Issuer, ModuleOutput, Run, ThesisVersion, get_db
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity, require_write_role
+from json_safety import require_bounded_json
 from routes.thesis import ThesisVersionIn, create_thesis_version
 from tenancy import require_issuer, require_run_access, scope_issuers
 
 router = APIRouter()
 
+_DECISION_MAX_PER_MINUTE = 20
+_MAX_CLIENT_SNAPSHOT_BYTES = 250 * 1024
+
 
 class DecisionCreate(BaseModel):
-    issuer_id: str
-    run_id: str
+    issuer_id: str = Field(min_length=1, max_length=36)
+    run_id: str = Field(min_length=1, max_length=36)
     report_id: Optional[str] = Field(default=None, max_length=64)
     action: Literal["approve", "decline", "revisit"]
-    conditions: List[str] = Field(default_factory=list, max_length=50)
+    conditions: List[Annotated[str, Field(max_length=2_000)]] = Field(
+        default_factory=list, max_length=50
+    )
     expiry: Optional[date] = None
     snapshot: Dict = Field(default_factory=dict)
 
@@ -167,8 +174,22 @@ async def create_decision(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    run = await require_run_access(caller, await db.get(Run, body.run_id), db)
     require_write_role(caller)
+    if not rate_limit.hit(
+        f"decisions:{caller.id}",
+        max_attempts=_DECISION_MAX_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Decision rate limit reached — try again in a minute.",
+        )
+    require_bounded_json(
+        body.snapshot,
+        max_bytes=_MAX_CLIENT_SNAPSHOT_BYTES,
+        label="Decision snapshot",
+    )
+    run = await require_run_access(caller, await db.get(Run, body.run_id), db)
     if run.issuer_id != body.issuer_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Run not found")
     if not committee_export_allowed(run.committee_status):

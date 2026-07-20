@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { act, render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { ProfileSectionNav } from "./ProfileSectionNav";
 
 afterEach(cleanup);
@@ -58,6 +58,51 @@ describe("ProfileSectionNav", () => {
     delete globalThis.IntersectionObserver;
     document.body.innerHTML = '<div id="sec-a"></div><div id="sec-b"></div>';
     expect(() => render(<ProfileSectionNav sections={SECTIONS} scrollRoot={document.body} />)).not.toThrow();
+    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = original;
+  });
+
+  it("tracks the top-most visible section and supports mobile select jumps", () => {
+    document.body.innerHTML = '<div id="sec-a"></div><div id="sec-b"></div>';
+    const secA = document.getElementById("sec-a")!;
+    const secB = document.getElementById("sec-b")!;
+    secA.scrollIntoView = vi.fn();
+    let callback!: IntersectionObserverCallback;
+    class CallbackObserver {
+      constructor(cb: IntersectionObserverCallback) { callback = cb; }
+      observe() {}
+      disconnect() {}
+    }
+    const original = (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
+    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = CallbackObserver;
+
+    render(<ProfileSectionNav sections={SECTIONS} scrollRoot={document.body} />);
+    act(() => callback([
+      { isIntersecting: false, target: secA, boundingClientRect: { top: 0 } },
+    ] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    act(() => callback([
+      { isIntersecting: true, target: secA, boundingClientRect: { top: 80 } },
+      { isIntersecting: true, target: secB, boundingClientRect: { top: 20 } },
+    ] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver));
+    expect(screen.getByRole("link", { name: "Trends" }).getAttribute("aria-current")).toBe("true");
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Jump to profile section" }), { target: { value: "sec-a" } });
+    expect(secA.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(screen.getByRole("link", { name: "Snapshot" }).getAttribute("aria-current")).toBe("true");
+    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = original;
+  });
+
+  it("does not construct an observer when none of the section targets exist", () => {
+    document.body.innerHTML = "";
+    let constructed = 0;
+    class UnusedObserver {
+      constructor() { constructed += 1; }
+      observe() {}
+      disconnect() {}
+    }
+    const original = (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
+    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = UnusedObserver;
+    render(<ProfileSectionNav sections={SECTIONS} scrollRoot={document.body} />);
+    expect(constructed).toBe(0);
     (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = original;
   });
 });

@@ -42,6 +42,19 @@ describe("AnalysisContextStrip", () => {
     expect(pending.getAttribute("aria-busy")).toBe("true");
   });
 
+  it("settles the context-free Settings utility strip without a busy state", () => {
+    window.history.replaceState({}, "", "/settings");
+    render(<AnalysisContextStrip />);
+
+    const settled = screen.getByRole("status");
+    expect(settled.textContent).toContain("Workspace configuration · no analysis context");
+    expect(settled.className).toContain("min-h-12");
+    expect(settled.className).toContain("md:min-h-8");
+    expect(settled.getAttribute("aria-busy")).toBeNull();
+    expect(getContext).not.toHaveBeenCalled();
+    expect(listFindings).not.toHaveBeenCalled();
+  });
+
   it("replaces the reserved row in place after independently rechecking context", async () => {
     getContext.mockResolvedValue(CONTEXT);
     listFindings.mockResolvedValue([{ id: "finding-1", title: "Leverage increased", status: "active" }]);

@@ -53,9 +53,9 @@ describe("CitationViewer", () => {
   });
 
   it.each([
-    [new Error("transport failed"), "transport failed"],
-    [{}, "could not load source"],
-  ])("falls back through the supported error shapes", async (reason, expected) => {
+    { label: "Error message", reason: new Error("transport failed"), expected: "transport failed" },
+    { label: "unknown rejection", reason: {}, expected: "could not load source" },
+  ])("falls back through the supported error shapes: $label", async ({ reason, expected }) => {
     mockGetChunk.mockRejectedValue(reason);
     render(<CitationViewer chunkId="missing" label="E-17" onClose={() => {}} />);
 

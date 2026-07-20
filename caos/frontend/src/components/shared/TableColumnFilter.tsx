@@ -166,6 +166,8 @@ function FilterOption({ col, onChange, option, options, selected }: { col: strin
   return <label className="flex min-w-0 items-center gap-2 px-1 py-1 hover:bg-caos-elevated/70 rounded">
     <input
       type="checkbox"
+      name={`filter-${col}`}
+      autoComplete="off"
       checked={checked}
       onChange={(event) => onChange(col, nextOptionSelection(selected, options, option, event.target.checked))}
       className="accent-[var(--caos-accent)]"
@@ -196,9 +198,11 @@ function FilterDialog<T>({ controller, matches, options, props, visible }: { con
       </div>
       <input
         autoFocus
+        name={`filter-${props.col}-values`}
+        autoComplete="off"
         value={controller.q}
         onChange={(event) => controller.setQ(event.target.value)}
-        placeholder="Search values"
+        placeholder="Search values…"
         aria-label={`Search ${props.label} values`}
         className="w-full rounded border border-caos-border bg-caos-elevated px-2 py-1 tabular text-caos-xs text-caos-text outline-none focus-ring"
       />

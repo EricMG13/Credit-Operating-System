@@ -295,13 +295,13 @@ describe("Report Studio interactions", () => {
     expect(screen.getByRole("button", { name: "SHOW EBITDA ADD-BACKS" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "OPEN CP-5 CONDITIONAL · QA-117" }));
-    expect(screen.getByRole("dialog", { name: "Evidence E-44" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Evidence E-44" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
     fireEvent.click(screen.getByRole("button", { name: "Open document evidence" }));
-    expect(screen.getByRole("dialog", { name: "Evidence E-44" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Evidence E-44" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
     fireEvent.click(screen.getByRole("button", { name: "Open lineage evidence" }));
-    expect(screen.getByRole("dialog", { name: "Evidence E-99" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Evidence E-99" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse deliverables" }));
@@ -393,6 +393,42 @@ describe("Report Studio interactions", () => {
     vi.mocked(saveReportDraft).mockRejectedValueOnce(new Error("revision conflict"));
     fireEvent.click(screen.getByRole("button", { name: "Paper tone White" }));
     await waitFor(() => expect(screen.getByText("Draft conflict — reload before publishing.")).toBeTruthy(), { timeout: 2_500 });
+  });
+
+  it("does not claim a newer edit is saved while an older autosave is still in flight", async () => {
+    let finishFirst!: (draft: ReportDraftDTO) => void;
+    let finishSecond!: (draft: ReportDraftDTO) => void;
+    vi.mocked(saveReportDraft)
+      .mockReset()
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishSecond = resolve; }));
+
+    render(<ReportsPage />);
+    await waitFor(() => expect(saveReportDraft).toHaveBeenCalledTimes(1), { timeout: 2_500 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Paper tone White" }));
+    expect(await screen.findByText("Saving draft…")).toBeTruthy();
+
+    await act(async () => {
+      finishFirst({
+        id: "draft-1", context_id: "context-1", revision: 5, payload: {},
+        updated_at: "2026-07-14T00:00:01Z",
+      });
+    });
+    expect(screen.queryByText("Draft autosaved")).toBeNull();
+
+    await waitFor(() => expect(saveReportDraft).toHaveBeenCalledTimes(2), { timeout: 2_500 });
+    expect(vi.mocked(saveReportDraft).mock.calls[1]?.[1]).toMatchObject({ paper: "#ffffff" });
+    expect(vi.mocked(saveReportDraft).mock.calls[1]?.[2]).toBe(5);
+    expect(screen.queryByText("Draft autosaved")).toBeNull();
+
+    await act(async () => {
+      finishSecond({
+        id: "draft-1", context_id: "context-1", revision: 6, payload: {},
+        updated_at: "2026-07-14T00:00:02Z",
+      });
+    });
+    expect(await screen.findByText("Draft autosaved")).toBeTruthy();
   });
 
   it("autosaves a new server draft without a revision precondition", async () => {
@@ -631,7 +667,7 @@ describe("Report Studio interactions", () => {
     render(<ReportsPage />);
     await screen.findByText("No issuer-specific report output");
     fireEvent.click(screen.getByRole("button", { name: "Open IC decision" }));
-    const dialog = screen.getByRole("dialog", { name: "Decision room" });
+    const dialog = await screen.findByRole("dialog", { name: "Decision room" });
     expect(dialog.getAttribute("data-report-id")).toBe("snapshot");
   });
 
@@ -689,14 +725,14 @@ describe("Report Studio interactions", () => {
     expect(await screen.findByText("pdf retry offline")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Open document evidence" }));
-    expect(screen.getByRole("dialog", { name: "Evidence E-44" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Evidence E-44" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Submit to IC" }));
-    expect(screen.getByRole("dialog", { name: "Decision room" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Decision room" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close decision" }));
     fireEvent.click(screen.getByRole("button", { name: "Open IC decision" }));
-    expect(screen.getByRole("dialog", { name: "Decision room" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Decision room" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close decision" }));
   });
 });

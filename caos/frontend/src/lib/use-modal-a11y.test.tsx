@@ -7,7 +7,7 @@
 import React, { useState } from "react";
 import { render, fireEvent, cleanup, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { useModalA11y } from "./use-modal-a11y";
+import { hasOpenModalA11yOverlay, useModalA11y } from "./use-modal-a11y";
 
 afterEach(cleanup);
 
@@ -51,11 +51,31 @@ function ModalHost({
   );
 }
 
+function EmptyModalHost({ onClose }: { onClose: () => void }) {
+  const ref = useModalA11y<HTMLDivElement>(onClose);
+  return <div ref={ref} role="dialog" aria-modal="true" data-testid="empty-panel" />;
+}
+
+function FormModalHost({ onClose }: { onClose: () => void }) {
+  const ref = useModalA11y<HTMLDivElement>(onClose);
+  return <div ref={ref} role="dialog" aria-modal="true"><button>Close</button><input aria-label="Thesis" /></div>;
+}
+
 describe("useModalA11y", () => {
+  it("reports whether any tracked overlay is open", () => {
+    expect(hasOpenModalA11yOverlay()).toBe(false);
+    const view = render(<ModalHost onClose={vi.fn()} />);
+    expect(hasOpenModalA11yOverlay()).toBe(true);
+    view.unmount();
+    expect(hasOpenModalA11yOverlay()).toBe(false);
+  });
+
   it("closes the modal on Escape by calling onClose", () => {
     const onClose = vi.fn();
     render(<ModalHost onClose={onClose} />);
 
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(onClose).not.toHaveBeenCalled();
     fireEvent.keyDown(window, { key: "Escape" });
 
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -84,6 +104,19 @@ describe("useModalA11y", () => {
     expect(document.activeElement).toBe(screen.getByTestId("panel-first"));
   });
 
+  it("prefers a form field over an earlier button for initial focus", () => {
+    render(<FormModalHost onClose={vi.fn()} />);
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Thesis" }));
+  });
+
+  it("focuses and traps Tab on the panel when it has no focusable descendants", () => {
+    render(<EmptyModalHost onClose={vi.fn()} />);
+    const panel = screen.getByTestId("empty-panel");
+    expect(document.activeElement).toBe(panel);
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(panel);
+  });
+
   it("traps Tab/Shift+Tab inside the panel — never lands on an element outside it", () => {
     const onClose = vi.fn();
     render(<ModalHost onClose={onClose} extraButtons />);
@@ -101,6 +134,10 @@ describe("useModalA11y", () => {
     first.focus();
     fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(last);
+
+    screen.getByTestId("panel").focus();
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
   });
 
   it("recaptures focus into the panel if it ends up outside (e.g. an external re-render dropped focus to the page)", () => {
@@ -114,6 +151,15 @@ describe("useModalA11y", () => {
 
     fireEvent.keyDown(window, { key: "Tab" });
     expect(document.activeElement).toBe(first);
+  });
+
+  it("recaptures focus when the document reports no active element", () => {
+    render(<ModalHost onClose={vi.fn()} extraButtons />);
+    Object.defineProperty(document, "activeElement", { configurable: true, get: () => null });
+    const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    Reflect.deleteProperty(document, "activeElement");
   });
 
   it("locks body scroll while the modal is mounted and releases it on cleanup", () => {

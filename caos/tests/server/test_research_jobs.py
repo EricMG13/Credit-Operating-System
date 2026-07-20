@@ -248,10 +248,68 @@ async def test_two_research_workers_claim_one_job_once(seeded_db):
         job_id = job.id
 
     w1, w2 = ResearchQueueWorker(), ResearchQueueWorker()
-    id1 = await w1._claim_one()
-    id2 = await w2._claim_one()
-    claimed = [x for x in (id1, id2) if x == job_id]
+    claim1 = await w1._claim_one()
+    claim2 = await w2._claim_one()
+    claimed = [x for x in (claim1, claim2) if x and x.job_id == job_id]
     assert len(claimed) == 1, "exactly one worker may claim the job"
+
+
+@pytest.mark.asyncio
+async def test_stale_research_completion_is_rejected_after_sibling_reclaim(
+    seeded_db, monkeypatch
+):
+    """A finished old attempt cannot overwrite the row reclaimed by a sibling."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    import research_executor
+    from database import AsyncSessionLocal, ResearchJob
+
+    async with AsyncSessionLocal() as session:
+        job = ResearchJob(
+            analyst_id="t",
+            brief={"subject": "Fenced Research Co", "mode": "issuer"},
+            status="running",
+            attempts=1,
+            worker_id="old-owner",
+            lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=1),
+        )
+        session.add(job)
+        await session.commit()
+        job_id = job.id
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def delayed_research(_brief, on_progress=None):
+        entered.set()
+        await release.wait()
+        return SimpleNamespace(
+            report="stale report", sources=[], demo=False, truncated=False
+        )
+
+    monkeypatch.setattr(research_executor, "run_deep_research", delayed_research)
+    stale_task = asyncio.create_task(research_executor._run_research(
+        job_id, owner_token="old-owner", attempt=1
+    ))
+    await entered.wait()
+
+    async with AsyncSessionLocal() as session:
+        job = await session.get(ResearchJob, job_id)
+        job.attempts = 2
+        job.worker_id = "new-owner"
+        job.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=2)
+        await session.commit()
+
+    release.set()
+    await stale_task
+
+    async with AsyncSessionLocal() as session:
+        job = await session.get(ResearchJob, job_id)
+    assert job.status == "running"
+    assert job.attempts == 2 and job.worker_id == "new-owner"
+    assert job.report is None and job.completed_at is None
 
 
 @requires_pg

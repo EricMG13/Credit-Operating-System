@@ -85,15 +85,15 @@ function NewPortfolioPanel({ name, holdingsName, busy, constraintsRef, mandateRe
   return (
     <Panel title="New portfolio">
       <div className="p-3 flex flex-col gap-2.5">
-        <div><label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">Name · required</label><TextInput value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="e.g. Test CLO I Ltd" aria-label="Portfolio name" maxLength={255} className="w-full px-2.5 py-1.5 text-caos-lg" /></div>
+        <div><label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">Name · required</label><TextInput name="portfolio-name" autoComplete="off" value={name} onChange={(event) => onNameChange(event.target.value)} placeholder="e.g. Test CLO I Ltd…" aria-label="Portfolio name" maxLength={255} className="w-full px-2.5 py-1.5 text-caos-lg" /></div>
         <div {...dropzone.getRootProps()} className="rounded border border-dashed px-4 py-5 text-center cursor-pointer transition-caos" style={holdingsDropStyle(dropzone.isDragActive, holdingsName)}>
           <input {...dropzone.getInputProps()} aria-label="Holdings file (xlsx)" />
           <div className="text-caos-lg text-caos-text/85">{holdingsName || "Drop the holdings file (.xlsx), or click to browse"}</div>
           <div className="tabular text-caos-xs text-caos-muted mt-1">Positions = rows with a Holdings par column · required</div>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <label className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Constraints CSV · optional<input ref={constraintsRef} type="file" accept=".csv" className="block mt-1 text-caos-xs text-caos-muted" /></label>
-          <label className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Mandate CSV · optional<input ref={mandateRef} type="file" accept=".csv" className="block mt-1 text-caos-xs text-caos-muted" /></label>
+          <label className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Constraints CSV · optional<input ref={constraintsRef} type="file" name="portfolio-constraints" autoComplete="off" accept=".csv" className="block mt-1 text-caos-xs text-caos-muted" /></label>
+          <label className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Mandate CSV · optional<input ref={mandateRef} type="file" name="portfolio-mandate" autoComplete="off" accept=".csv" className="block mt-1 text-caos-xs text-caos-muted" /></label>
         </div>
         <ActionReason onClick={onCreate} reason={reason} className="h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos tabular text-caos-md aria-disabled:opacity-40 aria-disabled:cursor-not-allowed flex items-center justify-center gap-2"><PortfolioCreateLabel busy={busy} /></ActionReason>
       </div>

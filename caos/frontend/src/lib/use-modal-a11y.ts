@@ -68,13 +68,11 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
     if (!panel.hasAttribute("tabindex")) panel.tabIndex = -1;
 
     const focusables = (): HTMLElement[] =>
-      panel
-        ? Array.from(
-            panel.querySelectorAll<HTMLElement>(
-              'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])',
-            ),
-          ).filter((el) => el.offsetParent !== null)
-        : [];
+      Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null);
 
     // Prefer the first form field (a form modal should land on its first input,
     // not the close button); else the first focusable; else the panel itself.
@@ -92,7 +90,7 @@ export function useModalA11y<T extends HTMLElement = HTMLDivElement>(onClose: ()
         onCloseRef.current();
         return;
       }
-      if (e.key !== "Tab" || !panel) return;
+      if (e.key !== "Tab") return;
       const els = focusables();
       if (els.length === 0) {
         e.preventDefault();

@@ -9,6 +9,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import ReportsPage from "./page";
 
 let mockRunId: string | null = null;
+let mockLive: boolean | null = null;
 let mockPhase: string | null = null; // overrides the derived phase when set
 let mockLoading = false;
 let mockIssuer: string | null = null; // ?issuer= param; null -> ATLF reference page
@@ -31,11 +32,14 @@ vi.mock("@/lib/engine/useLiveRun", () => ({
   useLiveRun: () => ({ liveOuts: EMPTY_LIVE_OUTS, liveStatus: EMPTY_LIVE_STATUS, liveEvidence: {}, runId: null, committeeStatus: null, council: [], loading: false, phase: "none" }),
 }));
 vi.mock("@/lib/engine/useModelEngine", () => ({
-  useModelEngine: () => ({
-    anchor: mockRunId ? LIVE_ANCHOR : null, downside: null, downsideState: "unavailable", runId: mockRunId,
-    committeeStatus: mockRunId ? "Draft Only" : null, live: !!mockRunId, loading: mockLoading,
-    phase: mockPhase ?? (mockRunId ? "complete" : "none"),
-  }),
+  useModelEngine: () => {
+    const live = mockLive ?? !!mockRunId;
+    return {
+      anchor: live ? LIVE_ANCHOR : null, downside: null, downsideState: "unavailable", runId: mockRunId,
+      committeeStatus: mockRunId ? "Draft Only" : null, live, loading: mockLoading,
+      phase: mockPhase ?? (mockRunId ? "complete" : "none"),
+    };
+  },
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -49,6 +53,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mockRunId = null;
+  mockLive = null;
     mockPhase = null;
     mockLoading = false;
   mockIssuer = null;
@@ -68,6 +73,14 @@ describe("Report Studio · reference caveat (FE-5)", () => {
     render(<ReportsPage />);
     expect(await screen.findByText("REFERENCE")).toBeTruthy();
     expect(await screen.findByText(/bespoke tabs stay fixture, other figures reflect the live run/)).toBeTruthy();
+  });
+
+  it("keeps fixture authority when a run exists but CP-1 cannot produce an accepted anchor", async () => {
+    mockRunId = "run-without-anchor";
+    mockLive = false;
+    render(<ReportsPage />);
+    expect(await screen.findByText(/Atlas Forge fixture, not a live issuer run/)).toBeTruthy();
+    expect(screen.queryByText(/other figures reflect the live run/)).toBeNull();
   });
 
   it("a backend outage on a real issuer reads 'could not load', not the confident no-run claim", async () => {

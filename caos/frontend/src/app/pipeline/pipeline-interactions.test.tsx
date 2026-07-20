@@ -104,10 +104,9 @@ vi.mock("@/components/shared/PersonaWorkbench", () => ({ PersonaWorkbench: ({ pr
 vi.mock("@/components/shared/DominantTableRegion", () => ({ DominantTableRegion: ({ children }: { children?: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/shared/AnalysisContextSaveState", () => ({ AnalysisContextSaveState: () => <span>context save</span> }));
 vi.mock("@/components/shared/FreshnessIndicator", () => ({ FreshnessIndicator: ({ evaluation }: { evaluation?: { state?: string } | null }) => <span>freshness {evaluation?.state ?? "none"}</span> }));
-vi.mock("@/components/reports/EvidenceModal", () => ({
-  EvidenceModal: ({ id, isLiveRun, onClose }: { id: string; isLiveRun: boolean; onClose: () => void }) => <div>evidence {id} live {String(isLiveRun)}<button onClick={onClose}>close evidence</button></div>,
+vi.mock("@/components/pipeline/PipelineEvidenceModal", () => ({
+  PipelineEvidenceModal: ({ id, isLiveRun, onClose }: { id: string; isLiveRun: boolean; onClose: () => void }) => <div>evidence {id} live {String(isLiveRun)}<button onClick={onClose}>close evidence</button></div>,
 }));
-vi.mock("@/lib/reports/builders", () => ({ buildReports: () => [] }));
 vi.mock("@/components/pipeline/atoms", () => ({
   Bar: ({ pct }: { pct: number }) => <span>bar {pct}</span>,
   Dot: ({ sev }: { sev: string }) => <span>dot {sev}</span>,

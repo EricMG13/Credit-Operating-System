@@ -11,7 +11,7 @@ import { MODULE_OUTPUTS, type ModuleOutput } from "@/lib/deepdive/module-outputs
 import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
 import { type Sim } from "@/lib/pipeline/sim-engine";
 import { SEV_COLOR } from "@/lib/pipeline/sev";
-import { EvChip } from "@/components/reports/EvidenceModal";
+import { EvChip } from "@/components/reports/EvChip";
 import { EVIDENCE } from "@/lib/reports/evidence";
 import { Dot, Tag } from "@/components/pipeline/atoms";
 import { StatCard } from "@/components/shared/StatCard";

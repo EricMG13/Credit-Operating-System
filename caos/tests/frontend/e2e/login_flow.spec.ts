@@ -29,13 +29,13 @@ const loginError = "#login-error";
 
 async function fillSignup(page: import("@playwright/test").Page, code: string) {
   // Unique per run: the display name AND email are both unique-constrained.
-  const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const stamp = `${Date.now()}-${crypto.randomUUID()}`;
   await page.getByRole("tab", { name: "Create" }).click();
   await page.getByLabel("Analyst name").fill(`E2E Login ${stamp}`);
   const email = `e2e-login-${stamp}@firm.test`;
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Login passcode").fill("testpass123");
-  await page.getByLabel("Confirm passcode").fill("testpass123");
+  await page.getByLabel("Login passcode").fill("testpass1234");
+  await page.getByLabel("Confirm passcode").fill("testpass1234");
   await page.getByLabel("Invite code").fill(code);
   await page.getByLabel("Recovery word 1").fill("alpha");
   await page.getByLabel("Confirm word 1").fill("alpha");

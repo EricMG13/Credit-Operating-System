@@ -124,6 +124,8 @@ def _alert_event_out(row: AlertEvent, state_row: Optional[AlertState]) -> AlertE
 
 def _draft_alerts(draft: dict) -> list[dict]:
     def impact_label(value: object) -> str:
+        if not isinstance(value, (str, int, float)):
+            return "unknown"
         try:
             severity = float(value or 0)
         except (TypeError, ValueError):

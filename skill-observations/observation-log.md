@@ -136,3 +136,12 @@ scan produced 1,169 mostly non-actionable findings while the rendered axe matrix
 was clean. Add include/exclude globs, distinguish route documents from component
 fragments, and either resolve common JSX label patterns or classify these rules
 as advisory so the loop converges on browser-confirmed faults.
+
+## 2026-07-19 — zeroize-audit — OPEN
+
+The installed skill bundle contains only `SKILL.md`; all referenced schemas,
+workflows, prompts, compiler helpers, MCP helpers, and the mandatory PoC
+generator are absent, so its documented pipeline cannot pass preflight. Package
+the referenced assets with the skill and add an explicit `not_applicable`
+outcome for repositories with no tracked C/C++/Rust source or valid
+`compile_commands.json`/`Cargo.toml`, distinct from a zero-finding clean audit.

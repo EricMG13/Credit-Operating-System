@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import calendar
 from datetime import date, datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -160,7 +160,7 @@ def _profile_response(
     return ReportingProfileResponse(
         issuer_id=issuer_id,
         configured=True,
-        cadence=row.cadence,
+        cadence=cast(ReportingCadence, row.cadence),
         fiscal_year_end_month=row.fiscal_year_end_month,
         fiscal_year_end_day=row.fiscal_year_end_day,
         reporting_lag_days=row.reporting_lag_days,
@@ -338,7 +338,9 @@ async def get_issuer_freshness(
     issuer = require_issuer(caller, await db.get(Issuer, issuer_id))
     now = datetime.now(timezone.utc)
     profile = await db.get(IssuerReportingProfile, issuer_id)
-    cadence: ReportingCadence = profile.cadence if profile else "unknown"
+    cadence: ReportingCadence = (
+        cast(ReportingCadence, profile.cadence) if profile else "unknown"
+    )
     reporting_lag = profile.reporting_lag_days if profile else None
     grace_days = profile.grace_days if profile else 7
 
@@ -389,7 +391,7 @@ async def get_issuer_freshness(
         .where(Run.issuer_id == issuer_id, ReportVersion.analyst_id == caller.id)
         .order_by(ReportVersion.created_at.desc()).limit(1)
     )).scalar_one_or_none()
-    derived = checkpoint
+    derived: ModelCheckpoint | ReportVersion | None = checkpoint
     if report is not None and (
         checkpoint is None
         or (aware_utc(report.created_at) or datetime.min.replace(tzinfo=timezone.utc))
@@ -402,7 +404,7 @@ async def get_issuer_freshness(
         derived_run_id = derived.issuer_run_id
     elif isinstance(derived, ReportVersion):
         derived_run_id = derived.run_id
-    derived_version_state = (
+    derived_version_state: Literal["changed", "unknown"] = (
         "unknown" if derived is None or derived_run_id is None or run is None
         # A matching run id is not a complete source fingerprint: the run may
         # itself have become stale after a document/market rebind. Context-level
@@ -733,9 +735,18 @@ async def get_issuer_profile(
         .order_by(MetricFact.metric_key, MetricFact.period).limit(500)
     )).scalars().all())
     fact_run_ids = {f.run_id for f in facts if f.run_id}
-    fact_run_as_of = dict((await db.execute(
-        select(Run.id, Run.as_of_date).where(Run.id.in_(fact_run_ids))
-    )).all()) if fact_run_ids else {}
+    fact_run_as_of: dict[str, Optional[str]] = (
+        {
+            run_id: as_of_date
+            for run_id, as_of_date in (
+                await db.execute(
+                    select(Run.id, Run.as_of_date).where(Run.id.in_(fact_run_ids))
+                )
+            ).all()
+        }
+        if fact_run_ids
+        else {}
+    )
 
     doc_count = (await db.execute(
         select(func.count()).select_from(Document).where(Document.issuer_id == issuer_id)
@@ -807,7 +818,9 @@ async def get_issuer_profile(
         runs=[RunBrief.model_validate(r) for r in runs],
         metrics=[
             MetricFactOut.model_validate(f).model_copy(update={
-                "source_run_as_of": fact_run_as_of.get(f.run_id),
+                "source_run_as_of": (
+                    fact_run_as_of.get(f.run_id) if f.run_id is not None else None
+                ),
             })
             for f in facts
         ],
@@ -928,7 +941,7 @@ _REPORT_MAX_PER_MINUTE = 3
 
 class ResearchReportBrief(BaseModel):
     ai_mode: str = Field(
-        default="standard", pattern="^(max|standard|lite)$",
+        default="standard", max_length=8, pattern="^(max|standard|lite)$",
     )
 
 

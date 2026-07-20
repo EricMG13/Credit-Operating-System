@@ -6,14 +6,13 @@
 // QA gating on CP-5, and the orchestrator event log.
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { SurfaceState, type SurfaceStateKind } from "@/components/shared/SurfaceState";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { EvidenceModal } from "@/components/reports/EvidenceModal";
-import { buildReports } from "@/lib/reports/builders";
 import { listRuns } from "@/lib/api";
 import { MODULES, RUN_MODES, type Driver, type RunMode, type PlanStep } from "@/lib/pipeline/data";
 import { useSimRun, type SimRun } from "@/lib/pipeline/sim";
@@ -37,6 +36,20 @@ import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSav
 import { useIssuerFreshness } from "@/lib/engine/useFreshness";
 import { resolvePipelineFreshnessRunId } from "@/lib/freshness";
 import type { ModuleOutput } from "@/lib/deepdive/module-outputs";
+
+const PipelineEvidenceModal = dynamic(
+  () => import("@/components/pipeline/PipelineEvidenceModal").then((module) => module.PipelineEvidenceModal),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <div role="status" className="rounded border border-caos-border bg-caos-panel px-4 py-3 text-caos-md text-caos-text shadow-modal">
+          Loading source evidence…
+        </div>
+      </div>
+    ),
+  },
+);
 
 export default function PipelinePage() {
   return (
@@ -116,8 +129,7 @@ function usePipelineSimulation() {
   const mode = RUN_MODES.find((m) => m.k === modeK)!;
   const simScope = useMemo(() => new Set(mode.plan.map((p) => p.id)), [mode]);
   const run = useSimRun({ autoplay: true, plan: mode.plan, complete: mode.complete });
-  const reports = useMemo(() => buildReports(), []);
-  return { modeK, setModeK, dimCompleted, setDimCompleted, selected, setSelected, evModal, setEvModal, mode, simScope, run, reports };
+  return { modeK, setModeK, dimCompleted, setDimCompleted, selected, setSelected, evModal, setEvModal, mode, simScope, run };
 }
 
 type PipelineStatusRead = ReturnType<typeof useLivePipelineStatus>;
@@ -371,7 +383,7 @@ function PipelinePageView({ model }: { model: PipelineViewModel }) {
       narrowContract={{ essentialControls: <PipelineNarrowControls model={model} /> }}
     >
       <div className="caos-persona-route pipeline-workbench flex-1 min-h-0"><PersonaWorkbench surface="pipeline" primary={<PipelineWorkbench model={model} />} /></div>
-      {model.simulation.evModal ? <EvidenceModal id={model.simulation.evModal} reports={model.simulation.reports} live={model.live.liveRun.liveEvidence} isLiveRun={!model.live.isReference && !!model.live.liveRun.runId} onClose={() => model.simulation.setEvModal(null)} /> : null}
+      {model.simulation.evModal ? <PipelineEvidenceModal id={model.simulation.evModal} live={model.live.liveRun.liveEvidence} isLiveRun={!model.live.isReference && !!model.live.liveRun.runId} onClose={() => model.simulation.setEvModal(null)} /> : null}
     </EnterprisePage>
   );
 }

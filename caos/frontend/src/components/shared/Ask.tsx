@@ -9,6 +9,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
+import dynamic from "next/dynamic";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
@@ -18,16 +19,43 @@ import { getIssuer, queryCapabilities, toErrorMessage } from "@/lib/api";
 import { useModalA11y, hasOpenModalA11yOverlay } from "@/lib/use-modal-a11y";
 import { useAuth } from "@/components/shared/AuthProvider";
 import { sevSurface } from "@/lib/pipeline/sev";
-import { GraphCanvas } from "@/components/query/GraphCanvas";
-import { RelativeValueTable } from "@/components/query/RelativeValueTable";
-import { ScatterCanvas } from "@/components/query/ScatterCanvas";
-import { LineageFlow } from "@/components/query/LineageFlow";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import { downloadQueryCsv } from "@/lib/query/export";
 import type { Capability, CapabilitiesResult, GraphResult, GraphNode } from "@/lib/query/graph";
 import { ANALYST_MEMO_PROMPT, rankQueryCapabilities } from "@/lib/query/routing";
 import { nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
 import { analysisApi, useAnalysisContext, type QueryRun } from "@/lib/analysis-workbench";
+
+const loadGraphCanvas = () => import("@/components/query/GraphCanvas").then((module) => module.GraphCanvas);
+const loadRelativeValueTable = () => import("@/components/query/RelativeValueTable").then((module) => module.RelativeValueTable);
+const loadScatterCanvas = () => import("@/components/query/ScatterCanvas").then((module) => module.ScatterCanvas);
+const loadLineageFlow = () => import("@/components/query/LineageFlow").then((module) => module.LineageFlow);
+
+function AskResultRendererLoading() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="min-h-48 flex items-center justify-center tabular text-caos-xs text-caos-muted"
+    >
+      Loading result view…
+    </div>
+  );
+}
+
+const GraphCanvas = dynamic(loadGraphCanvas, { ssr: false, loading: AskResultRendererLoading });
+const RelativeValueTable = dynamic(loadRelativeValueTable, { ssr: false, loading: AskResultRendererLoading });
+const ScatterCanvas = dynamic(loadScatterCanvas, { ssr: false, loading: AskResultRendererLoading });
+const LineageFlow = dynamic(loadLineageFlow, { ssr: false, loading: AskResultRendererLoading });
+
+function prefetchAskResultRenderers() {
+  void Promise.all([
+    loadGraphCanvas(),
+    loadRelativeValueTable(),
+    loadScatterCanvas(),
+    loadLineageFlow(),
+  ]).catch(() => undefined);
+}
 
 export type QueryPrompt = { id: string; text: string; sub: string };
 
@@ -248,6 +276,10 @@ export function AskLauncher() {
   const pathname = usePathname() || "";
   const scope = scopeFor(pathname);
 
+  useEffect(() => {
+    if (open) prefetchAskResultRenderers();
+  }, [open]);
+
   // Close on navigation — the overlay is transient, so changing concept
   // shouldn't carry a stale Ask (or pop the wrong-scope surface on arrival).
   useEffect(() => { setOpen(false); }, [pathname, setOpen]);
@@ -268,6 +300,8 @@ export function AskLauncher() {
   const trigger = !open ? (
     <button
       onClick={toggle}
+      onPointerEnter={prefetchAskResultRenderers}
+      onFocus={prefetchAskResultRenderers}
       title="Ask CAOS (Alt+K, or via the ⌘K palette) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
       className={`caos-ask-launcher fixed ${triggerPosition} z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring`}
       style={{ boxShadow: "var(--shadow-pop)" }}
@@ -535,12 +569,14 @@ function AskQueryInput({
     <div className={(compact ? "flex items-center gap-2 bg-caos-elevated px-3 py-2" : "flex-1 flex items-center gap-2 bg-caos-panel px-2.5 py-1") + " border border-caos-border rounded focus-within:border-caos-accent/70 transition-caos"}>
       <AskMark />
       <input
+        name="ask-query"
+        autoComplete="off"
         value={state.text}
         onChange={(event) => state.setText(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") state.submit();
         }}
-        placeholder={compact ? "Ask across coverage…" : "Type your query..."}
+        placeholder={compact ? "Ask across coverage…" : "Type your query…"}
         aria-label="Query coverage"
         className="flex-1 bg-transparent outline-none tabular text-caos-md text-caos-text placeholder:text-caos-muted"
       />

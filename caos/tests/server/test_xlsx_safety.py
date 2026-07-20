@@ -146,6 +146,12 @@ def test_duplicate_and_unsafe_package_members_are_rejected():
     ("relationship", "code"),
     [
         (b"<!DOCTYPE root><Relationships />", "invalid_relationships"),
+        (
+            '<?xml version="1.0" encoding="UTF-16"?>'
+            '<!DOCTYPE root [<!ENTITY injected "expanded">]>'
+            '<Relationships>&injected;</Relationships>'.encode("utf-16"),
+            "invalid_relationships",
+        ),
         (b"<Relationships>", "invalid_relationships"),
     ],
 )

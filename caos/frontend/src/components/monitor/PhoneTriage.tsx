@@ -63,7 +63,7 @@ function useAlertSelection(ordered: AlertRow[]) {
   }, [orderSignature, currentKey]);
   const index = Math.max(0, ordered.findIndex((row) => row.key === currentKey));
   const current = ordered[index] ?? null;
-  const goto = (nextIndex: number) => setCurrentKey(ordered[Math.max(0, Math.min(ordered.length - 1, nextIndex))]?.key ?? null);
+  const goto = (nextIndex: number) => setCurrentKey(ordered[Math.max(0, Math.min(ordered.length - 1, nextIndex))]!.key);
   return { currentKey, current, index, goto };
 }
 
@@ -109,22 +109,19 @@ function usePhoneTriageModel() {
   const state = selection.current ? alertStates.states.get(selection.current.key) : undefined;
   const applyState = (next: AlertStateDTO) => alertStates.setStates((current) => new Map(current).set(next.alert_key, next));
   const assign = () => {
-    const current = selection.current;
+    const current = selection.current!;
     const assignee = assigneeInput.trim();
-    if (!current || !assignee) return;
     void mutation.perform(async () => {
       applyState(await setAlertState(current.key, state?.state === "ack" ? "ack" : "open", { assignee }));
       setAssigneeInput("");
     });
   };
   const acknowledge = () => {
-    const current = selection.current;
-    if (!current) return;
+    const current = selection.current!;
     void mutation.perform(async () => applyState(await setAlertState(current.key, "ack")));
   };
   const resolve = () => {
-    const current = selection.current;
-    if (!current) return;
+    const current = selection.current!;
     const note = resolveNote;
     void mutation.perform(async () => {
       applyState(await setAlertState(current.key, "resolved", { resolutionNote: note || undefined }));
@@ -181,7 +178,7 @@ function AssignmentControls({ model }: { model: PhoneTriageModel }) {
   return (
     <div className="flex items-center gap-2">
       <span className="tabular text-caos-xs text-caos-muted shrink-0">{model.state?.assignee || "unassigned"}</span>
-      <input value={model.assigneeInput} onChange={(event) => model.setAssigneeInput(event.target.value)} placeholder="assign to…" className={`${TOUCH} flex-1 tabular text-caos-md px-2 rounded border border-caos-border bg-transparent text-caos-text focus-ring caos-target`} />
+      <input name="phone-alert-assignee" autoComplete="off" aria-label="Alert assignee" value={model.assigneeInput} onChange={(event) => model.setAssigneeInput(event.target.value)} placeholder="Assign to…" className={`${TOUCH} flex-1 tabular text-caos-md px-2 rounded border border-caos-border bg-transparent text-caos-text focus-ring caos-target`} />
       <ActionReason type="button" reason={reason} onClick={model.assign} className={`${TOUCH} px-3 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target`}>Assign</ActionReason>
     </div>
   );
@@ -191,7 +188,7 @@ function ResolutionControls({ model }: { model: PhoneTriageModel }) {
   if (!model.resolving) return null;
   return (
     <div className="flex items-center gap-2">
-      <input value={model.resolveNote} onChange={(event) => model.setResolveNote(event.target.value)} placeholder="resolution note (optional)…" autoFocus className={`${TOUCH} flex-1 tabular text-caos-md px-2 rounded border border-caos-border bg-transparent text-caos-text focus-ring caos-target`} />
+      <input name="phone-alert-resolution-note" autoComplete="off" aria-label="Alert resolution note" value={model.resolveNote} onChange={(event) => model.setResolveNote(event.target.value)} placeholder="Resolution note (optional)…" autoFocus className={`${TOUCH} flex-1 tabular text-caos-md px-2 rounded border border-caos-border bg-transparent text-caos-text focus-ring caos-target`} />
       <ActionReason type="button" reason={model.mutation.pending ? "Update in progress" : null} onClick={model.resolve} className={`${TOUCH} px-3 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target`}>Confirm</ActionReason>
     </div>
   );
@@ -199,7 +196,7 @@ function ResolutionControls({ model }: { model: PhoneTriageModel }) {
 
 function MutationFailure({ model }: { model: PhoneTriageModel }) {
   if (!model.mutation.error) return null;
-  return <div role="alert" className="flex items-center gap-2 rounded border border-caos-critical/50 px-2 py-2 text-caos-xs text-caos-critical"><span className="flex-1">{model.mutation.error}. Input was preserved.</span><ActionReason type="button" reason={model.mutation.pending ? "Update in progress" : null} className={`${TOUCH} px-2 rounded border border-caos-border focus-ring`} onClick={model.mutation.retry}>Retry</ActionReason></div>;
+  return <div role="alert" className="flex items-center gap-2 rounded border border-caos-critical/50 px-2 py-2 text-caos-xs text-caos-critical"><span className="flex-1">{model.mutation.error}. Input was preserved.</span><ActionReason type="button" className={`${TOUCH} px-2 rounded border border-caos-border focus-ring`} onClick={model.mutation.retry}>Retry</ActionReason></div>;
 }
 
 function TriageActions({ model }: { model: PhoneTriageModel }) {

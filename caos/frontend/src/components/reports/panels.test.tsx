@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { Report, Section } from "@/lib/reports/builders";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "./panels";
 
-vi.mock("./EvidenceModal", () => ({
+vi.mock("./EvChip", () => ({
   EvChip: ({ id, onOpen }: { id: string; onOpen: (id: string) => void }) => (
     <button type="button" onClick={() => onOpen(id)}>evidence {id}</button>
   ),

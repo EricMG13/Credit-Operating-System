@@ -10,12 +10,15 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import rate_limit
 from database import Decision, Issuer, ThesisPrediction, ThesisVersion, get_db
 from engine.periods import is_finite_number
 from identity import CallerIdentity, get_identity, get_write_identity
 from tenancy import require_issuer
 
 router = APIRouter()
+
+_THESIS_WRITE_MAX_PER_MINUTE = 30
 
 
 class PredictionIn(BaseModel):
@@ -25,10 +28,10 @@ class PredictionIn(BaseModel):
 
 
 class ThesisVersionIn(BaseModel):
-    issuer_id: str
+    issuer_id: str = Field(min_length=1, max_length=36)
     thesis_md: str = Field(min_length=1, max_length=50_000)
     trigger: Literal["manual", "decision", "alert", "model_override"] = "manual"
-    linked_decision_id: Optional[str] = None
+    linked_decision_id: Optional[str] = Field(default=None, max_length=36)
     linked_alert_key: Optional[str] = Field(default=None, max_length=160)
     predictions: List[PredictionIn] = Field(default_factory=list, max_length=50)
 
@@ -116,6 +119,15 @@ async def create_thesis(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_write_identity),
 ):
+    if not rate_limit.hit(
+        f"thesis:{caller.id}",
+        max_attempts=_THESIS_WRITE_MAX_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Thesis rate limit reached — try again in a minute.",
+        )
     row = await create_thesis_version(db, body, caller)
     return await _out(db, row)
 
@@ -136,7 +148,7 @@ async def list_thesis(
             ThesisPrediction.thesis_version_id.in_([row.id for row in rows])
         ).order_by(ThesisPrediction.horizon, ThesisPrediction.metric)
     )).scalars().all() if rows else []
-    by_version = {row.id: [] for row in rows}
+    by_version: dict[str, list[PredictionOut]] = {row.id: [] for row in rows}
     for prediction in predictions:
         by_version[prediction.thesis_version_id].append(PredictionOut.model_validate(prediction))
     return [ThesisVersionOut(

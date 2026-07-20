@@ -46,6 +46,14 @@ def test_read_session_token_rejects_non_ascii_signature():
     assert read_session_token(tok, "secret") is not None  # the valid token still verifies
 
 
+def test_read_session_token_rejects_oversized_input_before_verification():
+    from identity import read_session_token
+
+    assert read_session_token("x" * 4_097, "secret") is None
+    # Character count alone is insufficient for multi-byte input.
+    assert read_session_token("é" * 2_049, "secret") is None
+
+
 def _prod_settings(monkeypatch, **overrides):
     import identity
     from config import Settings

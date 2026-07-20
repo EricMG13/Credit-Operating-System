@@ -27,7 +27,8 @@ def parse_block(block):
 def main():
     rows = []
     for path in sorted(glob.glob(os.path.join(HERE, "FEATURE_ROWS_*.txt"))):
-        text = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as source:
+            text = source.read()
         for raw in re.split(r"^=ROW=\s*$", text, flags=re.M):
             raw = raw.replace("=END=", "").strip()
             if not raw:

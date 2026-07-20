@@ -103,4 +103,58 @@ describe("useLivePipelineStatus exact-run polling", () => {
     expect(result.current.phase).toBe("error");
     expect(result.current.value).toBeNull();
   });
+
+  it("returns the latest-run status when no exact run is selected", () => {
+    const { result } = renderHook(() => useLivePipelineStatus("issuer-exact", null));
+    expect(result.current).toEqual({ value: null, phase: "loading", latest: null });
+    expect(mocks.getRun).not.toHaveBeenCalled();
+  });
+
+  it("pauses an armed poll while hidden and reloads immediately when visible", async () => {
+    mocks.getRun
+      .mockResolvedValueOnce(exactRun("queued"))
+      .mockResolvedValueOnce(exactRun("queued"))
+      .mockResolvedValueOnce(exactRun("complete"));
+    const { result } = renderHook(() => useLivePipelineStatus("issuer-exact", "run-exact"));
+    await act(async () => { await Promise.resolve(); });
+    expect(result.current.phase).toBe("in_flight");
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.getRun).toHaveBeenCalledTimes(2);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(mocks.getRun).toHaveBeenCalledTimes(2);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(result.current.phase).toBe("complete");
+    expect(mocks.getRun).toHaveBeenCalledTimes(3);
+  });
+
+  it("suppresses a visibility reload while the current read is still loading", async () => {
+    let resolveRun!: (run: RunSummaryDTO) => void;
+    mocks.getRun.mockImplementationOnce(() => new Promise<RunSummaryDTO>((resolve) => { resolveRun = resolve; }));
+    const { result } = renderHook(() => useLivePipelineStatus("issuer-exact", "run-exact"));
+    await act(async () => { await Promise.resolve(); });
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(mocks.getRun).toHaveBeenCalledTimes(1);
+    await act(async () => { resolveRun(exactRun("complete")); await Promise.resolve(); });
+    expect(result.current.phase).toBe("complete");
+  });
+
+  it("clears an armed poll timer when the exact-run observer unmounts", async () => {
+    mocks.getRun.mockResolvedValue(exactRun("queued"));
+    const { unmount } = renderHook(() => useLivePipelineStatus("issuer-exact", "run-exact"));
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.getRun).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(mocks.getRun).toHaveBeenCalledTimes(1);
+  });
 });

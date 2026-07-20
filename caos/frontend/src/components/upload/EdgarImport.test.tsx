@@ -21,7 +21,7 @@ afterEach(() => {
 describe("EdgarImport", () => {
   it("renders the EDGAR URL vaulting panel", () => {
     render(<EdgarImport issuer={issuer} runMode="legal" />);
-    expect(screen.getByPlaceholderText("https://www.sec.gov/Archives/edgar/data/...")).toBeTruthy();
+    expect(screen.getByLabelText("Public EDGAR document URLs")).toBeTruthy();
     expect(screen.getByText("VAULT URL")).toBeTruthy();
   });
 
@@ -78,6 +78,49 @@ describe("EdgarImport", () => {
     fireEvent.change(screen.getByLabelText("Public EDGAR document URLs"), { target: { value: "u/ex10" } });
     fireEvent.click(screen.getByText("VAULT URL"));
     expect(await screen.findByText(/not configured/i, { exact: false })).toBeTruthy();
+  });
+
+  it.each([
+    { label: "string detail", rejection: { response: { status: 400, data: { detail: "SEC rejected the URL" } } }, message: "SEC rejected the URL" },
+    { label: "nested message", rejection: { response: { status: 400, data: { detail: { message: "Malformed accession" } } } }, message: "Malformed accession" },
+    { label: "fallback", rejection: new Error("network unavailable"), message: "EDGAR URL vaulting failed." },
+  ])("surfaces a useful non-503 vaulting error — $label", async ({ rejection, message }) => {
+    vi.mocked(edgarVaultUrls).mockRejectedValue(rejection);
+    render(<EdgarImport issuer={issuer} runMode="legal" />);
+    const input = screen.getByLabelText("Public EDGAR document URLs");
+    fireEvent.change(input, { target: { value: "u/ex10" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(edgarVaultUrls).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect((await screen.findByRole("alert")).textContent).toContain(message);
+  });
+
+  it("marks a zero-chunk result as a warning and preserves issuer punctuation", async () => {
+    vi.mocked(edgarVaultUrls).mockResolvedValue({
+      ok: [{
+        document_id: "d-empty", storage_key: "k", doc_type: "EDGAR Exhibit", run_mode: "legal",
+        chunks_created: 0, provenance: "primary · vaulted", message: "No eligible text",
+      }],
+      failed: [],
+    });
+
+    render(<EdgarImport issuer={{ ...issuer, name: "Carnival plc." }} runMode="legal" />);
+    const input = screen.getByLabelText("Public EDGAR document URLs");
+    fireEvent.change(input, { target: { value: "u/empty" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(await screen.findByText("0 ch")).toBeTruthy();
+    expect(screen.getByText(/together for Carnival plc\.$/)).toBeTruthy();
+    const resultRow = screen.getByText("No eligible text").parentElement;
+    expect(resultRow?.querySelector('[aria-hidden="true"]')?.getAttribute("style")).toContain("var(--caos-warning)");
+  });
+
+  it("does not vault a whitespace-only URL from the Enter-key path", () => {
+    render(<EdgarImport issuer={issuer} runMode="legal" />);
+    const input = screen.getByLabelText("Public EDGAR document URLs");
+    fireEvent.change(input, { target: { value: "   " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(edgarVaultUrls).not.toHaveBeenCalled();
   });
 
   it("does not double-vault on a fast double-invoke via Enter before the first call resolves (M-14)", async () => {

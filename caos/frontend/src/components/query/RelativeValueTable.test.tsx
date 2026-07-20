@@ -61,10 +61,8 @@ describe("RelativeValueTable", () => {
     const alpha = screen.getByRole("button", { name: /Alpha/ });
     expect(alpha.className).toContain("caos-selected");
     fireEvent.click(alpha);
-    fireEvent.keyDown(alpha, { key: "Enter" });
-    fireEvent.keyDown(alpha, { key: " " });
     fireEvent.keyDown(alpha, { key: "Escape" });
-    expect(onSelect).toHaveBeenCalledTimes(3);
+    expect(onSelect).toHaveBeenCalledTimes(1);
 
     const fields = [/Node \/ Label/, /Kind/, /Group/, /Detail/, /Rank/, /Similarity/, /Conf\./];
     for (const field of fields) fireEvent.click(header(field));

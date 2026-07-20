@@ -8,7 +8,7 @@
 import { useMemo } from "react";
 import type { Model, ModelCol } from "@/lib/reports/model";
 import type { Overrides } from "@/lib/reports/model";
-import { EvChip } from "@/components/reports/EvidenceModal";
+import { EvChip } from "@/components/reports/EvChip";
 import { ROWS, SRC } from "./rows";
 import { buildPastePatch, CW, fmt, GROUPS_META, isEditable, LBL, ovField, type PasteResult } from "./model-format";
 import { cellBackground, cellBoxShadow, cellTextColor, kpiDistressLevel, KPI_DISTRESS_GLYPH } from "./cell-style";
@@ -46,6 +46,8 @@ function CellInput({ initial, label, onCommit }: { initial: string; label: strin
   return (
     <input
       autoFocus
+      name="model-cell-editor"
+      autoComplete="off"
       defaultValue={initial}
       aria-label={label}
       onFocus={(e) => e.target.select()}
@@ -162,7 +164,6 @@ function handleSheetKeyDown(event: React.KeyboardEvent, props: Pick<SheetProps, 
 
 function handleSheetPaste(event: React.ClipboardEvent, editing: CellRef | null, selection: CellRef | null, onPasteCells: SheetProps["onPasteCells"], rowIds: string[], colKeys: string[]) {
   if (editing || !selection || !onPasteCells) return;
-  event.preventDefault();
   const text = event.clipboardData.getData("text/plain");
   if (text) onPasteCells(buildPastePatch(rowIds, colKeys, selection, text));
 }

@@ -23,6 +23,6 @@ describe("narrow recovery controls", () => {
     const page = source("./reports/page.tsx");
     expect(page).toContain('<span className="md:hidden">model unavailable</span>');
     expect(page).toContain("Retry saved model");
-    expect(page).toContain("hidden md:inline focus-ring");
+    expect(page).toContain("hidden md:inline-flex min-h-6");
   });
 });

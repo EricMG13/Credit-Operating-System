@@ -121,7 +121,7 @@ describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Governance" }));
     expect(screen.getByText("Governance queue · CP-5 / CP-0 / Staleness")).toBeTruthy();
-    expect(screen.getByText("QA Queue · CP-5 open findings")).toBeTruthy();
+    expect(await screen.findByText("QA Queue · CP-5 open findings")).toBeTruthy();
     expect(screen.getByText("Failed Gates · committee gate")).toBeTruthy();
     expect(screen.getByText("Mixed Origin · reference + live run")).toBeTruthy();
     expect(screen.getByText("Overdue Refresh · never run")).toBeTruthy();

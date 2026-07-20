@@ -44,6 +44,17 @@ async def test_decision_fails_closed_until_run_is_committee_ready(client):
 
 
 @pytest.mark.asyncio
+async def test_decision_snapshot_is_bounded_before_run_lookup(client):
+    response = client.post("/api/decisions", json={
+        "issuer_id": "missing",
+        "run_id": "missing",
+        "action": "revisit",
+        "snapshot": {"context": "x" * (250 * 1024)},
+    })
+    assert response.status_code == 413
+
+
+@pytest.mark.asyncio
 async def test_decision_freezes_authoritative_snapshot_and_appends_thesis(client):
     issuer_id, run_id = await _make_run(client, "Ready Decision Co", "Committee Ready")
     response = client.post("/api/decisions", json={

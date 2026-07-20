@@ -5,6 +5,11 @@
 
 {$CAOS_DOMAIN} {
 	encode gzip
+	# Reject an oversized body at the public edge before oauth2-proxy or the app
+	# spends upload/parser memory. Keep this value aligned with app MAX_UPLOAD_MB.
+	request_body {
+		max_size {$MAX_UPLOAD_MB:250}MiB
+	}
 
 	# Proxy-feed access log (threat-detection): structured JSON to stdout →
 	# `docker compose logs caddy`. Caddy is the public edge, so request>remote_ip

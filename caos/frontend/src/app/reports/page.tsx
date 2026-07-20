@@ -7,15 +7,15 @@
 import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { usePrintPortalElement } from "@/lib/use-print-portal";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { fromReportCaveat } from "@/lib/provenance";
 import { ReportDoc } from "@/components/reports/ReportDoc";
-import { EvidenceModal } from "@/components/reports/EvidenceModal";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "@/components/reports/panels";
-import { buildReports, type ModelInputs } from "@/lib/reports/builders";
+import { buildReferenceReport, buildReports, type ModelInputs } from "@/lib/reports/builders";
 import { useModelEngine } from "@/lib/engine/useModelEngine";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
@@ -34,13 +34,40 @@ import {
 } from "@/lib/api";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
-import { DecisionRoomDrawer } from "@/components/decisions/DecisionRoomDrawer";
 import { useAnalysisContext } from "@/lib/analysis-workbench";
 import { buildLiveReports, reportFromVersion } from "@/lib/reports/live-builder";
 import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
 import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { derivedFreshness, useIssuerFreshness } from "@/lib/engine/useFreshness";
 import { freshnessDetail, resolveReportFreshnessTarget, toProvFreshness } from "@/lib/freshness";
+
+const EvidenceModal = dynamic(
+  () => import("@/components/reports/EvidenceModal").then((module) => module.EvidenceModal),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <div role="status" className="rounded border border-caos-border bg-caos-panel px-4 py-3 text-caos-md text-caos-text shadow-modal">
+          Loading source evidence…
+        </div>
+      </div>
+    ),
+  },
+);
+
+const DecisionRoomDrawer = dynamic(
+  () => import("@/components/decisions/DecisionRoomDrawer").then((module) => module.DecisionRoomDrawer),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <div role="status" className="rounded border border-caos-border bg-caos-panel px-4 py-3 text-caos-md text-caos-text shadow-modal">
+          Loading IC decision workspace…
+        </div>
+      </div>
+    ),
+  },
+);
 
 const ZOOMS = [0.7, 0.85, 1, 1.15];
 const PAPERS = [
@@ -126,6 +153,7 @@ function ReportStudio() {
   const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
   const exactRunId = searchParams.get("run");
   const requestedContextId = searchParams.get("context");
+  const reportParam = searchParams.get("report");
   const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
   const analysis = useAnalysisContext({
     name: "Committee report workspace",
@@ -168,9 +196,13 @@ function ReportStudio() {
   const [versions, setVersions] = useState<ReportVersionDTO[]>([]);
   const [serverPreview, setServerPreview] = useState<ReportVersionPreviewDTO | null>(null);
   const [previewIntent, setPreviewIntent] = useState<Record<string, unknown> | null>(null);
+  const [previewSettled, setPreviewSettled] = useState(false);
   const reports = useMemo(
     () => {
-      if (isReference) return buildReports({ ...modelInputs, anchor: eng.anchor ?? undefined });
+      if (isReference) {
+        const inputs = { ...modelInputs, anchor: eng.anchor ?? undefined };
+        return previewSettled ? buildReports(inputs) : [buildReferenceReport(reportParam, inputs)];
+      }
       const liveReports = live.runId ? buildLiveReports({
         issuerId,
         runId: live.runId,
@@ -185,7 +217,7 @@ function ReportStudio() {
         ...versions.map(reportFromVersion),
       ];
     },
-    [eng.anchor, isReference, issuerId, live.asOf, live.committeeStatus, live.liveOuts, live.liveStatus, live.runId, modelInputs, serverPreview, versions],
+    [eng.anchor, isReference, issuerId, live.asOf, live.committeeStatus, live.liveOuts, live.liveStatus, live.runId, modelInputs, previewSettled, reportParam, serverPreview, versions],
   );
 
   const [activeId, setActiveId] = useState("snapshot");
@@ -214,6 +246,11 @@ function ReportStudio() {
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
   const versionPayloadRequests = useRef(new Set<string>());
   const workspaceScope = `${analysis.context?.id ?? "loading"}:${issuerId}:${exactRunId ?? "latest"}`;
+  const draftRevisionRef = useRef<number | null>(null);
+  const draftSaveGeneration = useRef(0);
+  const draftSaveChain = useRef<Promise<void>>(Promise.resolve());
+  const draftWorkspaceScope = useRef(workspaceScope);
+  draftWorkspaceScope.current = workspaceScope;
   const targetRunId = exactRunId ?? live.runId;
 
   useEffect(() => {
@@ -223,6 +260,8 @@ function ReportStudio() {
     setServerPreview(null);
     setPreviewIntent(null);
     setDraftRevision(null);
+    draftRevisionRef.current = null;
+    draftSaveGeneration.current += 1;
     setServerDraftReady(false);
     setPublishState("idle");
     setPublishMessage(null);
@@ -253,7 +292,6 @@ function ReportStudio() {
 
   // Persist only display preference. Report selection, omissions, and analyst
   // edits are sensitive, context-bound draft state and belong on the server.
-  const reportParam = searchParams.get("report");
   const deepLinkedVersionId = reportParam && versions.some((version) => version.id === reportParam)
     ? reportParam
     : null;
@@ -264,6 +302,20 @@ function ReportStudio() {
       if (ZOOMS.includes(z)) setZoom(z);
     } catch { /* first visit */ }
     setHydrated(true);
+  }, []);
+
+  // Paint the committee lead first, then mount the below-fold body. Two frames
+  // guarantee one real preview paint before the heavier tables/charts arrive;
+  // print/export paths continue to use the complete immutable report object.
+  useEffect(() => {
+    let secondFrame: number | null = null;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => setPreviewSettled(true));
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame != null) window.cancelAnimationFrame(secondFrame);
+    };
   }, []);
 
   useEffect(() => {
@@ -289,6 +341,7 @@ function ReportStudio() {
       .then((draft) => {
         if (cancelled) return;
         setDraftRevision(draft?.revision ?? null);
+        draftRevisionRef.current = draft?.revision ?? null;
         const payload = draft?.payload ?? {};
         if (payload.issuer_id !== issuerId) return;
         // A frozen-version deep link is an explicit navigation instruction.
@@ -308,34 +361,62 @@ function ReportStudio() {
   useEffect(() => {
     const contextId = analysis.context?.id;
     if (!contextId || !hydrated || !serverDraftReady) return;
+    const saveGeneration = ++draftSaveGeneration.current;
+    const saveScope = workspaceScope;
+    setPublishMessage((message) =>
+      message === null || message === "Draft autosaved" || message === "Saving draft…"
+        ? "Saving draft…"
+        : message
+    );
     const timer = window.setTimeout(() => {
-      void saveReportDraft(contextId, {
-        issuer_id: issuerId,
-        active_id: activeId,
-        omit,
-        edits,
-        paper,
-        show_sources: showSources,
-        hide_addbacks: hideAddbacks,
-      }, draftRevision ?? undefined)
-        .then((draft) => {
+      const saveCurrentDraft = async () => {
+        if (draftWorkspaceScope.current !== saveScope) return;
+        try {
+          const draft = await saveReportDraft(contextId, {
+            issuer_id: issuerId,
+            active_id: activeId,
+            omit,
+            edits,
+            paper,
+            show_sources: showSources,
+            hide_addbacks: hideAddbacks,
+          }, draftRevisionRef.current ?? undefined);
+          if (draftWorkspaceScope.current !== saveScope) return;
+          draftRevisionRef.current = draft.revision;
           setDraftRevision(draft.revision);
-          setPublishMessage("Draft autosaved");
-        })
-        .catch(() => setPublishMessage("Draft conflict — reload before publishing."));
+          if (draftSaveGeneration.current === saveGeneration) {
+            setPublishMessage("Draft autosaved");
+          }
+        } catch {
+          if (
+            draftWorkspaceScope.current === saveScope
+            && draftSaveGeneration.current === saveGeneration
+          ) {
+            setPublishMessage("Draft conflict — reload before publishing.");
+          }
+        }
+      };
+      draftSaveChain.current = draftSaveChain.current.then(
+        saveCurrentDraft,
+        saveCurrentDraft,
+      );
     }, 850);
     return () => window.clearTimeout(timer);
     // draftRevision is intentionally excluded: a successful autosave updating
     // the revision must not immediately schedule an identical second write.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId, analysis.context?.id, edits, hideAddbacks, hydrated, issuerId, omit, paper, serverDraftReady, showSources]);
+  }, [activeId, analysis.context?.id, edits, hideAddbacks, hydrated, issuerId, omit, paper, serverDraftReady, showSources, workspaceScope]);
 
   const rep = reports.find((r) => r.id === activeId) || reports[0];
+  const previewRep = rep && !previewSettled
+    ? { ...rep, sections: rep.sections.slice(0, 4) }
+    : rep;
   const selectedPublishedVersion = versions.find((version) => version.id === rep?.id) ?? null;
   const isFrozenPreview = Boolean(serverPreview && serverPreview.id === rep?.id);
+  const reportAuthorityRunId = isReference && !eng.live ? null : eng.runId;
   const { artifactId: reportArtifactId, runId: reportRunId } = resolveReportFreshnessTarget(
     selectedPublishedVersion,
-    eng.runId,
+    reportAuthorityRunId,
   );
   const freshnessRead = useIssuerFreshness({
     contextId: analysis.context?.id,
@@ -418,6 +499,7 @@ function ReportStudio() {
   );
   const canEditComposition = Boolean(
     rep
+    && serverDraftReady
     && !selectedPublishedVersion
     && (isReference || (isFrozenPreview && !previewHasMaterializedEditorial)),
   );
@@ -627,7 +709,7 @@ function ReportStudio() {
   // understates what actually backs it.
   const authority = {
     caveatKind: authorityCaveatKind,
-    liveRunBacked: selectedPublishedVersion ? true : caveatKind === "reference" && !!eng.runId,
+    liveRunBacked: selectedPublishedVersion ? true : caveatKind === "reference" && eng.live,
     runId: reportRunId,
     qaNote: selectedPublishedVersion
       ? `IMMUTABLE: ${selectedApprovalState.toUpperCase()}${frozenModelNote}`
@@ -696,7 +778,7 @@ function ReportStudio() {
             >
               published {selectedPublishedVersion.id.slice(0, 8)} · run {selectedPublishedVersion.run_id.slice(0, 8)}
             </span>
-          ) : caveatKind === "reference" && eng.runId ? (
+          ) : caveatKind === "reference" && eng.live ? (
             // FE-5: buildReports incorporates eng.anchor when a live run exists on
             // the reference issuer, but the debate/recovery/covenant tabs and the
             // DEAL narrative stay ATLF fixtures regardless (same rationale as
@@ -770,7 +852,7 @@ function ReportStudio() {
               <button
                 type="button"
                 onClick={() => setModelReloadKey((k) => k + 1)}
-                className="hidden md:inline focus-ring underline underline-offset-2 hover:no-underline"
+                className="hidden md:inline-flex min-h-6 items-center px-1 focus-ring underline underline-offset-2 hover:no-underline"
                 style={{ color: "var(--caos-warning)" }}
               >
                 retry
@@ -922,12 +1004,11 @@ function ReportStudio() {
 
         <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="report-studio-preview flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
           <div className="flex py-7 px-6" style={{ justifyContent: "safe center" }}>
-            {/* visibility gates until the stored/auto-fit zoom has applied —
-                first paint at the 0.85 default then a reflow to the fitted
-                zoom read as a broken intermediate render. */}
-            {rep ? <div style={{ zoom, "--rd-zoom": zoom, visibility: hydrated ? "visible" : "hidden" } as React.CSSProperties}>
+            {/* Hide the paper until the stored/auto-fit zoom has applied so a
+                remembered preference never flashes at the wrong geometry. */}
+            {previewRep ? <div aria-busy={!previewSettled} style={{ zoom, "--rd-zoom": zoom, visibility: hydrated ? "visible" : "hidden" } as React.CSSProperties}>
               <ReportDoc
-                rep={rep}
+                rep={previewRep}
                 omit={repOmit}
                 paper={paper}
                 showSources={showSources}

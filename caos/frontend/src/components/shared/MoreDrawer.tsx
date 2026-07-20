@@ -50,15 +50,17 @@ export function MoreDrawer({
   // Move focus to the first focusable element when the drawer opens, so the
   // Tab trap works from the start. Stays on the trigger on close (restores).
   useEffect(() => {
-    if (!open || !panelRef.current) return;
+    if (!open) return;
     const raf = requestAnimationFrame(() => {
+      const panel = panelRef.current;
+      if (!panel) return;
       const focusables = Array.from(
-        panelRef.current!.querySelectorAll<HTMLElement>(
+        panel.querySelectorAll<HTMLElement>(
           'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])',
         ),
       ).filter((el) => el.offsetParent !== null);
       if (focusables.length > 0) focusables[0].focus();
-      else panelRef.current?.focus();
+      else panel.focus();
     });
     return () => cancelAnimationFrame(raf);
   }, [open]);
@@ -145,6 +147,7 @@ export function MoreDrawer({
         <div
           ref={panelRef}
           role="dialog"
+          tabIndex={-1}
           aria-label={triggerLabel}
           onKeyDown={onKeyDown}
           className="fixed z-overlay w-64 rounded-md border border-caos-border bg-caos-panel p-2 flex flex-col gap-1"

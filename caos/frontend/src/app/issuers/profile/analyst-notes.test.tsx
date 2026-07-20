@@ -52,6 +52,17 @@ describe("AnalystNotesPanel", () => {
     expect(queryGraph).toHaveBeenCalledWith("analyst-memos", "iss-1");
   });
 
+  it("renders a linked note without optional excerpt or vault URL", async () => {
+    vi.mocked(queryGraph).mockResolvedValue(graph([
+      { id: "memo:bare", label: "Bare note", kind: "claim", x: 0.1, y: 0.2 },
+    ]));
+
+    render(<AnalystNotesPanel issuerId="iss-1" issuerName="VMO2" ticker="VMO2" />);
+
+    expect(await screen.findByText("Bare note")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "OPEN IN VAULT" })).toBeNull();
+  });
+
   it("renders the empty state", async () => {
     vi.mocked(queryGraph).mockResolvedValue(graph([]));
 
@@ -66,6 +77,27 @@ describe("AnalystNotesPanel", () => {
     render(<AnalystNotesPanel issuerId="iss-1" issuerName="VMO2" ticker={null} />);
 
     expect(await screen.findByText("Couldn't load analyst notes — sync failed")).toBeTruthy();
+  });
+
+  it.each([
+    [new Error("graph offline"), "graph offline"],
+    [{}, "could not load analyst notes"],
+  ])("normalizes an analyst-note graph failure %#", async (failure, message) => {
+    vi.mocked(queryGraph).mockRejectedValue(failure);
+
+    render(<AnalystNotesPanel issuerId="iss-1" issuerName="VMO2" ticker={null} />);
+
+    expect(await screen.findByText(`Couldn't load analyst notes — ${message}`)).toBeTruthy();
+  });
+
+  it("ignores a graph failure after unmount", async () => {
+    let reject!: (reason: unknown) => void;
+    vi.mocked(queryGraph).mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const view = render(<AnalystNotesPanel issuerId="iss-1" issuerName="VMO2" ticker={null} />);
+    view.unmount();
+
+    reject(new Error("late graph failure"));
+    await waitFor(() => expect(document.body.textContent).not.toContain("late graph failure"));
   });
 
   it("logs a quick note tagged to the issuer through the vault memo path (D4)", async () => {

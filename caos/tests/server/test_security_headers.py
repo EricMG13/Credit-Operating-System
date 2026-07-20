@@ -35,6 +35,32 @@ def test_security_headers_present(client):
     assert h["Cache-Control"] == "private, no-store"
 
 
+def test_oversized_json_rejection_keeps_security_headers_and_access_log(client, caplog):
+    caplog.set_level("INFO", logger="caos.access")
+    response = client.post(
+        "/api/health",
+        content=b"{}",
+        headers={
+            "Content-Type": "application/json",
+            # Exercise the declared-length fast path without allocating 8 MiB.
+            "Content-Length": str(8 * 1024 * 1024 + 1),
+        },
+    )
+    assert response.status_code == 413
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert any('"status": 413' in record.message for record in caplog.records)
+
+
+def test_oversized_target_rejection_keeps_security_headers_and_access_log(client, caplog):
+    caplog.set_level("INFO", logger="caos.access")
+    response = client.get("/api/health?value=" + "x" * (16 * 1024))
+    assert response.status_code == 414
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert any('"status": 414' in record.message for record in caplog.records)
+
+
 def test_static_inline_script_hashes_matches_a_real_script_block(tmp_path):
     from main import _static_inline_script_hashes
 

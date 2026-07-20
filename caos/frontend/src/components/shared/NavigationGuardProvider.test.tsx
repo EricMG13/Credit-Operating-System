@@ -154,6 +154,8 @@ describe("NavigationGuardProvider", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Programmatic leave" }));
     expect(onProgrammatic).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Programmatic leave" }));
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Stay" }));
     expect(onDiscard).not.toHaveBeenCalled();
 
@@ -161,6 +163,88 @@ describe("NavigationGuardProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Discard & leave" }));
     expect(onDiscard).toHaveBeenCalledTimes(1);
     expect(onProgrammatic).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps navigation user-driven when a discard callback throws", () => {
+    const onProgrammatic = vi.fn();
+    renderHarness({ onDiscard: () => { throw new Error("local cleanup failed"); }, onProgrammatic });
+    fireEvent.click(screen.getByRole("button", { name: "Programmatic leave" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard & leave" }));
+    expect(onProgrammatic).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves guard indexes through replaceState with non-object state", () => {
+    const go = vi.spyOn(window.history, "go").mockImplementation(() => undefined);
+    renderHarness({ dirty: false });
+    window.history.replaceState([], "", "/model?array-state=1");
+    expect(window.history.state).toMatchObject({ __caosNavigationGuardIndex: 0 });
+    fireEvent(window, new PopStateEvent("popstate", { state: window.history.state }));
+    expect(go).not.toHaveBeenCalled();
+    fireEvent(window, new PopStateEvent("popstate", { state: "legacy-state" }));
+    expect(go).not.toHaveBeenCalled();
+  });
+
+  it("ignores clicks that should retain native or same-page navigation semantics", () => {
+    const view = renderHarness();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const anchor = document.createElement("a");
+    anchor.href = "/model#local";
+    anchor.textContent = "variant";
+    anchor.addEventListener("click", (event) => event.preventDefault());
+    host.appendChild(anchor);
+    const click = (target: EventTarget, init: MouseEventInit = {}, prevented = false) => {
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, ...init });
+      if (prevented) event.preventDefault();
+      target.dispatchEvent(event);
+    };
+
+    click(anchor, {}, true);
+    click(anchor, { button: 1 });
+    click(anchor, { metaKey: true });
+    click(anchor, { ctrlKey: true });
+    click(anchor, { shiftKey: true });
+    click(anchor, { altKey: true });
+    click(document);
+    const plainButton = document.createElement("button");
+    host.appendChild(plainButton);
+    click(plainButton);
+    anchor.setAttribute("download", "memo.pdf");
+    click(anchor);
+    anchor.removeAttribute("download");
+    anchor.target = "_blank";
+    click(anchor);
+    anchor.target = "_self";
+    click(anchor);
+    anchor.target = "";
+    anchor.href = "https://example.com/external";
+    click(anchor);
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(navigation.push).not.toHaveBeenCalled();
+    host.remove();
+    view.unmount();
+
+    renderHarness({ dirty: false });
+    const cleanLink = screen.getByRole("link", { name: "Open reports" });
+    const cleanEvent = new MouseEvent("click", { bubbles: true, cancelable: true });
+    cleanEvent.preventDefault();
+    cleanLink.dispatchEvent(cleanEvent);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("requires both navigation hooks to be inside the provider", () => {
+    function GuardOnly() {
+      useNavigationGuard({ dirty: true, enabled: true, onDiscard: vi.fn() });
+      return null;
+    }
+    function AttemptOnly() {
+      useNavigationAttempt();
+      return null;
+    }
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(() => render(<GuardOnly />)).toThrow(/inside NavigationGuardProvider/);
+    expect(() => render(<AttemptOnly />)).toThrow(/inside NavigationGuardProvider/);
   });
 
   it("bounces Back, then resumes it only after Discard & leave", () => {
@@ -189,6 +273,8 @@ describe("NavigationGuardProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Discard & leave" }));
     expect(onDiscard).toHaveBeenCalledTimes(1);
     expect(go).toHaveBeenLastCalledWith(-1);
+    fireEvent(window, new PopStateEvent("popstate", { state: priorState }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("bounces Forward, then resumes it only after Discard & leave", () => {

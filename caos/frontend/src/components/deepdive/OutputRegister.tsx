@@ -15,10 +15,11 @@ import { STEP_NOTES } from "@/lib/deepdive/step-notes";
 import { STEP_OUTPUTS } from "@/lib/deepdive/step-outputs";
 import { MODULES } from "@/lib/pipeline/data";
 import { SEV_COLOR } from "@/lib/pipeline/sev";
-import { EvChip } from "@/components/reports/EvidenceModal";
+import { EvChip } from "@/components/reports/EvChip";
 import { Dot, Tag } from "@/components/pipeline/atoms";
 import { OutSections } from "./OutSections";
 import type { ModuleOutput, OutSection } from "@/lib/deepdive/module-outputs";
+import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 
 export function LiveOutputRegister({
   id,
@@ -378,7 +379,7 @@ function StepMetadataRail({ id, code, name, status, severity, stepNote, data, ev
       <StepEvidenceList evidence={evidence} onOpenEvidence={onOpenEvidence} />
       <div className="px-3 py-2.5 flex flex-col gap-1.5">
         <Link href={`/reports?report=${EXPORT_REPORT[id] || "snapshot"}`} className="tabular text-caos-md whitespace-nowrap px-2.5 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring text-center" title={`Open the ${id} output in its Report Studio exhibit`}>OPEN IN MODULE EXPORT</Link>
-        <FlagToQa moduleId={id} stepRef={(code !== "—" ? code + " " : "") + name} />
+        <FlagToQa issuerId={ATLF_REFERENCE_ISSUER_ID} moduleId={id} stepRef={(code !== "—" ? code + " " : "") + name} />
       </div>
     </div>
   );

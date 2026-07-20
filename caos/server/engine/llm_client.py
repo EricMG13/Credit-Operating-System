@@ -222,6 +222,34 @@ async def create(
     and callers stay unchanged; ``effort`` (minimal|low|medium|high) drives Gemini
     thinking and is inert on Anthropic.
     """
+    reservation = await budget.reserve_call(kwargs)
+    # A near-cap call is allowed with a reduced output ceiling; the reserved
+    # amount remains a conservative bound across all concurrent provider calls.
+    call_kwargs = dict(kwargs)
+    call_kwargs["max_tokens"] = reservation.max_output_tokens
+    try:
+        return await _create_reserved(
+            client,
+            lane=lane,
+            model=model,
+            fallback_model=fallback_model,
+            effort=effort,
+            kwargs=call_kwargs,
+        )
+    finally:
+        await budget.release_call(reservation)
+
+
+async def _create_reserved(
+    client,
+    *,
+    lane: str,
+    model: Optional[str],
+    fallback_model: Optional[str],
+    effort: Optional[str],
+    kwargs: dict,
+):
+    """Provider routing after ``create`` has secured one budget reservation."""
     s = get_settings()
     primary = model or s.anthropic_model
     if provider_of(primary) == "gemini":

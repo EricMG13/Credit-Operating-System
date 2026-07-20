@@ -56,4 +56,10 @@ describe("normalizeFy", () => {
     expect(out.data[0]).toEqual({ fy: "FY23", s: "Fluid Systems", v: 31 });
     expect(out.scale.color.domain).toEqual(["Revenue"]);
   });
+
+  it("preserves an empty object used as a data subtree", () => {
+    const data = {};
+    const out = normalizeFy({ type: "interval", data });
+    expect(out.data).toBe(data);
+  });
 });

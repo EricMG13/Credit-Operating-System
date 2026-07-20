@@ -481,8 +481,6 @@ async def sync_analyst_memos(session) -> int:  # noqa: C901
     from sqlalchemy import select, delete, insert
     from database import AnalystLink, Issuer, register_after_commit
     from config import get_settings
-    import asyncio
-    import re
     import time
     import sys
 

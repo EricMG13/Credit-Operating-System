@@ -106,4 +106,78 @@ describe("useLiveRun · phase (M-1/M-2 regression)", () => {
     await waitFor(() => expect(result.result.current.phase).toBe("error"));
     expect(result.result.current.runId).toBeNull();
   });
+
+  it("adapts eligible modules, indexes evidence, and reads the typed CP-5C issue log", async () => {
+    vi.mocked(listRuns).mockResolvedValueOnce([{
+      id: "run-live", issuer_id: "issuer-live", status: "complete",
+      qa_status: "Restricted", committee_status: "Restricted", as_of_date: null,
+      created_at: "2026-07-18T12:00:00Z",
+    }]);
+    vi.mocked(getModules).mockResolvedValueOnce([
+      {
+        module_id: "CP-1", module_name: "CanonicalDataFoundation", owned_object: "financials", schema_family: "Nested",
+        runtime_output: {}, confidence: "High", qa_status: "Passed", committee_status: "Restricted",
+        validation_status: "Passed", limitation_flags: [], downstream_consumers: [],
+        claims: [{
+          claim_id: "C-1", claim_text: "EBITDA reconciles.", evidence: [{
+            evidence_id: "E-1", extraction_type: "quoted_text", lineage_class: "Direct",
+            source_locator: "D-1 p.2", confidence: "High", document_chunk_id: "chunk-1",
+          }],
+        }],
+      },
+      {
+        module_id: "CP-Z", module_name: "Ignored", owned_object: null, schema_family: "Nested",
+        runtime_output: {}, confidence: "Low", qa_status: "Not Reviewed", committee_status: "Restricted",
+        validation_status: "Passed", limitation_flags: [], downstream_consumers: [], claims: [],
+      },
+      {
+        module_id: "CP-5C", module_name: "Council", owned_object: null, schema_family: "Nested",
+        runtime_output: { issue_log: [
+          { id: "IC-1", severity: "MAJOR", lane: 2, module: "CP-1", finding: "Reconcile add-backs", claim: "C-1" },
+          { id: null, severity: null, lane: "two", module: 5, finding: null, claim: 7 },
+        ] },
+        confidence: "High", qa_status: "Restricted", committee_status: "Restricted",
+        validation_status: "Passed", limitation_flags: [], downstream_consumers: [], claims: [],
+      },
+    ]);
+
+    const result = renderHook(() => useLiveRun("issuer-live"));
+    await waitFor(() => expect(result.result.current.phase).toBe("complete"));
+    expect(result.result.current.runId).toBe("run-live");
+    expect(result.result.current.asOf).toBe("2026-07-18T12:00:00Z");
+    expect(result.result.current.liveStatus).toEqual({ "CP-1": "Passed" });
+    expect(result.result.current.liveEvidence["E-1"]).toMatchObject({ module: "CP-1", claim: "EBITDA reconciles." });
+    expect(result.result.current.liveOuts["CP-1"]).toBeTruthy();
+    expect(result.result.current.liveOuts["CP-Z"]).toBeUndefined();
+    expect(result.result.current.council).toEqual([
+      expect.objectContaining({ finding_id: "IC-1", severity: "MAJOR", lane: 2, module_id: "CP-1", affected_claim_id: "C-1" }),
+      expect.objectContaining({ finding_id: "", severity: "MINOR", lane: null, module_id: null, description: "", affected_claim_id: null }),
+    ]);
+    expect(getQA).not.toHaveBeenCalled();
+  });
+
+  it("falls back to legacy QA findings and tolerates a module without claims", async () => {
+    vi.mocked(listRuns).mockResolvedValueOnce([{
+      id: "run-legacy", issuer_id: "issuer-legacy", status: "complete",
+      qa_status: "Restricted", committee_status: "Restricted", as_of_date: "2026-07-17",
+      created_at: null,
+    }]);
+    vi.mocked(getModules).mockResolvedValueOnce([{
+      module_id: "CP-2", module_name: "Credit", owned_object: null, schema_family: "Nested",
+      runtime_output: {}, confidence: "Medium", qa_status: "Restricted", committee_status: "Restricted",
+      validation_status: "Passed", limitation_flags: [], downstream_consumers: [], claims: undefined,
+    } as never]);
+    vi.mocked(getQA).mockResolvedValueOnce({
+      run_id: "run-legacy", qa_status: "Restricted", committee_status: "Restricted", findings_by_severity: {},
+      findings: [
+        { finding_id: "CP-5C-OLD", severity: "MAJOR", lane: null, module_id: "CP-2", description: "Legacy council issue", affected_claim_id: null, required_remediation: null },
+        { finding_id: "QA-OTHER", severity: "MINOR", lane: null, module_id: "CP-2", description: "Ordinary QA", affected_claim_id: null, required_remediation: null },
+      ],
+    });
+
+    const result = renderHook(() => useLiveRun("issuer-legacy"));
+    await waitFor(() => expect(result.result.current.phase).toBe("complete"));
+    expect(result.result.current.council.map((finding) => finding.finding_id)).toEqual(["CP-5C-OLD"]);
+    expect(result.result.current.liveEvidence).toEqual({});
+  });
 });

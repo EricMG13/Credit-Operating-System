@@ -379,7 +379,7 @@ describe("Ask cross-issuer query coverage", () => {
     expect(screen.getByRole("complementary", { name: "Node detail reader" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
     fireEvent.click(screen.getByRole("button", { name: "Graph" }));
-    expect(screen.getByText("graph canvas")).toBeTruthy();
+    expect(await screen.findByText("graph canvas")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "open citation" }));
     expect(screen.getByRole("dialog", { name: "citation viewer" }).textContent).toContain("chunk-1 · Credit agreement");
     fireEvent.click(screen.getByRole("button", { name: "close citation" }));

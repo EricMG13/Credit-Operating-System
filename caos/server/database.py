@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from sqlalchemy import (
-    JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
+    JSON, Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
     UniqueConstraint, delete, event, inspect, or_, select, text, update, Computed,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -254,7 +254,13 @@ class Analyst(Base):
     # Named to match migration 0008's unique index so `alembic check` reconciles;
     # a bare `unique=True` reflects as an unnamed constraint and drifts. Same
     # uniqueness either way.
-    __table_args__ = (Index("uq_analyst_email", "email", unique=True),)
+    __table_args__ = (
+        Index("uq_analyst_email", "email", unique=True),
+        CheckConstraint(
+            "role IN ('analyst', 'viewer', 'qa', 'admin')",
+            name="ck_analysts_role",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)

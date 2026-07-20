@@ -149,7 +149,7 @@ export function LineageFlow({
     const cols: GraphNode[][] = Array.from({ length: 5 }, () => []);
 
     graph.nodes.forEach((n) => {
-      let level = 4;
+      let level: number;
       switch (n.kind) {
         case "evidence":
         case "chunk":
@@ -274,6 +274,8 @@ export function LineageFlow({
       <div className="flex-1 flex min-h-0 relative overflow-hidden">
         {/* Draw SVG background connectors */}
         <svg
+          aria-hidden="true"
+          focusable="false"
           className="absolute inset-0 w-full h-full pointer-events-none z-0"
           viewBox="0 0 100 100"
           preserveAspectRatio="none"

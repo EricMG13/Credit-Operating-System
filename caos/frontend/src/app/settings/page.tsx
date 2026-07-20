@@ -260,10 +260,38 @@ function Settings() {
 
   // ── Research defaults (browser-local) ──
   const [prefs, setPrefs] = useState<ResearchPrefs>(DEFAULT_PREFS);
+  const [prefsHydrated, setPrefsHydrated] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
-  useEffect(() => setPrefs(loadPrefs()), []);
+  const savedResetTimer = useRef<number | null>(null);
+  const analystSavedResetTimer = useRef<number | null>(null);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    const localSavedResetTimer = savedResetTimer;
+    const localAnalystSavedResetTimer = analystSavedResetTimer;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (localSavedResetTimer.current !== null) window.clearTimeout(localSavedResetTimer.current);
+      if (localAnalystSavedResetTimer.current !== null) window.clearTimeout(localAnalystSavedResetTimer.current);
+    };
+  }, []);
+  const flashSaved = (kind: "local" | "analyst") => {
+    if (!mountedRef.current) return;
+    const timer = kind === "local" ? savedResetTimer : analystSavedResetTimer;
+    const setVisible = kind === "local" ? setSaved : setAnalystSaved;
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    setVisible(true);
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      if (mountedRef.current) setVisible(false);
+    }, 2000);
+  };
+  useEffect(() => {
+    setPrefs(loadPrefs());
+    setPrefsHydrated(true);
+  }, []);
 
   // ── Model mode (saved with the Settings snapshot) ──
   const [mode, setMode] = useState<ModelMode>(DEFAULT_MODE);
@@ -333,8 +361,7 @@ function Settings() {
   };
   function save() {
     savePrefs(prefs);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 2000);
+    flashSaved("local");
   }
   const persistAnalystPatch = (patch: AnalystPatch, optimistic: AnalystSettings): Promise<boolean> => {
     let settle!: (stored: boolean) => void;
@@ -368,8 +395,7 @@ function Settings() {
         }
         setAnalystRetry(null);
         setAnalystErr(null);
-        setAnalystSaved(true);
-        window.setTimeout(() => setAnalystSaved(false), 2000);
+        flashSaved("analyst");
         settle(true);
       } catch (error) {
         setAnalystRetry({ patch, optimistic });
@@ -426,15 +452,13 @@ function Settings() {
   ) : analystErr ? (
     <span role="alert" className="flex flex-wrap items-center gap-2 tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>
       ✗ {analystErr}
-      {analystRetry ? (
-        <button
-          type="button"
-          onClick={() => persistAnalystPatch(analystRetry.patch, analystRetry.optimistic)}
-          className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring"
-        >
-          Retry save
-        </button>
-      ) : null}
+      <button
+        type="button"
+        onClick={() => persistAnalystPatch(analystRetry!.patch, analystRetry!.optimistic)}
+        className="tabular text-caos-xs px-2 py-0.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring"
+      >
+        Retry save
+      </button>
     </span>
   ) : analystSaved ? (
     <span className="caos-enter tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span>
@@ -483,8 +507,7 @@ function Settings() {
       // existing retry state, so the analyst can retry without re-entering them.
       if (!stored) return;
       baseline.current = snapshot();
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 2000);
+      flashSaved("local");
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -584,6 +607,8 @@ function Settings() {
                 </span>
                 <input
                   type="checkbox"
+                  name="warn-on-unsaved-model-leave"
+                  autoComplete="off"
                   role="switch"
                   aria-label="Warn before leaving unsaved model edits"
                   checked={warnOnUnsavedLeave}
@@ -636,21 +661,27 @@ function Settings() {
                 <ScopeLabel scope="device" />
                 {saved ? <span className="caos-enter tabular text-caos-xs" style={{ color: "var(--caos-success)" }}>Saved</span> : null}
                 <button
+                  disabled={!prefsHydrated}
                   onClick={() => { setPrefs(DEFAULT_PREFS); setSaved(false); }}
-                  className="tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring"
+                  className="tabular text-caos-xs px-2 py-1 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/50 transition-caos focus-ring disabled:opacity-40"
                 >
                   Reset
                 </button>
                 <button
+                  disabled={!prefsHydrated}
                   onClick={save}
-                  className="tabular text-caos-xs px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring"
+                  className="tabular text-caos-xs px-2.5 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring disabled:opacity-40"
                 >
                   Save
                 </button>
               </span>
             }
           >
-            <div className="p-3 flex flex-col gap-3">
+            <fieldset
+              disabled={!prefsHydrated}
+              aria-busy={!prefsHydrated}
+              className="min-w-0 m-0 border-0 p-3 flex flex-col gap-3 disabled:opacity-60"
+            >
               <p className="tabular text-caos-2xs text-caos-muted leading-snug">
                 The standing lens the Research page seeds new briefs with. Blank fields fall back to the server defaults.
               </p>
@@ -661,9 +692,9 @@ function Settings() {
                 label="Default scope"
                 ariaLabel="Default research scope"
               />
-              <PrefField label="Audience" value={prefs.audience} onChange={(val) => set("audience", val)} placeholder="the credit investment committee" />
-              <PrefField label="Decision to inform" value={prefs.decision} onChange={(val) => set("decision", val)} placeholder="position sizing and credit selection" />
-              <PrefField label="Timeframe" value={prefs.timeframe} onChange={(val) => set("timeframe", val)} placeholder="the last 12 months to present" />
+              <PrefField label="Audience" value={prefs.audience} onChange={(val) => set("audience", val)} placeholder="The credit investment committee…" />
+              <PrefField label="Decision to inform" value={prefs.decision} onChange={(val) => set("decision", val)} placeholder="Position sizing and credit selection…" />
+              <PrefField label="Timeframe" value={prefs.timeframe} onChange={(val) => set("timeframe", val)} placeholder="The last 12 months to present…" />
               <label className="flex flex-col gap-1">
                 <span className={labelCls}>Investigation criteria — one per line</span>
                 <textarea
@@ -673,7 +704,7 @@ function Settings() {
                   className={INPUT_BASE + " w-full px-2 py-1.5 text-caos-md resize-y leading-snug"}
                 />
               </label>
-            </div>
+            </fieldset>
           </Panel>
           </div>
           ) : null}
@@ -800,6 +831,8 @@ function PrefField({
     <label className="flex flex-col gap-1">
       <span className={labelCls}>{label}</span>
       <TextInput
+        name={`research-${label.toLowerCase().replaceAll(" ", "-")}`}
+        autoComplete="off"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

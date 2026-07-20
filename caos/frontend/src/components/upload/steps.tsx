@@ -152,9 +152,11 @@ export function IssuerStep({
     >
       <div className="p-3 border-b border-caos-border">
         <TextInput
+          name="upload-issuer-search"
+          autoComplete="off"
           value={issuerQuery}
           onChange={(e) => setIssuerQuery(e.target.value)}
-          placeholder="Search issuer · ticker · sector"
+          placeholder="Search issuer · ticker · sector…"
           aria-label="Search issuers for document intake"
           className="w-full px-2.5 py-1.5 text-caos-lg"
         />
@@ -189,18 +191,23 @@ export function IssuerStep({
                 DB columns so a length 422/500 is unreachable from typing */}
             <TextInput
               type="text"
+              name="new-issuer-name"
+              autoComplete="off"
               value={newIssuerName}
               onChange={(e) => setNewIssuerName(e.target.value)}
-              placeholder="Issuer name (e.g. Atlas Forge Industrials)"
+              placeholder="Issuer name (e.g. Atlas Forge Industrials)…"
               aria-label="Issuer name"
               maxLength={255}
               className="w-full px-2.5 py-1.5 text-caos-lg"
             />
             <TextInput
               type="text"
+              name="new-issuer-ticker"
+              autoComplete="off"
+              spellCheck={false}
               value={newIssuerTicker}
               onChange={(e) => setNewIssuerTicker(e.target.value)}
-              placeholder="Ticker (optional)"
+              placeholder="Ticker (optional)…"
               aria-label="Ticker (optional)"
               maxLength={32}
               className="w-full px-2.5 py-1.5 text-caos-lg"

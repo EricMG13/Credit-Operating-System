@@ -236,8 +236,7 @@ function prepareGroundedResult(run: QueryRun) {
 
 type GroundedModel = ReturnType<typeof prepareGroundedResult>;
 
-function GroundedChunk({ id, index, labels, onCitation }: { id: string; index: number; labels: Map<string, string>; onCitation?: CitationHandler }) {
-  if (!onCitation) return <span className="tabular text-caos-3xs text-caos-muted">C{index + 1}</span>;
+function GroundedChunk({ id, index, labels, onCitation }: { id: string; index: number; labels: Map<string, string>; onCitation: CitationHandler }) {
   const label = labels.get(id) ?? id;
   return <button
     type="button"
@@ -252,7 +251,7 @@ function GroundedFact({ id, index, labels }: { id: string; index: number; labels
   return <span title={labels.get(id) ?? id} className="rounded-sm border border-caos-border px-1 py-px tabular text-caos-3xs text-caos-muted">F{index + 1} · {labels.get(id) ?? "metric fact"}</span>;
 }
 
-function GroundedClaim({ index, model, onCitation }: { index: number; model: GroundedModel; onCitation?: CitationHandler }) {
+function GroundedClaim({ index, model, onCitation }: { index: number; model: GroundedModel; onCitation: CitationHandler }) {
   const sentence = model.sentences[index];
   const text = stringValue(sentence.text) ?? "Grounded claim unavailable.";
   const claimType = stringValue(sentence.claim_type) ?? "observation";
@@ -268,7 +267,7 @@ function GroundedClaim({ index, model, onCitation }: { index: number; model: Gro
   </li>;
 }
 
-function GroundedAnswer({ model, onCitation }: { model: GroundedModel; onCitation?: CitationHandler }) {
+function GroundedAnswer({ model, onCitation }: { model: GroundedModel; onCitation: CitationHandler }) {
   if (!model.sentences.length) return <div className="mt-2">
     <p className="text-caos-sm leading-relaxed text-caos-text">{model.fallbackAnswer}</p>
     <p className="mt-2 tabular text-caos-2xs uppercase text-caos-warning">No sentence-level citations attached · keep in draft</p>
@@ -276,7 +275,7 @@ function GroundedAnswer({ model, onCitation }: { model: GroundedModel; onCitatio
   return <ol className="mt-2 space-y-3">{model.sentences.map((_sentence, index) => <GroundedClaim key={index} index={index} model={model} onCitation={onCitation} />)}</ol>;
 }
 
-function GroundedLaneResult({ run, onCitation }: { run: QueryRun; onCitation?: CitationHandler }) {
+function GroundedLaneResult({ run, onCitation }: { run: QueryRun; onCitation: CitationHandler }) {
   const model = prepareGroundedResult(run);
 
   if (model.unavailable) {
@@ -301,8 +300,7 @@ function rowMetrics(row: Record<string, unknown>) {
   return row.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics) ? row.metrics as Record<string, unknown> : {};
 }
 
-function metricRowCitation(row: Record<string, unknown>, enabled: boolean) {
-  if (!enabled) return null;
+function metricRowCitation(row: Record<string, unknown>) {
   return Object.values(rowMetrics(row))
     .map((cell) => (cell && typeof cell === "object" ? (cell as { citation?: { chunk_id?: string | null } | null }).citation : null))
     .find((citation) => citation && typeof citation === "object" && citation.chunk_id)?.chunk_id ?? null;
@@ -318,7 +316,7 @@ function MetricObservation({ index, onCitation, row }: { index: number; onCitati
   const issuerId = stringValue(issuer?.id) ?? stringValue(row.issuer_id);
   const label = stringValue(row.label) ?? stringValue(row.name) ?? stringValue(row.company) ?? stringValue(row.issuer_name) ?? stringValue(issuer?.name) ?? `Result ${index + 1}`;
   const issuerMeta = [stringValue(issuer?.ticker), stringValue(issuer?.industry)].filter(Boolean).join(" · ");
-  const rowChunk = metricRowCitation(row, !!onCitation);
+  const rowChunk = metricRowCitation(row);
   return <span className="font-semibold text-caos-text">
     {issuerId ? <IssuerLink issuer={{ id: issuerId }}>{label}</IssuerLink> : label}
     <MetricSourceButton id={rowChunk} label={label} onCitation={onCitation} />
@@ -424,12 +422,6 @@ function MetricLaneResult({ run, onCitation }: { run: QueryRun; onCitation?: Cit
   );
 }
 
-function QueryUnavailableResult() {
-  return <div className="h-full grid place-items-center p-6 text-center">
-    <SurfaceState kind="not-run" title="Ask one cross-coverage question." detail="The lane is declared before execution. No graph, model overlay or report is generated until you run it." className="max-w-xl" />
-  </div>;
-}
-
 function QueryIncompleteResult({ run }: { run: QueryRun }) {
   const alternatives = Array.isArray(run.result.available_lanes) ? run.result.available_lanes.join(" · ") : "metric · graph";
   return <SurfaceState
@@ -441,8 +433,7 @@ function QueryIncompleteResult({ run }: { run: QueryRun }) {
   />;
 }
 
-function QueryResult({ run, onCitation }: { run: QueryRun | null; onCitation?: CitationHandler }) {
-  if (!run) return <QueryUnavailableResult />;
+function QueryResult({ run, onCitation }: { run: QueryRun; onCitation: CitationHandler }) {
   if (run.status === "partial" || run.status === "error") return <QueryIncompleteResult run={run} />;
   if (run.selected_lane === "graph") return <GraphLaneResult run={run} onCitation={onCitation} />;
   if (run.selected_lane === "grounded") return <GroundedLaneResult run={run} onCitation={onCitation} />;
@@ -499,33 +490,60 @@ function useQueryHistory(activeContextId: string | null, activeQuerySessionId: s
   const [run, setRun] = useState<QueryRun | null>(null);
   const [history, setHistory] = useState<QueryRun[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [hydratedContextId, setHydratedContextId] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const historyGeneration = useRef(0);
   const historyContextId = useRef<string | null>(null);
+  const runRef = useRef<QueryRun | null>(null);
+  const setCurrentRun = useCallback((next: QueryRun | null) => {
+    runRef.current = next;
+    setRun(next);
+  }, []);
   useEffect(() => {
+    if (activeContextId && historyContextId.current === activeContextId && requestedRun && runRef.current?.id === requestedRun) {
+      setHistoryError(null);
+      setHydratedContextId(activeContextId);
+      return;
+    }
     const generation = ++historyGeneration.current;
-    setHistory([]);
     setHistoryError(null);
+    setHydratedContextId(null);
     if (!activeContextId) {
       historyContextId.current = null;
-      setRun(null);
+      setHistory([]);
+      setCurrentRun(null);
       return;
     }
     if (historyContextId.current !== activeContextId) {
       historyContextId.current = activeContextId;
-      setRun(null);
+      setHistory([]);
+      setCurrentRun(null);
+    } else if (requestedRun && runRef.current?.id !== requestedRun) {
+      setCurrentRun(null);
     }
     analysisApi.listQueryRuns(activeContextId).then((rows) => {
       if (generation !== historyGeneration.current) return;
       setHistory(rows);
       const selectedId = requestedRun ?? activeQuerySessionId;
       const latest = selectedId ? rows.find((item) => item.id === selectedId) : null;
-      if (latest) setRun(latest);
+      if (selectedId) setCurrentRun(latest ?? null);
+      setHydratedContextId(activeContextId);
     }).catch((error) => {
-      if (generation === historyGeneration.current) setHistoryError(toErrorMessage(error, "Saved investigations unavailable"));
+      if (generation !== historyGeneration.current) return;
+      setHistoryError(toErrorMessage(error, "Saved investigations unavailable"));
+      setHydratedContextId(activeContextId);
     });
     return () => { historyGeneration.current += 1; };
-  }, [activeContextId, activeQuerySessionId, requestedRun]);
-  return { history, historyError, run, setHistory, setRun };
+  }, [activeContextId, activeQuerySessionId, reloadToken, requestedRun, setCurrentRun]);
+  return {
+    history,
+    historyError,
+    hydratedContextId,
+    retryHistory: () => setReloadToken((value) => value + 1),
+    run,
+    setHistory,
+    setRun: setCurrentRun,
+  };
 }
 
 function useQueryExecution(activeContextId: string | null) {
@@ -705,7 +723,11 @@ function useQueryController() {
   const pin = useQueryPinState();
   const state: QueryState = { capabilities, citations, composer, contextState, execution, history, pin, url };
   const context = contextState.context;
-  const contextReady = !!context && !contextState.loading && url.values.context === context.id && composer.draftContextId === context.id;
+  const contextReady = !!context
+    && !contextState.loading
+    && url.values.context === context.id
+    && composer.draftContextId === context.id
+    && history.hydratedContextId === context.id;
   return { contextReady, contextReadyReason: contextReady ? null : "Waiting for the investigation context to load", decisionState: queryDecisionState(history.run), state };
 }
 
@@ -769,7 +791,7 @@ function QueryUtilities({ state }: { state: QueryState }) {
       {state.history.historyError ? <p role="alert" className="mt-2 text-caos-critical">{state.history.historyError}</p> : null}
       <ol className="mt-2 space-y-1">{state.history.history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => selectHistoryRun(state, item)}>{item.question}</button></li>)}</ol>
     </div>
-    <div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input value={state.capabilities.capabilityId} onChange={(event) => state.capabilities.setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>
+    <div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input name="query-capability" autoComplete="off" value={state.capabilities.capabilityId} onChange={(event) => state.capabilities.setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>
     {context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}
   </div>;
 }
@@ -791,8 +813,7 @@ function QueryPrimaryAction({ controller }: { controller: QueryController }) {
 }
 
 function QueryResultSurface({ state }: { state: QueryState }) {
-  const run = state.history.run;
-  if (!run) return null;
+  const run = state.history.run!;
   const result = <QueryResult run={run} onCitation={(id, label) => state.citations.setCitation({ id, label })} />;
   return <section className="min-h-0 h-full overflow-hidden border border-caos-border" aria-label="Query answer">
     {run.selected_lane === "metric" && resultRows(run).length ? <DominantTableRegion ownerId="query-result" label="Query result table" className="h-full">{result}</DominantTableRegion> : result}
@@ -811,7 +832,20 @@ function QueryPreRunSurface({ controller }: { controller: QueryController }) {
 }
 
 function QueryPrimary({ controller }: { controller: QueryController }) {
-  return controller.state.history.run ? <QueryResultSurface state={controller.state} /> : <QueryPreRunSurface controller={controller} />;
+  const { state } = controller;
+  if (state.history.run) return <QueryResultSurface state={state} />;
+  if (state.url.values.run && state.history.historyError) {
+    return <section className="min-h-0 h-full overflow-auto border border-caos-border p-3" aria-label="Query answer">
+      <SurfaceState
+        kind="error"
+        title="Selected investigation unavailable"
+        detail={state.history.historyError}
+        headingLevel={2}
+        primaryAction={<button type="button" className="caos-action-primary focus-ring" onClick={state.history.retryHistory}>Retry investigation</button>}
+      />
+    </section>;
+  }
+  return <QueryPreRunSurface controller={controller} />;
 }
 
 function pinReason(state: QueryState) {
@@ -827,8 +861,7 @@ function QueryPinAction({ state }: { state: QueryState }) {
 }
 
 function QueryCitationRegister({ state }: { state: QueryState }) {
-  const run = state.history.run;
-  if (!run) return null;
+  const run = state.history.run!;
   const sourceIds = run.authority.source_ids;
   return <div className="mt-4">
     <h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Claims and citations</h3>
@@ -859,7 +892,8 @@ function QueryInspector({ state }: { state: QueryState }) {
 
 function QueryWorkspace({ controller }: { controller: QueryController }) {
   const run = controller.state.history.run;
-  const contextRail = run
+  const selectedRunError = !!controller.state.url.values.run && !!controller.state.history.historyError;
+  const contextRail = run || selectedRunError
     ? <QueryComposer controller={controller} />
     : <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer note"><p className="text-caos-xs leading-relaxed text-caos-muted">TIP · Declare the lane before running — metric ranks coverage, graph traverses relationships, grounded answers from cited documents.</p></section>;
   return <section aria-label="Query investigation workspace" className="caos-persona-route query-workbench min-h-0 flex-1 overflow-hidden p-2">

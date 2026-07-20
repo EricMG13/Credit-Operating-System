@@ -7,20 +7,19 @@
 
 import { useEffect, useId, useState } from "react";
 import { createQaFlag, listQaFlags } from "@/lib/api";
-import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { ActionReason } from "@/components/shared/ActionReason";
 
 type FlagPhase = "idle" | "composing" | "submitting" | "flagged" | "error";
 
-const useQaFlagCount = (moduleId: string, stepRef: string) => {
+const useQaFlagCount = (issuerId: string, moduleId: string, stepRef: string) => {
   const [count, setCount] = useState<number | null>(null);
   useEffect(() => {
     let stale = false;
-    listQaFlags({ module_id: moduleId, step_ref: stepRef, issuer_id: ATLF_REFERENCE_ISSUER_ID })
+    listQaFlags({ module_id: moduleId, step_ref: stepRef, issuer_id: issuerId })
       .then((flags) => { if (!stale) setCount(flags.length); })
       .catch(() => { if (!stale) setCount(null); });
     return () => { stale = true; };
-  }, [moduleId, stepRef]);
+  }, [issuerId, moduleId, stepRef]);
   return { count, setCount };
 };
 
@@ -60,7 +59,7 @@ function FlagComposer({
         maxLength={2000}
         rows={3}
         autoFocus
-        placeholder="What should CP-5 review here?"
+        placeholder="Describe what CP-5 should review…"
         className="rounded border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-md text-caos-text outline-none focus-ring focus:border-caos-accent transition-caos placeholder:text-caos-muted resize-y"
       />
       <div className="flex gap-1.5">
@@ -102,10 +101,10 @@ function FlagLauncher({ phase, count, onCompose }: { phase: FlagPhase; count: nu
   );
 }
 
-export function FlagToQa({ moduleId, stepRef }: { moduleId: string; stepRef: string }) {
+export function FlagToQa({ issuerId, moduleId, stepRef }: { issuerId: string; moduleId: string; stepRef: string }) {
   const [phase, setPhase] = useState<FlagPhase>("idle");
   const [note, setNote] = useState("");
-  const { count, setCount } = useQaFlagCount(moduleId, stepRef);
+  const { count, setCount } = useQaFlagCount(issuerId, moduleId, stepRef);
   // The evidence modal can open over the step modal — two instances may mount
   // at once, so the textarea id must be unique per instance.
   const noteId = useId();
@@ -115,7 +114,7 @@ export function FlagToQa({ moduleId, stepRef }: { moduleId: string; stepRef: str
       module_id: moduleId,
       step_ref: stepRef,
       note,
-      issuer_id: ATLF_REFERENCE_ISSUER_ID,
+      issuer_id: issuerId,
     })
       .then(() => { setPhase("flagged"); setCount((c) => (c ?? 0) + 1); })
       .catch(() => setPhase("error"));

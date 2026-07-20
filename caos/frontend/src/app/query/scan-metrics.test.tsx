@@ -174,8 +174,10 @@ describe("Query investigation workbench", () => {
 
     mocks.context = { id: "context-1", name: "Coverage", sector_id: null, query_session_id: null, filters: {}, selected: {} };
     rerender(<QueryPage />);
-    expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-disabled")).not.toBe("true");
-    expect((screen.getByLabelText("Query coverage") as HTMLTextAreaElement).disabled).toBe(false);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-disabled")).not.toBe("true");
+      expect((screen.getByLabelText("Query coverage") as HTMLTextAreaElement).disabled).toBe(false);
+    });
   });
 
   it("surfaces a rejected run and retries without an unhandled promise", async () => {

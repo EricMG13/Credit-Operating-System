@@ -542,3 +542,50 @@ def test_bare_context_create_finds_or_creates_per_analyst():
         assert other.json()["id"] != first.json()["id"]
 
     app.dependency_overrides.clear()
+
+
+def test_flexible_analysis_json_is_bounded_before_persistence():
+    from identity import get_identity
+    from main import app
+
+    with TestClient(app) as client:
+        app.dependency_overrides[get_identity] = _identity("analysis-json-bounds")
+
+        oversized_context = client.post("/api/analysis/contexts", json={
+            "name": "Oversized state",
+            "filters": {"value": "x" * (100 * 1024)},
+        })
+        assert oversized_context.status_code == 413
+
+        created = client.post("/api/analysis/contexts", json={
+            "name": "Bounded state",
+            "filters": {"first": "x" * 60_000},
+        })
+        assert created.status_code == 201, created.text
+        context_id = created.json()["id"]
+
+        accumulated = client.patch(f"/api/analysis/contexts/{context_id}", json={
+            "selected": {"second": "y" * 60_000},
+        })
+        assert accumulated.status_code == 413
+        unchanged = client.get(f"/api/analysis/contexts/{context_id}").json()
+        assert unchanged["filters"]["first"].startswith("x")
+        assert unchanged["selected"] == {}
+
+        oversized_finding = client.post("/api/analysis/findings", json={
+            "context_id": context_id,
+            "kind": "query-answer",
+            "title": "Oversized evidence",
+            "source_surface": "query",
+            "source_run_id": "not-consulted-before-size-rejection",
+            "evidence": {"value": "x" * (250 * 1024)},
+        })
+        assert oversized_finding.status_code == 413
+
+        oversized_rv = client.post("/api/rv/screens", json={
+            "context_id": context_id,
+            "filters": {"value": "x" * (32 * 1024)},
+        })
+        assert oversized_rv.status_code == 413
+
+    app.dependency_overrides.clear()

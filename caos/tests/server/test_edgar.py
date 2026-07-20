@@ -26,6 +26,50 @@ def test_http_get_requires_user_agent(monkeypatch):
         edgar._http_get("https://efts.sec.gov/LATEST/search-index?q=x")
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "http://www.sec.gov/Archives/x",
+        "https://www.sec.gov.evil.example/Archives/x",
+        "https://www.sec.gov@evil.example/Archives/x",
+        "https://www.sec.gov:444/Archives/x",
+    ],
+)
+def test_http_get_rejects_unsafe_target_before_transport(monkeypatch, url):
+    monkeypatch.setattr(edgar.settings, "edgar_user_agent", "Test UA t@e.st")
+    monkeypatch.setattr(
+        edgar.urllib.request,
+        "build_opener",
+        lambda *args: pytest.fail(f"transport constructed for {url!r}"),
+    )
+
+    with pytest.raises(edgar.EdgarError):
+        edgar._http_get(url)
+
+
+def test_redirect_handler_rejects_off_sec_target_before_follow():
+    handler = edgar._SecOnlyRedirectHandler()
+
+    with pytest.raises(edgar.EdgarError):
+        handler.redirect_request(
+            None, None, 302, "Found", {}, "http://127.0.0.1/internal"
+        )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://sec.gov/Archives/x",
+        "https://www.sec.gov/Archives/x",
+        "https://DATA.SEC.GOV/submissions/x.json",
+        "https://efts.sec.gov/LATEST/search-index?q=x",
+    ],
+)
+def test_sec_url_allowlist_accepts_expected_hosts(url):
+    assert edgar._validate_sec_url(url) is None
+
+
 def test_process_throttle_partitions_aggregate_rate(monkeypatch):
     monkeypatch.setenv("WEB_CONCURRENCY", "2")
     monkeypatch.delenv("CAOS_SEC_RATE_PARTITIONS", raising=False)

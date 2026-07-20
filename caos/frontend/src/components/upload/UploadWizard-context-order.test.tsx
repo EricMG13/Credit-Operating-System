@@ -96,6 +96,16 @@ afterEach(() => {
 });
 
 describe("UploadWizard manual run context ordering", () => {
+  it("keeps the issuer-directory loading state at the route heading level", async () => {
+    let resolveDirectory!: (issuers: never[]) => void;
+    harness.getIssuers.mockImplementationOnce(() => new Promise((resolve) => { resolveDirectory = resolve; }));
+
+    render(<UploadWizard />);
+
+    expect(await screen.findByRole("heading", { level: 2, name: "Loading issuer directory…" })).not.toBeNull();
+    await act(async () => resolveDirectory([]));
+  });
+
   it("distinguishes an issuer-directory failure and recovers on retry", async () => {
     harness.getIssuers
       .mockRejectedValueOnce(new Error("directory unavailable"))
@@ -104,6 +114,7 @@ describe("UploadWizard manual run context ordering", () => {
     render(<UploadWizard />);
 
     expect((await screen.findByRole("alert")).textContent).toContain("Could not load the issuer directory");
+    expect(screen.getByRole("heading", { level: 2, name: "Could not load the issuer directory" })).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Retry issuer load" }));
 
     expect(await screen.findByRole("button", { name: /Recovered Credit/i })).not.toBeNull();

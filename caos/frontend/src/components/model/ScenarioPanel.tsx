@@ -431,10 +431,12 @@ function ScenarioBuilder({
       <div className="flex items-center gap-1.5">
         <span className="text-caos-accent text-caos-xl">✦</span>
         <TextInput
+          name="scenario-description"
+          autoComplete="off"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runNL(); } }}
-          placeholder="Describe a scenario — e.g. oil shock, margins compress 200bps"
+              placeholder="Describe a scenario — e.g. oil shock, margins compress 200 bps…"
           aria-label="Describe a scenario"
           maxLength={500}
           className="flex-1 px-2 py-1 text-caos-md"

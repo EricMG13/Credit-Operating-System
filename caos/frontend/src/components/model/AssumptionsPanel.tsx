@@ -94,6 +94,8 @@ function Cell({ spec, model, modified, accent, label, clearLabel, onChange, onRe
   const input = (
     <input
       type="number"
+      name={`assumption-${spec.key}`}
+      autoComplete="off"
       value={disp}
       step={spec.step * spec.scale}
       min={spec.min * spec.scale}

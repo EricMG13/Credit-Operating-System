@@ -3,6 +3,11 @@ import * as client from "./api";
 
 const originalAdapter = client.api.defaults.adapter;
 
+const axiosError = (status: number) => Object.assign(new Error(`HTTP ${status}`), {
+  isAxiosError: true,
+  response: { status, data: {}, headers: {}, statusText: String(status), config: {} },
+});
+
 const responseFor = (config: { url?: string; method?: string }) => {
   const url = config.url ?? "";
   let data: unknown = { ok: true };
@@ -94,5 +99,132 @@ describe("API route wrappers", () => {
     expect(ids).toEqual(["job-1"]);
     expect(client.isResearchAborted(null)).toBe(false);
     expect(client.isResearchGone(null)).toBe(false);
+  });
+
+  it("maps every durable research status and preserves transient failures", async () => {
+    const statuses = [
+      { id: "running", status: "running" },
+      { id: "complete", status: "complete", report: "memo", sources: [], demo: true, truncated: true },
+      { id: "failed", status: "failed", error: "model failed" },
+      { id: "failed-default", status: "failed", error: "" },
+    ];
+    client.api.defaults.adapter = ((config: { url?: string }) => Promise.resolve({
+      data: statuses.find((status) => config.url?.endsWith(`/${status.id}`)),
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config: config as never,
+    })) as never;
+
+    await expect(client.getResearchStatus("running")).resolves.toEqual({ state: "running" });
+    await expect(client.getResearchStatus("complete")).resolves.toEqual({
+      state: "complete",
+      result: { report: "memo", sources: [], demo: true, truncated: true, figures: [] },
+    });
+    await expect(client.getResearchStatus("failed")).resolves.toEqual({ state: "failed", error: "model failed" });
+    await expect(client.getResearchStatus("failed-default")).resolves.toEqual({
+      state: "failed",
+      error: "Research failed — try again.",
+    });
+
+    const transient = new Error("temporary outage");
+    client.api.defaults.adapter = (() => Promise.reject(transient)) as never;
+    await expect(client.getResearchStatus("transient")).rejects.toBe(transient);
+    client.api.defaults.adapter = (() => Promise.reject(axiosError(404))) as never;
+    await expect(client.getResearchStatus("missing")).resolves.toEqual({ state: "gone" });
+  });
+
+  it("classifies missing and aborted research polls", async () => {
+    client.api.defaults.adapter = (() => Promise.reject(axiosError(404))) as never;
+    const missing = await client.resumeResearch("missing").catch((error) => error);
+    expect(client.isResearchGone(missing)).toBe(true);
+    expect(client.isResearchGone({})).toBe(false);
+
+    const controller = new AbortController();
+    controller.abort();
+    const aborted = await client.resumeResearch("job-1", undefined, controller.signal).catch((error) => error);
+    expect(client.isResearchAborted(aborted)).toBe(true);
+    expect(client.isResearchAborted({})).toBe(false);
+  });
+
+  it("recovers after a transient poll error and publishes live progress", async () => {
+    vi.useFakeTimers();
+    const progress: Array<client.ResearchProgress | null> = [];
+    let attempts = 0;
+    client.api.defaults.adapter = ((config: { url?: string }) => {
+      attempts += 1;
+      if (attempts === 1) return Promise.reject(new Error("gateway blip"));
+      return Promise.resolve({
+        data: attempts === 2
+          ? { id: "job-1", status: "running", progress: { sources: 3, searches: 2 } }
+          : attempts === 3
+            ? { id: "job-1", status: "running" }
+            : { id: "job-1", status: "complete", report: "recovered", sources: [], demo: false },
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config: config as never,
+      });
+    }) as never;
+
+    const result = client.resumeResearch("job-1", (value) => progress.push(value));
+    await vi.advanceTimersByTimeAsync(6_000);
+    await expect(result).resolves.toEqual({ report: "recovered", sources: [], demo: false, truncated: undefined, figures: [] });
+    expect(progress).toEqual([{ sources: 3, searches: 2 }, null]);
+  });
+
+  it("surfaces failed polls and the client deadline", async () => {
+    let failure = "model failed";
+    client.api.defaults.adapter = ((config: { url?: string }) => Promise.resolve({
+      data: { id: "job-1", status: "failed", error: failure },
+      status: 200,
+      statusText: "OK",
+      headers: {},
+      config: config as never,
+    })) as never;
+    await expect(client.resumeResearch("job-1")).rejects.toEqual({ response: { data: { detail: "model failed" } } });
+    failure = "";
+    await expect(client.resumeResearch("job-1")).rejects.toEqual({
+      response: { data: { detail: "Research failed — try again." } },
+    });
+
+    vi.useFakeTimers();
+    const started = new Date("2026-07-19T00:00:00Z");
+    vi.setSystemTime(started);
+    client.api.defaults.adapter = ((config: { url?: string }) => {
+      vi.setSystemTime(new Date(started.getTime() + 15 * 60 * 1_000));
+      return Promise.resolve({
+        data: { id: "job-1", status: "running" },
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config: config as never,
+      });
+    }) as never;
+    await expect(client.resumeResearch("job-1")).rejects.toEqual({
+      response: { data: { detail: "Research timed out on the client — it may still be completing; retry shortly." } },
+    });
+  });
+
+  it("starts research without optional context or callbacks", async () => {
+    await expect(client.deepResearch({ subject: "Utilities", mode: "issuer" })).resolves.toEqual({
+      report: "done",
+      sources: [],
+      demo: false,
+      truncated: undefined,
+      figures: [],
+    });
+  });
+
+  it("stops polling after the maximum consecutive transport failures", async () => {
+    vi.useFakeTimers();
+    client.api.defaults.adapter = (() => Promise.reject(new Error("offline"))) as never;
+
+    const result = client.resumeResearch("job-1");
+    const rejection = expect(result).rejects.toEqual({
+      response: { data: { detail: "Lost contact with the research backend — the run may still be completing; retry shortly." } },
+    });
+    await vi.runAllTimersAsync();
+    await rejection;
   });
 });

@@ -54,6 +54,7 @@ _MAX_PAYLOAD_BYTES = 1_000_000
 # envelope bounded while allowing roughly 3x the maximum draft plus report
 # structure.
 _MAX_REPORT_VERSION_BYTES = 32_000_000
+_EXPORTS_PER_MINUTE = 10
 
 
 def _bounded_composition(
@@ -468,9 +469,9 @@ async def _prepare_report(
         thesis = await db.get(ThesisVersion, body.thesis_version_id)
         if thesis is None or thesis.issuer_id != run.issuer_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Thesis version not found.")
-    modules = (await db.execute(select(ModuleOutput).where(
+    modules = list((await db.execute(select(ModuleOutput).where(
         ModuleOutput.run_id == run.id
-    ))).scalars().all()
+    ))).scalars().all())
     modules.sort(key=lambda module: (
         -1 if module.module_id == "CP-X" else DECLARATION_INDEX.get(module.module_id, 999),
         module.module_id,
@@ -827,6 +828,15 @@ async def export_report_version(
     caller: CallerIdentity = Depends(get_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
+    if not rate_limit.hit(
+        f"report-exports:{caller.id}",
+        max_attempts=_EXPORTS_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Report export rate limit reached — try again in a minute.",
+        )
     row = await db.get(ReportVersion, version_id)
     if row is None or row.analyst_id != caller.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Report version not found.")

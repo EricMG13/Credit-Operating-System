@@ -1,24 +1,4 @@
 import type { Issuer } from "@/types/issuers";
-import { PORTFOLIO } from "@/lib/command/data";
-
-// Demo sleeve for empty/degraded registry states. PORTFOLIO rows are tranches
-// (a borrower repeats once per facility), so dedupe by code — the directory and
-// overlay list issuers, and duplicate ids break React keys and profile opens.
-export const DEMO_UNIVERSE: Issuer[] = Array.from(
-  new Map(
-    PORTFOLIO.map((p) => [
-      p.code,
-      {
-        id: p.code,
-        name: p.borrower || p.name,
-        ticker: p.code,
-        sector: p.sector,
-        industry: p.sector,
-        country: "United States",
-      },
-    ]),
-  ).values(),
-);
 
 export const COUNTRIES = [
   "United States",

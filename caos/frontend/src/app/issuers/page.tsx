@@ -18,7 +18,8 @@ import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
-import { COUNTRIES, DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
+import { COUNTRIES, issuerProfileHref, issuerRating, issuerSector, ratingDistressed } from "@/lib/issuers";
+import { DEMO_UNIVERSE } from "@/lib/issuer-demo";
 import { FilterHeader, updateColumnFilter, useColumnFilters, type FilterState, type SortState } from "@/components/shared/TableColumnFilter";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
@@ -439,9 +440,11 @@ function IssuersDirectory() {
               <span className="relative flex items-center">
                 <span className="absolute left-2 text-caos-muted text-caos-md pointer-events-none">⌕</span>
                 <TextInput
+                  name="issuer-search"
+                  autoComplete="off"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="search issuer · sector · country · FIGI"
+                  placeholder="Search issuer · sector · country · FIGI…"
                   aria-label="Search issuers"
                   className="w-64 pl-6 pr-6 py-1 tabular text-caos-md"
                 />
@@ -524,6 +527,8 @@ function IssuersDirectory() {
                 <span role="columnheader" className="flex items-center">
                   <input
                     type="checkbox"
+                    name="select-all-visible-issuers"
+                    autoComplete="off"
                     checked={allShownSelected}
                     onChange={toggleSelectAllShown}
                     aria-label={allShownSelected ? "Deselect all issuers" : "Select all issuers"}
@@ -594,6 +599,8 @@ function IssuersDirectory() {
                   <span role="gridcell" className="relative z-[1] flex items-center min-h-[24px]">
                     <input
                       type="checkbox"
+                      name={`select-issuer-${issuer.id}`}
+                      autoComplete="off"
                       checked={selected.includes(issuer.id)}
                       onChange={() => toggleSelect(issuer.id)}
                       aria-label={`Select ${issuer.name}`}
@@ -728,16 +735,16 @@ function NewIssuerModal({
           {/* max mirrors the server caps (routes/issuers.py IssuerCreate + the
               issuers DB columns) so a length 422/500 is unreachable from typing */}
           {([
-            { key: "name", label: "Company name", required: true, ph: "e.g. Atlas Forge Industrials", max: 255 },
-            { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF", max: 32 },
-            { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials", max: 128 },
-            { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components", max: 128 },
-            { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9", max: 32 },
-            { key: "sponsor", label: "Sponsor / PE owner", required: false, ph: "e.g. Kestrel Capital Partners", max: 255 },
+            { key: "name", label: "Company name", required: true, ph: "e.g. Atlas Forge Industrials…", max: 255 },
+            { key: "ticker", label: "Ticker / CUSIP", required: false, ph: "e.g. ATLF…", max: 32 },
+            { key: "sector", label: "Sector", required: false, ph: "e.g. Industrials…", max: 128 },
+            { key: "sub_sector", label: "Sub-sector", required: false, ph: "e.g. Engineered Components…", max: 128 },
+            { key: "figi", label: "FIGI", required: false, ph: "e.g. BBG00XK7LMN9…", max: 32 },
+            { key: "sponsor", label: "Sponsor / PE owner", required: false, ph: "e.g. Kestrel Capital Partners…", max: 255 },
           ] as { key: keyof typeof EMPTY_FORM; label: string; required: boolean; ph: string; max: number }[]).map(({ key, label, required, ph, max }) => (
             <div key={key}>
               <label className="block tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1">{label}{required ? " · required" : ""}</label>
-              <TextInput required={required} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} placeholder={ph} aria-label={label} maxLength={max} className="w-full px-2.5 py-1.5 text-caos-lg" />
+              <TextInput required={required} name={`issuer-${key}`} autoComplete="off" spellCheck={key === "ticker" || key === "figi" ? false : undefined} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} placeholder={ph} aria-label={label} maxLength={max} className="w-full px-2.5 py-1.5 text-caos-lg" />
             </div>
           ))}
           <div>

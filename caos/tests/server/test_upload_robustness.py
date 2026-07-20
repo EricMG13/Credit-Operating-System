@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import io
-import os
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -136,10 +135,11 @@ def test_issuer_corpus_quota_rejects_before_vault_write(rob_client, monkeypatch)
     "name,payload",
     [
         # Valid magic, garbage body — parses to nothing.
-        ("corrupt.pdf", b"%PDF-1.4\n" + os.urandom(2048)),
+        ("corrupt.pdf", b"%PDF-1.4\n" + (b"\x00INVALID-PDF-BODY\xff" * 128)),
         # Genuinely password-protected PDF (pypdf AES) — no text without the key.
         ("locked.pdf", None),  # built lazily; pypdf import stays test-time
     ],
+    ids=["corrupt-pdf", "locked-pdf"],
 )
 def test_document_upload_degrades_loudly_never_silently(rob_client, name, payload):
     if payload is None:

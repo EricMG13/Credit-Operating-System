@@ -127,7 +127,8 @@ def main() -> None:
 
     only = {t.strip().upper() for t in a.only.split(",")} if a.only else None
     out = Path(a.out)
-    rows = list(csv.DictReader(open(a.csv)))
+    with open(a.csv, encoding="utf-8", newline="") as cohort_file:
+        rows = list(csv.DictReader(cohort_file))
     manifest, skipped = [], []
     for row in rows:
         ticker = row["Ticker"].strip()

@@ -14,6 +14,15 @@ export const api = axios.create({
   timeout: 20000,
 });
 
+const UNSAFE_METHODS = new Set(["post", "put", "patch", "delete"]);
+
+function csrfCookie(): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const prefix = "caos_csrf=";
+  const item = document.cookie.split("; ").find((part) => part.startsWith(prefix));
+  return item ? decodeURIComponent(item.slice(prefix.length)) : undefined;
+}
+
 // Per-analyst model mode → X-Model-Mode on every request. The server resolves it
 // to a model tier per LLM lane (engine/presets.py); runs persist the mode they
 // ran at. SSR has no localStorage, so this only attaches in the browser.
@@ -26,6 +35,10 @@ api.interceptors.request.use((config) => {
     } catch {
       // private-mode Safari / storage disabled or blocked — degrade to no
       // mode/query-model header rather than breaking every request's interceptor.
+    }
+    if (UNSAFE_METHODS.has(config.method?.toLowerCase() ?? "")) {
+      const token = csrfCookie();
+      if (token) config.headers.set("X-CSRF-Token", token);
     }
   }
   return config;

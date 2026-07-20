@@ -9,9 +9,11 @@ export function AnalysisContextStrip() {
   const [context, setContext] = useState<AnalysisContext | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [unavailable, setUnavailable] = useState(false);
+  const [contextFree, setContextFree] = useState(false);
   useEffect(() => {
     let cancelled = false;
     const load = (id: string) => {
+      setContextFree(false);
       setUnavailable(false);
       Promise.all([analysisApi.getContext(id), analysisApi.listFindings(id)])
         .then(([nextContext, nextFindings]) => {
@@ -19,8 +21,10 @@ export function AnalysisContextStrip() {
         })
         .catch(() => { if (!cancelled) setUnavailable(true); });
     };
-    const initialId = new URLSearchParams(window.location.search).get("context");
+    const initialUrl = new URL(window.location.href);
+    const initialId = initialUrl.searchParams.get("context");
     if (initialId) load(initialId);
+    else if (initialUrl.pathname === "/settings") setContextFree(true);
     const onContext = (event: Event) => {
       const detail = (event as CustomEvent<AnalysisContext>).detail;
       if (detail?.id) load(detail.id);
@@ -39,6 +43,16 @@ export function AnalysisContextStrip() {
     };
   }, []);
 
+  if (!context && contextFree) {
+    return (
+      <div
+        role="status"
+        className="flex min-h-12 shrink-0 items-center border-b border-caos-border bg-caos-info-surface/20 px-3 md:min-h-8"
+      >
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Workspace configuration · no analysis context</span>
+      </div>
+    );
+  }
   if (!context && !unavailable) {
     return (
       <div

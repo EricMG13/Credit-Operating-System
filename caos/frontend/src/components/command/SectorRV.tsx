@@ -556,8 +556,15 @@ function PeerTableRow({
   return (
     <tr
       ref={rowRef}
+      tabIndex={0}
+      aria-label={`Select ${row.company}, rating ${row.rating || "unrated"}`}
       data-selected={selected ? "true" : undefined}
       onClick={() => onSelect(row.figi)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect(row.figi);
+      }}
       onMouseEnter={() => onHover(row.figi)}
       onMouseLeave={() => onHover(null)}
       className={"border-b border-caos-border/40 transition-caos group cursor-pointer " + rowBackground}

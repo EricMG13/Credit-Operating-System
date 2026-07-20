@@ -61,6 +61,7 @@ async def snapshot_run_inputs(
     requested_manifests = {
         ref.id for ref in (input_refs or ()) if ref.kind == "source_manifest"
     }
+    manifests: list[SourceManifest] = []
 
     manifest_stmt = select(SourceManifest).where(
         SourceManifest.issuer_id == issuer_id,
@@ -69,8 +70,6 @@ async def snapshot_run_inputs(
     if input_refs is not None:
         if requested_manifests:
             manifest_stmt = manifest_stmt.where(SourceManifest.id.in_(requested_manifests))
-        else:
-            manifests: list[SourceManifest] = []
     if input_refs is None or requested_manifests:
         manifests = list((await db.execute(manifest_stmt)).scalars().all())
     if input_refs is not None and {row.id for row in manifests} != requested_manifests:

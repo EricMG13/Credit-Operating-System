@@ -83,4 +83,67 @@ describe("ModuleFinder", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByTitle("Find a module by id or name (⌘M)")).toBeTruthy();
   });
+
+  it("loads valid pinned and recent shortcuts, selects one, and unpins from the modal", async () => {
+    getAnalystSettings.mockResolvedValue({
+      model_lanes: {},
+      email_intelligence: {},
+      workspace: {
+        deepdive_pins: ["CP-2E", "unknown", 7],
+        deepdive_recents: ["CP-1C", "CP-2E", "unknown", null],
+      },
+    });
+    const onSelect = vi.fn();
+    render(<ModuleFinder onSelect={onSelect} activeId="CP-2E" />);
+
+    const pinned = await screen.findByTitle("Liquidity");
+    expect(pinned.getAttribute("aria-current")).toBe("true");
+    expect(await screen.findByTitle("Peer Benchmarking")).toBeTruthy();
+    fireEvent.click(pinned);
+    expect(onSelect).toHaveBeenCalledWith("CP-2E");
+
+    fireEvent.click(screen.getByTitle("Find a module by id or name (⌘M)"));
+    const input = await screen.findByRole("combobox");
+    fireEvent.change(input, { target: { value: "liquidity" } });
+    fireEvent.mouseDown(await screen.findByTitle("Unpin"));
+    expect(updateAnalystWorkspace).toHaveBeenCalledTimes(2);
+  });
+
+  it("supports mouse focus, empty results, and roving keyboard selection", async () => {
+    const onSelect = vi.fn();
+    render(<ModuleFinder onSelect={onSelect} activeId="CP-0" />);
+    fireEvent.click(screen.getByTitle("Find a module by id or name (⌘M)"));
+    const input = await screen.findByRole("combobox");
+    fireEvent.click(screen.getByRole("dialog"));
+
+    fireEvent.change(input, { target: { value: "no-such-module" } });
+    expect(screen.getByText("no matching module")).toBeTruthy();
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "" } });
+    const options = await screen.findAllByRole("option");
+    fireEvent.mouseEnter(options[2]);
+    expect(options[2].getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith("CP-1");
+  });
+
+  it("ignores settings that resolve after the finder unmounts", async () => {
+    let resolveSettings!: (value: {
+      model_lanes: Record<string, never>;
+      email_intelligence: Record<string, never>;
+      workspace: Record<string, never>;
+    }) => void;
+    getAnalystSettings.mockImplementation(() => new Promise((resolve) => { resolveSettings = resolve; }));
+    const view = render(<ModuleFinder onSelect={() => {}} activeId="CP-0" />);
+    view.unmount();
+    await act(async () => {
+      resolveSettings({ model_lanes: {}, email_intelligence: {}, workspace: {} });
+    });
+    expect(updateAnalystWorkspace).not.toHaveBeenCalled();
+  });
 });

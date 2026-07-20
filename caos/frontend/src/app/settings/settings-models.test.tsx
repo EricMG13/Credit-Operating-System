@@ -36,6 +36,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  localStorage.clear();
   currentTab = "models";
 });
 
@@ -292,5 +293,93 @@ describe("Settings · Models tab", () => {
     const [retry] = await screen.findAllByRole("button", { name: "Retry" });
     fireEvent.click(retry);
     await waitFor(() => expect((screen.getByRole("switch", { name: "Warn before leaving unsaved model edits" }) as HTMLInputElement).disabled).toBe(false));
+  });
+
+  it("hydrates server research defaults and normalized profile mode, then changes query model and research scope", async () => {
+    vi.mocked(getAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { approved_senders: [] },
+      workspace: {
+        research_prefs: { audience: "Private credit committee", mode: "sector" },
+        model_mode: " max ",
+        query_model: "gemini-1.5-pro",
+      },
+      revision: 4,
+    });
+    render(<SettingsPage />);
+    const max = await screen.findByRole("button", { name: /^max/i });
+    expect(max.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: /Gemini 1.5 Pro/ }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /DeepSeek V3\/V4/ }));
+    expect(screen.getByRole("button", { name: /DeepSeek V3\/V4/ }).getAttribute("aria-pressed")).toBe("true");
+
+    cleanup();
+    currentTab = "research";
+    vi.mocked(getAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { approved_senders: [] },
+      workspace: { research_prefs: { audience: "Private credit committee", mode: "sector" }, model_mode: "invalid-mode" },
+      revision: 5,
+    });
+    render(<SettingsPage />);
+    expect((await screen.findByLabelText("Audience") as HTMLInputElement).value).toBe("Private credit committee");
+    fireEvent.click(screen.getByRole("button", { name: "issuer" }));
+    expect(screen.getByRole("button", { name: "issuer" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("surfaces an object-shaped save detail and retries the retained optimistic patch", async () => {
+    currentTab = "email";
+    vi.mocked(getAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { approved_senders: [] }, revision: 2,
+    });
+    vi.mocked(patchAnalystSettings).mockReset()
+      .mockRejectedValueOnce({ response: { data: { detail: { message: "Profile write conflicted." } } } })
+      .mockResolvedValueOnce({
+        model_lanes: {}, email_intelligence: { approved_senders: ["desk@test"] }, revision: 3,
+      });
+    render(<SettingsPage />);
+    const senders = await screen.findByLabelText(/Approved sender emails\/domains/i);
+    fireEvent.change(senders, { target: { value: "desk@test" } });
+    fireEvent.blur(senders);
+    expect(await screen.findByText(/Profile write conflicted/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
+    await waitFor(() => expect(patchAnalystSettings).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Saved")).toBeTruthy();
+  });
+
+  it("uses the generic save error when the backend supplies no detail", async () => {
+    currentTab = "email";
+    vi.mocked(getAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { approved_senders: [] }, revision: 1,
+    });
+    vi.mocked(patchAnalystSettings).mockReset().mockRejectedValueOnce(new Error("offline"));
+    render(<SettingsPage />);
+    const senders = await screen.findByLabelText(/Approved sender emails\/domains/i);
+    fireEvent.change(senders, { target: { value: "desk@test" } });
+    fireEvent.blur(senders);
+    expect(await screen.findByText(/Save failed — not stored/)).toBeTruthy();
+  });
+
+  it("cancels the analyst-saved reset timer when the page unmounts", async () => {
+    currentTab = "email";
+    vi.mocked(getAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { approved_senders: [] }, revision: 1,
+    });
+    vi.mocked(patchAnalystSettings).mockResolvedValueOnce({
+      model_lanes: {}, email_intelligence: { approved_senders: ["desk@test"] }, revision: 2,
+    });
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    const clearTimeoutSpy = vi.spyOn(window, "clearTimeout");
+    const view = render(<SettingsPage />);
+    const senders = await screen.findByLabelText(/Approved sender emails\/domains/i);
+    fireEvent.change(senders, { target: { value: "desk@test" } });
+    fireEvent.blur(senders);
+    expect(await screen.findByText("Saved")).toBeTruthy();
+
+    const resetCallIndex = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 2000);
+    expect(resetCallIndex).toBeGreaterThanOrEqual(0);
+    const resetTimer = setTimeoutSpy.mock.results[resetCallIndex]?.value;
+    view.unmount();
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(resetTimer);
+    setTimeoutSpy.mockRestore();
+    clearTimeoutSpy.mockRestore();
   });
 });

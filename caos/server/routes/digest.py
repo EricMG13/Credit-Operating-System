@@ -15,7 +15,7 @@ rated B3/B- or below (the drift-to-CCC bucket that drives CLO haircuts).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -133,6 +133,12 @@ class IngestionGapsResponse(BaseModel):
     # Per-issuer source-origin mix plus the analyst on the latest complete run.
     # Raw source labels stay deliberately small: NATIVE / OCR / NO_TEXT.
     coverage: List[CoverageOriginRow] = []
+
+
+class _OriginRollup(TypedDict):
+    issuer_name: str
+    origins: set[str]
+    document_count: int
 
 
 def _read_rate_guard(caller: CallerIdentity) -> None:
@@ -268,7 +274,9 @@ async def daily_digest(
             db, caller, {run.id for run in latest.values()}
         )
         freshness_rows: List[DigestFreshnessRow] = []
-        freshness_counts = {"current": 0, "due": 0, "stale": 0, "unknown": 0}
+        freshness_counts: Dict[
+            Literal["current", "due", "stale", "unknown"], int
+        ] = {"current": 0, "due": 0, "stale": 0, "unknown": 0}
         for issuer in issuers:
             run = latest.get(issuer.id)
             evaluation = proved.get(run.id) if run else None
@@ -334,7 +342,7 @@ async def ingestion_gaps(
 
     zero_chunk: List[IngestionGapRow] = []
     ocr_lane: List[IngestionGapRow] = []
-    origin_rollup: Dict[str, Dict[str, object]] = {}
+    origin_rollup: Dict[str, _OriginRollup] = {}
     for doc, issuer_name, document_has_ocr in rows:
         rollup = origin_rollup.setdefault(doc.issuer_id, {
             "issuer_name": issuer_name,

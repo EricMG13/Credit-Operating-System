@@ -24,6 +24,13 @@ if (!baseURL) {
   throw new Error("PLAYWRIGHT_BASE_URL is required for the production-like E2E lane.");
 }
 const target = new URL(baseURL);
+if (target.protocol !== "https:") {
+  throw new Error(
+    "Production-like E2E requires a loopback HTTPS target so Secure profile cookies "
+    + "use the same browser boundary as deployment. Terminate TLS locally and set "
+    + "E2E_IGNORE_HTTPS_ERRORS=1 for a self-signed certificate.",
+  );
+}
 if (!new Set(["127.0.0.1", "localhost", "::1"]).has(target.hostname)) {
   throw new Error(`Refusing non-loopback production-like E2E target: ${target.hostname}`);
 }

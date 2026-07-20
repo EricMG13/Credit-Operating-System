@@ -52,6 +52,7 @@ const state = vi.hoisted(() => ({
   lastSignal: null as AbortSignal | null,
   status: null as { state: string; result?: ResearchResultMock } | null,
   statusError: null as Error | null,
+  statusPromise: null as Promise<{ state: string; result?: ResearchResultMock }> | null,
   resumePromise: null as Promise<ResearchResultMock> | null,
   prefs: {
     mode: "sector",
@@ -107,7 +108,7 @@ vi.mock("@/lib/analysis-workbench", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   getSettings: () => state.settingsError ? Promise.reject(state.settingsError) : Promise.resolve(state.settings),
-  getResearchStatus: () => state.statusError ? Promise.reject(state.statusError) : Promise.resolve(state.status),
+  getResearchStatus: () => state.statusPromise ?? (state.statusError ? Promise.reject(state.statusError) : Promise.resolve(state.status)),
   resumeResearch: (_id: string, onProgress: (value: unknown) => void, signal: AbortSignal) => {
     state.progress = onProgress;
     state.lastSignal = signal;
@@ -156,6 +157,7 @@ beforeEach(() => {
   state.lastSignal = null;
   state.status = null;
   state.statusError = null;
+  state.statusPromise = null;
   state.resumePromise = null;
   state.prefs = {
     mode: "sector", audience: "Credit IC", decision: "Position sizing",
@@ -167,6 +169,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   cleanup();
 });
 
@@ -196,6 +199,8 @@ describe("Deep Research durable job interactions", () => {
 
     expect(sessionStorage.getItem("caos.research.job.analyst-research.research-context")).toBe("job-new");
     expect(screen.getByText(/pane running true/)).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Researching…" })[0]);
+    expect(state.deepCalls).toHaveLength(1);
     act(() => { state.progress?.({ phase: "searching" }); vi.advanceTimersByTime(2000); });
     expect(screen.getByText(/progress searching/)).toBeTruthy();
     expect(screen.getByText(/elapsed 2/)).toBeTruthy();
@@ -302,5 +307,133 @@ describe("Deep Research durable job interactions", () => {
     await waitFor(() => expect(state.patch).toHaveBeenCalledTimes(2));
     expect(state.deepCalls).toHaveLength(0);
     expect(state.notify).toHaveBeenCalledWith("Research complete", "Sector research");
+  });
+
+  it("degrades safely when browser storage is unavailable", async () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("storage blocked");
+    });
+
+    render(<ResearchPage />);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    expect(screen.getByRole("button", { name: "Advanced brief" }).getAttribute("aria-expanded")).toBe("false");
+    getItem.mockRestore();
+
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage blocked");
+    });
+    const job = deferred<ResearchResultMock>();
+    state.deepPromise = job.promise;
+    fireEvent.change(screen.getByPlaceholderText(/enterprise software/i), { target: { value: "Storage edge" } });
+    fireEvent.click(screen.getByRole("button", { name: "Advanced brief" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[0]);
+
+    expect(setItem).toHaveBeenCalled();
+    await act(async () => { job.resolve(result("Storage-safe report")); await job.promise; });
+    expect(screen.getByText("result Storage-safe report")).toBeTruthy();
+  });
+
+  it("clears an authoritative gone error encountered during the initial reattach probe", async () => {
+    sessionStorage.setItem("caos.research.job.analyst-research.research-context", "job-gone");
+    state.statusError = new Error("gone");
+
+    render(<ResearchPage />);
+
+    await waitFor(() => expect(sessionStorage.getItem("caos.research.job.analyst-research.research-context")).toBeNull());
+    expect(screen.queryByText(/Could not reattach/)).toBeNull();
+  });
+
+  it("ignores both a late successful probe and a late failed probe after unmount", async () => {
+    const completedProbe = deferred<{ state: string; result?: ResearchResultMock }>();
+    sessionStorage.setItem("caos.research.job.analyst-research.research-context", "job-late-complete");
+    state.statusPromise = completedProbe.promise;
+    const first = render(<ResearchPage />);
+    first.unmount();
+    await act(async () => {
+      completedProbe.resolve({ state: "complete", result: result("Too late") });
+      await completedProbe.promise;
+    });
+
+    const failedProbe = deferred<{ state: string; result?: ResearchResultMock }>();
+    state.statusPromise = failedProbe.promise;
+    const second = render(<ResearchPage />);
+    second.unmount();
+    await act(async () => {
+      failedProbe.reject(new Error("transport late"));
+      try { await failedProbe.promise; } catch {}
+    });
+
+    expect(screen.queryByText("Too late")).toBeNull();
+  });
+
+  it("uses unscoped storage without an analysis context and aborts a live poll on unmount", async () => {
+    state.context = null;
+    const job = deferred<ResearchResultMock>();
+    state.deepPromise = job.promise;
+    const view = render(<ResearchPage />);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Issuer" }));
+    expect(screen.getAllByRole("button", { name: "Run deep research" })[0].title).toContain("issuer");
+    fireEvent.change(screen.getByPlaceholderText(/Atlas Forge/i), { target: { value: "No context issuer" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[0]);
+
+    expect(sessionStorage.getItem("caos.research.job.analyst-research.unscoped")).toBe("job-new");
+    const signal = state.lastSignal;
+    view.unmount();
+    expect(signal?.aborted).toBe(true);
+    await act(async () => { job.reject(new Error("aborted")); try { await job.promise; } catch {} });
+  });
+
+  it("completes an issuer run without a context and skips context linkage", async () => {
+    state.context = null;
+    const job = deferred<ResearchResultMock>();
+    state.deepPromise = job.promise;
+    render(<ResearchPage />);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Issuer" }));
+    fireEvent.change(screen.getByPlaceholderText(/Atlas Forge/i), { target: { value: "Issuer edge" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[0]);
+
+    await act(async () => { job.resolve(result("Issuer report")); await job.promise; });
+
+    expect(state.patch).not.toHaveBeenCalled();
+    expect(state.notify).toHaveBeenCalledWith("Research complete", "Issuer · Issuer edge");
+  });
+
+  it("aborts a superseded reattachment and leaves its stale finally handler inert", async () => {
+    const first = deferred<ResearchResultMock>();
+    const second = deferred<ResearchResultMock>();
+    state.prefs = { ...state.prefs, mode: "issuer" };
+    state.context = context({ surface_state: { research: { view: "sector" } } });
+    state.status = { state: "running" };
+    state.resumePromise = first.promise;
+    sessionStorage.setItem("caos.research.job.analyst-research.research-context", "job-first");
+    const view = render(<ResearchPage />);
+    expect(await screen.findByText(/pane running true/)).toBeTruthy();
+    const firstSignal = state.lastSignal;
+
+    state.context = context({
+      id: "research-context-2",
+      surface_state: { research: { view: "issuer" } },
+    });
+    state.resumePromise = second.promise;
+    sessionStorage.setItem("caos.research.job.analyst-research.research-context-2", "job-second");
+    view.rerender(<ResearchPage />);
+    await waitFor(() => expect(firstSignal?.aborted).toBe(true));
+
+    await act(async () => { first.reject(new Error("aborted")); try { await first.promise; } catch {} });
+    expect(screen.getByText(/pane running true/)).toBeTruthy();
+    await act(async () => { second.resolve(result("Second attached report")); await second.promise; });
+
+    expect(screen.getByText("result Second attached report")).toBeTruthy();
+    expect(state.notify).toHaveBeenCalledWith("Research complete", "Issuer research");
+  });
+
+  it("renders without attempting reattachment when no analyst is authenticated", async () => {
+    state.userId = "";
+    render(<ResearchPage />);
+
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

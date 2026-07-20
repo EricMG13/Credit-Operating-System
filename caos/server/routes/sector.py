@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 from weakref import WeakValueDictionary
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -82,10 +82,10 @@ def _utc(y: int, m: int, d: int, hh: int, mm: int) -> datetime:
 
 
 class SectorFeed(BaseModel):
-    sector: str
+    sector: str = Field(max_length=128)
     enabled: bool = True
-    notify_pref: str = "in_app"
-    provenance: str = "seed"
+    notify_pref: str = Field(default="in_app", max_length=32)
+    provenance: str = Field(default="seed", max_length=32)
 
 
 class SectorFeedUpdate(BaseModel):
@@ -152,13 +152,13 @@ class SectorReviewOut(BaseModel):
 
 
 class SectorRefreshRequest(BaseModel):
-    sector: str
-    timeframe: str = "today"
-    as_of: Optional[str] = None
+    sector: str = Field(min_length=1, max_length=128)
+    timeframe: str = Field(default="today", max_length=32)
+    as_of: Optional[str] = Field(default=None, max_length=64)
 
 
 class SectorAskRequest(BaseModel):
-    signal_id: str
+    signal_id: str = Field(min_length=1, max_length=128)
     question: str = Field("", max_length=600)
 
 
@@ -734,7 +734,7 @@ class SectorReviewCreate(BaseModel):
     context_id: str = Field(min_length=1, max_length=36)
     sector_id: Optional[str] = Field(default=None, max_length=128)
     timeframe: str = Field(default="weekly", max_length=32)
-    as_of: Optional[str] = None
+    as_of: Optional[str] = Field(default=None, max_length=64)
     refresh_trigger: Literal["ad_hoc", "scheduled", "signal"] = "ad_hoc"
 
 
@@ -837,7 +837,10 @@ def _build_review_payload(
         id=f"risk-{signal.id}",
         title=signal.headline,
         likelihood=_severity_likelihood(signal.severity),
-        severity=signal.severity if signal.severity in {"low", "medium", "high", "critical"} else "medium",
+        severity=cast(
+            Literal["low", "medium", "high", "critical"],
+            signal.severity if signal.severity in {"low", "medium", "high", "critical"} else "medium",
+        ),
         mitigants=[],
         residual_risk="Unassessed — analyst review required.",
         source_ids=[signal.id],

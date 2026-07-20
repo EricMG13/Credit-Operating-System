@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   requestException: vi.fn(),
   reviewException: vi.fn(),
   revokeException: vi.fn(),
+  reopen: vi.fn(),
   listOpinions: vi.fn(),
 }));
 
@@ -56,6 +57,7 @@ vi.mock("@/lib/ic-book", async (importOriginal) => {
     requestException: mocks.requestException,
     reviewException: mocks.reviewException,
     revokeException: mocks.revokeException,
+    reopen: mocks.reopen,
   } };
 });
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => {
@@ -107,6 +109,7 @@ beforeEach(() => {
   mocks.requestException.mockReset().mockResolvedValue(agenda);
   mocks.reviewException.mockReset().mockResolvedValue(agenda);
   mocks.revokeException.mockReset().mockResolvedValue(agenda);
+  mocks.reopen.mockReset().mockResolvedValue({ ...decision, status: "reopened", reopened_at: "2026-07-14T10:00:00Z", reopen_alert_key: "alert:key" });
   mocks.listOpinions.mockReset().mockResolvedValue({ current: null, items: [] });
 });
 
@@ -327,5 +330,239 @@ describe("IC Book workbench", () => {
       decision: "approve",
       review_note: "Evidence gap is bounded.",
     }));
+  });
+
+  it("edits every preparation field, cancels safely, and saves normalized values", async () => {
+    const draft = { ...agenda, status: "draft", conditions: [], conviction: null, expiry: null, revision: 5 };
+    mocks.listAgenda.mockResolvedValue({ items: [draft], next_cursor: null, total: 1 });
+    render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
+    expect(screen.getByText("No conditions recorded.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit preparation" }));
+    let inspector = within(screen.getByRole("article", { name: "Agenda inspector" }));
+    fireEvent.change(inspector.getByLabelText("Meeting time"), { target: { value: "2026-07-22T11:30" } });
+    fireEvent.change(inspector.getByLabelText("Decision expiry"), { target: { value: "2027-01-31" } });
+    fireEvent.change(inspector.getByLabelText("Recommendation"), { target: { value: "revisit" } });
+    fireEvent.change(inspector.getByLabelText("Conviction"), { target: { value: "64" } });
+    fireEvent.change(inspector.getByLabelText("Conditions · one per line"), { target: { value: " First condition \n\nSecond condition " } });
+    fireEvent.click(inspector.getByRole("button", { name: "Cancel edit" }));
+    expect(mocks.patchAgenda).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit preparation" }));
+    inspector = within(screen.getByRole("article", { name: "Agenda inspector" }));
+    fireEvent.change(inspector.getByLabelText("Meeting time"), { target: { value: "2026-07-22T11:30" } });
+    fireEvent.change(inspector.getByLabelText("Decision expiry"), { target: { value: "2027-01-31" } });
+    fireEvent.change(inspector.getByLabelText("Recommendation"), { target: { value: "revisit" } });
+    fireEvent.change(inspector.getByLabelText("Conviction"), { target: { value: "64" } });
+    fireEvent.change(inspector.getByLabelText("Conditions · one per line"), { target: { value: "First condition\nSecond condition" } });
+    fireEvent.click(inspector.getByRole("button", { name: "Save preparation" }));
+    await waitFor(() => expect(mocks.patchAgenda).toHaveBeenCalledWith("agenda-1", expect.objectContaining({
+      scheduled_for: new Date("2026-07-22T11:30").toISOString(), expiry: "2027-01-31",
+      recommendation: "revisit", conviction: 64, conditions: ["First condition", "Second condition"],
+    })));
+  });
+
+  it("links the current analyst view and moves draft readiness in both directions", async () => {
+    const draft = { ...agenda, status: "draft", analyst_opinion_version_id: null, revision: 6 };
+    mocks.listAgenda.mockResolvedValue({ items: [draft], next_cursor: null, total: 1 });
+    mocks.listOpinions.mockResolvedValue({ current: { id: "opinion-1" }, items: [{ id: "opinion-1", issuer_id: "issuer-1", stance: "long", version: 3, evidence_state: "complete" }] });
+    render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
+    fireEvent.click(await screen.findByRole("button", { name: "Link current view · long · v3" }));
+    await waitFor(() => expect(mocks.patchAgenda).toHaveBeenCalledWith("agenda-1", expect.objectContaining({ analyst_opinion_version_id: "opinion-1" })));
+    fireEvent.click(screen.getByRole("button", { name: "Mark ready" }));
+    await waitFor(() => expect(mocks.patchAgenda).toHaveBeenCalledWith("agenda-1", expect.objectContaining({ status: "ready" })));
+
+    cleanup();
+    mocks.listAgenda.mockResolvedValue({ items: [agenda], next_cursor: null, total: 1 });
+    render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
+    fireEvent.click(screen.getByRole("button", { name: "Return to draft" }));
+    await waitFor(() => expect(mocks.patchAgenda).toHaveBeenCalledWith("agenda-1", expect.objectContaining({ status: "draft" })));
+    fireEvent.click(screen.getByRole("button", { name: "Review finalization" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText(/Freeze this committee record/i)).toBeNull();
+  });
+
+  it("requests an evidence exception with normalized mitigants", async () => {
+    mocks.listAgenda.mockResolvedValue({ items: [{ ...agenda, status: "draft", readiness_failures: ["run_not_committee_ready"], evidence_exception: null }], next_cursor: null, total: 1 });
+    render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
+    fireEvent.change(screen.getByLabelText("Rationale"), { target: { value: " Bounded evidence gap " } });
+    fireEvent.change(screen.getByLabelText("Mitigants · one per line"), { target: { value: "50 bps cap\n\n Weekly review " } });
+    fireEvent.change(screen.getByLabelText("Expiry"), { target: { value: "2026-08-15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Request QA exception" }));
+    await waitFor(() => expect(mocks.requestException).toHaveBeenCalledWith("agenda-1", {
+      expected_revision: 2, rationale: "Bounded evidence gap", mitigants: ["50 bps cap", "Weekly review"], expires_at: "2026-08-15",
+    }));
+  });
+
+  it("lets QA reject and revoke evidence exceptions", async () => {
+    state.roleView = "qa";
+    state.userRole = "qa";
+    const baseException = {
+      id: "exception-2", agenda_item_id: agenda.id, run_id: agenda.run_id, basis_sha256: "basis-2",
+      failure_codes: ["run_not_committee_ready"], finding_ids: [], rationale: "Bounded gap", mitigants: [],
+      expires_at: "2026-08-01", requested_by: "analyst-1", requested_at: agenda.created_at,
+      reviewed_by: null, reviewed_at: null, review_note: null, revoked_by: null, revoked_at: null, revision: 7,
+    };
+    mocks.listAgenda.mockResolvedValueOnce({ items: [{ ...agenda, status: "draft", evidence_exception: { ...baseException, status: "pending" } }], next_cursor: null, total: 1 });
+    const first = render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
+    fireEvent.change(screen.getByLabelText("QA review note"), { target: { value: "Not sufficient" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reject exception" }));
+    await waitFor(() => expect(mocks.reviewException).toHaveBeenCalledWith("exception-2", { expected_revision: 7, decision: "reject", review_note: "Not sufficient" }));
+    first.unmount();
+
+    mocks.listAgenda.mockResolvedValueOnce({ items: [{ ...agenda, status: "draft", evidence_exception: { ...baseException, status: "approved", review_note: "Initially approved" } }], next_cursor: null, total: 1 });
+    render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
+    fireEvent.change(screen.getByLabelText("Revocation note"), { target: { value: "New critical finding" } });
+    fireEvent.click(screen.getByRole("button", { name: "Revoke exception" }));
+    await waitFor(() => expect(mocks.revokeException).toHaveBeenCalledWith("exception-2", { expected_revision: 7, review_note: "New critical finding" }));
+  });
+
+  it("confirms and cancels votes, records dissent, and reopens an active decision", async () => {
+    window.history.replaceState({}, "", "/decisions?dataset=history&context=ctx-1");
+    mocks.listDecisions.mockResolvedValue({ items: [decision], next_cursor: null, total: 1 });
+    render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-13/);
+    fireEvent.click(tableRow(/2026-07-13/));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(screen.getByText("Confirm approve vote?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Abstain" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm abstain" }));
+    await waitFor(() => expect(mocks.vote).toHaveBeenCalledWith("decision-1", "abstain", undefined));
+
+    fireEvent.change(screen.getByLabelText("Dissent rationale"), { target: { value: "Structure is too aggressive" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record dissent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm dissent" }));
+    await waitFor(() => expect(mocks.vote).toHaveBeenCalledWith("decision-1", "dissent", "Structure is too aggressive"));
+    fireEvent.change(screen.getByLabelText("Trigger alert key"), { target: { value: " alert:issuer-1:material-change " } });
+    fireEvent.click(screen.getByRole("button", { name: "Reopen for material change" }));
+    await waitFor(() => expect(mocks.reopen).toHaveBeenCalledWith("decision-1", "alert:issuer-1:material-change"));
+  });
+
+  it("routes frozen portfolio sources back to the portfolio workbook", async () => {
+    window.history.replaceState({}, "", "/decisions?dataset=history&context=ctx-1");
+    mocks.listDecisions.mockResolvedValue({ items: [{ ...decision, snapshot: {
+      context: { id: "ctx-1" },
+      portfolio: { records: { id: "portfolio-snapshot-1", holdings: [{ id: "holding-1" }], constraints: [{ id: "constraint-1" }] } },
+      authority: { source_ids: ["portfolio-1", "holding-1", "constraint-1"] },
+    } }], next_cursor: null, total: 1 });
+    render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-13/);
+    fireEvent.click(tableRow(/2026-07-13/));
+    for (const id of ["portfolio-1", "holding-1", "constraint-1"]) {
+      expect(screen.getByRole("link", { name: id }).getAttribute("href")).toContain(`/portfolios?portfolio=portfolio-1&selected=${id}&context=ctx-1`);
+    }
+  });
+
+  it("recovers from empty agenda filters and opens the create form", async () => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
+    window.history.replaceState({}, "", "/decisions?dataset=agenda&status=draft&context=ctx-1");
+    mocks.listAgenda.mockResolvedValue({ items: [], next_cursor: null, total: 0 });
+    const first = render(<ICBookWorkbench />);
+    fireEvent.click(await screen.findByRole("button", { name: "Clear filters" }));
+    expect(window.location.search).not.toContain("status=");
+    first.unmount();
+
+    window.history.replaceState({}, "", "/decisions?dataset=agenda&context=ctx-1");
+    render(<ICBookWorkbench />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Add agenda item" }))[0]);
+    expect((document.getElementById("ic-book-create") as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it("paginates, filters status, and refreshes the register", async () => {
+    mocks.listAgenda.mockResolvedValue({ items: [agenda], next_cursor: "cursor-2", total: 2 });
+    render(<ICBookWorkbench />);
+    await screen.findByRole("table", { name: "Committee agenda" });
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(window.location.search).toContain("cursor=cursor-2");
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "ready" } });
+    expect(window.location.search).toContain("status=ready");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(mocks.listAgenda.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it("surfaces catalog, run, opinion, and register failures", async () => {
+    mocks.getIssuers.mockRejectedValue(new Error("issuer catalog offline"));
+    mocks.listRuns.mockRejectedValue(new Error("runs offline"));
+    mocks.listOpinions.mockRejectedValue(new Error("opinions offline"));
+    mocks.listAgenda.mockRejectedValue(new Error("register offline"));
+    render(<ICBookWorkbench />);
+    expect(await screen.findByText("IC Book unavailable")).toBeTruthy();
+    expect(screen.getAllByText("register offline").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Open Utilities" }));
+    expect(await screen.findByText("issuer catalog offline")).toBeTruthy();
+    expect(screen.getByText("runs offline")).toBeTruthy();
+    expect(mocks.listOpinions).toHaveBeenCalledWith("issuer-1");
+  });
+
+  it("captures every create-form decision field and linked analyst view", async () => {
+    mocks.listOpinions.mockResolvedValue({ current: null, items: [{ id: "opinion-create", issuer_id: "issuer-1", stance: "neutral", version: 2, evidence_state: "partial" }] });
+    mocks.createAgenda.mockResolvedValue({ ...agenda, id: "agenda-created", status: "draft" });
+    render(<ICBookWorkbench />);
+    const form = await screen.findByRole("form", { name: "Add agenda item" });
+    await waitFor(() => expect(within(form).getByRole("option", { name: /neutral · v2/ })).toBeTruthy());
+    fireEvent.change(within(form).getByLabelText("Analyst view"), { target: { value: "opinion-create" } });
+    fireEvent.change(within(form).getByLabelText("Run"), { target: { value: "" } });
+    fireEvent.change(within(form).getByLabelText("Run"), { target: { value: "run-1" } });
+    fireEvent.change(within(form).getByLabelText("Meeting time"), { target: { value: "2026-07-25T09:15" } });
+    fireEvent.change(within(form).getByLabelText("Decision expiry"), { target: { value: "2027-02-28" } });
+    fireEvent.change(within(form).getByLabelText("Recommendation"), { target: { value: "decline" } });
+    fireEvent.change(within(form).getByLabelText("Conviction · 0–100%"), { target: { value: "81" } });
+    fireEvent.change(within(form).getByLabelText("Thesis"), { target: { value: "Downside is not compensated." } });
+    fireEvent.change(within(form).getByLabelText("Conditions · one per line"), { target: { value: "Deleveraging milestone\nSponsor support" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Add agenda item" }));
+    await waitFor(() => expect(mocks.createAgenda).toHaveBeenCalledWith(expect.objectContaining({
+      analyst_opinion_version_id: "opinion-create", run_id: "run-1", expiry: "2027-02-28",
+      recommendation: "decline", conviction: 81, conditions: ["Deleveraging milestone", "Sponsor support"],
+    })));
+  });
+
+  it("summarizes reopened decisions without report links and sorts history", async () => {
+    window.history.replaceState({}, "", "/decisions?dataset=history&context=ctx-1");
+    const reopened = { ...decision, status: "reopened", report_id: null, report_version_id: null, reopened_at: "2026-07-15T10:00:00Z", reopen_alert_key: "alert:key" };
+    mocks.listDecisions.mockResolvedValue({ items: [reopened], next_cursor: null, total: 1 });
+    render(<ICBookWorkbench />);
+    const table = await screen.findByRole("table", { name: "Decision history" });
+    expect(within(table).getByText("reopened")).toBeTruthy();
+    fireEvent.click(within(table).getByRole("button", { name: /Decision date/ }));
+    expect(window.location.search).toContain("sort=created_at");
+  });
+
+  it("summarizes agenda items that lack linked runs", async () => {
+    const unlinked = { ...agenda, id: "agenda-unlinked", run_id: null, status: "draft" };
+    mocks.listAgenda.mockResolvedValue({ items: [unlinked, { ...unlinked, id: "agenda-unlinked-2" }], next_cursor: null, total: 2 });
+    render(<ICBookWorkbench />);
+    expect(await screen.findByRole("table", { name: "Committee agenda" })).toBeTruthy();
+  });
+
+  it("turns a failed refresh of an empty loaded register into an unavailable decision state", async () => {
+    mocks.listAgenda.mockResolvedValueOnce({ items: [], next_cursor: null, total: 0 }).mockRejectedValueOnce(new Error("refresh unavailable"));
+    render(<ICBookWorkbench />);
+    await screen.findByText("No agenda items yet");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("refresh unavailable")).toBeTruthy();
+  });
+
+  it("surfaces a rejected selected-row mutation and releases the busy state", async () => {
+    const draft = { ...agenda, status: "draft", readiness_failures: [] };
+    mocks.listAgenda.mockResolvedValue({ items: [draft], next_cursor: null, total: 1 });
+    mocks.patchAgenda.mockRejectedValue(new Error("readiness mutation failed"));
+    render(<ICBookWorkbench />);
+    await screen.findByText(/2026-07-20/);
+    fireEvent.click(tableRow(/2026-07-20/));
+    fireEvent.click(screen.getByRole("button", { name: "Mark ready" }));
+    expect(await screen.findByText("readiness mutation failed")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mark ready" }).getAttribute("aria-disabled")).toBeNull();
   });
 });

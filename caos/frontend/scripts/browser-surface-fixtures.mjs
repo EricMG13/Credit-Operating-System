@@ -128,6 +128,20 @@ export async function installSurfaceStubs(target, identity) {
     const body = portfolioFixtureBody(path);
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
+  await target.route('**/api/notifications', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ items: [], next_cursor: null }),
+  }));
+  await target.route('**/api/settings/analyst', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      model_lanes: {},
+      email_intelligence: { outlook_connected: false, approved_senders: [] },
+      role_view: 'analyst',
+      workspace: {},
+      revision: 0,
+    }),
+  }));
   await target.route('**/api/settings', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -164,6 +178,26 @@ export async function installSurfaceStubs(target, identity) {
       },
     }),
   }));
+  await target.route('**/api/query/capabilities', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      groups: [{
+        id: 'verification',
+        label: 'Verification',
+        icon: 'query',
+        ready: 4,
+        total: 4,
+        capabilities: [
+          { id: 'peer-set', label: 'Peer set', mode: 'peers', enabled: true, reason: null },
+          { id: 'scatter', label: 'Scatter', mode: 'scatter', enabled: true, reason: null },
+          { id: 'trace-source', label: 'Source trace', mode: 'provenance', enabled: true, reason: null },
+          { id: 'open-findings', label: 'Open findings', mode: 'findings', enabled: true, reason: null },
+        ],
+      }],
+      availability: { model_lane: false },
+    }),
+  }));
   const fulfillRuns = (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify([profile.latest_run]),
   });
@@ -171,6 +205,57 @@ export async function installSurfaceStubs(target, identity) {
   // both shapes so the harness never falls through to a developer's live DB.
   await target.route('**/api/runs', fulfillRuns);
   await target.route('**/api/runs?**', fulfillRuns);
+  const moduleDetail = (moduleId) => ({
+    module_id: moduleId,
+    module_name: moduleId,
+    owned_object: null,
+    schema_family: 'fixture',
+    runtime_output: {},
+    confidence: 'Not Assessed',
+    qa_status: 'Not Reviewed',
+    committee_status: 'Committee Ready',
+    validation_status: 'Not Reviewed',
+    limitation_flags: [],
+    downstream_consumers: [],
+    claims: [],
+  });
+  // Reference-route reads that intentionally have no persisted analytical
+  // payload still receive valid empty responses. Returning static-server 404s
+  // here makes browser diagnostics report harness noise as application faults.
+  await target.route('**/api/runs/run-1/modules', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: '[]',
+  }));
+  await target.route('**/api/runs/run-1/modules/*', (route) => {
+    const moduleId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1));
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(moduleDetail(moduleId)) });
+  });
+  await target.route('**/api/runs/run-1/qa', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ run_id: 'run-1', qa_status: 'Passed', committee_status: 'Committee Ready', findings_by_severity: {}, findings: [] }),
+  }));
+  await target.route('**/api/runs/run-1/freshness', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      run_id: 'run-1',
+      evaluated_at: '2026-06-30T10:05:00Z',
+      evaluation: {
+        state: 'current', source_kind: 'run', observed_at: '2026-06-30T10:05:00Z',
+        effective_period_end: '2026-06-30', expected_next_at: null, due_at: null,
+        age_days: 0, reason: 'Static browser verification fixture', policy_version: 'fixture-v1',
+      },
+    }),
+  }));
+  await target.route('**/api/models/a71f0000-0000-0000-0000-000000000001', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: 'null',
+  }));
+  await target.route('**/api/reports/drafts/context-1', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: 'null',
+  }));
+  await target.route('**/api/qa/flags?**', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: '[]',
+  }));
   await target.route('**/api/analysis/contexts**', (route) => {
     const url = new URL(route.request().url());
     const body = url.pathname.endsWith('/freshness')

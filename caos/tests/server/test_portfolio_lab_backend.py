@@ -55,6 +55,11 @@ def test_server_role_helper_denies_read_only():
             id="v", email="", full_name="", role="read_only"
         ))
     assert exc.value.status_code == 403
+    with pytest.raises(HTTPException) as unknown:
+        require_write_role(CallerIdentity(
+            id="future", email="", full_name="", role="super-analyst"
+        ))
+    assert unknown.value.status_code == 403
 
 
 def test_deterministic_stress_is_finite_and_zero_safe():
@@ -730,7 +735,7 @@ def test_persisted_roles_flow_through_real_cookie_proxy_and_me(
             if await db.get(Portfolio, "role-portfolio") is None:
                 db.add(Portfolio(id="role-portfolio", name="Role Portfolio"))
             for analyst_id, email, role in (
-                ("role-read-only", "readonly-role@test.local", "read_only"),
+                ("role-read-only", "readonly-role@test.local", "viewer"),
                 ("role-admin", "admin-role@test.local", "admin"),
                 ("role-analyst", "analyst-role@test.local", "analyst"),
             ):
@@ -763,7 +768,7 @@ def test_persisted_roles_flow_through_real_cookie_proxy_and_me(
     portfolio_client.cookies.set(
         COOKIE_NAME, token("role-read-only", "readonly-role@test.local")
     )
-    assert portfolio_client.get("/api/auth/me").json()["role"] == "read_only"
+    assert portfolio_client.get("/api/auth/me").json()["role"] == "viewer"
     denied = portfolio_client.post(
         "/api/portfolios/role-portfolio/stress-runs",
         json={"label": "Denied", "book_price_shock_pct": -10},

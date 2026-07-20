@@ -57,7 +57,7 @@ function trimmed(values: string[]) {
 
 function loginReady(mode: Mode, fields: LoginFields) {
   if (mode === "signup") {
-    return Boolean(fields.name.trim() && fields.email.trim() && fields.password.length >= 8 && fields.confirm.length > 0 && fields.code.trim() && fields.recoveryWords.every((word, index) => word.trim() && word.trim() === fields.recoveryWordConfirm[index].trim()));
+    return Boolean(fields.name.trim() && fields.email.trim() && fields.password.length >= 12 && fields.confirm.length > 0 && fields.code.trim() && fields.recoveryWords.every((word, index) => word.trim() && word.trim() === fields.recoveryWordConfirm[index].trim()));
   }
   if (mode === "recover") return Boolean(fields.email.trim() && fields.recoveryWords.every((word) => word.trim()));
   return Boolean(fields.email.trim() && fields.password.length > 0);
@@ -93,7 +93,7 @@ function submitLabel(mode: Mode, submitting: boolean) {
 function submitReason(mode: Mode, ready: boolean, submitting: boolean, label: string) {
   if (submitting) return label;
   if (ready) return null;
-  if (mode === "signup") return "Fill in your name, email, an 8+ character passcode, confirmation, invite code, and all three recovery words.";
+  if (mode === "signup") return "Fill in your name, email, a 12+ character passcode, confirmation, invite code, and all three recovery words.";
   if (mode === "recover") return "Enter your email and all three recovery words.";
   return "Enter your email and passcode.";
 }
@@ -167,9 +167,9 @@ function LoginCredentials({ form }: { form: LoginFormModel }) {
   const signup = form.mode === "signup";
   return (
     <>
-      {signup ? <Field label="Analyst name"><input type="text" value={form.fields.name} onChange={(event) => form.setField("name", event.target.value)} placeholder="e.g. Eric Gub" autoComplete="name" maxLength={120} className={inputCls} /></Field> : null}
-      <Field label="Email"><input type="email" autoFocus={!signup} value={form.fields.email} onChange={(event) => form.setField("email", event.target.value)} placeholder="you@firm.com" autoComplete={signup ? "email" : "username"} maxLength={255} className={inputCls} /></Field>
-      {form.mode !== "recover" ? <Field label="Login passcode"><input type="password" value={form.fields.password} onChange={(event) => form.setField("password", event.target.value)} autoComplete={signup ? "new-password" : "current-password"} maxLength={128} className={inputCls} /></Field> : null}
+      {signup ? <Field label="Analyst name"><input type="text" name="name" value={form.fields.name} onChange={(event) => form.setField("name", event.target.value)} placeholder="e.g. Eric Gub…" autoComplete="name" maxLength={120} className={inputCls} /></Field> : null}
+      <Field label="Email"><input type="email" name="email" autoFocus={!signup} value={form.fields.email} onChange={(event) => form.setField("email", event.target.value)} placeholder="name@firm.com…" autoComplete={signup ? "email" : "username"} spellCheck={false} maxLength={255} className={inputCls} /></Field>
+      {form.mode !== "recover" ? <Field label="Login passcode"><input type="password" name="password" value={form.fields.password} onChange={(event) => form.setField("password", event.target.value)} autoComplete={signup ? "new-password" : "current-password"} maxLength={128} className={inputCls} /></Field> : null}
     </>
   );
 }
@@ -179,12 +179,12 @@ function SignupFields({ form }: { form: LoginFormModel }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Coverage area"><select value={form.fields.coverage} onChange={(event) => form.setField("coverage", event.target.value)} className={inputCls}>{COVERAGE_AREAS.map((area) => <option key={area}>{area}</option>)}</select></Field>
-        <Field label="Location"><select value={form.fields.location} onChange={(event) => form.setField("location", event.target.value)} className={inputCls}>{LOCATIONS.map((location) => <option key={location}>{location}</option>)}</select></Field>
+        <Field label="Coverage area"><select name="coverage" value={form.fields.coverage} onChange={(event) => form.setField("coverage", event.target.value)} className={inputCls}>{COVERAGE_AREAS.map((area) => <option key={area}>{area}</option>)}</select></Field>
+        <Field label="Location"><select name="location" value={form.fields.location} onChange={(event) => form.setField("location", event.target.value)} className={inputCls}>{LOCATIONS.map((location) => <option key={location}>{location}</option>)}</select></Field>
       </div>
-      <Field label="Confirm passcode"><input type="password" value={form.fields.confirm} onChange={(event) => form.setField("confirm", event.target.value)} autoComplete="new-password" maxLength={128} className={inputCls} /></Field>
-      <Field label="Invite code"><input type="password" value={form.fields.code} onChange={(event) => form.setField("code", event.target.value)} inputMode="numeric" autoComplete="off" maxLength={64} className={`${inputCls} tabular`} /></Field>
-      {form.fields.password.length > 0 && form.fields.password.length < 8 ? <p className="text-caos-sm text-caos-muted">Passcode must be at least 8 characters.</p> : null}
+      <Field label="Confirm passcode"><input type="password" name="confirm-password" value={form.fields.confirm} onChange={(event) => form.setField("confirm", event.target.value)} autoComplete="new-password" maxLength={128} className={inputCls} /></Field>
+      <Field label="Invite code"><input type="password" name="invite-code" value={form.fields.code} onChange={(event) => form.setField("code", event.target.value)} inputMode="numeric" autoComplete="off" spellCheck={false} maxLength={64} className={`${inputCls} tabular`} /></Field>
+      {form.fields.password.length > 0 && form.fields.password.length < 12 ? <p className="text-caos-sm text-caos-muted">Passcode must be at least 12 characters.</p> : null}
     </>
   );
 }
@@ -194,9 +194,9 @@ function RecoveryRow({ form, index }: { form: LoginFormModel; index: number }) {
   const wordType = form.fields.showRecoveryWords ? "text" : "password";
   return (
     <div className={signup ? "grid gap-2 md:grid-cols-3" : ""}>
-      <Field label={`Recovery word ${index + 1}`}><input type={wordType} value={form.fields.recoveryWords[index]} onChange={(event) => form.setRecovery("recoveryWords", index, event.target.value)} autoComplete="off" maxLength={80} className={inputCls} /></Field>
-      {signup ? <Field label={`Confirm word ${index + 1}`}><input type={wordType} value={form.fields.recoveryWordConfirm[index]} onChange={(event) => form.setRecovery("recoveryWordConfirm", index, event.target.value)} autoComplete="off" maxLength={80} className={inputCls} /></Field> : null}
-      {signup ? <Field label={`Hint ${index + 1}`}><input type="text" value={form.fields.recoveryHints[index]} onChange={(event) => form.setRecovery("recoveryHints", index, event.target.value)} maxLength={160} className={inputCls} /></Field> : null}
+      <Field label={`Recovery word ${index + 1}`}><input type={wordType} name={`recovery-word-${index + 1}`} value={form.fields.recoveryWords[index]} onChange={(event) => form.setRecovery("recoveryWords", index, event.target.value)} autoComplete="off" spellCheck={false} maxLength={80} className={inputCls} /></Field>
+      {signup ? <Field label={`Confirm word ${index + 1}`}><input type={wordType} name={`confirm-recovery-word-${index + 1}`} value={form.fields.recoveryWordConfirm[index]} onChange={(event) => form.setRecovery("recoveryWordConfirm", index, event.target.value)} autoComplete="off" spellCheck={false} maxLength={80} className={inputCls} /></Field> : null}
+      {signup ? <Field label={`Hint ${index + 1}`}><input type="text" name={`recovery-hint-${index + 1}`} value={form.fields.recoveryHints[index]} onChange={(event) => form.setRecovery("recoveryHints", index, event.target.value)} autoComplete="off" maxLength={160} className={inputCls} /></Field> : null}
     </div>
   );
 }

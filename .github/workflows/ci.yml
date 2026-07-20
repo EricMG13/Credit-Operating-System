@@ -10,6 +10,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job is read-only with respect to the repository. Declare that posture
+# explicitly so newly added jobs do not inherit GitHub's broader token defaults.
+permissions:
+  contents: read
+
 jobs:
   frontend:
     name: Frontend — lint, typecheck, test, build
@@ -27,7 +32,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: 26
+          node-version: 24
           cache: npm
           cache-dependency-path: caos/frontend/package-lock.json
       - run: npm ci
@@ -51,7 +56,7 @@ jobs:
         # pgvector image (matches the deploy stack's db) so migration 0030's
         # `CREATE EXTENSION vector` succeeds — plain postgres:18 lacks pgvector
         # and the worker-lease tests error at schema setup.
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0
         env:
           POSTGRES_PASSWORD: postgres
         ports: ["5432:5432"]
@@ -90,10 +95,10 @@ jobs:
       - run: |
           pip install --require-hashes -r caos/server/requirements.lock
           pip install pytest pytest-asyncio httpx
-      # Engine type gate (mypy.ini: files=engine — the deterministic math core).
+      # Engine + API type gate (mypy.ini: files=engine,routes).
       # The gate had drifted RED unnoticed because nothing in CI ran it; wire it in
       # so a bad type in the engine can't merge. 3.11 leg only (mypy.ini pins 3.11).
-      - name: Engine type gate (mypy)
+      - name: Engine and API type gate (mypy)
         if: matrix.python-version == '3.11'
         run: |
           pip install mypy==2.1.0
@@ -140,7 +145,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: 26
+          node-version: 24
           cache: npm
           cache-dependency-path: caos/frontend/package-lock.json
       - uses: actions/setup-python@v6
@@ -193,11 +198,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
       # Gates the self-hosted deploy image: builds the Next.js export (stage 1)
       # and installs the server deps (stage 2). Build only — not pushed.
       - name: Build app image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: caos
           file: caos/deploy/Dockerfile
@@ -230,7 +235,7 @@ jobs:
           fetch-depth: 0 # full history so fallow can diff the PR against its base
       - uses: actions/setup-node@v6
         with:
-          node-version: 26
+          node-version: 24
       # Fails the PR only on dead code / duplication introduced by the diff.
       # JS/TS only; run from the repo root so .fallowrc.json (ignores the
       # design-sync dirs) is picked up.
@@ -263,7 +268,7 @@ jobs:
           python-version: "3.11"
       - uses: actions/setup-node@v6
         with:
-          node-version: 26
+          node-version: 24
           cache: npm
           cache-dependency-path: caos/frontend/package-lock.json
       # OSS-only gate — no paid SaaS (project policy: no-paid-services). Each

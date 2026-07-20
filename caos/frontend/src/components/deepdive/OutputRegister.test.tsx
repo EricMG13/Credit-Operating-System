@@ -146,7 +146,7 @@ describe("StepOutputModal", () => {
     render(<StepOutputModal id={SAMPLE_ID} step={FIRST_STEP} onClose={() => {}} onOpenEvidence={() => {}} />);
     await waitFor(() => expect(listQaFlags).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /flag to qa/i }));
-    fireEvent.change(screen.getByPlaceholderText(/what should cp-5 review/i), {
+    fireEvent.change(screen.getByLabelText("Reason for QA (optional)"), {
       target: { value: "Numbers disagree with the hero card." },
     });
     fireEvent.click(screen.getByRole("button", { name: /confirm flag/i }));

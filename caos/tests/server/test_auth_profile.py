@@ -82,17 +82,23 @@ def test_empty_access_code_fails_closed(client, monkeypatch):
 def test_cookie_secure_off_in_dev_on_when_deployed(client, monkeypatch):
     # Secure rides on env != "development", not the exact label "production". S5.
     from config import get_settings
+    from csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
     s = get_settings()
 
     monkeypatch.setattr(s, "environment", "development")
     dev = client.post("/api/auth/profile", json={"code": "131113", "name": "Dev User"})
     assert "secure" not in (dev.headers.get("set-cookie") or "").lower()
+    csrf_token = client.cookies.get(CSRF_COOKIE_NAME)
+    assert csrf_token
 
     monkeypatch.setattr(s, "environment", "staging")
     stg = client.post(
         "/api/auth/profile",
         json={"code": "131113", "name": "Stg User"},
-        headers={"X-Forwarded-Email": "stg@example.com"}
+        headers={
+            "X-Forwarded-Email": "stg@example.com",
+            CSRF_HEADER_NAME: csrf_token,
+        },
     )
     assert "secure" in (stg.headers.get("set-cookie") or "").lower()
 
@@ -139,7 +145,7 @@ def test_logout_clears_identity(client):
                 "code": "131113",
                 "name": "Throttle Register",
                 "email": "throttle-register@example.com",
-                "passcode": "longenough1",
+                "passcode": "longenough12",
                 "recovery_words": ["alpha", "bravo", "charlie"],
             },
         ),
@@ -171,7 +177,7 @@ def test_auth_02_performance_throttle_covers_every_credential_endpoint(
         assert window_seconds == 60
         return key != ("login:*" if blocked_bucket == "global" else "login:testclient")
 
-    monkeypatch.setattr(auth.rate_limit, "hit", fake_hit)
+    monkeypatch.setattr(auth.rate_limit, "shared_hit", fake_hit)
     response = client.post(path, json=payload)
 
     assert response.status_code == 429, (path, blocked_bucket, response.text)

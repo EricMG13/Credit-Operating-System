@@ -31,11 +31,11 @@ function ScenarioControls({
     <div className="mt-2 flex items-center justify-end gap-2 flex-wrap">
       <label className="tabular text-caos-2xs text-caos-muted">
         EBITDA %
-        <input type="number" min={-90} max={50} value={ebitdaPct} onChange={(event) => onEbitdaChange(Number(event.target.value))} className="ml-1 w-14 rounded border border-caos-border bg-caos-bg px-1 py-0.5 text-caos-text focus-ring" />
+        <input type="number" name="scenario-ebitda-change" autoComplete="off" min={-90} max={50} value={ebitdaPct} onChange={(event) => onEbitdaChange(Number(event.target.value))} className="ml-1 w-14 rounded border border-caos-border bg-caos-bg px-1 py-0.5 text-caos-text focus-ring" />
       </label>
       <label className="tabular text-caos-2xs text-caos-muted">
         RATE BP
-        <input type="number" min={-500} max={1000} value={rateBps} onChange={(event) => onRateChange(Number(event.target.value))} className="ml-1 w-16 rounded border border-caos-border bg-caos-bg px-1 py-0.5 text-caos-text focus-ring" />
+        <input type="number" name="scenario-rate-change" autoComplete="off" min={-500} max={1000} value={rateBps} onChange={(event) => onRateChange(Number(event.target.value))} className="ml-1 w-16 rounded border border-caos-border bg-caos-bg px-1 py-0.5 text-caos-text focus-ring" />
       </label>
       <ActionReason type="button" onClick={onRun} reason={busy ? "Propagating…" : null} className="tabular text-caos-2xs min-h-[24px] px-2 rounded border border-caos-accent text-caos-accent aria-disabled:opacity-40 transition-caos focus-ring">
         {busy ? "PROPAGATING…" : "PROPAGATE"}

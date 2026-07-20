@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NotificationProvider } from "./Notifications";
+import { NotificationProvider, useNotify } from "./Notifications";
 import { listNotifications, markNotificationSeen } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
@@ -32,6 +32,7 @@ const historyEvent = {
 describe("NotificationProvider durable feed", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     vi.mocked(markNotificationSeen).mockResolvedValue(historyEvent);
   });
 
@@ -49,10 +50,13 @@ describe("NotificationProvider durable feed", () => {
       title: "Fresh run complete",
       href: "/pipeline?run=run-fresh&view=graph",
     };
+    const plain = { ...fresh, id: "plain-1", title: "Plain event", body: null, href: null };
+    const linked = { ...fresh, id: "linked-1", title: "Linked event", body: "Linked body" };
     vi.mocked(listNotifications)
       .mockResolvedValueOnce({ items: [historyEvent], next_cursor: "cursor-1" })
       .mockResolvedValueOnce({ items: [fresh], next_cursor: "cursor-2" })
-      .mockResolvedValueOnce({ items: [fresh], next_cursor: "cursor-2" });
+      .mockResolvedValueOnce({ items: [fresh], next_cursor: "cursor-2" })
+      .mockResolvedValueOnce({ items: [plain, linked], next_cursor: null });
 
     render(<NotificationProvider><div>Application</div></NotificationProvider>);
     await act(async () => { await Promise.resolve(); });
@@ -75,5 +79,65 @@ describe("NotificationProvider durable feed", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismiss Fresh run complete" }));
     expect(markNotificationSeen).toHaveBeenCalledWith("fresh-1");
     expect(screen.queryByText("Fresh run complete")).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(8000);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Plain event")).toBeTruthy();
+    expect(screen.getByText("Linked event")).toBeTruthy();
+    vi.mocked(markNotificationSeen).mockRejectedValueOnce(new Error("seen write failed"));
+    fireEvent.click(screen.getByRole("link", { name: "Open execution graph" }));
+    expect(markNotificationSeen).toHaveBeenCalledWith("linked-1");
+    expect(screen.queryByText("Linked event")).toBeNull();
+    expect(screen.queryByText("Old result")).toBeNull();
+  });
+
+  it("emits and automatically dismisses a local notification through useNotify", async () => {
+    vi.mocked(listNotifications).mockResolvedValue({ items: [], next_cursor: null });
+    function Emitter() {
+      const notify = useNotify();
+      return <button onClick={() => notify("Local notice")}>Notify locally</button>;
+    }
+    render(<NotificationProvider><Emitter /></NotificationProvider>);
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole("button", { name: "Notify locally" }));
+    expect(screen.getByText("Local notice")).toBeTruthy();
+
+    await act(async () => { vi.advanceTimersByTime(7000); });
+    expect(screen.queryByText("Local notice")).toBeNull();
+    expect(markNotificationSeen).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed feed only when the document becomes visible", async () => {
+    vi.mocked(listNotifications)
+      .mockRejectedValueOnce(new Error("feed offline"))
+      .mockResolvedValueOnce({ items: [], next_cursor: null });
+    render(<NotificationProvider><div>Application</div></NotificationProvider>);
+    await act(async () => { await Promise.resolve(); });
+    expect(listNotifications).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    expect(listNotifications).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => { await Promise.resolve(); });
+    expect(listNotifications).toHaveBeenCalledTimes(2);
+  });
+
+  it("suppresses overlapping polls and ignores a feed that resolves after unmount", async () => {
+    let resolveFeed!: (feed: { items: typeof historyEvent[]; next_cursor: string | null }) => void;
+    vi.mocked(listNotifications).mockImplementationOnce(() => new Promise((resolve) => { resolveFeed = resolve; }));
+    const view = render(<NotificationProvider><div>Application</div></NotificationProvider>);
+    await act(async () => { await Promise.resolve(); });
+    window.dispatchEvent(new Event("focus"));
+    expect(listNotifications).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    await act(async () => { resolveFeed({ items: [historyEvent], next_cursor: "late" }); await Promise.resolve(); });
+    expect(screen.queryByText("Historical run complete")).toBeNull();
   });
 });

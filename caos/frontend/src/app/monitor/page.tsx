@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { headStat } from "@/components/shared/headStat";
 import { ActionReason } from "@/components/shared/ActionReason";
@@ -21,18 +22,17 @@ import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
-import { simAlertsToday, CRITICAL_ALERTS } from "@/lib/command/data";
+import { simAlertsToday, CRITICAL_ALERTS } from "@/lib/command/monitor-data";
 import { fmtUtcDateTime } from "@/lib/format-date";
 import { useSharedDayRun } from "@/lib/pipeline/sim";
 import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
-import { AlertFeed, EmailIntel } from "@/components/command/views";
+import { AlertFeed, EmailIntel } from "@/components/command/MonitorStreams";
 import { AlertInbox } from "@/components/monitor/AlertInbox";
 import { PhoneTriage } from "@/components/monitor/PhoneTriage";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, requiredActionFor } from "@/lib/alerts/inbox";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
-import { GovernancePanel } from "@/components/command/GovernancePanel";
 import { ControlPlanePanel } from "@/components/monitor/ControlPlanePanel";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
 import { useGovernanceSources } from "@/lib/command/useGovernanceSources";
@@ -47,6 +47,11 @@ import { useTypedUrlState, type TypedUrlUpdate } from "@/lib/typed-url-state";
 import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { GovernanceSummary } from "@/components/shared/GovernanceSummary";
 import { useSurfaceInsight } from "@/lib/use-surface-insight";
+
+const GovernancePanel = dynamic(
+  () => import("@/components/command/GovernancePanel").then((module) => module.GovernancePanel),
+  { loading: () => <div role="status" aria-live="polite" className="min-h-72 p-3 text-caos-xs text-caos-muted">Loading governance queue…</div> },
+);
 
 const MONITOR_URL_KEYS = ["dataset", "severity", "selected"] as const;
 type MonitorDataset = "alerts" | "email" | "governance";

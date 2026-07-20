@@ -114,12 +114,12 @@ function MemoInput({ issuer, note, fileRef, onNoteChange, onFileChange }: {
   onFileChange: (file: File | null) => void;
 }) {
   if (issuer) {
-    return <textarea value={note} onChange={(event) => onNoteChange(event.target.value)} rows={5} placeholder="What did you learn? Plain text — it lands as a tagged vault memo." aria-label="Note text" className="focus-ring w-full rounded border border-caos-border bg-caos-elevated px-2 py-1.5 tabular text-caos-sm text-caos-text outline-none transition-caos hover:border-caos-accent/60 resize-y" />;
+    return <textarea value={note} onChange={(event) => onNoteChange(event.target.value)} rows={5} placeholder="What did you learn? Plain text lands as a tagged vault memo…" aria-label="Note text" className="focus-ring w-full rounded border border-caos-border bg-caos-elevated px-2 py-1.5 tabular text-caos-sm text-caos-text outline-none transition-caos hover:border-caos-accent/60 resize-y" />;
   }
   return (
     <label className="flex items-center gap-2">
       <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted w-16 shrink-0">File</span>
-      <input ref={fileRef} type="file" accept={ACCEPT} onChange={(event) => onFileChange(event.target.files?.[0] ?? null)} className="focus-ring flex-1 min-w-0 tabular text-caos-xs text-caos-text file:mr-2 file:px-2 file:py-1 file:rounded file:border file:border-caos-border file:bg-caos-elevated file:text-caos-text file:text-caos-xs file:cursor-pointer" aria-label="Memo file (.md, .txt or .pdf)" />
+      <input ref={fileRef} type="file" name="vault-memo-file" autoComplete="off" accept={ACCEPT} onChange={(event) => onFileChange(event.target.files?.[0] ?? null)} className="focus-ring flex-1 min-w-0 tabular text-caos-xs text-caos-text file:mr-2 file:px-2 file:py-1 file:rounded file:border file:border-caos-border file:bg-caos-elevated file:text-caos-text file:text-caos-xs file:cursor-pointer" aria-label="Memo file (.md, .txt or .pdf)" />
     </label>
   );
 }

@@ -63,8 +63,6 @@ describe("ReportDoc period groups", () => {
   it("renders every section kind and supports bounded edits, safe paste, revert, evidence, and add-back suppression", () => {
     const onEdit = vi.fn();
     const onOpenEvidence = vi.fn();
-    const execCommand = vi.fn(() => true);
-    Object.defineProperty(document, "execCommand", { configurable: true, value: execCommand });
 
     const rich = report({
       watermark: "DRAFT",
@@ -141,9 +139,13 @@ describe("ReportDoc period groups", () => {
 
     const title = screen.getByRole("textbox", { name: "Edit report field title" });
     expect(title.textContent).toBe("Analyst title");
-    const pasted = "x".repeat(2100);
-    fireEvent.paste(title, { clipboardData: { getData: vi.fn(() => pasted) } });
-    expect(execCommand).toHaveBeenCalledWith("insertText", false, "x".repeat(2000));
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    expect(title.dispatchEvent(paste)).toBe(true);
+    expect(paste.defaultPrevented).toBe(false);
+    title.innerHTML = `<strong>${"x".repeat(2100)}</strong>`;
+    fireEvent.input(title, { inputType: "insertFromPaste" });
+    expect(title.querySelector("strong")).toBeNull();
+    expect(title.textContent).toBe("x".repeat(2000));
 
     title.innerText = "Changed title";
     fireEvent.blur(title);

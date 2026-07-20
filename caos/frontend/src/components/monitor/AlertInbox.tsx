@@ -155,7 +155,7 @@ function AlertRowHeader({ row, state, selected, onToggleSelect }: Pick<RowProps,
   const stateColor = resolved || acked ? "var(--caos-success)" : "var(--caos-muted)";
   return (
     <div className="flex items-center gap-2">
-      <input type="checkbox" checked={selected} onChange={onToggleSelect} disabled={resolved} aria-label={`Select ${row.event}`} className="min-h-8 min-w-8 caos-target disabled:opacity-40" />
+      <input type="checkbox" name={`select-alert-${row.key}`} autoComplete="off" checked={selected} onChange={onToggleSelect} disabled={resolved} aria-label={`Select ${row.event}`} className="min-h-8 min-w-8 caos-target disabled:opacity-40" />
       <ConclusionAuthority prov={rowProvenance(row)} />
       <span className="inline-flex items-center gap-1" title={`Alert severity band: ${band}`}><Dot sev={band} glyph /><Tag sev={band}>{band}</Tag></span>
       {impact ? <span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap" title="Anomaly severity — standard deviations from the baseline/peer median (engine/anomaly.py's robust z-score / cusum run, never a fabricated bp figure)" style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}>{impact}</span> : null}
@@ -189,7 +189,7 @@ function AssignmentActions({ state, value, pending, onChange, perform, onAssign,
   return (
     <>
       <span className="tabular text-caos-xs text-caos-muted">{state?.assignee || "unassigned"}</span>
-      <input value={value} onChange={(event) => onChange(event.target.value)} placeholder="assign to…" className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target" />
+      <input name="alert-assignee" autoComplete="off" aria-label="Alert assignee" value={value} onChange={(event) => onChange(event.target.value)} placeholder="Assign to…" className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target" />
       <ActionReason reason={!assignee ? "Enter a name to assign" : pending ? "Update in progress…" : null} onClick={() => void perform(() => onAssign(assignee), () => onChange(""))} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target">Assign</ActionReason>
       <ActionReason reason={state?.state === "ack" ? "Already acknowledged" : pending ? "Update in progress…" : null} onClick={() => void perform(onAck)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target">Ack</ActionReason>
     </>
@@ -209,7 +209,7 @@ function ResolutionActions({ active, note, pending, onActiveChange, onNoteChange
   if (!active) return <button type="button" onClick={() => onActiveChange(true)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring caos-target">Resolve</button>;
   return (
     <>
-      <input value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder="resolution note (optional)…" autoFocus className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target" />
+      <input name="alert-resolution-note" autoComplete="off" aria-label="Alert resolution note" value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder="Resolution note (optional)…" autoFocus className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target" />
       <ActionReason reason={pending ? "Update in progress…" : null} onClick={() => void perform(() => onResolve(note), reset)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target">Confirm resolve</ActionReason>
       <button type="button" onClick={reset} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Cancel</button>
     </>

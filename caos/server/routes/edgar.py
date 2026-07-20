@@ -17,7 +17,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import avscan
@@ -60,11 +60,11 @@ class ExhibitOut(BaseModel):
 
 
 class VaultExhibitRequest(BaseModel):
-    issuer_id: str
-    exhibit_url: str
-    file_name: Optional[str] = None
-    doc_type: str = "EDGAR Exhibit"
-    run_mode: str = "legal"
+    issuer_id: str = Field(min_length=1, max_length=36)
+    exhibit_url: str = Field(min_length=1, max_length=2_048)
+    file_name: Optional[str] = Field(default=None, max_length=512)
+    doc_type: str = Field(default="EDGAR Exhibit", min_length=1, max_length=64)
+    run_mode: str = Field(default="legal", min_length=1, max_length=16)
     filed_date: Optional[date] = None
 
 
@@ -207,16 +207,18 @@ async def vault_exhibit(
     # loop stalls every other request, same reason the extract above is offloaded
     # and matching the upload path (routes/ingestion.py).
     key = await run_in_threadpool(ingest.store, content, file_name)
-    register_rollback_cleanup(
-        db, lambda stored_key=key: ingest.remove_uncommitted(stored_key)
-    )
+    def cleanup_uncommitted() -> None:
+        ingest.remove_uncommitted(key)
+
+    register_rollback_cleanup(db, cleanup_uncommitted)
     chunks = ingest.chunk_text(text)
 
+    normalized_run_mode = body.run_mode.strip().lower()
     doc = Document(
         issuer_id=body.issuer_id,
         analyst_id=caller.id,
         doc_type=body.doc_type,
-        run_mode=body.run_mode.strip().lower(),
+        run_mode=normalized_run_mode,
         file_name=file_name,
         storage_key=key,
         source_kind="legal_document",
@@ -256,7 +258,7 @@ async def vault_exhibit(
         issuer_id=body.issuer_id,
         storage_key=key,
         doc_type=body.doc_type,
-        run_mode=doc.run_mode,
+        run_mode=normalized_run_mode,
         chunks_created=len(chunks),
         provenance=edgar.PROV_VAULTED,
         message=(

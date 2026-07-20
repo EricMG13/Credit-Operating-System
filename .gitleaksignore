@@ -26,3 +26,6 @@ dd92f2dfb9a1b7321a301527ff4958c9c341aa95:.claude/launch.json:generic-api-key:89
 # caos/docs/CONTAINER_HARDENING_BLUEPRINT.md:735 — Docker's numeric
 # non-root UID:GID argument, misclassified by the curl-auth-user rule.
 197e8371eaa0ee45be0fcd290abeb6b421febef3:caos/docs/CONTAINER_HARDENING_BLUEPRINT.md:curl-auth-user:735
+# caos/frontend/src/lib/command/qa.test.ts:100 — deterministic finding-key
+# assertion in a unit-test fixture, verified not to be a credential.
+caos/frontend/src/lib/command/qa.test.ts:generic-api-key:100

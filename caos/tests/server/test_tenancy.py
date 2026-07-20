@@ -154,6 +154,51 @@ def test_issuer_name_uniqueness_uses_exact_tenancy_scope(monkeypatch):
     app.dependency_overrides.clear()
 
 
+def test_tenancy_isolates_analyst_qa_flags(monkeypatch):
+    from config import get_settings
+    from identity import get_identity
+    from main import app
+
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
+
+    with TestClient(app) as c:
+        app.dependency_overrides[get_identity] = _as_team("qa-team-a")
+        issuer_id = c.post(
+            "/api/issuers/", json={"name": "QA Team A Secret Co"}
+        ).json()["id"]
+        run = c.post("/api/runs", json={"issuer_id": issuer_id})
+        assert run.status_code == 201, run.text
+        run_id = run.json()["id"]
+        created = c.post(
+            "/api/qa/flags",
+            json={
+                "module_id": "CP-5",
+                "run_id": run_id,
+                "note": "Team A finding text",
+            },
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["issuer_id"] == issuer_id
+
+        app.dependency_overrides[get_identity] = _as_team("qa-team-b")
+        assert c.post(
+            "/api/qa/flags",
+            json={"module_id": "CP-5", "issuer_id": issuer_id},
+        ).status_code == 404
+        assert c.get(
+            "/api/qa/flags", params={"issuer_id": issuer_id}
+        ).status_code == 404
+        assert c.post(
+            "/api/qa/flags",
+            json={"module_id": "CP-5", "run_id": run_id},
+        ).status_code == 404
+        assert all(
+            flag["issuer_id"] != issuer_id for flag in c.get("/api/qa/flags").json()
+        )
+
+    app.dependency_overrides.clear()
+
+
 def test_tenancy_isolates_research_reports_watchlists_and_accepted_links(monkeypatch):
     """Relationship artifacts inherit visibility from every issuer endpoint."""
     import asyncio

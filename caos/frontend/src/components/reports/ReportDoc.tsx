@@ -42,12 +42,21 @@ function E({ p, v, ctx, className }: { p: string; v: string | number | null | un
       aria-label={`Edit report field ${p}`}
       aria-multiline="true"
       spellCheck={false}
-      onPaste={(e) => {
-        // Insert plain text only (strip the source's rich HTML/styles) and cap
-        // length, so editing the tear-sheet can't inject markup or bloat it.
-        e.preventDefault();
-        const pasted = e.clipboardData.getData("text/plain").slice(0, EDIT_MAX_LEN);
-        document.execCommand("insertText", false, pasted);
+      onInput={(e) => {
+        // Let native paste complete, then normalize any inserted rich markup
+        // to capped plain text. This preserves paste/clipboard affordances while
+        // preventing styled source content from entering the tear-sheet.
+        const target = e.currentTarget;
+        const raw = target.innerText ?? target.textContent ?? "";
+        const hasMarkup = Array.from(target.childNodes).some((node) => node.nodeType === Node.ELEMENT_NODE);
+        if (!hasMarkup && raw.length <= EDIT_MAX_LEN) return;
+        target.replaceChildren(document.createTextNode(raw.slice(0, EDIT_MAX_LEN)));
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(target);
+        range.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
       }}
       onBlur={(e) => {
         const t = e.currentTarget.innerText.slice(0, EDIT_MAX_LEN);

@@ -18,7 +18,9 @@ vi.mock("@/components/shared/AuthProvider", () => ({
 }));
 
 import {
+  activeFindings,
   analysisApi,
+  contextHref,
   mergeContextIntoCurrentUrl,
   useAnalysisContext,
   type AnalysisContext,
@@ -102,6 +104,48 @@ describe("shared insight contracts", () => {
     await analysisApi.rejectInsight("insight-1");
     expect(post).toHaveBeenCalledWith("/api/analysis/insights/insight-1/reject");
   });
+
+  it("maps findings, query, sector, RV, and workbook calls to their API contracts", async () => {
+    get.mockImplementation((url: string) => Promise.resolve({ data: url === "/api/analysis/taxonomy"
+      ? { sectors: [{ id: "energy", label: "Energy", aliases: [] }] }
+      : url === "/api/rv/snapshots" ? { snapshots: [{ id: "snapshot-1" }] } : [] }));
+    post.mockResolvedValue({ data: { id: "result-1" } });
+    patch.mockResolvedValue({ data: { id: "finding-1", status: "archived" } });
+
+    expect(await analysisApi.getTaxonomy()).toHaveLength(1);
+    await analysisApi.listFindings("context-1");
+    await analysisApi.createFinding({ context_id: "context-1", kind: "note", title: "Finding", source_surface: "query", source_run_id: "run-1" });
+    await analysisApi.archiveFinding("finding-1");
+    await analysisApi.createQueryRun({ context_id: "context-1", question: "Why?", selected_lane: "grounded" });
+    await analysisApi.listQueryRuns("context-1");
+    await analysisApi.createSectorReview({ context_id: "context-1", sector_id: "energy" });
+    await analysisApi.listSectorReviews("context-1");
+    await analysisApi.ratifySectorReview("review-1", [{ section_id: "posture", decision: "ratified" }]);
+    await analysisApi.publishSectorReview("review-1");
+    await analysisApi.createRVScreen({ context_id: "context-1", snapshot_id: "snapshot-1" });
+    expect(await analysisApi.listMarketSnapshots()).toHaveLength(1);
+    await analysisApi.getRVScreen("rv-1");
+    await analysisApi.ratifyRVCandidate("rv-1", "candidate-1", "Override");
+
+    const file = new File(["issuer,spread"], "market.csv", { type: "text/csv" });
+    await analysisApi.previewMarketWorkbook({ file, mapping: { spread: "OAS" } });
+    const previewCall = post.mock.calls.find(([url]) => url === "/api/rv/snapshots/import/preview")!;
+    expect((previewCall[1] as FormData).get("issuer_mappings")).toBe("{}");
+    await analysisApi.commitMarketWorkbook({
+      file, mapping: {}, issuerMappings: { ATLS: "issuer-1" }, sourceLabel: "Desk marks",
+      preview: { workbook_sha256: "sha-1", preview_token: "token-1" } as never,
+    });
+    const commitCall = post.mock.calls.find(([url]) => url === "/api/rv/snapshots/import/commit")!;
+    expect((commitCall[1] as FormData).get("preview_sha256")).toBe("sha-1");
+    expect((commitCall[1] as FormData).get("source_label")).toBe("Desk marks");
+  });
+
+  it("filters archived findings and builds context-scoped links", () => {
+    const rows = [{ id: "active", status: "draft" }, { id: "archived", status: "archived" }] as never;
+    expect(activeFindings(rows).map((row) => row.id)).toEqual(["active"]);
+    expect(contextHref("/reports", "context-1", { section: "capital-structure" })).toBe("/reports?context=context-1&section=capital-structure");
+    expect(contextHref("/query", "context-1")).toBe("/query?context=context-1");
+  });
 });
 
 afterEach(() => cleanup());
@@ -121,6 +165,14 @@ const CONTEXT: AnalysisContext = {
 };
 
 describe("useAnalysisContext mutation ordering", () => {
+  it("treats an explicit null context id as a request for a fresh context", async () => {
+    window.history.replaceState({}, "", "/command?context=stale-url-context");
+    post.mockResolvedValue({ data: CONTEXT });
+    const { result } = renderHook(() => useAnalysisContext({ name: "Desk", context_id: null }));
+    await waitFor(() => expect(result.current.context?.id).toBe("context-1"));
+    expect(post).toHaveBeenCalledWith("/api/analysis/contexts", { name: "Desk", sector_id: undefined });
+    expect(get).not.toHaveBeenCalled();
+  });
   it("publishes a presentation-only error event when initial context resolution fails", async () => {
     window.history.replaceState({}, "", "/command");
     post.mockRejectedValue(new Error("context service unavailable"));
@@ -233,6 +285,17 @@ describe("useAnalysisContext mutation ordering", () => {
       selected: { run: "run-2" },
       expected_revision: 1,
     });
+  });
+
+  it("removes an unchanged nested filter block from the sparse surface patch", async () => {
+    window.history.replaceState({}, "", "/command?context=context-1");
+    const base = { ...CONTEXT, surface_state: { command: { filters: { rating: "B", sector: "industrials" } } } };
+    get.mockResolvedValue({ data: base });
+    patch.mockResolvedValue({ data: { ...base, revision: 2 } });
+    const { result } = renderHook(() => useAnalysisContext({ name: "Desk" }));
+    await waitFor(() => expect(result.current.context).not.toBeNull());
+    await act(async () => { await result.current.patch({ surface_state: { command: { filters: { rating: "B", sector: "industrials" } } } }); });
+    expect(patch.mock.calls[0][1]).toEqual({ surface_state: {}, expected_revision: 1 });
   });
 
   it("refetches and replays a sparse patch once after a 409", async () => {

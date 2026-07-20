@@ -9,7 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import IssuersPage from "./page";
 import type { Issuer } from "@/types/issuers";
 import type { AnalysisContext, AnalysisSurfaceStateEntry } from "@/lib/analysis-workbench";
-import { DEMO_UNIVERSE } from "@/lib/issuers";
+import { DEMO_UNIVERSE } from "@/lib/issuer-demo";
 
 const analysisState = vi.hoisted(() => ({
   context: null as AnalysisContext | null,

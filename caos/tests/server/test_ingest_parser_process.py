@@ -38,3 +38,16 @@ async def test_parse_bounded_preserves_parser_error(monkeypatch):
     monkeypatch.setattr(get_settings(), "upload_parse_timeout_s", 2)
     with pytest.raises(ValueError):
         await ingest.parse_bounded(int, "not-an-integer")
+
+
+@pytest.mark.asyncio
+async def test_parse_bounded_file_backs_large_bytes_and_cleans_tempfile(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(get_settings(), "upload_parse_timeout_s", 2)
+    monkeypatch.setattr(ingest, "_FILE_BACKED_ARG_THRESHOLD", 1)
+    monkeypatch.setattr(ingest.tempfile, "tempdir", str(tmp_path))
+    payload = b"sensitive-credit-document"
+
+    assert await ingest.parse_bounded(len, payload) == len(payload)
+    assert list(tmp_path.iterdir()) == []

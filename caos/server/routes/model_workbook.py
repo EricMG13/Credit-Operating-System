@@ -573,12 +573,11 @@ def _override_events(
                 after_value=applied.model_dump(mode="json") if applied else None,
                 original_formula=original.get("formula"),
                 original_value={"value": original.get("original_value")},
-                reason=(applied.reason if applied else prior.reason)
-                or "Model workbook import",
-                scope=applied.scope if applied else prior.scope,
+                reason=value.reason or "Model workbook import",
+                scope=value.scope,
                 source=manifest_id,
                 actor_id=caller_id,
-                expires_at=applied.expires_at if applied else prior.expires_at,
+                expires_at=value.expires_at,
                 revision=draft.revision,
                 created_at=now,
             )

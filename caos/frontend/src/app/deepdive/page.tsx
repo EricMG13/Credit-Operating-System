@@ -47,12 +47,17 @@ import { analysisApi, useAnalysisContext } from "@/lib/analysis-workbench";
 const TabLoading = () => (
   <div className="h-full flex items-center justify-center text-caos-muted tabular text-caos-md">loading module…</div>
 );
+const ScenarioNetworkLoading = () => (
+  <div role="status" className="min-h-[153px] md:min-h-[127px] flex items-center justify-center text-caos-muted tabular text-caos-md">
+    loading scenario network…
+  </div>
+);
 const DebateTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.DebateTab), { ssr: false, loading: TabLoading });
 const RecoveryTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.RecoveryTab), { ssr: false, loading: TabLoading });
 const CovenantsTab = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.CovenantsTab), { ssr: false, loading: TabLoading });
 const ModuleView = dynamic(() => import("@/components/deepdive/tabs").then((m) => m.ModuleView), { ssr: false, loading: TabLoading });
 const LiveCovenantCapacity = dynamic(() => import("@/components/deepdive/LiveCovenantCapacity").then((m) => m.LiveCovenantCapacity), { ssr: false, loading: TabLoading });
-const ScenarioNetworkPanel = dynamic(() => import("@/components/model/ScenarioNetworkPanel").then((m) => m.ScenarioNetworkPanel), { ssr: false, loading: TabLoading });
+const ScenarioNetworkPanel = dynamic(() => import("@/components/model/ScenarioNetworkPanel").then((m) => m.ScenarioNetworkPanel), { ssr: false, loading: ScenarioNetworkLoading });
 const IssuerChat = dynamic(() => import("@/components/deepdive/IssuerChat").then((m) => m.IssuerChat), { ssr: false });
 const EvidenceModal = dynamic(() => import("@/components/reports/EvidenceModal").then((m) => m.EvidenceModal), { ssr: false });
 
@@ -558,7 +563,7 @@ function DeepDive() {
       }
       primaryAction={
         <button
-          onClick={() => { if (!isReference && live.runId && !analysis.loading && affirmState !== "saving") void affirmView(); }}
+          onClick={() => { if (!analysis.loading && affirmState !== "saving") void affirmView(); }}
           aria-disabled={(isReference || !live.runId || analysis.loading || affirmState === "saving") || undefined}
           title={isReference
             ? "Reference output cannot be ratified"
@@ -634,7 +639,7 @@ function DeepDive() {
                 onClick={() => toggleLayer(g.label)}
                 aria-expanded={open}
                 title={(open ? "Collapse " : "Expand ") + g.label}
-                className="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-caos-elevated/50 transition-caos focus-ring"
+                className="flex min-h-6 items-center gap-1.5 rounded px-1 py-0.5 hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
                 <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap">{g.label}</span>
                 {!open ? <CollapsedLayerSummary group={g} stateFor={modState} isReference={isReference} /> : null}
@@ -689,7 +694,7 @@ function DeepDive() {
               type="button"
               onClick={() => nudgeStrip(-1)}
               aria-label="Scroll module layers left"
-              className="absolute left-0 inset-y-0 px-1.5 flex items-center text-caos-lg text-caos-muted hover:text-caos-text transition-caos focus-ring"
+              className="absolute left-0 inset-y-0 min-w-6 px-1.5 flex items-center justify-center text-caos-lg text-caos-muted hover:text-caos-text transition-caos focus-ring"
               style={{ background: "var(--caos-strip-bg)" }}
             >
               ‹
@@ -703,7 +708,7 @@ function DeepDive() {
               type="button"
               onClick={() => nudgeStrip(1)}
               aria-label="Scroll module layers right"
-              className="absolute right-0 inset-y-0 px-1.5 flex items-center text-caos-lg text-caos-muted hover:text-caos-text transition-caos focus-ring"
+              className="absolute right-0 inset-y-0 min-w-6 px-1.5 flex items-center justify-center text-caos-lg text-caos-muted hover:text-caos-text transition-caos focus-ring"
               style={{ background: "var(--caos-strip-bg)" }}
             >
               ›

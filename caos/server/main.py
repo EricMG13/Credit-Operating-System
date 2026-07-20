@@ -33,12 +33,14 @@ from config import (
     require_postgres_in_production,
     require_sane_environment,
 )
+from csrf import csrf_rejection
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
 from routes import analysis, analysis_insights, alerts, auth, chat, committee, decisions, digest, edgar, health, ingestion, issuers, market_import, model_v2, model_workbook as model_workbook_routes, models, notifications, opinions, portfolio, portfolios, qa, query, reports, research, runs, rv, scenario, sector, settings as settings_routes, sponsors, thesis, autonomy
 from research_executor import get_research_executor
 from research_report_executor import get_report_executor
+from request_limits import RequestBodyLimitMiddleware
 from engine.pipeline_executor import PipelineExecutor
 from run_executor import get_executor
 from seed import seed_demo_data, seed_demo_documents, seed_metrics
@@ -47,6 +49,35 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("caos")
 access_logger = logging.getLogger("caos.access")
 settings = get_settings()
+
+_MIN_EDGE_SECRET_BYTES = 32
+_MIN_SESSION_SECRET_BYTES = 32
+_MIN_SIGNUP_CODE_BYTES = 16
+
+
+def _require_deployed_credential_strength(
+    name: str,
+    value: str,
+    *,
+    min_bytes: int,
+) -> None:
+    """Reject obviously weak operator credentials without exposing their values."""
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise RuntimeError(f"{name} must be valid UTF-8.") from exc
+    minimum_characters = max(8, min_bytes // 2)
+    if (
+        len(encoded) < min_bytes
+        or len(value) < minimum_characters
+        or len(set(value)) < 4
+        or value != value.strip()
+    ):
+        raise RuntimeError(
+            f"{name} is too weak for production — use at least {min_bytes} UTF-8 "
+            "bytes of randomly generated, non-repeating material with no surrounding "
+            "whitespace."
+        )
 
 
 def _observe_warmup_completion(task: asyncio.Task) -> None:
@@ -94,6 +125,12 @@ async def lifespan(app: FastAPI):
             "edge inject X-Edge-Authorization (the deploy Caddyfile already does). "
             'Generate one with: python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
+    if is_deployed(settings):
+        _require_deployed_credential_strength(
+            "EDGE_PROXY_SECRET",
+            settings.edge_proxy_secret,
+            min_bytes=_MIN_EDGE_SECRET_BYTES,
+        )
     if is_deployed(settings) and settings.session_secret in ("", "dev-insecure-session-secret"):
         # Fail closed: the dev default is public (in source), so it would let
         # anyone forge an analyst login cookie. Refuse to start without a real one.
@@ -101,6 +138,12 @@ async def lifespan(app: FastAPI):
             "SESSION_SECRET must be set to a random value in production — the dev "
             "default lets analyst login cookies be forged. Generate one with: "
             'python -c "import secrets;print(secrets.token_urlsafe(32))"'
+        )
+    if is_deployed(settings):
+        _require_deployed_credential_strength(
+            "SESSION_SECRET",
+            settings.session_secret,
+            min_bytes=_MIN_SESSION_SECRET_BYTES,
         )
     if is_deployed(settings) and settings.analyst_signup_code in (
         "", "131113", "change-me-private-code",
@@ -116,6 +159,12 @@ async def lifespan(app: FastAPI):
             "ANALYST_SIGNUP_CODE must be set to a private value in production — the "
             "in-source defaults/placeholders are public and would leave analyst "
             "profile self-registration open. Set ANALYST_SIGNUP_CODE."
+        )
+    if is_deployed(settings):
+        _require_deployed_credential_strength(
+            "ANALYST_SIGNUP_CODE",
+            settings.analyst_signup_code,
+            min_bytes=_MIN_SIGNUP_CODE_BYTES,
         )
     if is_deployed(settings) and settings.caos_demo_seed:
         # Fail closed (was warn-only): demo seeding ships fictional issuers + the
@@ -210,6 +259,15 @@ app = FastAPI(
     docs_url=None if _PROD else "/docs",
     redoc_url=None if _PROD else "/redoc",
     openapi_url=None if _PROD else "/openapi.json",
+)
+# Route validation and per-caller rate limits run after body parsing. Keep JSON
+# requests from borrowing the full document-upload allowance, and enforce the
+# configured upload ceiling for direct/internal requests that do not cross Caddy.
+# Registered first so the existing edge, CSRF, access-log, and security-header
+# middleware remain the outer policy/telemetry layers.
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    default_limit_bytes=settings.max_upload_mb * 1024 * 1024,
 )
 
 # ─── Security headers ───────────────────────────────────────────────────────
@@ -322,6 +380,19 @@ async def edge_origin_guard(request: Request, call_next):  # type: ignore[no-unt
                 status_code=401,
                 headers=dict(_SECURITY_HEADERS),
             )
+    return await call_next(request)
+
+
+# Browser mutation guard. Registered between edge authentication and access
+# logging: access_log still records rejected probes, while direct service clients
+# remain supported behind the edge proof when they carry no browser session.
+@app.middleware("http")
+async def csrf_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
+    reason = csrf_rejection(request)
+    if reason:
+        return JSONResponse(
+            {"detail": reason}, status_code=403, headers=dict(_SECURITY_HEADERS)
+        )
     return await call_next(request)
 
 

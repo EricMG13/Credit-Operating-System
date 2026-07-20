@@ -146,7 +146,6 @@ _KEYWORD_METRIC = [
     (("revenue", "sales", "size", "largest", "biggest"), "revenue"),
     (("margin", "profitab", "ebitda"), "ebitda_margin"),
 ]
-_DESC_WORDS = ("most", "highest", "largest", "biggest", "greatest", "exposed", "worst", "weakest", "top")
 _ASC_WORDS = ("least", "lowest", "smallest", "safest", "strongest", "best", "lowest")
 # Cues that a structured question also names a qualitative driver worth
 # corroborating with document evidence (→ hybrid).
@@ -610,7 +609,6 @@ async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
     """Search agent outputs, claims, and QA findings; return ranked matches."""
     from database import ModuleOutput, Claim, QAFinding, Run, Issuer
     from retrieval import bm25_rank
-    import json
 
     # ponytail: cap each scan so the in-request BM25 corpus can't grow unbounded
     # with run history when no issuer/module filter is given. Newest-first, so the
@@ -767,4 +765,3 @@ async def execute_synthesis(session: AsyncSession, spec: SynthesisSpec) -> dict:
         "rows": rows,
         "caveats": caveats,
     }
-

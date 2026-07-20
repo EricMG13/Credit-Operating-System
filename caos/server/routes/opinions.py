@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import rate_limit
 from database import (
     AnalysisContextRecord,
     AnalystLink,
@@ -27,6 +28,9 @@ router = APIRouter()
 
 Stance = Literal["OVERWEIGHT", "NEUTRAL", "UNDERWEIGHT"]
 EvidenceState = Literal["supported", "provisional"]
+_OPINION_WRITE_MAX_PER_MINUTE = 30
+_OPINION_GAP = Annotated[str, Field(max_length=2_000)]
+_ANALYST_LINK_ID = Annotated[str, Field(max_length=36)]
 
 
 class AnalystOpinionIn(BaseModel):
@@ -34,11 +38,11 @@ class AnalystOpinionIn(BaseModel):
     conviction: Optional[float] = Field(default=None, ge=0, le=100)
     rationale_md: str = Field(min_length=1, max_length=50_000)
     evidence_state: EvidenceState
-    unresolved_items: list[str] = Field(default_factory=list, max_length=50)
+    unresolved_items: list[_OPINION_GAP] = Field(default_factory=list, max_length=50)
     thesis_version_id: Optional[str] = Field(default=None, max_length=36)
     source_run_id: Optional[str] = Field(default=None, max_length=36)
     context_id: Optional[str] = Field(default=None, max_length=36)
-    analyst_link_ids: list[str] = Field(default_factory=list, max_length=50)
+    analyst_link_ids: list[_ANALYST_LINK_ID] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def _provisional_view_names_its_gaps(self) -> "AnalystOpinionIn":
@@ -106,7 +110,7 @@ async def _validate_refs(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Thesis version does not belong to issuer.")
     if body.source_run_id:
         run = await db.get(Run, body.source_run_id)
-        await require_run_access(caller, run, db)
+        run = await require_run_access(caller, run, db)
         if run.issuer_id != issuer_id:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source run does not belong to issuer.")
     if body.context_id:
@@ -150,6 +154,15 @@ async def create_analyst_opinion(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_write_identity),
 ):
+    if not rate_limit.hit(
+        f"analyst-opinions:{caller.id}",
+        max_attempts=_OPINION_WRITE_MAX_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Analyst opinion rate limit reached — try again in a minute.",
+        )
     issuer = (await db.execute(select(Issuer).where(Issuer.id == issuer_id).with_for_update())).scalar_one_or_none()
     require_issuer(caller, issuer)
     await _validate_refs(db, caller, issuer_id, body)

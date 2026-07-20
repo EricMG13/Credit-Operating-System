@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { liveQaItems } from "./qa";
+import { liveFailedGates, liveQaItems } from "./qa";
 import type { PortfolioRowDTO } from "@/lib/api";
 import type { LatestQaFindingDTO } from "@/lib/engine/useQaFindings";
 
@@ -81,5 +81,70 @@ describe("liveQaItems", () => {
     );
     expect(items).toHaveLength(1);
     expect(items[0].id).toBe("QA-101");
+  });
+
+  it("falls back safely when an exact finding omits optional display fields", () => {
+    const [item] = liveQaItems([], [finding({
+      id: "1234567890abcdef",
+      finding_id: "",
+      ticker: null,
+      issuer: "No Ticker Co",
+      module_id: "",
+      severity: "UNKNOWN",
+      as_of: null,
+      required_remediation: null,
+    })]);
+
+    expect(item).toEqual({
+      id: "12345678",
+      key: "1234567890abcdef",
+      issuer: "No Ticker Co",
+      module: "CP-5",
+      sev: "LOW",
+      age: "—",
+      text: "Coverage basis is incomplete.",
+    });
+  });
+
+  it("falls back to an em dash when a coarse gate row has no as-of date", () => {
+    const [item] = liveQaItems([row({ qa_status: "Blocked", as_of: null })]);
+
+    expect(item.age).toBe("—");
+  });
+});
+
+describe("liveFailedGates", () => {
+  it("returns only committee-only failures and sorts medium before low", () => {
+    const items = liveFailedGates([
+      row({ run_id: "blocked-run", qa_status: "Blocked", committee_status: "Draft Only" }),
+      row({ run_id: "cleared-run", qa_status: "Passed", committee_status: "Cleared" }),
+      row({
+        run_id: "low-run-12345678",
+        issuer_id: "low",
+        ticker: "LOW",
+        qa_status: "Passed",
+        committee_status: "Insufficient Information",
+      }),
+      row({
+        run_id: "medium-run-1234",
+        issuer_id: "medium",
+        ticker: null,
+        name: "Medium Co",
+        qa_status: "Passed",
+        committee_status: "Draft Only",
+        as_of: null,
+      }),
+    ]);
+
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.sev)).toEqual(["MEDIUM", "LOW"]);
+    expect(items[0]).toMatchObject({
+      id: "medium-r",
+      issuer: "Medium Co",
+      module: "CP-5",
+      age: "—",
+    });
+    expect(items[0].text).toContain('committee status is "Draft Only"');
+    expect(items[1]).toMatchObject({ id: "low-run-", issuer: "LOW", sev: "LOW" });
   });
 });

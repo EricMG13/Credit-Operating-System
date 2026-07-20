@@ -33,6 +33,9 @@ coverage/
 caos/frontend/test-results/
 caos/frontend/playwright-report/
 
+# Local static-analysis databases and diagnostics
+/static_analysis_codeql_*/
+
 # Superpowers brainstorming specs / scratch (local only). The Applicable Updates
 # execution contract is the one deliberate tracked exception.
 docs/superpowers/*

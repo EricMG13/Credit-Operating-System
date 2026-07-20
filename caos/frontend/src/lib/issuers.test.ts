@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEMO_UNIVERSE, issuerProfileHref, issuerRating, issuerSearchHref, issuerSector, ratingDistressed } from "./issuers";
+import { DEMO_UNIVERSE } from "./issuer-demo";
+import { issuerProfileHref, issuerRating, issuerSearchHref, issuerSector, ratingDistressed } from "./issuers";
 import type { Issuer } from "@/types/issuers";
 
 describe("issuer helpers", () => {

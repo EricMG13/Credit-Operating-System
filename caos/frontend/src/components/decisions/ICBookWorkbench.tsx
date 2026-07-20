@@ -229,10 +229,10 @@ function AgendaPreparationForm({ row, busy, draft, originalScheduledInput, onDra
   };
   return (
     <div className="ic-book__edit">
-      <label>Meeting time<input name="edit-scheduled" type="datetime-local" value={draft.scheduled} onChange={(event) => onDraft({ scheduled: event.target.value })} /></label>
-      <label>Decision expiry<input name="edit-expiry" type="date" value={draft.expiry} onChange={(event) => onDraft({ expiry: event.target.value })} /></label>
+      <label>Meeting time<input name="edit-scheduled" type="datetime-local" autoComplete="off" value={draft.scheduled} onChange={(event) => onDraft({ scheduled: event.target.value })} /></label>
+      <label>Decision expiry<input name="edit-expiry" type="date" autoComplete="off" value={draft.expiry} onChange={(event) => onDraft({ expiry: event.target.value })} /></label>
       <label>Recommendation<select name="edit-recommendation" value={draft.recommendation} onChange={(event) => onDraft({ recommendation: event.target.value as CommitteeRecommendation })}><option value="approve">Approve</option><option value="decline">Decline</option><option value="revisit">Revisit</option></select></label>
-      <label>Conviction<input name="edit-conviction" type="number" min="0" max="100" inputMode="decimal" value={draft.conviction} onChange={(event) => onDraft({ conviction: event.target.value })} /></label>
+      <label>Conviction<input name="edit-conviction" type="number" min="0" max="100" inputMode="decimal" autoComplete="off" value={draft.conviction} onChange={(event) => onDraft({ conviction: event.target.value })} /></label>
       <label>Thesis<textarea name="edit-thesis" rows={5} maxLength={50_000} value={draft.thesis} onChange={(event) => onDraft({ thesis: event.target.value })} /></label>
       <label>Conditions · one per line<textarea name="edit-conditions" rows={3} value={draft.conditions} onChange={(event) => onDraft({ conditions: event.target.value })} /></label>
       <div>
@@ -301,7 +301,7 @@ function EvidenceExceptionRequest({ busy, onRequest }: {
       <p>Available only for a Restricted or Insufficient Information run with no critical QA finding. Approval is independent and never changes CP-5 status.</p>
       <label>Rationale<textarea rows={3} value={rationale} onChange={(event) => setRationale(event.target.value)} /></label>
       <label>Mitigants · one per line<textarea rows={2} value={mitigants} onChange={(event) => setMitigants(event.target.value)} /></label>
-      <label>Expiry<input type="date" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></label>
+      <label>Expiry<input type="date" name="evidence-exception-expiry" autoComplete="off" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></label>
       <button type="button" disabled={busy || !rationale.trim() || !expiry} onClick={() => onRequest({ rationale: rationale.trim(), mitigants: mitigants.split("\n").map((value) => value.trim()).filter(Boolean), expires_at: expiry })}>Request QA exception</button>
     </div>
   );
@@ -487,7 +487,7 @@ function DecisionVotes({ row, busy, onVote, issuerLabel }: {
 function DecisionReopen({ row, busy, onReopen }: { row: DecisionBookItem; busy: boolean; onReopen: (triggerAlertKey: string) => void }) {
   const [reopenKey, setReopenKey] = useState("");
   if (row.status !== "active") return null;
-  return <section><h3>Reopen decision</h3><label htmlFor={`ic-reopen-${row.id}`}>Trigger alert key</label><input id={`ic-reopen-${row.id}`} name="reopen-alert-key" value={reopenKey} onChange={(event) => setReopenKey(event.target.value)} placeholder={`alert:${row.issuer_id}:material-change…`} /><ActionReason reason={busy ? "An action is already in progress" : !reopenKey.trim() ? "Enter a trigger alert key first" : null} onClick={() => onReopen(reopenKey.trim())}>Reopen for material change</ActionReason></section>;
+  return <section><h3>Reopen decision</h3><label htmlFor={`ic-reopen-${row.id}`}>Trigger alert key</label><input id={`ic-reopen-${row.id}`} name="reopen-alert-key" autoComplete="off" value={reopenKey} onChange={(event) => setReopenKey(event.target.value)} placeholder={`alert:${row.issuer_id}:material-change…`} /><ActionReason reason={busy ? "An action is already in progress" : !reopenKey.trim() ? "Enter a trigger alert key first" : null} onClick={() => onReopen(reopenKey.trim())}>Reopen for material change</ActionReason></section>;
 }
 
 function DecisionInspector({
@@ -729,16 +729,16 @@ function AgendaReferenceFields({ form, setForm, issuers, portfolios, runs, opini
     <label>Portfolio<select name="portfolio" value={form.portfolio} onChange={(event) => setForm((current) => ({ ...current, portfolio: event.target.value, run: "", report: "", contextId: "" }))}><option value="">No portfolio</option>{portfolios.map((portfolio) => <option key={portfolio.id} value={portfolio.id}>{portfolio.name}</option>)}</select></label>
     <label>Analyst view<select name="analyst-opinion" value={form.opinion} onChange={(event) => setForm((current) => ({ ...current, opinion: event.target.value }))}><option value="">No analyst view linked</option>{opinions.map((view) => <option key={view.id} value={view.id}>{view.stance} · v{view.version} · {view.evidence_state}</option>)}</select></label>
     <label>Run<select name="run" value={form.run} onChange={(event) => setForm((current) => ({ ...current, run: event.target.value, report: event.target.value === current.run ? current.report : "", contextId: event.target.value === current.run ? current.contextId : "" }))}><option value="">Select run…</option>{runs.map((run) => <option key={run.id} value={run.id}>{run.id.slice(0, 8)} · {run.committee_status}</option>)}</select></label>
-    <label>Report version<input name="report-version" value={form.report} readOnly placeholder="Optional — select in Report Studio…" /></label>
+    <label>Report version<input name="report-version" autoComplete="off" value={form.report} readOnly placeholder="Optional — select in Report Studio…" /></label>
   </>;
 }
 
 function AgendaDecisionFields({ form, setForm }: { form: AgendaFormState; setForm: SetAgendaForm }) {
   return <>
-    <label>Meeting time<input name="scheduled" type="datetime-local" value={form.scheduled} onChange={(event) => setForm((current) => ({ ...current, scheduled: event.target.value }))} required /></label>
-    <label>Decision expiry<input name="expiry" type="date" value={form.expiry} onChange={(event) => setForm((current) => ({ ...current, expiry: event.target.value }))} /></label>
+    <label>Meeting time<input name="scheduled" type="datetime-local" autoComplete="off" value={form.scheduled} onChange={(event) => setForm((current) => ({ ...current, scheduled: event.target.value }))} required /></label>
+    <label>Decision expiry<input name="expiry" type="date" autoComplete="off" value={form.expiry} onChange={(event) => setForm((current) => ({ ...current, expiry: event.target.value }))} /></label>
     <label>Recommendation<select name="recommendation" value={form.recommendation} onChange={(event) => setForm((current) => ({ ...current, recommendation: event.target.value as CommitteeRecommendation }))}><option value="approve">Approve</option><option value="decline">Decline</option><option value="revisit">Revisit</option></select></label>
-    <label>Conviction · 0–100%<input name="conviction" type="number" min="0" max="100" inputMode="decimal" placeholder="0–100" value={form.conviction} onChange={(event) => setForm((current) => ({ ...current, conviction: event.target.value }))} /></label>
+    <label>Conviction · 0–100%<input name="conviction" type="number" min="0" max="100" inputMode="decimal" autoComplete="off" placeholder="0–100…" value={form.conviction} onChange={(event) => setForm((current) => ({ ...current, conviction: event.target.value }))} /></label>
   </>;
 }
 

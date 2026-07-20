@@ -70,7 +70,10 @@ const observerSource = () => {
   const shiftSource = (source) => {
     const node = source.node;
     if (!node) return { tag: null, id: null, className: null, text: "", previousRect: source.previousRect, currentRect: source.currentRect };
-    return { tag: node.tagName.toLowerCase(), id: node.id || null, className: className(node), text: text(node.textContent, 120), previousRect: source.previousRect, currentRect: source.currentRect };
+    const tag = typeof node.tagName === "string"
+      ? node.tagName.toLowerCase()
+      : typeof node.nodeName === "string" ? node.nodeName.toLowerCase() : null;
+    return { tag, id: node.id || null, className: className(node), text: text(node.textContent, 120), previousRect: source.previousRect, currentRect: source.currentRect };
   };
   const observe = (options, handle) => {
     try { new PerformanceObserver((list) => { for (const entry of list.getEntries()) handle(entry); }).observe(options); } catch {}
@@ -82,8 +85,11 @@ const observerSource = () => {
   };
   const recordShift = (entry) => {
     if (entry.hadRecentInput) return;
-    state.cls += entry.value;
-    state.shifts.push({ value: entry.value, sources: Array.from(entry.sources || []).slice(0, 6).map(shiftSource) });
+    const value = Number(entry.value) || 0;
+    state.cls += value;
+    let sources = [];
+    try { sources = Array.from(entry.sources || []).slice(0, 6).map(shiftSource); } catch {}
+    state.shifts.push({ value, sources });
   };
   observe({ type: "largest-contentful-paint", buffered: true }, recordLcp);
   observe({ type: "layout-shift", buffered: true }, recordShift);

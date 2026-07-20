@@ -64,6 +64,19 @@ describe("buildLiveSnapshot", () => {
     expect(s.plan).toHaveLength(1);
   });
 
+  it("supports dependency-free route steps and omits duplicate confidence text", () => {
+    const route = {
+      runtime_output: { execution_sequence: [{ module_id: "CP-1" }] },
+    } as unknown as ModuleDetailDTO;
+    const s = buildLiveSnapshot(
+      run("Committee Ready", [mod("CP-1", "Committee Ready", "Passed", "Committee Ready")]),
+      route,
+    );
+
+    expect(s.plan[0].deps).toEqual([]);
+    expect(s.plan[0].event).toBe("CP-1 CP-1 — Committee Ready");
+  });
+
   it("keeps a running run visibly partial and carries only its persisted block reason", () => {
     const partial = {
       ...run("Blocked", [mod("CP-1", "Committee Ready"), mod("CP-4C", "Blocked")]),

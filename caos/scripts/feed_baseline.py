@@ -24,6 +24,7 @@ used for alerting until the window fills.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import json
 import re
 import shlex
@@ -103,8 +104,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     args = ap.parse_args(argv)
 
-    streams = [open(f, encoding="utf-8") for f in args.files] if args.files else [sys.stdin]
-    events = [ev for s in streams for line in s if (ev := parse_line(line))]
+    with ExitStack() as stack:
+        streams = (
+            [stack.enter_context(open(f, encoding="utf-8")) for f in args.files]
+            if args.files
+            else [sys.stdin]
+        )
+        events = [ev for s in streams for line in s if (ev := parse_line(line))]
 
     if args.events_out:
         with open(args.events_out, "w", encoding="utf-8") as fh:

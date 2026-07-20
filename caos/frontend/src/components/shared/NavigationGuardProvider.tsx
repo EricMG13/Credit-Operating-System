@@ -191,8 +191,8 @@ const usePendingNavigation = (activeGuards: ActiveGuards) => {
     setPending(null);
   }, []);
   const discardAndLeave = useCallback(() => {
-    const request = pendingRef.current;
-    if (!request) return;
+    // NavigationGuardFrame only exposes this callback while `pending` exists.
+    const request = pendingRef.current!;
     pendingRef.current = null;
     setPending(null);
     request.guards.forEach((guard) => {

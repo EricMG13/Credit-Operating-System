@@ -144,23 +144,23 @@ function RelativeValueToolbar({ filteredCount, totalCount, filterText, setFilter
       <span className="tabular text-caos-2xs text-caos-muted font-mono uppercase tracking-wider">Nodes: {filteredCount} / {totalCount}</span>
       <div className="flex items-center gap-1.5 bg-caos-panel border border-caos-border rounded px-2 py-0.5 focus-within:border-caos-accent/70 transition-caos">
         <span className="text-caos-muted text-caos-xs" aria-hidden>⌕</span>
-        <input value={filterText} onChange={(event) => setFilterText(event.target.value)} placeholder="Filter by label, kind, group…" aria-label="Filter nodes" className="bg-transparent outline-none border-none tabular text-caos-xs text-caos-text placeholder:text-caos-muted w-48 font-mono" />
+        <input name="relative-value-node-filter" autoComplete="off" value={filterText} onChange={(event) => setFilterText(event.target.value)} placeholder="Filter by label, kind, group…" aria-label="Filter nodes" className="bg-transparent outline-none border-none tabular text-caos-xs text-caos-text placeholder:text-caos-muted w-48 font-mono" />
         {filterText ? <button onClick={() => setFilterText("")} className="text-caos-muted hover:text-caos-text text-caos-xs font-mono px-1" aria-label="Clear filter">&times;</button> : null}
       </div>
     </div>
   );
 }
 
-function NodeIdentityCell({ node, isCenter }: { node: GraphNode; isCenter: boolean }) {
+function NodeIdentityCell({ node, isCenter, onSelect, selected }: { node: GraphNode; isCenter: boolean; onSelect: () => void; selected: boolean }) {
   const nodeColor = hueFor(node.group);
   const muted = nodeColor === "var(--caos-muted)";
   return (
     <td className="p-2.5 pl-4 font-sans font-medium text-caos-text">
-      <span className="flex items-center gap-2">
+      <button type="button" onClick={onSelect} className={`flex w-full items-center gap-2 rounded-sm text-left focus-ring ${selected ? "caos-selected" : ""}`}>
         <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0 border border-current" style={{ color: muted ? "var(--caos-border)" : nodeColor, backgroundColor: muted ? "transparent" : `${nodeColor}33` }} />
         <span className="truncate max-w-sm" title={node.label}>{node.label}</span>
         {isCenter ? <span className="tabular text-caos-3xs uppercase tracking-wide text-caos-accent border border-caos-accent/40 rounded px-1 py-px shrink-0">focus</span> : null}
-      </span>
+      </button>
     </td>
   );
 }
@@ -208,8 +208,8 @@ function RelativeValueRow({ node, columns, centerId, relations, degrees, selecte
   const isCenter = centerId === node.id;
   const select = () => onSelectNode?.(node);
   return (
-    <tr tabIndex={0} role="button" onClick={select} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(); } }} className={`cursor-pointer transition-colors hover:bg-caos-elevated/50 focus-ring ${selectedNodeId === node.id ? "bg-caos-elevated caos-selected" : ""}`}>
-      <NodeIdentityCell node={node} isCenter={isCenter} />
+    <tr className={`transition-colors hover:bg-caos-elevated/50 ${selectedNodeId === node.id ? "bg-caos-elevated" : ""}`}>
+      <NodeIdentityCell node={node} isCenter={isCenter} onSelect={select} selected={selectedNodeId === node.id} />
       <NodeMetadataCells node={node} columns={columns} />
       <NodeMetricCells node={node} columns={columns} relation={relation} isCenter={isCenter} degrees={degrees} />
     </tr>

@@ -8,7 +8,7 @@ import math
 import statistics
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -16,7 +16,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from analysis_contracts import ArtifactRef, AuthorityEnvelope, RVCandidateOut, RVScreenRun as RVScreenRunOut
+from analysis_contracts import (
+    AnalysisJobState,
+    ArtifactRef,
+    AuthorityEnvelope,
+    RVCandidateOut,
+    RVScreenRun as RVScreenRunOut,
+)
 from config import get_settings
 from context_lineage import bind_context_artifacts
 from database import (
@@ -30,6 +36,7 @@ from database import (
     get_db,
 )
 from identity import CallerIdentity, get_identity, get_write_identity, require_write_role
+from json_safety import require_bounded_json
 from freshness import evaluate_freshness
 from sector_taxonomy import canonical_sector_id
 from tenancy import require_portfolio_access, tenancy_enabled
@@ -47,6 +54,7 @@ _REFERENCE_PATH = (
 _REFERENCE_AS_OF = datetime(2026, 7, 6, tzinfo=timezone.utc)
 _READ_MAX_PER_MINUTE = 90
 _WRITE_MAX_PER_MINUTE = 30
+_MAX_FILTER_BYTES = 32 * 1024
 
 
 def _guard(caller: CallerIdentity, *, write: bool) -> None:
@@ -90,7 +98,9 @@ def _number(value: object) -> Optional[float]:
     return number if math.isfinite(number) else None
 
 
-def classify_candidate(*, market_current: bool, has_exact_identity: bool, missing_gates: list[str]) -> str:
+def classify_candidate(
+    *, market_current: bool, has_exact_identity: bool, missing_gates: list[str]
+) -> Literal["actionable", "screen-only", "unavailable"]:
     """Decision-safety gate: freshness/identity failures are unavailable;
     every other unresolved dependency is screen-only, never actionable."""
     if not market_current or not has_exact_identity:
@@ -247,7 +257,10 @@ def _candidate_out(
         figi=instrument.figi,
         borrower=instrument.borrower,
         rank=candidate.rank,
-        classification=candidate.classification,
+        classification=cast(
+            Literal["actionable", "screen-only", "unavailable"],
+            candidate.classification,
+        ),
         recommendation=(candidate.pitch or {}).get("recommendation", "Screen only"),
         missing_gates=candidate.missing_gates or [],
         market=market,
@@ -276,7 +289,7 @@ async def _run_out(db: AsyncSession, row: RVScreenRun) -> RVScreenRunOut:
         id=row.id,
         context_id=row.context_id,
         snapshot_id=row.snapshot_id,
-        status=row.status,
+        status=cast(AnalysisJobState, row.status),
         snapshot_source_label=snapshot.source_label if snapshot else None,
         snapshot_freshness=(snapshot.metadata_json or {}).get("freshness_evaluation") if snapshot else None,
         filters=row.filters or {},
@@ -334,6 +347,11 @@ async def create_rv_screen(
     caller: CallerIdentity = Depends(get_write_identity),
 ):
     _guard(caller, write=True)
+    require_bounded_json(
+        body.filters,
+        max_bytes=_MAX_FILTER_BYTES,
+        label="RV screen filters",
+    )
     context = await _owned_context(db, body.context_id, caller.id)
     if body.snapshot_id:
         snapshot = _require_snapshot_access(
@@ -347,6 +365,11 @@ async def create_rv_screen(
                 MarketSnapshot.status == "ready",
             ).order_by(MarketSnapshot.as_of.desc(), MarketSnapshot.created_at.desc()).limit(1))).scalar_one_or_none()
         snapshot = snapshot or await _ensure_reference_snapshot(db)
+    if snapshot is None:  # Defensive backstop for future snapshot selectors.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "No market snapshot is available.",
+        )
     now = datetime.now(timezone.utc)
     if get_settings().caos_market_xlsx_v2_enabled:
         freshness = evaluate_freshness(

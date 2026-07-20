@@ -23,7 +23,7 @@ export function DecisionRoomDrawer({
   useEffect(() => { getDecisions(issuerId).then(setDecisions).catch(() => setError("Couldn’t load prior decisions.")); }, [issuerId]);
 
   const submit = async () => {
-    if (!thesis.trim() || busy) return;
+    // ActionReason only wires this callback while the trimmed thesis is non-empty.
     setBusy(true); setError(null);
     try {
       const next = await createDecision({
@@ -63,7 +63,7 @@ export function DecisionRoomDrawer({
           <textarea value={conditions} onChange={(e) => setConditions(e.target.value)} rows={3} className="mt-1 w-full rounded border border-caos-border bg-caos-bg p-2 text-caos-text focus-ring" />
         </label>
         <label className="tabular text-caos-xs text-caos-muted">EXPIRY
-          <TextInput type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="mt-1 w-full" />
+          <TextInput type="date" name="decision-expiry" autoComplete="off" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="mt-1 w-full" />
         </label>
         <ActionReason reason={busy ? "Capturing decision…" : !thesis.trim() ? "Enter a thesis first" : null} onClick={submit} className="tabular text-caos-xs min-h-9 rounded bg-caos-accent text-caos-bg aria-disabled:opacity-40 focus-ring">{busy ? "CAPTURING…" : "CAPTURE DECISION"}</ActionReason>
         {error ? <div role="alert" className="tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>{error}</div> : null}
@@ -83,7 +83,7 @@ export function DecisionRoomDrawer({
                 <span className="tabular text-caos-2xs text-caos-muted self-center ml-auto">{decision.votes.length} votes</span>
               </div>
               <div className="flex gap-1 mt-1.5">
-                <TextInput value={dissent} onChange={(e) => setDissent(e.target.value)} placeholder="Dissent rationale" aria-label="Dissent rationale" className="flex-1" />
+                <TextInput name="dissent-rationale" autoComplete="off" value={dissent} onChange={(e) => setDissent(e.target.value)} placeholder="Dissent rationale…" aria-label="Dissent rationale" className="flex-1" />
                 <ActionReason reason={!dissent.trim() ? "Enter a dissent rationale first" : null} onClick={() => vote(decision, "dissent")} className="tabular text-caos-2xs min-h-7 px-2 rounded border border-caos-warning text-caos-warning aria-disabled:opacity-40 focus-ring">DISSENT</ActionReason>
               </div>
             </div>

@@ -19,7 +19,7 @@ import rate_limit
 from config import get_settings
 from database import AnalystQaFlag, Issuer, QAFinding, Run, get_db
 from identity import CallerIdentity, get_identity, get_write_identity
-from tenancy import scope_issuers, tenancy_enabled
+from tenancy import require_issuer, require_run_access, scope_issuers, tenancy_enabled
 
 router = APIRouter()
 
@@ -149,8 +149,24 @@ async def create_flag(
 ):
     if not rate_limit.hit(f"qa-flags:{caller.id}", max_attempts=_FLAGS_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Flag rate limit reached — try again in a minute.")
+    issuer_id = body.issuer_id
+    if issuer_id is not None:
+        require_issuer(caller, await db.get(Issuer, issuer_id))
+    if body.run_id is not None:
+        run = await db.get(Run, body.run_id)
+        # Historical audit rows deliberately survive a deleted subject, so an
+        # unknown run id remains recordable. A run that still exists must be
+        # accessible, however, and cannot be paired with a different issuer.
+        if run is not None:
+            await require_run_access(caller, run, db)
+            if issuer_id is not None and issuer_id != run.issuer_id:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    "issuer_id does not match run_id",
+                )
+            issuer_id = run.issuer_id
     flag = AnalystQaFlag(
-        issuer_id=body.issuer_id,
+        issuer_id=issuer_id,
         run_id=body.run_id,
         module_id=body.module_id,
         step_ref=body.step_ref,
@@ -170,14 +186,20 @@ async def list_flags(
     issuer_id: Optional[str] = Query(default=None, max_length=36),
     run_id: Optional[str] = Query(default=None, max_length=36),
     db: AsyncSession = Depends(get_db, scope="function"),
-    _caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_identity),
 ):
+    if issuer_id is not None:
+        require_issuer(caller, await db.get(Issuer, issuer_id))
     q = select(AnalystQaFlag).order_by(AnalystQaFlag.created_at.desc()).limit(_LIST_CAP)
+    if tenancy_enabled():
+        q = q.where(
+            AnalystQaFlag.issuer_id.in_(scope_issuers(select(Issuer.id), caller))
+        )
     if module_id:
         q = q.where(AnalystQaFlag.module_id == module_id)
     if step_ref:
         q = q.where(AnalystQaFlag.step_ref == step_ref)
-    if issuer_id:
+    if issuer_id is not None:
         q = q.where(AnalystQaFlag.issuer_id == issuer_id)
     if run_id:
         q = q.where(AnalystQaFlag.run_id == run_id)

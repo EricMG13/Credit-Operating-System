@@ -6,7 +6,9 @@ import io
 import re
 import zipfile
 from pathlib import PurePosixPath
-from xml.etree import ElementTree
+
+from defusedxml import ElementTree
+from defusedxml.common import DefusedXmlException
 
 
 MAX_PACKAGE_MEMBERS = 5_000
@@ -163,7 +165,12 @@ def validate_xlsx_package(content: bytes) -> None:
                 root = ElementTree.fromstring(relationship_xml)
             except XlsxPackageError:
                 raise
-            except (ElementTree.ParseError, RuntimeError, KeyError) as exc:
+            except (
+                ElementTree.ParseError,
+                DefusedXmlException,
+                RuntimeError,
+                KeyError,
+            ) as exc:
                 raise XlsxPackageError(
                     "invalid_relationships", "Workbook relationships are malformed."
                 ) from exc

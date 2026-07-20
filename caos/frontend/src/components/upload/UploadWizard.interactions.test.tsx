@@ -5,6 +5,7 @@ import type { ComponentProps } from "react";
 import type { FileRejection } from "react-dropzone";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalysisContext } from "@/lib/analysis-workbench";
+import type { EdgarVaultResult } from "@/lib/api";
 import type { Issuer } from "@/types/issuers";
 
 type StepStripProps = ComponentProps<(typeof import("@/components/upload/steps"))["StepStrip"]>;
@@ -45,8 +46,11 @@ const harness = vi.hoisted(() => {
   return {
     context,
     issuerParam: null as string | null,
+    analysisContext: context as AnalysisContext | null,
     drop: null as null | ((accepted: File[], rejected: FileRejection[]) => void),
+    edgarVaulted: null as null | ((vaulted: EdgarVaultResult) => void),
     fileProps: null as FileStepProps | null,
+    resultProps: null as ResultStepProps | null,
     patch: vi.fn(),
     push: vi.fn(),
     createIssuer: vi.fn(),
@@ -71,7 +75,7 @@ vi.mock("react-dropzone", () => ({
 }));
 
 vi.mock("@/lib/analysis-workbench", () => ({
-  useAnalysisContext: () => ({ context: harness.context, patch: harness.patch }),
+  useAnalysisContext: () => ({ context: harness.analysisContext, patch: harness.patch }),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -90,7 +94,12 @@ vi.mock("@/components/shared/FirstRunHint", () => ({
   FirstRunHint: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock("@/components/pipeline/atoms", () => ({ Dot: () => <span>dot</span> }));
-vi.mock("@/components/upload/EdgarImport", () => ({ EdgarImport: () => <div>EDGAR import</div> }));
+vi.mock("@/components/upload/EdgarImport", () => ({
+  EdgarImport: ({ onVaulted }: { onVaulted: (vaulted: EdgarVaultResult) => void }) => {
+    harness.edgarVaulted = onVaulted;
+    return <div>EDGAR import</div>;
+  },
+}));
 
 vi.mock("@/components/upload/steps", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/components/upload/steps")>();
@@ -131,8 +140,9 @@ vi.mock("@/components/upload/steps", async (importOriginal) => {
         </div>
       );
     },
-    ResultStep: (props: ResultStepProps) => (
-      <div>
+    ResultStep: (props: ResultStepProps) => {
+      harness.resultProps = props;
+      return <div>
         <span>RESULT {props.okCount} OK {props.failCount} FAIL {props.totalChunks} CHUNKS</span>
         {props.outcomes.map((outcome) => <div key={outcome.name}>{outcome.name}: {outcome.result ? "vaulted" : outcome.error}</div>)}
         <span>{props.runOutcome?.state ?? "no run outcome"}</span>
@@ -141,8 +151,8 @@ vi.mock("@/components/upload/steps", async (importOriginal) => {
         <button onClick={props.onRetryFailed}>Retry failed</button>
         <button onClick={props.onReset}>Reset wizard</button>
         <button onClick={props.onCreateRun}>Create manual run</button>
-      </div>
-    ),
+      </div>;
+    },
   };
 });
 
@@ -176,8 +186,11 @@ function deferred<T>() {
 
 beforeEach(() => {
   harness.issuerParam = null;
+  harness.analysisContext = harness.context;
   harness.drop = null;
+  harness.edgarVaulted = null;
   harness.fileProps = null;
+  harness.resultProps = null;
   harness.context.issuer_ids = [];
   harness.context.surface_state = {};
   harness.patch.mockImplementation(async (body: Partial<AnalysisContext>) => scopedContext(body));
@@ -214,6 +227,10 @@ describe("UploadWizard interactions", () => {
     expect(dismiss.parentElement?.textContent).toContain("scan.tif");
     fireEvent.click(dismiss);
     expect(screen.queryByText(/file skipped/)).toBeNull();
+    act(() => harness.drop?.([], [rejected]));
+    expect(screen.getByRole("button", { name: "Dismiss skipped-files warning" }).parentElement?.textContent)
+      .toContain("1 file skipped");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss skipped-files warning" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Back to issuers" }));
     fireEvent.click(screen.getByRole("button", { name: "Pick Alpha Credit" }));
@@ -365,5 +382,90 @@ describe("UploadWizard interactions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pick Alpha Credit" }));
     expect(await screen.findByText("STEP file")).toBeTruthy();
     expect(harness.patch).not.toHaveBeenCalled();
+  });
+
+  it("adopts each EDGAR vault once and preserves a captured result after reset", async () => {
+    render(<UploadWizard initialIssuers={[issuerA]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick Alpha Credit" }));
+    const firstVault = {
+      document_id: "edgar-1",
+      storage_key: "edgar/one",
+      doc_type: "10-K",
+      run_mode: "legal",
+      chunks_created: 4,
+      provenance: "SEC EDGAR",
+      message: "10-K vaulted",
+      warning: null,
+    } satisfies EdgarVaultResult;
+
+    act(() => {
+      harness.edgarVaulted?.(firstVault);
+      harness.edgarVaulted?.(firstVault);
+    });
+    expect(screen.getByText("RESULT 1 OK 0 FAIL 4 CHUNKS")).toBeTruthy();
+    expect(screen.getAllByText("10-K vaulted: vaulted")).toHaveLength(1);
+
+    const captured = harness.edgarVaulted;
+    fireEvent.click(screen.getByRole("button", { name: "Reset wizard" }));
+    act(() => captured?.({
+      ...firstVault,
+      document_id: "edgar-2",
+      storage_key: "edgar/two",
+      chunks_created: 1,
+      message: "8-K vaulted",
+    }));
+    expect(screen.getByText("8-K vaulted: vaulted")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create manual run" }));
+    expect(harness.createRun).not.toHaveBeenCalled();
+  });
+
+  it("uploads and queues without an analysis context and ignores a stale manual-run callback", async () => {
+    harness.analysisContext = null;
+    render(<UploadWizard initialIssuers={[issuerA]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick Alpha Credit" }));
+    act(() => harness.drop?.([new File(["pdf"], "contextless.pdf", { type: "application/pdf" })], []));
+    fireEvent.click(screen.getByRole("button", { name: "Upload staged files" }));
+
+    expect(await screen.findByText("contextless.pdf: vaulted")).toBeTruthy();
+    expect(harness.createRun).toHaveBeenCalledWith(
+      "issuer-a", undefined, undefined, "upload-idempotency-key", undefined,
+    );
+    const staleCreateRun = harness.resultProps?.onCreateRun;
+    fireEvent.click(screen.getByRole("button", { name: "Reset wizard" }));
+    act(() => staleCreateRun?.());
+    expect(harness.createRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores missing deep links and does not rewind an already-open file stage", async () => {
+    harness.issuerParam = "missing-issuer";
+    const view = render(<UploadWizard initialIssuers={[issuerA, issuerB]} />);
+    expect(screen.getByText("STEP issuer")).toBeTruthy();
+
+    harness.issuerParam = null;
+    view.rerender(<UploadWizard initialIssuers={[issuerA, issuerB]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick Alpha Credit" }));
+    expect(screen.getByText("STEP file")).toBeTruthy();
+
+    harness.issuerParam = "issuer-b";
+    view.rerender(<UploadWizard initialIssuers={[issuerA, issuerB]} />);
+    await waitFor(() => expect(harness.fileProps?.selectedIssuer?.id).toBe("issuer-b"));
+    expect(screen.getByText("STEP file")).toBeTruthy();
+  });
+
+  it("ignores issuer directory work that settles after unmount", async () => {
+    const loaded = deferred<Issuer[]>();
+    harness.getIssuers.mockReturnValueOnce(loaded.promise);
+    const first = render(<UploadWizard />);
+    first.unmount();
+    await act(async () => loaded.resolve([issuerA]));
+
+    const failed = deferred<Issuer[]>();
+    harness.getIssuers.mockReturnValueOnce(failed.promise);
+    const second = render(<UploadWizard />);
+    second.unmount();
+    await act(async () => {
+      failed.resolve(Promise.reject(new Error("stale directory failure")) as never);
+      await failed.promise.catch(() => undefined);
+    });
   });
 });

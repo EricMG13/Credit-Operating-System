@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import hmac
-import re
+import secrets
 import time
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import rate_limit
 from access_log import client_source, sanitize_field
 from config import get_settings, is_deployed
+from csrf import CSRF_COOKIE_NAME
 from database import Analyst, erase_analyst_data, get_db
 from identity import (
     COOKIE_NAME, CallerIdentity, get_identity, make_session_token, read_session_token,
@@ -45,10 +46,6 @@ _LOGIN_MAX_PER_MINUTE = 10  # per source IP — throttle access-code / password 
 # un-spoofable backstop on brute-force against the shared code / passwords.
 _LOGIN_GLOBAL_PER_MINUTE = 30
 
-# Loose shape check, not RFC-5322 — email is a login key, not verified. Swap to
-# pydantic EmailStr if you ever add the email-validator dependency.
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
 # Verify a login against this when no account matches, so a missing email and a
 # wrong password cost the same PBKDF2 work — no user enumeration via timing.
 _DUMMY_HASH = hash_password("caos-no-such-account")
@@ -57,14 +54,26 @@ _DUMMY_HASH = hash_password("caos-no-such-account")
 # account existence by returning fast.
 _DUMMY_RECOVERY_HASHES = [_DUMMY_HASH, _DUMMY_HASH, _DUMMY_HASH]
 
+_RecoveryWord = Annotated[str, Field(min_length=1, max_length=80)]
+_RecoveryHint = Annotated[str, Field(max_length=160)]
+
 
 def _throttle(request: Request) -> None:
     """Per-source + global rate limit shared by every credential endpoint. `or`
     short-circuits so a blocked source doesn't also drain the global budget."""
     ip = client_source(request.headers, request.client.host if request.client else None)
-    if (not rate_limit.hit(f"login:{ip}", max_attempts=_LOGIN_MAX_PER_MINUTE, window_seconds=60)
-            or not rate_limit.hit("login:*", max_attempts=_LOGIN_GLOBAL_PER_MINUTE, window_seconds=60)):
+    if (not rate_limit.shared_hit(f"login:{ip}", max_attempts=_LOGIN_MAX_PER_MINUTE, window_seconds=60)
+            or not rate_limit.shared_hit("login:*", max_attempts=_LOGIN_GLOBAL_PER_MINUTE, window_seconds=60)):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts — wait a minute.")
+
+
+def _is_valid_email(value: str) -> bool:
+    """Bounded structural validation without a backtracking regular expression."""
+    if len(value) > 254 or value.count("@") != 1 or any(ch.isspace() for ch in value):
+        return False
+    local, domain = value.split("@", 1)
+    labels = domain.split(".")
+    return bool(local) and len(local) <= 64 and len(labels) >= 2 and all(labels)
 
 
 class MeResponse(BaseModel):
@@ -85,14 +94,14 @@ class RegisterRequest(BaseModel):
     code: str = Field(min_length=1, max_length=64)  # shared invite code (ANALYST_SIGNUP_CODE)
     name: str = Field(min_length=1, max_length=120)
     email: str = Field(min_length=3, max_length=255)
-    passcode: Optional[str] = Field(default=None, min_length=8, max_length=128)
-    password: Optional[str] = Field(default=None, min_length=8, max_length=128)
+    passcode: Optional[str] = Field(default=None, min_length=12, max_length=128)
+    password: Optional[str] = Field(default=None, min_length=12, max_length=128)
     coverage_area: Optional[str] = Field(default=None, max_length=64)
     location: Optional[str] = Field(default=None, max_length=16)
     # Exactly 3 words, declared at the schema (not just the handler's 422) so the
     # required-in-practice contract is visible in OpenAPI (BE7-2).
-    recovery_words: list[str] = Field(min_length=3, max_length=3)
-    recovery_hints: list[str] = Field(default_factory=list, max_length=3)
+    recovery_words: list[_RecoveryWord] = Field(min_length=3, max_length=3)
+    recovery_hints: list[_RecoveryHint] = Field(default_factory=list, max_length=3)
 
 
 class LoginRequest(BaseModel):
@@ -103,7 +112,7 @@ class LoginRequest(BaseModel):
 
 class RecoveryRequest(BaseModel):
     email: str = Field(min_length=3, max_length=255)
-    recovery_words: list[str] = Field(min_length=3, max_length=3)
+    recovery_words: list[_RecoveryWord] = Field(min_length=3, max_length=3)
 
 
 @router.get("/me", response_model=MeResponse)
@@ -123,12 +132,16 @@ def _set_cookie(response: Response, analyst: Analyst) -> None:
     # Stamp a hard expiry into the signed payload (enforced in read_session_token),
     # not just the browser max-age — so a copied cookie value can't outlive it.
     now = int(time.time())
+    csrf_token = secrets.token_urlsafe(32)
     token = make_session_token(
         {
             "id": analyst.id, "name": analyst.name, "email": analyst.email or "",
             "role": analyst.role or "analyst",
             # Revocation epoch — must match the row at verify time (identity.py).
             "v": analyst.token_version,
+            # Bind the browser-readable double-submit value to this signed
+            # session so an attacker cannot choose both cookie and header.
+            "csrf": csrf_token,
             "iat": now, "exp": now + _COOKIE_MAX_AGE,
         },
         settings.session_secret,
@@ -139,6 +152,15 @@ def _set_cookie(response: Response, analyst: Analyst) -> None:
         # Secure on any non-local-dev deployment — not only the exact label
         # "production", so an env-string mistype can't silently drop it. S5.
         secure=settings.environment != "development", path="/",
+    )
+    response.set_cookie(
+        CSRF_COOKIE_NAME,
+        csrf_token,
+        max_age=_COOKIE_MAX_AGE,
+        httponly=False,
+        samesite="lax",
+        secure=settings.environment != "development",
+        path="/",
     )
 
 
@@ -265,7 +287,7 @@ async def register(
     email = sanitize_field(body.email).strip().lower()  # lowercase = the account key
     if not name:
         raise HTTPException(422, "Name is required.")
-    if not _EMAIL_RE.match(email):
+    if not _is_valid_email(email):
         raise HTTPException(422, "Enter a valid email address.")
     # SECURITY.md §1: behind the edge proxy every caller carries a verified
     # X-Forwarded-Email. Self-registration must resolve only to the caller's own SSO
@@ -383,6 +405,7 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
                 analyst.token_version += 1
                 await db.commit()
     response.delete_cookie(COOKIE_NAME, path="/")
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
 
 
 @router.delete("/profile", status_code=200)
@@ -402,4 +425,5 @@ async def delete_profile(
     """
     summary = await erase_analyst_data(db, analyst_id=caller.id, email=caller.email or None)
     response.delete_cookie(COOKIE_NAME, path="/")
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
     return {"erased": summary}

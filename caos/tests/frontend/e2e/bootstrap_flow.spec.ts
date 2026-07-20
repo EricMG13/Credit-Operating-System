@@ -29,7 +29,8 @@
  * the served static build lags the source by a couple of days.
  */
 
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import type { APIRequestContext } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Unique per run: display names AND emails are unique-constrained, so a reused
 // name 409s. Time + random keeps parallel/retried runs from colliding.

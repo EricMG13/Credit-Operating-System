@@ -18,7 +18,7 @@
  * place contextual actions in the labeled Model v2 tools drawer.
  */
 
-import { test, expect } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 let workflowIssuerId = "";
 

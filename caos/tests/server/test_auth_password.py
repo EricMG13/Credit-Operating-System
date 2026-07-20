@@ -34,29 +34,50 @@ def test_register_then_me_is_profile(client):
 
 def test_register_bad_invite_code_rejected(client):
     # 401 (not 403) so the access-log brute-force heuristic sees a wrong invite code.
-    body = _register_body("No One", "no@firm.com", "longenough1")
+    body = _register_body("No One", "no@firm.com", "longenough12")
     body["code"] = "000000"
     r = client.post("/api/auth/register", json=body)
     assert r.status_code == 401, r.text
 
 
 def test_register_duplicate_email_conflict(client):
-    body = _register_body("Dup One", "dup@firm.com", "longenough1")
+    body = _register_body("Dup One", "dup@firm.com", "longenough12")
     assert client.post("/api/auth/register", json=body).status_code == 201
     # Same email, different case → still a conflict (email is the lowercased key).
-    body2 = _register_body("Dup Two", "DUP@firm.com", "longenough1")
+    body2 = _register_body("Dup Two", "DUP@firm.com", "longenough12")
     assert client.post("/api/auth/register", json=body2).status_code == 409
 
 
 def test_register_invalid_email_422(client):
-    r = client.post("/api/auth/register", json=_register_body("Bad Email", "not-an-email", "longenough1"))
+    r = client.post("/api/auth/register", json=_register_body("Bad Email", "not-an-email", "longenough12"))
     assert r.status_code == 422, r.text
 
 
 def test_register_short_password_422(client):
-    # pydantic min_length=8 rejects before any DB work.
-    r = client.post("/api/auth/register", json=_register_body("Short PW", "short@firm.com", "short"))
+    # Pydantic's creation-only floor rejects 11 characters before any DB work.
+    r = client.post("/api/auth/register", json=_register_body("Short PW", "short@firm.com", "12345678901"))
     assert r.status_code == 422, r.text
+
+
+@pytest.mark.parametrize(
+    "path,body",
+    [
+        (
+            "/api/auth/register",
+            {**_register_body("Long Recovery", "long-recovery@firm.com"), "recovery_words": ["x" * 81, "bravo", "charlie"]},
+        ),
+        (
+            "/api/auth/register",
+            {**_register_body("Long Hint", "long-hint@firm.com"), "recovery_hints": ["x" * 161, "second", "third"]},
+        ),
+        (
+            "/api/auth/recover",
+            {"email": "nobody@firm.com", "recovery_words": ["x" * 81, "bravo", "charlie"]},
+        ),
+    ],
+)
+def test_recovery_credential_elements_are_bounded(client, path, body):
+    assert client.post(path, json=body).status_code == 422
 
 
 def test_login_roundtrip(client):

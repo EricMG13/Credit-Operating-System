@@ -18,8 +18,9 @@ afterEach(() => {
 describe("FlagToQa edge states", () => {
   it("can cancel composition and renders a singular existing flag count", async () => {
     vi.mocked(listQaFlags).mockResolvedValue([{}] as never);
-    render(<FlagToQa moduleId="CP-1" stepRef="step-1" />);
+    render(<FlagToQa issuerId="issuer-live" moduleId="CP-1" stepRef="step-1" />);
     expect(await screen.findByText("1 flag on file for this step")).toBeTruthy();
+    expect(listQaFlags).toHaveBeenCalledWith({ module_id: "CP-1", step_ref: "step-1", issuer_id: "issuer-live" });
     fireEvent.click(screen.getByRole("button", { name: "FLAG TO QA · CP-5" }));
     fireEvent.click(screen.getByRole("button", { name: "CANCEL" }));
     expect(screen.getByRole("button", { name: "FLAG TO QA · CP-5" })).toBeTruthy();
@@ -28,11 +29,12 @@ describe("FlagToQa edge states", () => {
   it("increments an existing count and discloses multiple flags after submit", async () => {
     vi.mocked(listQaFlags).mockResolvedValue([{}] as never);
     vi.mocked(createQaFlag).mockResolvedValue({} as never);
-    render(<FlagToQa moduleId="CP-1" stepRef="step-1" />);
+    render(<FlagToQa issuerId="issuer-live" moduleId="CP-1" stepRef="step-1" />);
     await screen.findByText("1 flag on file for this step");
     fireEvent.click(screen.getByRole("button", { name: "FLAG TO QA · CP-5" }));
-    fireEvent.change(screen.getByPlaceholderText("What should CP-5 review here?"), { target: { value: "Check source" } });
+    fireEvent.change(screen.getByLabelText("Reason for QA (optional)"), { target: { value: "Check source" } });
     fireEvent.click(screen.getByRole("button", { name: "CONFIRM FLAG" }));
     expect(await screen.findByText(/2 on file/)).toBeTruthy();
+    expect(createQaFlag).toHaveBeenCalledWith({ module_id: "CP-1", step_ref: "step-1", note: "Check source", issuer_id: "issuer-live" });
   });
 });

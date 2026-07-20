@@ -204,7 +204,7 @@ function PositionsTable({
       rowHeader: true,
       render: (position) => (
         <div className="flex items-center gap-2 font-semibold text-caos-text">
-          <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+          <span>
             {position.issuer_id ? <IssuerLink issuer={{ id: position.issuer_id }}>{position.borrower_name}</IssuerLink> : position.borrower_name}
           </span>
           <button
@@ -563,9 +563,9 @@ function PortfolioFilters({ view }: { view: PortfolioLabViewModel }) {
   const descending = view.values.direction === "desc";
   return (
     <form className="portfolio-lab__filters" onSubmit={submit}>
-      <label>Search<input value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} /></label>
-      <label>Sector<input value={draft.sector} onChange={(event) => setDraft((current) => ({ ...current, sector: event.target.value }))} /></label>
-      <label>Rating<input value={draft.rating} onChange={(event) => setDraft((current) => ({ ...current, rating: event.target.value }))} /></label>
+      <label>Search<input name="portfolio-search" autoComplete="off" value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} /></label>
+      <label>Sector<input name="portfolio-sector" autoComplete="off" value={draft.sector} onChange={(event) => setDraft((current) => ({ ...current, sector: event.target.value }))} /></label>
+      <label>Rating<input name="portfolio-rating" autoComplete="off" value={draft.rating} onChange={(event) => setDraft((current) => ({ ...current, rating: event.target.value }))} /></label>
       <label>Sort<select value={view.sort} onChange={(event) => view.update({ sort: event.target.value, cursor: null })}><option value="borrower_name">Borrower</option><option value="par_usd">Par</option><option value="price">Price</option><option value="maturity">Maturity</option><option value="rating_moody">Moody&apos;s</option></select></label>
       <button type="button" aria-label={`Sort ${descending ? "ascending" : "descending"}`} onClick={() => view.update({ direction: descending ? "asc" : "desc", cursor: null })}>{descending ? "DESC ↓" : "ASC ↑"}</button>
       <button type="submit">APPLY</button>

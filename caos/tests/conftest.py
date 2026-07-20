@@ -18,6 +18,7 @@ sys.path.insert(0, str(SERVER_DIR))
 _TMP = tempfile.mkdtemp(prefix="caos-tests-")
 os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_TMP}/caos_tests.db")
 os.environ.setdefault("CAOS_STORAGE_DIR", f"{_TMP}/vault")
+os.environ.setdefault("CAOS_RATE_LIMIT_PATH", f"{_TMP}/rate_limit.sqlite3")
 
 # Force-blank (NOT setdefault): with a real key exported, run-creating tests flip
 # from the fixture path to LIVE synth, spend real tokens, and invalidate offline

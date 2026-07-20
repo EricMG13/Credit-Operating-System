@@ -10,7 +10,7 @@
  * fresh context to exercise the un-authenticated dev identity.
  */
 
-import { test, expect } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test.describe("CAOS single-process app", () => {
   // Unique per run so repeated runs against a stateful API don't collide.

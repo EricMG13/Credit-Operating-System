@@ -71,6 +71,31 @@ def test_flag_validation_rejects_oversize(client):
     assert client.post("/api/qa/flags", json={"module_id": "CP-1", "note": "n" * 3000}).status_code == 422
 
 
+def test_flag_rejects_unknown_issuer_without_disclosing_it(client):
+    missing = "00000000-0000-0000-0000-000000000000"
+    assert client.post(
+        "/api/qa/flags", json={"module_id": "CP-1", "issuer_id": missing}
+    ).status_code == 404
+    assert client.get("/api/qa/flags", params={"issuer_id": missing}).status_code == 404
+
+
+def test_flag_rejects_existing_run_issuer_mismatch(client):
+    run = client.post("/api/runs", json={"issuer_id": ATLF})
+    assert run.status_code == 201, run.text
+    other = client.post("/api/issuers/", json={"name": "QA Mismatch Sentinel"})
+    assert other.status_code == 201, other.text
+
+    response = client.post(
+        "/api/qa/flags",
+        json={
+            "module_id": "CP-5",
+            "issuer_id": other.json()["id"],
+            "run_id": run.json()["id"],
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_flags_never_gate_committee_export(client):
     """Structural guarantee spot-check: flags live in qa_flags, and the report
     export's blocking-findings query reads qa_findings — a flag on a run must

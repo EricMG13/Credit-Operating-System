@@ -344,7 +344,7 @@ describe("Command Center interactions", () => {
     expect(screen.getByText(/ready:WARF 3000 \(B\) · CCC watch 1/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Select live coverage issuer" }));
-    expect(screen.getByText(/Issuer strip Live Issuer/)).toBeTruthy();
+    expect(await screen.findByText(/Issuer strip Live Issuer/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close issuer strip" }));
 
     fireEvent.click(screen.getByRole("tab", { name: "Positions" }));
@@ -359,7 +359,7 @@ describe("Command Center interactions", () => {
     expect(controls.routerPush).toHaveBeenCalledWith("/deepdive?issuer=issuer-0");
 
     fireEvent.click(screen.getByRole("button", { name: "Open governance queue" }));
-    expect(screen.getByText("Governance body")).toBeTruthy();
+    expect(await screen.findByText("Governance body")).toBeTruthy();
 
     fireEvent.change(screen.getByRole("combobox", { name: "Selected portfolio" }), {
       target: { value: "portfolio-2" },

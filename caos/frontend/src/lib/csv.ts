@@ -7,7 +7,7 @@ export function csvCell(v: unknown): string {
   // CSV-injection guard (matrix 6.8): a leading =, +, -, @ (or tab/CR) makes
   // Excel/Sheets execute the cell as a formula. Untrusted labels and override
   // values are not trusted spreadsheet code — neutralize with a leading quote.
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  if (/^[=+\-@\t\r\n]/.test(s)) s = "'" + s;
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 

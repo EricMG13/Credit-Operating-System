@@ -48,6 +48,23 @@ describe("api shape guards", () => {
   });
 });
 
+describe("api CSRF interceptor", () => {
+  it("copies the double-submit cookie into unsafe same-origin requests", async () => {
+    document.cookie = "caos_csrf=bound-token; Path=/";
+    let csrfHeader: string | undefined;
+    api.defaults.adapter = ((config: { headers: { get(name: string): string | undefined } }) => {
+      csrfHeader = config.headers.get("X-CSRF-Token");
+      return Promise.resolve({
+        status: 200, statusText: "OK", headers: {}, config: config as never, data: {},
+      });
+    }) as never;
+
+    await api.post("/api/runs", {});
+    expect(csrfHeader).toBe("bound-token");
+    document.cookie = "caos_csrf=; Max-Age=0; Path=/";
+  });
+});
+
 // M-13a regression: the request interceptor reads localStorage (loadMode() +
 // the caos_query_model key) with no guard. In a browser with localStorage
 // disabled/full/blocked (private-mode Safari, some corporate policies), a

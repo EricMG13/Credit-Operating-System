@@ -49,6 +49,27 @@ def test_record_usage_and_llm_allowed():
     assert budget.llm_allowed() is True  # no budget set → always allowed
 
 
+@pytest.mark.asyncio
+async def test_concurrent_reservations_wait_then_use_released_headroom():
+    b = budget.RunBudget(limit=30)
+    first = await b.reserve(input_tokens=10, max_output_tokens=15)
+    assert first is not None and first.amount == 25
+
+    waiting = asyncio.create_task(b.reserve(input_tokens=10, max_output_tokens=15))
+    await asyncio.sleep(0)
+    assert not waiting.done()
+
+    # The first call used 10 actual tokens, so releasing its 25-token ceiling
+    # leaves 20. The waiting call is admitted with a reduced 10-token output cap.
+    b.record(5, 5)
+    await b.release(first)
+    second = await waiting
+    assert second is not None and second.max_output_tokens == 10
+    assert b.used + b.reserved == b.limit
+    await b.release(second)
+    assert b.reserved == 0
+
+
 def test_cost_telemetry_prefers_provider_cost_and_never_guesses_unknown_models():
     provider_usage = SimpleNamespace(
         input_tokens=10,

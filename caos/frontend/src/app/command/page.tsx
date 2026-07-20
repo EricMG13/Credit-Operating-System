@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { useRovingTabs } from "@/lib/useRovingTabs";
@@ -19,7 +20,6 @@ import { usePortfolio } from "@/lib/engine/usePortfolio";
 import { fmtUtcDateTime } from "@/lib/format-date";
 import { useDigest } from "@/lib/engine/useDigest";
 import { useGovernanceSources } from "@/lib/command/useGovernanceSources";
-import { IssuerStrip } from "@/components/command/views";
 import {
   CommandPortfolioPosture,
   CommandPortfolioTable,
@@ -31,7 +31,6 @@ import { RankedChangesView } from "@/components/command/RankedChanges";
 import { ActionReason } from "@/components/shared/ActionReason";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows } from "@/lib/alerts/inbox";
-import { GovernancePanel } from "@/components/command/GovernancePanel";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
@@ -45,6 +44,15 @@ import { SurfaceState } from "@/components/shared/SurfaceState";
 import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { GovernanceSummary } from "@/components/shared/GovernanceSummary";
 import { useSurfaceInsight } from "@/lib/use-surface-insight";
+
+const GovernancePanel = dynamic(
+  () => import("@/components/command/GovernancePanel").then((module) => module.GovernancePanel),
+  { loading: () => <div role="status" aria-live="polite" className="min-h-72 p-3 text-caos-xs text-caos-muted">Loading governance queue…</div> },
+);
+const IssuerStrip = dynamic(
+  () => import("@/components/command/views").then((module) => module.IssuerStrip),
+  { loading: () => <div role="status" aria-live="polite" className="h-12 shrink-0 border-t border-caos-border bg-caos-panel px-4 flex items-center text-caos-xs text-caos-muted">Loading issuer details…</div> },
+);
 
 const COMMAND_URL_KEYS = ["dataset", "selected", "portfolio"] as const;
 type CommandUrlKey = (typeof COMMAND_URL_KEYS)[number];

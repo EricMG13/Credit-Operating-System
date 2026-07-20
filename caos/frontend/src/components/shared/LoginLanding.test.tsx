@@ -63,8 +63,8 @@ describe("LoginLanding", () => {
     fireEvent.change(screen.getByLabelText("Analyst name"), { target: { value: " Ada Credit " } });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: " ada@desk.test " } });
     fireEvent.change(screen.getByLabelText("Login passcode"), { target: { value: "short" } });
-    expect(screen.getByText(/at least 8 characters/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Login passcode"), { target: { value: "long-pass" } });
+    expect(screen.getByText(/at least 12 characters/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Login passcode"), { target: { value: "long-passcode" } });
     fireEvent.change(screen.getByLabelText("Confirm passcode"), { target: { value: "different" } });
     fireEvent.change(screen.getByLabelText("Invite code"), { target: { value: " 1234 " } });
     fireEvent.change(screen.getByLabelText("Coverage area"), { target: { value: "Industrials" } });
@@ -77,13 +77,13 @@ describe("LoginLanding", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Passcodes don't match");
 
-    fireEvent.change(screen.getByLabelText("Confirm passcode"), { target: { value: "long-pass" } });
+    fireEvent.change(screen.getByLabelText("Confirm passcode"), { target: { value: "long-passcode" } });
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     await waitFor(() => expect(register).toHaveBeenCalledWith({
       code: "1234",
       name: "Ada Credit",
       email: "ada@desk.test",
-      passcode: "long-pass",
+      passcode: "long-passcode",
       coverage_area: "Industrials",
       location: "EMEA",
       recovery_words: ["word-1", "word-2", "word-3"],

@@ -280,7 +280,9 @@ export function buildRVRows(holdings?: Map<string, RVHolding>): RVRow[] {
     const isCredible = credibleDm(r.mid3yDm);
     const rvBp = benchmark === null || !isCredible ? null : r.mid3yDm! - benchmark;
     const figi = r.bloombergId.toUpperCase();
-    const peerN = benchInfo?.n ?? 0;
+    // The benchmark map is seeded from this exact validated row set above, so
+    // every row key is present by construction.
+    const peerN = benchInfo!.n;
 
     const rvProvenance: BenchmarkProvenance | null = rvBp !== null ? {
       asOf: RV_AS_OF,

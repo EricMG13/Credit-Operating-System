@@ -4,7 +4,7 @@
 // (port of design bundle concept-c-views.jsx OutSections).
 
 import type { OutSection } from "@/lib/deepdive/module-outputs";
-import { EvChip } from "@/components/reports/EvidenceModal";
+import { EvChip } from "@/components/reports/EvChip";
 import { Dot } from "@/components/pipeline/atoms";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
 import { useState } from "react";

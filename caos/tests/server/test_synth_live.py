@@ -256,9 +256,15 @@ async def test_repair_failure_raises_synthesis_error():
 
 
 @pytest.mark.asyncio
-async def test_budget_exhausted_skips_repair():
-    budget.set_budget(budget.RunBudget(limit=1))  # spent after the first call's usage
-    synth = _make_synth([_tool_use(_bad_enum_payload())])  # only one response available
+async def test_budget_exhausted_skips_repair(monkeypatch):
+    # Keep the fake call small enough to make the boundary exact: one input-token
+    # reservation + a 10-token output ceiling, all 11 actually consumed.
+    monkeypatch.setattr(budget, "_input_reservation", lambda _kwargs, copies=1: 1)
+    monkeypatch.setattr("engine.synth._MAX_TOKENS", 10)
+    first = _tool_use(_bad_enum_payload())
+    first.usage = _Usage(input_tokens=1, output_tokens=10)
+    budget.set_budget(budget.RunBudget(limit=11))
+    synth = _make_synth([first])  # only one response available
     with pytest.raises(SynthesisError, match="repair skipped"):
         await _run(synth)
     assert len(synth._client.messages.calls) == 1  # no second (repair) call

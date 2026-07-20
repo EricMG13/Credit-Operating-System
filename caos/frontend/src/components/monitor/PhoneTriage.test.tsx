@@ -3,7 +3,7 @@
 // a desktop handoff. Shares the same autonomy draft + alert_states mutation
 // contract as AlertInbox, so the two can never disagree about an alert.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PhoneTriage } from "./PhoneTriage";
 
 const getAutonomyDraft = vi.fn();
@@ -55,6 +55,12 @@ const EMPTY_DRAFT = {
   refreshing: false,
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe("PhoneTriage", () => {
   it("shows an honest offline state, never a fabricated card, and never mislabels a real outage as DEMO content", async () => {
     getAutonomyDraft.mockRejectedValue(new Error("network error"));
@@ -69,6 +75,14 @@ describe("PhoneTriage", () => {
     await waitFor(() => expect(screen.getByText("No alerts to triage")).toBeTruthy());
   });
 
+  it("renders an empty draft without an optional marking", async () => {
+    const draft = { ...EMPTY_DRAFT } as Partial<typeof EMPTY_DRAFT>;
+    delete draft.marking;
+    getAutonomyDraft.mockResolvedValue(draft);
+    render(<PhoneTriage />);
+    await screen.findByText("No alerts to triage");
+  });
+
   it("shows one alert at a time, ranked by severity, with a real impact figure and a desktop handoff", async () => {
     getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
     getAlertStates.mockResolvedValue([]);
@@ -78,6 +92,46 @@ describe("PhoneTriage", () => {
     expect(screen.getByText("0.9σ")).toBeTruthy();
     expect(screen.queryByText("Quill Media")).toBeNull(); // only one card visible at a time
     expect(screen.getByRole("link", { name: /Continue on desktop — open EG Group in Deep-Dive/ })).toBeTruthy();
+  });
+
+  it("falls back to the issuer name and suppresses a non-finite impact", async () => {
+    const draft = {
+      ...TWO_ROW_DRAFT,
+      sections: [{
+        ...TWO_ROW_DRAFT.sections[0],
+        issuer_id: null,
+        deterministic_bullets: [{
+          ...TWO_ROW_DRAFT.sections[0].deterministic_bullets[0],
+          severity: Number.NaN,
+        }],
+      }],
+      summary: { ...TWO_ROW_DRAFT.summary, n_sections: 1, n_deterministic_bullets: 1, n_anomalies: 1 },
+    };
+    getAutonomyDraft.mockResolvedValue(draft);
+    getAlertStates.mockResolvedValue([]);
+    render(<PhoneTriage />);
+
+    await screen.findByText("EG Group");
+    expect(screen.queryByText(/σ$/)).toBeNull();
+    expect(screen.getByRole("link", { name: /Continue on desktop/ }).getAttribute("href"))
+      .toBe("/deepdive?issuer=EG%20Group");
+  });
+
+  it("sorts defensively when persisted alert states are unknown", async () => {
+    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
+    getAlertStates.mockResolvedValue([
+      {
+        id: "unknown-eg", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "unknown",
+        assignee: null, note: null, analyst_id: null, created_at: null, resolved_at: null, resolution_note: null,
+      },
+      {
+        id: "unknown-qlmh", alert_key: "2026-07-12T09:00:00Z:QLMH:cusum-shift:revenue", state: "unknown",
+        assignee: null, note: null, analyst_id: null, created_at: null, resolved_at: null, resolution_note: null,
+      },
+    ]);
+    render(<PhoneTriage />);
+    await screen.findByText("EG Group");
+    expect(screen.getByText("Open")).toBeTruthy();
   });
 
   it("prev/next walk the queue and clamp at the boundaries", async () => {
@@ -110,7 +164,7 @@ describe("PhoneTriage", () => {
     await waitFor(() => expect(screen.getByText("EG Group")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
-    fireEvent.change(screen.getByPlaceholderText("resolution note (optional)…"), {
+    fireEvent.change(screen.getByLabelText("Alert resolution note"), {
       target: { value: "Reviewed, no action needed." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
@@ -125,6 +179,88 @@ describe("PhoneTriage", () => {
     expect(screen.queryByRole("button", { name: "Ack" })).toBeNull(); // action row gone once resolved
   });
 
+  it("acknowledges and assigns both open and acknowledged alerts", async () => {
+    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
+    getAlertStates.mockResolvedValue([]);
+    const key = "2026-07-12T09:00:00Z:EG:ts-jump:dm";
+    setAlertState.mockImplementation(async (
+      alertKey: string,
+      state: "open" | "ack" | "resolved",
+      options?: { assignee?: string },
+    ) => ({
+      id: `${state}-${options?.assignee ?? "none"}`,
+      alert_key: alertKey,
+      state,
+      assignee: options?.assignee ?? null,
+      note: null,
+      analyst_id: "a1",
+      created_at: "2026-07-12T09:05:00Z",
+      resolved_at: null,
+      resolution_note: null,
+    }));
+    render(<PhoneTriage />);
+    await screen.findByText("EG Group");
+
+    const assignee = screen.getByLabelText("Alert assignee");
+    fireEvent.change(assignee, { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(setAlertState).toHaveBeenNthCalledWith(1, key, "open", { assignee: "Sam" }));
+    expect(await screen.findByText("Sam")).toBeTruthy();
+    expect((assignee as HTMLInputElement).value).toBe("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Ack" }));
+    await waitFor(() => expect(setAlertState).toHaveBeenNthCalledWith(2, key, "ack"));
+    expect(await screen.findByText("Ack/assigned")).toBeTruthy();
+
+    fireEvent.change(assignee, { target: { value: "Alex" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(setAlertState).toHaveBeenNthCalledWith(3, key, "ack", { assignee: "Alex" }));
+    expect(await screen.findByText("Alex")).toBeTruthy();
+  });
+
+  it("guards a rapid duplicate acknowledgement while the first mutation is pending", async () => {
+    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
+    getAlertStates.mockResolvedValue([]);
+    const pending = deferred<{
+      id: string; alert_key: string; state: "ack"; assignee: null; note: null;
+      analyst_id: string; created_at: string; resolved_at: null; resolution_note: null;
+    }>();
+    setAlertState.mockReturnValue(pending.promise);
+    render(<PhoneTriage />);
+    await screen.findByText("EG Group");
+
+    const ack = screen.getByRole("button", { name: "Ack" });
+    act(() => {
+      fireEvent.click(ack);
+      fireEvent.click(ack);
+    });
+    expect(setAlertState).toHaveBeenCalledTimes(1);
+
+    await act(async () => pending.resolve({
+      id: "ack-1", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "ack",
+      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
+      resolved_at: null, resolution_note: null,
+    }));
+  });
+
+  it("submits an omitted resolution note as undefined", async () => {
+    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
+    getAlertStates.mockResolvedValue([]);
+    setAlertState.mockResolvedValue({
+      id: "resolved-empty", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "resolved",
+      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
+      resolved_at: "2026-07-12T09:10:00Z", resolution_note: null,
+    });
+    render(<PhoneTriage />);
+    await screen.findByText("EG Group");
+
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(setAlertState).toHaveBeenCalledWith(
+      "2026-07-12T09:00:00Z:EG:ts-jump:dm", "resolved", { resolutionNote: undefined },
+    ));
+  });
+
   it("preserves a failed resolution note and retries the exact mutation", async () => {
     getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
     getAlertStates.mockResolvedValue([]);
@@ -136,7 +272,7 @@ describe("PhoneTriage", () => {
     render(<PhoneTriage />);
     await screen.findByText("EG Group");
     fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
-    const note = screen.getByPlaceholderText("resolution note (optional)…") as HTMLInputElement;
+    const note = screen.getByLabelText("Alert resolution note") as HTMLInputElement;
     fireEvent.change(note, { target: { value: "Keep this note" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
 

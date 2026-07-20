@@ -9,13 +9,16 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { GraphView, SwimlaneView, Inspector, LineagePanel, LiveLineagePanel, EventLog } from "./views";
-import { MODULES } from "@/lib/pipeline/data";
+import { DRIVERS, MODULES } from "@/lib/pipeline/data";
 import type { Sim } from "@/lib/pipeline/sim-engine";
 
 const emptySim: Sim = { mods: {}, events: [], tick: 0, done: false };
 const fullScope = () => new Set(MODULES.map((m) => m.id));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("EventLog", () => {
   it("shows the awaiting-start placeholder when empty", () => {
@@ -50,6 +53,17 @@ describe("LineagePanel", () => {
     fireEvent.click(screen.getByText(/EBITDA quality/));
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ n: 1 }));
   });
+
+  it("renders a driver without source chips", () => {
+    DRIVERS.push({ n: 99, driver: "No-source driver", lineage: "Pending lineage", conf: 0.2, status: "open", evs: [] });
+    try {
+      render(<LineagePanel onPick={() => {}} drivers={[99]} onOpenEvidence={() => {}} />);
+      expect(screen.getByText("No-source driver")).toBeTruthy();
+      expect(screen.queryByText("sources")).toBeNull();
+    } finally {
+      DRIVERS.pop();
+    }
+  });
 });
 
 describe("LiveLineagePanel", () => {
@@ -77,6 +91,11 @@ describe("LiveLineagePanel", () => {
     render(<LiveLineagePanel loading={false} onOpenEvidence={() => {}} />);
     expect(screen.getByText(/LIVE REGISTER UNAVAILABLE/)).toBeTruthy();
     expect(screen.getByText(/demo lineage is not substituted/i)).toBeTruthy();
+  });
+
+  it("shows the persisted-lineage loading state", () => {
+    render(<LiveLineagePanel loading onOpenEvidence={() => {}} />);
+    expect(screen.getByText(/Loading persisted CP-5B driver lineage/)).toBeTruthy();
   });
 });
 
@@ -110,6 +129,29 @@ describe("Inspector", () => {
     expect(screen.queryByText("QA-117")).toBeNull();            // seeded QA hidden
     expect(screen.queryByText(/Citation E-44 unresolved/)).toBeNull();
   });
+
+  it("renders a degraded limitation, requirements, payload, and open action", () => {
+    const onOpen = vi.fn();
+    const sim: Sim = {
+      mods: { "CP-1": { state: "pass", prog: 1 }, "CP-2F": { state: "warning", prog: 0.75 } },
+      events: [], tick: 1, done: false,
+    };
+    render(
+      <Inspector
+        sim={sim}
+        selected="CP-2F"
+        plan={[{ id: "CP-2F", deps: ["CP-1"], dur: 2, outcome: "warning", event: "Hedge register missing" }]}
+        scope={new Set(["CP-2F"])}
+        modeLabel="full-committee"
+        onOpen={onOpen}
+      />,
+    );
+    expect(screen.getByText(/Limitation L-04 propagated/)).toBeTruthy();
+    expect(screen.getByText("Hedge register missing")).toBeTruthy();
+    expect(screen.getByText("Hedging register (gap G-01)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /open/i }));
+    expect(onOpen).toHaveBeenCalledWith("CP-2F");
+  });
 });
 
 describe("GraphView", () => {
@@ -132,6 +174,35 @@ describe("GraphView", () => {
     expect(style).toContain("color-mix");
     expect(style).not.toMatch(/var\(--[a-z-]+\)\s*(0d|11|14|22|33|55|66)/);
   });
+
+  it("supports selected-node clearing, double-click opening, and keyboard opening", () => {
+    const selected = "CP-1C";
+    const onSelect = vi.fn();
+    const onOpen = vi.fn();
+    render(<GraphView sim={emptySim} selected={selected} onSelect={onSelect} dim scope={fullScope()} onDoubleClick={onOpen} />);
+    const button = screen.getByTitle(/Peer Benchmarking — Enter to select/);
+    fireEvent.click(button);
+    fireEvent.doubleClick(button);
+    fireEvent.keyDown(button, { key: "Enter" });
+    fireEvent.keyDown(button, { key: " " });
+    expect(onSelect).toHaveBeenCalledWith(null);
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    expect(onOpen).toHaveBeenLastCalledWith(selected);
+  });
+
+  it("observes and disconnects the graph canvas resize", () => {
+    const disconnect = vi.fn();
+    vi.stubGlobal("ResizeObserver", class {
+      private callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) { this.callback = callback; }
+      observe() { this.callback([{ contentRect: { width: 700, height: 300 } } as ResizeObserverEntry], this as never); }
+      disconnect() { disconnect(); }
+    });
+    const view = render(<GraphView sim={emptySim} selected={null} onSelect={() => {}} dim={false} scope={fullScope()} />);
+    expect(screen.getByRole("region").firstElementChild?.getAttribute("style")).toContain("1281.4px");
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
 });
 
 describe("SwimlaneView", () => {
@@ -143,5 +214,19 @@ describe("SwimlaneView", () => {
   it("pipeline-44 labels out-of-scope modules as skipped", () => {
     render(<SwimlaneView sim={emptySim} selected={null} onSelect={() => {}} scope={new Set()} />);
     expect(screen.getAllByText("skip").length).toBeGreaterThan(0);
+  });
+
+  it("supports selected-module clearing, double-click opening, and keyboard opening", () => {
+    const selected = MODULES[0].id;
+    const onSelect = vi.fn();
+    const onOpen = vi.fn();
+    render(<SwimlaneView sim={emptySim} selected={selected} onSelect={onSelect} scope={fullScope()} onDoubleClick={onOpen} />);
+    const button = screen.getAllByRole("button")[0];
+    fireEvent.click(button);
+    fireEvent.doubleClick(button);
+    fireEvent.keyDown(button, { key: "Enter" });
+    expect(onSelect).toHaveBeenCalledWith(null);
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    expect(onOpen).toHaveBeenLastCalledWith(selected);
   });
 });

@@ -108,9 +108,22 @@ body {
   font-optical-sizing: auto;
 }
 
+/* Browser interaction defaults are explicit across the single-mode workspace:
+   preserve pan/pinch zoom, remove double-tap activation delay, and keep the
+   mobile tap signal inside the system accent palette. */
+:where(button, a[href], input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="tab"]) {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(99, 161, 255, 0.2);
+}
+
+:where(h1, h2, h3, h4, h5, h6)[id] { scroll-margin-top: 4rem; }
+[role="dialog"] { overscroll-behavior: contain; }
+
 .caos-workspace {
   min-height: 100vh;
   min-width: 0;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 .caos-workspace-main {
@@ -129,7 +142,7 @@ body:has(.caos-ask-dock) .caos-enterprise-page {
   overflow: hidden !important;
 }
 .caos-ask-launcher {
-  right: 8px !important;
+  right: calc(8px + env(safe-area-inset-right)) !important;
   bottom: calc(4px + env(safe-area-inset-bottom)) !important;
   min-height: 44px;
 }
@@ -288,6 +301,12 @@ body :is(button, a, input, select, textarea):focus-visible {
     flex-direction: column;
   }
   .caos-workbench-heading { flex: none; width: 100%; }
+  :is(.issuers-workbench, .sponsors-workbench) .caos-workbench-heading > :first-child {
+    min-height: 42px;
+  }
+  .sponsor-register-panel {
+    height: 215px;
+  }
   .caos-workbench-controls {
     width: 100%;
     margin-left: 0;
@@ -296,6 +315,15 @@ body :is(button, a, input, select, textarea):focus-visible {
   }
   .caos-workbench-actions { margin-left: auto; }
   .caos-utility-trigger-label { display: none; }
+  .monitor-workbench .caos-decision-grid:has(> .caos-decision-cell[data-kind="loading"]:only-child) {
+    min-height: 241px;
+  }
+  .caos-enterprise-page:has(.sector-workbench) .caos-finalization-bar {
+    min-height: 78px;
+  }
+  .sector-workbench .persona-workbench__slot--decision {
+    min-height: 313px;
+  }
 }
 
 @media (min-width: 1280px) {
@@ -663,6 +691,12 @@ main table:not(.rd-table):not(.rv-table):not(.caos-data-table) thead th {
 .rd-cols { display: flex; gap: 20px; align-items: flex-start; }
 .rd-col { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .rd-sec { min-width: 0; }
+@media screen {
+  /* The preview keeps every committee section in the DOM while allowing the
+     browser to skip offscreen layout/paint work. Printing remains eager and
+     unchanged; `auto` retains each section's measured size after first view. */
+  .rd-sec { content-visibility: auto; contain-intrinsic-size: auto 180px; }
+}
 
 /* edit mode — every text leaf is a contenteditable span */
 .rd-editing [contenteditable="true"] { white-space: pre-wrap; border-radius: 2px; outline: 1px dashed transparent; outline-offset: 1px; transition: outline-color 120ms ease, background 120ms ease; }

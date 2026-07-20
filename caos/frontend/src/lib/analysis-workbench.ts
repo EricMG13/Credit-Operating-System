@@ -322,7 +322,7 @@ export const analysisApi = {
   createContext: (body: Partial<AnalysisContext> & { name: string }) =>
     api.post<AnalysisContext>("/api/analysis/contexts", body).then((response) => response.data),
   getContext: (id: string) =>
-    api.get<AnalysisContext>(`/api/analysis/contexts/${id}`).then((response) => response.data),
+    api.get<AnalysisContext>(`/api/analysis/contexts/${encodeURIComponent(id)}`).then((response) => response.data),
   patchContext: (id: string, body: AnalysisContextPatch) =>
     api.patch<AnalysisContext>(`/api/analysis/contexts/${id}`, body).then((response) => response.data),
   listInsights: (

@@ -9,7 +9,8 @@ vi.mock("@/lib/command/data", () => ({
   }],
 }));
 
-import { DEMO_UNIVERSE, issuerSector } from "@/lib/issuers";
+import { DEMO_UNIVERSE } from "@/lib/issuer-demo";
+import { issuerSector } from "@/lib/issuers";
 
 describe("issuer fallback coverage", () => {
   it("falls back from an absent borrower and sector", () => {

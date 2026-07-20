@@ -8,13 +8,14 @@ import hmac
 import json
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import rate_limit
 from config import get_settings
 from database import (
     AnalysisContextRecord,
@@ -63,6 +64,8 @@ _SORTS = {
 }
 _MAX_CURSOR = 2048
 _EXCEPTION_MAX_DAYS = 30
+_COMMITTEE_WRITE_MAX_PER_MINUTE = 60
+_COMMITTEE_NOTE = Annotated[str, Field(max_length=2_000)]
 
 
 class AgendaCreate(BaseModel):
@@ -73,7 +76,7 @@ class AgendaCreate(BaseModel):
     recommendation: Recommendation
     conviction: Optional[float] = Field(default=None, ge=0, le=100)
     thesis: str = Field(min_length=1, max_length=50_000)
-    conditions: list[str] = Field(default_factory=list, max_length=50)
+    conditions: list[_COMMITTEE_NOTE] = Field(default_factory=list, max_length=50)
     expiry: Optional[date] = None
     run_id: Optional[str] = Field(default=None, max_length=36)
     report_version_id: Optional[str] = Field(default=None, max_length=36)
@@ -90,7 +93,7 @@ class AgendaPatch(BaseModel):
     recommendation: Optional[Recommendation] = None
     conviction: Optional[float] = Field(default=None, ge=0, le=100)
     thesis: Optional[str] = Field(default=None, min_length=1, max_length=50_000)
-    conditions: Optional[list[str]] = Field(default=None, max_length=50)
+    conditions: Optional[list[_COMMITTEE_NOTE]] = Field(default=None, max_length=50)
     expiry: Optional[date] = None
     run_id: Optional[str] = Field(default=None, max_length=36)
     report_version_id: Optional[str] = Field(default=None, max_length=36)
@@ -102,7 +105,7 @@ class AgendaPatch(BaseModel):
 class ExceptionRequestIn(BaseModel):
     expected_revision: int = Field(ge=1)
     rationale: str = Field(min_length=1, max_length=20_000)
-    mitigants: list[str] = Field(default_factory=list, max_length=50)
+    mitigants: list[_COMMITTEE_NOTE] = Field(default_factory=list, max_length=50)
     expires_at: date
 
 
@@ -202,6 +205,19 @@ def _require_committee_write(caller: CallerIdentity) -> None:
     require_write_role(caller)
     if caller.role.strip().lower() not in {"analyst", "admin"}:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Caller cannot mutate committee records.")
+
+
+def _committee_write_guard(caller: CallerIdentity) -> None:
+    _require_committee_write(caller)
+    if not rate_limit.hit(
+        f"committee-write:{caller.id}",
+        max_attempts=_COMMITTEE_WRITE_MAX_PER_MINUTE,
+        window_seconds=60,
+    ):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Committee write rate limit reached — try again in a minute.",
+        )
 
 
 def _require_exception_reviewer(caller: CallerIdentity) -> None:
@@ -650,8 +666,8 @@ async def _agenda_page_items(
     report_by_id = {row.id: row for row in reports}
     context_by_id = {row.id: row for row in contexts}
     exception_by_agenda: dict[str, CommitteeEvidenceException] = {}
-    for exception in exceptions:
-        exception_by_agenda.setdefault(exception.agenda_item_id, exception)
+    for exception_row in exceptions:
+        exception_by_agenda.setdefault(exception_row.agenda_item_id, exception_row)
     findings_by_run: dict[str, list[QAFinding]] = {}
     for finding in findings:
         findings_by_run.setdefault(finding.run_id, []).append(finding)
@@ -665,9 +681,9 @@ async def _agenda_page_items(
             report_by_id.get(row.report_version_id or ""),
             context_by_id.get(row.context_id or ""),
         )
-        exception = exception_by_agenda.get(row.id)
+        current_exception = exception_by_agenda.get(row.id)
         under_exception = _approved_exception_is_current(
-            exception,
+            current_exception,
             row,
             run,
             base_failures,
@@ -682,7 +698,7 @@ async def _agenda_page_items(
             caller,
             row,
             readiness_failures=effective_failures,
-            evidence_exception=exception,
+            evidence_exception=current_exception,
             readiness_under_exception=under_exception,
         ))
     return out
@@ -707,7 +723,7 @@ async def create_agenda_item(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    _require_committee_write(caller)
+    _committee_write_guard(caller)
     owner_id = body.owner_id if _is_admin(caller) and body.owner_id else caller.id
     # The form normally submits the selected version explicitly. This fallback
     # keeps older clients from silently producing an un-linkable agenda item:
@@ -849,7 +865,7 @@ async def patch_agenda_item(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    _require_committee_write(caller)
+    _committee_write_guard(caller)
     row = await _accessible_item(db, caller, item_id, lock=True)
     _require_item_mutation(caller, row)
     if row.status in {"decided", "cancelled"}:
@@ -901,7 +917,7 @@ async def request_evidence_exception(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    _require_committee_write(caller)
+    _committee_write_guard(caller)
     item = await _accessible_item(db, caller, item_id, lock=True)
     _require_item_mutation(caller, item)
     if item.status in {"decided", "cancelled"}:
@@ -1265,7 +1281,7 @@ async def finalize_agenda_item(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
-    _require_committee_write(caller)
+    _committee_write_guard(caller)
     row = await _accessible_item(db, caller, item_id, lock=True)
     _require_item_mutation(caller, row)
     existing = await _existing_finalization_out(db, caller, row, body.expected_revision)

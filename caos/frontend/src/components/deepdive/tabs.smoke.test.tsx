@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/link", () => ({ default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => <a href={href} {...props}>{children}</a> }));
-vi.mock("@/components/reports/EvidenceModal", () => ({ EvChip: ({ id, onOpen }: { id: string; onOpen: (id: string) => void }) => <button onClick={() => onOpen(id)}>evidence {id}</button> }));
+vi.mock("@/components/reports/EvChip", () => ({ EvChip: ({ id, onOpen }: { id: string; onOpen: (id: string) => void }) => <button onClick={() => onOpen(id)}>evidence {id}</button> }));
 vi.mock("@/components/pipeline/atoms", () => ({ Dot: ({ sev }: { sev: string }) => <span>dot {sev}</span>, Tag: ({ children }: { children: React.ReactNode }) => <span>tag {children}</span> }));
 vi.mock("@/components/shared/StatCard", () => ({ StatCard: ({ value, label }: { value: React.ReactNode; label: string }) => <div>{label}: {value}</div> }));
 vi.mock("@/components/shared/SectionHeader", () => ({ SectionHeader: ({ title, right }: { title: React.ReactNode; right?: React.ReactNode }) => <header>{title}{right}</header> }));

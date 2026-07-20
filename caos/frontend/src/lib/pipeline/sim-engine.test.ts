@@ -78,4 +78,30 @@ describe("stepSim — the scheduler", () => {
     expect(s.mods.A.state).toBe("idle");
     expect(s.done).toBe(true);
   });
+
+  it("advances a running module without completing it", () => {
+    const plan = [step("A", [], 4)];
+    const started = stepSim(initSim(plan), plan, null);
+    const advanced = stepSim(started, plan, null);
+    expect(advanced.mods.A).toEqual({ state: "running", prog: 0.29 });
+    expect(advanced.done).toBe(false);
+  });
+
+  it("handles forced running idle outcomes and completions without module events", () => {
+    const plan = [step("A", [], 1, "idle"), step("B", [], 1, "pass")];
+    const sim = initSim(plan);
+    sim.mods.A = { state: "running", prog: 0 };
+    sim.mods.B = { state: "running", prog: 0 };
+    const completed = stepSim(sim, plan, null);
+    expect(completed.mods.A).toEqual({ state: "idle", prog: 1 });
+    expect(completed.mods.B).toEqual({ state: "pass", prog: 1 });
+    expect(completed.events).toHaveLength(1);
+    expect(completed.events[0].text).toMatch(/RUN COMPLETE/);
+  });
+
+  it("uses the catalog name when a known module starts", () => {
+    const plan = [step("CP-0", [], 2)];
+    const started = stepSim(initSim(plan), plan, null);
+    expect(started.events[0].text).toBe("CP-0 started — Source Readiness");
+  });
 });

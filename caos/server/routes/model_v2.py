@@ -238,13 +238,13 @@ def _event_out(row: ModelOverrideEvent) -> OverrideEventOut:
 
 
 def _checkpoint_out(row: ModelCheckpoint) -> V2CheckpointOut:
-    if not all((
-        row.engine_version,
-        row.source_fingerprint,
-        row.input_fingerprint,
-        row.calculation_hash,
-        row.draft_revision is not None,
-    )):
+    if (
+        not row.engine_version
+        or not row.source_fingerprint
+        or not row.input_fingerprint
+        or not row.calculation_hash
+        or row.draft_revision is None
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Model checkpoint not found.")
     return V2CheckpointOut(
         id=row.id,
@@ -701,6 +701,7 @@ async def get_model_v2(
                 else None
             ),
         )
+    run: Optional[Run]
     if run_id is not None:
         run, cp1, reporting_profile = await _owned_run(
             db,
@@ -867,22 +868,28 @@ async def mutate_model_v2_override(
         payload=next_payload,
         calculation=after_calculation,
     )
+    event_value = applied if applied is not None else prior
+    if event_value is None:  # Defensive: each validated action supplies one side.
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Override mutation did not produce an audit value.",
+        )
     event = ModelOverrideEvent(
         draft_id=draft.id,
         issuer_id=issuer_id,
         analyst_id=caller.id,
         action=body.action,
         node_id=target,
-        value_type=applied.value_type if applied else prior.value_type,
+        value_type=event_value.value_type,
         before_value=prior.model_dump(mode="json") if prior else None,
         after_value=applied.model_dump(mode="json") if applied else None,
         original_formula=original_node.get("formula"),
         original_value={"value": original_node.get("original_value")},
-        reason=applied.reason if applied else prior.reason,
-        scope=applied.scope if applied else prior.scope,
-        source=applied.source if applied else prior.source,
+        reason=event_value.reason,
+        scope=event_value.scope,
+        source=event_value.source,
         actor_id=caller.id,
-        expires_at=applied.expires_at if applied else prior.expires_at,
+        expires_at=event_value.expires_at,
         revision=changed.revision,
         created_at=datetime.now(timezone.utc),
     )

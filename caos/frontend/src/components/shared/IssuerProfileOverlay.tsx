@@ -1,14 +1,25 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { getIssuers, getIssuerProfile, type IssuerProfile } from "@/lib/api";
-import { Profile } from "@/app/issuers/profile/ProfileContent";
 import { useModalA11y } from "@/lib/use-modal-a11y";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
-import { DEMO_UNIVERSE } from "@/lib/issuers";
 import type { Issuer } from "@/types/issuers";
+
+const Profile = dynamic(
+  () => import("@/app/issuers/profile/ProfileContent").then((module) => module.Profile),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-caos-bg p-6">
+        <SurfaceState kind="loading" title="Loading profile view" detail="Preparing the issuer evidence workspace." className="w-full max-w-md" />
+      </div>
+    ),
+  },
+);
 
 interface IssuerProfileOverlayContextType {
   /** Open directly by issuer id — the common path (callers holding an Issuer). */
@@ -60,7 +71,7 @@ export function IssuerProfileOverlayProvider({ children }: { children: ReactNode
 
   // Resolve a free-text ticker/name (e.g. a Command Center row that only knows
   // a portfolio code) to an issuer id via search, then open. Falls back to the
-  // local DEMO_UNIVERSE sleeve, then to a direct pass-through of the term.
+  // lazily-loaded demo sleeve, then to a direct pass-through of the term.
   const openProfileByQuery = async (query: string) => {
     const term = query.trim();
     if (!term) return;
@@ -83,7 +94,9 @@ export function IssuerProfileOverlayProvider({ children }: { children: ReactNode
       console.error("Issuer lookup failed, falling back to local sleeve", err);
     }
 
-    // 2. Client-side fallback to the DEMO_UNIVERSE sleeve
+    // 2. Client-side fallback to the demo sleeve. Load the large portfolio seed
+    // only on this uncommon API-miss path, never in the root layout bundle.
+    const { DEMO_UNIVERSE } = await import("@/lib/issuer-demo");
     const cleanQ = term.toLowerCase();
     const demoMatch = DEMO_UNIVERSE.find(
       (i) =>

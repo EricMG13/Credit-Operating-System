@@ -547,19 +547,47 @@ class LiveSynthesizer:
                 "max_uses": 1,
                 "max_tokens": _ADVISOR_MAX_TOKENS,
             }
-            resp = await self._get_client().beta.messages.create(
-                betas=[_ADVISOR_BETA],
-                model=s.synth_executor_model,
-                max_tokens=_MAX_TOKENS,
-                system=system_blocks,
-                tools=[advisor, tool],
-                tool_choice={"type": "any"},  # advisor (model's choice), then the payload tool
-                messages=messages,
+            advisor_kwargs = {
+                "max_tokens": _MAX_TOKENS,
+                "system": system_blocks,
+                "tools": [advisor, tool],
+                "tool_choice": {"type": "any"},
+                "messages": messages,
+            }
+            reservation = await budget.reserve_call(
+                advisor_kwargs,
+                extra_output_tokens=_ADVISOR_MAX_TOKENS,
+                input_copies=2,
             )
-            # Already on the cheaper executor — no model fallback to make. Accrue
-            # usage + emit the M-1 trace (the advisor sub-call bills inside
-            # record_usage via usage.iterations).
-            await budget.trace_llm(resp, lane=f"synth:{module_id}:advisor", model=s.synth_executor_model)
+            # Split any near-cap output reduction between the executor and advisor,
+            # preserving at least one token for each bounded sub-inference.
+            total_output = reservation.max_output_tokens
+            if total_output < 2:
+                await budget.release_call(reservation)
+                raise budget.TokenBudgetExceeded(
+                    "per-run token budget cannot fit executor and advisor outputs"
+                )
+            executor_max = min(_MAX_TOKENS, max(1, total_output - 1))
+            advisor_max = min(_ADVISOR_MAX_TOKENS, max(1, total_output - executor_max))
+            advisor["max_tokens"] = advisor_max
+            try:
+                resp = await self._get_client().beta.messages.create(
+                    betas=[_ADVISOR_BETA],
+                    model=s.synth_executor_model,
+                    max_tokens=executor_max,
+                    system=system_blocks,
+                    tools=[advisor, tool],
+                    tool_choice={"type": "any"},  # advisor (model's choice), then the payload tool
+                    messages=messages,
+                )
+                # Already on the cheaper executor — no model fallback to make.
+                await budget.trace_llm(
+                    resp,
+                    lane=f"synth:{module_id}:advisor",
+                    model=s.synth_executor_model,
+                )
+            finally:
+                await budget.release_call(reservation)
         else:
             # M-2 fallback + M-1 trace via the shared seam (forced-tool call).
             resp = await llm_client.create(

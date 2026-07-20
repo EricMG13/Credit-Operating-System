@@ -591,7 +591,7 @@ function WorkbookPreview({ state }: { state: WorkbookImportViewState }) {
         </ul>
       ) : <p className="text-caos-success">No validation issues.</p>}
       <label className="flex items-start gap-2 text-caos-xs text-caos-text">
-        <input type="checkbox" checked={state.importConfirmed} onChange={(event) => state.setImportConfirmed(event.target.checked)} disabled={preview.blocking_count > 0 || preview.ambiguities.length > 0 || !preview.preview_token} className="mt-0.5 focus-ring" />
+        <input type="checkbox" name="confirm-workbook-import" autoComplete="off" checked={state.importConfirmed} onChange={(event) => state.setImportConfirmed(event.target.checked)} disabled={preview.blocking_count > 0 || preview.ambiguities.length > 0 || !preview.preview_token} className="mt-0.5 focus-ring" />
         I reviewed this preview and confirm creating or replacing the canonical model revision.
       </label>
       <Button variant="primary" onClick={() => void state.commitImport()} reason={workbookCommitReason(state)}>{state.busy === "import-commit" ? "Committing…" : "Commit workbook import"}</Button>
@@ -611,7 +611,7 @@ function WorkbookMappingControls({ state }: { state: WorkbookImportViewState }) 
       </div>
       <label className="mt-2 block text-caos-xs text-caos-text">
         Close-format mapping JSON · currency and unit required when used
-        <textarea value={state.importMappingText} onChange={(event) => state.updateMappingText(event.target.value)} rows={state.importMappingText ? 10 : 3} spellCheck={false} placeholder='{"mode":"mapped_legacy", ...}' className="mt-1 block w-full resize-y rounded border border-caos-border bg-caos-bg p-2 font-mono text-caos-2xs text-caos-text focus-ring" />
+        <textarea value={state.importMappingText} onChange={(event) => state.updateMappingText(event.target.value)} rows={state.importMappingText ? 10 : 3} spellCheck={false} placeholder='{"mode":"mapped_legacy","mapping":{}}…' className="mt-1 block w-full resize-y rounded border border-caos-border bg-caos-bg p-2 font-mono text-caos-2xs text-caos-text focus-ring" />
       </label>
     </div>
   );
@@ -623,7 +623,7 @@ function WorkbookImportPanel({ state }: { state: WorkbookImportViewState }) {
     <Panel title="Workbook import" right={<span className="text-caos-2xs text-caos-muted">.xlsx · preview first</span>}>
       <div className="space-y-3 p-3">
         <p className="text-caos-xs leading-relaxed text-caos-muted">Preview is read-only. Commit revalidates the same bytes and atomically creates or replaces the canonical model revision.</p>
-        <label className="block text-caos-xs text-caos-text">Model workbook<input type="file" accept={`.xlsx,${XLSX_MIME}`} onChange={(event) => state.selectImportFile(event.target.files?.[0] ?? null)} className="mt-1 block w-full text-caos-xs text-caos-muted file:mr-2 file:rounded file:border file:border-caos-border file:bg-caos-elevated file:px-2 file:py-1 file:text-caos-text" /></label>
+        <label className="block text-caos-xs text-caos-text">Model workbook<input type="file" name="model-workbook" autoComplete="off" accept={`.xlsx,${XLSX_MIME}`} onChange={(event) => state.selectImportFile(event.target.files?.[0] ?? null)} className="mt-1 block w-full text-caos-xs text-caos-muted file:mr-2 file:rounded file:border file:border-caos-border file:bg-caos-elevated file:px-2 file:py-1 file:text-caos-text" /></label>
         <WorkbookMappingControls state={state} />
         <Button variant="secondary" onClick={() => void state.previewImport()} reason={previewReason}>{state.busy === "import-preview" ? "Validating…" : "Preview workbook"}</Button>
         <WorkbookPreview state={state} />
@@ -707,9 +707,7 @@ function useWorkbookImportController(args: WorkbookImportControllerArgs): Workbo
     setImportMappingText(value); setImportMapping(null); setImportPreview(null); setImportConfirmed(false); setError(null);
   };
   const resolveAmbiguity = (ambiguity: ModelV2WorkbookMappingAmbiguity, candidate: string) => {
-    let mapping = importMapping;
-    try { mapping ??= parseLegacyMapping(importMappingText); }
-    catch (reason) { setError(toErrorMessage(reason, "Close-format mapping JSON is invalid.")); return; }
+    const mapping = importMapping ?? parseLegacyMapping(importMappingText);
     if (!mapping) return;
     const resolution = applyAmbiguityResolution(mapping, ambiguity, ambiguityColumn(candidate));
     if (!resolution.mapping) { setError(resolution.error); return; }
@@ -1657,7 +1655,7 @@ function CalculationNodeFilters({ state }: { state: ReadyModelV2Controller }) {
     <div className="flex flex-wrap items-end gap-2 border-b border-caos-border p-2">
       <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-caos-2xs uppercase tracking-wider text-caos-muted">
         Filter nodes
-        <input aria-label="Filter calculation nodes" value={nodeQuery} onChange={(event) => { setNodeQuery(event.target.value); setNodePage(0); }} placeholder="Stable node ID" className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-xs normal-case tracking-normal text-caos-text focus-ring" />
+        <input name="calculation-node-filter" autoComplete="off" aria-label="Filter calculation nodes" value={nodeQuery} onChange={(event) => { setNodeQuery(event.target.value); setNodePage(0); }} placeholder="Stable node ID…" className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-xs normal-case tracking-normal text-caos-text focus-ring" />
       </label>
       <label className="flex min-w-[12rem] flex-col gap-1 text-caos-2xs uppercase tracking-wider text-caos-muted">
         Period
@@ -1719,21 +1717,21 @@ function OverrideEditor({ state }: { state: ReadyModelV2Controller }) {
       <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(13rem,0.7fr)_auto] lg:items-end">
         <label className="flex flex-col gap-1 text-caos-xs text-caos-text">
           Numeric value
-          <input ref={editorRef} value={editorValue} onChange={(event) => setEditorValue(event.target.value)} disabled={editorNull} inputMode="decimal" className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-text focus-ring disabled:opacity-40" />
+          <input ref={editorRef} name="model-override-value" autoComplete="off" value={editorValue} onChange={(event) => setEditorValue(event.target.value)} disabled={editorNull} inputMode="decimal" className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-text focus-ring disabled:opacity-40" />
         </label>
         <label className="flex flex-col gap-1 text-caos-xs text-caos-text">
           Reason {reasonRequired ? "· required" : "· optional"}
-          <input value={editorReason} onChange={(event) => setEditorReason(event.target.value)} className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-text focus-ring" />
+          <input name="model-override-reason" autoComplete="off" value={editorReason} onChange={(event) => setEditorReason(event.target.value)} className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-text focus-ring" />
         </label>
         {reasonRequired ? (
           <label className="flex flex-col gap-1 text-caos-xs text-caos-text">
             Override expiry · required
-            <input type="datetime-local" aria-label="Override expiry" value={editorExpiry} onChange={(event) => setEditorExpiry(event.target.value)} className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-text focus-ring" />
+            <input type="datetime-local" name="model-override-expiry" autoComplete="off" aria-label="Override expiry" value={editorExpiry} onChange={(event) => setEditorExpiry(event.target.value)} className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-text focus-ring" />
             <span className="text-caos-3xs uppercase tracking-wide text-caos-muted">Source · analyst-ui</span>
           </label>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-caos-xs text-caos-muted"><input type="checkbox" checked={editorNull} onChange={(event) => setEditorNull(event.target.checked)} className="focus-ring" />Set unavailable (null)</label>
+          <label className="flex items-center gap-2 text-caos-xs text-caos-muted"><input type="checkbox" name="model-override-unavailable" autoComplete="off" checked={editorNull} onChange={(event) => setEditorNull(event.target.checked)} className="focus-ring" />Set unavailable (null)</label>
           <button type="button" onClick={queueOverride} className="caos-primary-action focus-ring">Queue override</button>
           <button type="button" onClick={() => setSelectedNodeId(null)} className="caos-action-secondary focus-ring">Cancel</button>
         </div>
@@ -1765,7 +1763,7 @@ function ScenarioInputs({ state }: { state: ReadyModelV2Controller }) {
     <>
       <label className="flex flex-col gap-1 text-caos-xs text-caos-text">
         Find scenario node
-        <input aria-label="Filter scenario nodes" value={scenarioNodeQuery} onChange={(event) => setScenarioNodeQuery(event.target.value)} disabled={requiresRecalculation} placeholder="Period or stable node ID" className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-text focus-ring" />
+        <input name="scenario-node-filter" autoComplete="off" aria-label="Filter scenario nodes" value={scenarioNodeQuery} onChange={(event) => setScenarioNodeQuery(event.target.value)} disabled={requiresRecalculation} placeholder="Period or stable node ID…" className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-text focus-ring" />
       </label>
       <label className="flex flex-col gap-1 text-caos-xs text-caos-text">
         Scenario node
@@ -1777,7 +1775,7 @@ function ScenarioInputs({ state }: { state: ReadyModelV2Controller }) {
       </label>
       <label className="flex flex-col gap-1 text-caos-xs text-caos-text">
         Scenario value
-        <input value={scenarioValue} onChange={(event) => { clearPreview(); setScenarioValue(event.target.value); }} disabled={requiresRecalculation || (busy !== null && busy !== "scenario-preview")} inputMode="decimal" className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-text focus-ring disabled:opacity-40" />
+        <input name="scenario-value" autoComplete="off" value={scenarioValue} onChange={(event) => { clearPreview(); setScenarioValue(event.target.value); }} disabled={requiresRecalculation || (busy !== null && busy !== "scenario-preview")} inputMode="decimal" className="h-8 rounded border border-caos-border bg-caos-bg px-2 font-mono text-caos-text focus-ring disabled:opacity-40" />
       </label>
     </>
   );
@@ -1882,7 +1880,7 @@ function CheckpointControls({ state }: { state: ReadyModelV2Controller }) {
   return (
     <>
       <div className="flex flex-wrap items-end gap-2">
-        <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-caos-xs text-caos-text">Checkpoint label<input value={checkpointLabel} maxLength={160} onChange={(event) => setCheckpointLabel(event.target.value)} disabled={!record} className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-text focus-ring disabled:opacity-40" /></label>
+        <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-caos-xs text-caos-text">Checkpoint label<input name="model-checkpoint-label" autoComplete="off" value={checkpointLabel} maxLength={160} onChange={(event) => setCheckpointLabel(event.target.value)} disabled={!record} className="h-8 rounded border border-caos-border bg-caos-bg px-2 text-caos-text focus-ring disabled:opacity-40" /></label>
         <button type="button" onClick={() => void createCheckpoint()} aria-disabled={(!record || !activeContextId || requiresRecalculation || dirty || busy !== null) || undefined} className="caos-action-secondary focus-ring aria-disabled:opacity-40" title={requiresRecalculation ? "Recalculate and save before checkpointing" : activeContextId ? "Create immutable checkpoint" : "Bind an analysis context before checkpointing"}>{busy === "checkpoint" ? "Creating…" : "Create checkpoint"}</button>
       </div>
       <div className="max-h-48 overflow-auto rounded border border-caos-border">

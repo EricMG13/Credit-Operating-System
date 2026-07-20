@@ -47,6 +47,7 @@ from database import Analyst, get_db
 # cookie. Resolution is mostly self-contained (HMAC + exp), plus one indexed
 # Analyst lookup to enforce session revocation (token_version). See routes/auth.py.
 COOKIE_NAME = "caos_analyst"
+_MAX_SESSION_TOKEN_BYTES = 4_096
 
 
 @dataclass(frozen=True)
@@ -65,7 +66,7 @@ class CallerIdentity:
     team_id: str | None = None
 
 
-_READ_ONLY_SERVER_ROLES = {"viewer", "read-only", "read_only", "readonly"}
+_WRITE_SERVER_ROLES = {"analyst", "qa", "admin"}
 
 
 def require_write_role(caller: CallerIdentity) -> None:
@@ -73,7 +74,10 @@ def require_write_role(caller: CallerIdentity) -> None:
 
     This deliberately ignores the frontend's presentation-only role view.
     """
-    if caller.role.strip().lower() in _READ_ONLY_SERVER_ROLES:
+    # Fail closed: a typo, stale role, or future role does not silently inherit
+    # mutation rights. The database constraint keeps persisted profiles inside
+    # the same vocabulary; proxy identities are still checked here at runtime.
+    if caller.role.strip().lower() not in _WRITE_SERVER_ROLES:
         raise HTTPException(403, "Read-only callers cannot mutate this resource.")
 
 
@@ -98,6 +102,13 @@ def read_session_token(token: str, secret: str) -> dict | None:
     is rejected regardless of the cookie, and a token WITHOUT an exp (pre-#32
     legacy) is treated as expired — see the exp check below.
     """
+    if not isinstance(token, str) or len(token) > _MAX_SESSION_TOKEN_BYTES:
+        return None
+    try:
+        if len(token.encode("utf-8")) > _MAX_SESSION_TOKEN_BYTES:
+            return None
+    except UnicodeEncodeError:
+        return None
     try:
         raw, sig = token.rsplit(".", 1)
     except ValueError:

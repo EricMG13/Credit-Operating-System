@@ -8,6 +8,10 @@ each LLM call site consults it:
   * ``llm_allowed()`` — False once the budget is spent, so a module degrades to its
     deterministic path (add-backs/covenants) or is gated (synth) rather than
     spending beyond the cap.
+  * ``reserve_call()`` — before network I/O, atomically reserves a conservative
+    input-token upper bound plus the provider's maximum output. Concurrent fan-out
+    waits for released headroom instead of every lane independently passing a
+    stale pre-call check.
   * ``record_usage(resp)`` — accrues the Anthropic response's token usage.
 
 It is carried in a ``ContextVar`` so it threads through the whole run (including a
@@ -17,11 +21,12 @@ unlimited (the default), so this is inert unless an operator sets a budget.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import json
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 # M-1: per-inference trace lines land on this logger so they can be grepped /
@@ -29,12 +34,24 @@ from typing import Optional
 _trace_logger = logging.getLogger("caos.llm")
 
 
+@dataclass(frozen=True)
+class BudgetReservation:
+    amount: int
+    max_output_tokens: int
+
+
+class TokenBudgetExceeded(RuntimeError):
+    """No bounded provider call can fit in the active run budget."""
+
+
 @dataclass
 class RunBudget:
     limit: int        # max total tokens for the run; <= 0 means unlimited
     used: int = 0
+    reserved: int = 0
     degraded: bool = False  # Track if model rate limits/overloads forced a degraded fallback path
     budget_exhausted: bool = False  # Track if run ran out of token budget
+    _changed: asyncio.Condition = field(default_factory=asyncio.Condition, repr=False)
 
     def exhausted(self) -> bool:
         return self.limit > 0 and self.used >= self.limit
@@ -44,6 +61,46 @@ class RunBudget:
 
     def record(self, input_tokens: int = 0, output_tokens: int = 0) -> None:
         self.used += int(input_tokens or 0) + int(output_tokens or 0)
+
+    async def reserve(
+        self, input_tokens: int, max_output_tokens: int
+    ) -> BudgetReservation | None:
+        """Atomically reserve one call, waiting for concurrent calls to settle.
+
+        If a call's requested ceiling is larger than the remaining budget after
+        all prior reservations settle, its output ceiling is reduced to the exact
+        remaining headroom. ``None`` means even the conservative input bound does
+        not fit, so no provider request is allowed.
+        """
+        requested_input = max(0, int(input_tokens))
+        requested_output = max(1, int(max_output_tokens))
+        if self.limit <= 0:
+            return BudgetReservation(0, requested_output)
+        async with self._changed:
+            while True:
+                available = max(0, self.limit - self.used - self.reserved)
+                requested = requested_input + requested_output
+                if available >= requested:
+                    reservation = BudgetReservation(requested, requested_output)
+                    self.reserved += reservation.amount
+                    return reservation
+                if self.reserved > 0:
+                    await self._changed.wait()
+                    continue
+                output_room = available - requested_input
+                if output_room <= 0:
+                    self.budget_exhausted = True
+                    return None
+                reservation = BudgetReservation(available, output_room)
+                self.reserved += reservation.amount
+                return reservation
+
+    async def release(self, reservation: BudgetReservation) -> None:
+        if reservation.amount <= 0:
+            return
+        async with self._changed:
+            self.reserved = max(0, self.reserved - reservation.amount)
+            self._changed.notify_all()
 
 
 _budget_var: contextvars.ContextVar[Optional[RunBudget]] = contextvars.ContextVar(
@@ -77,6 +134,54 @@ def llm_allowed() -> bool:
         b.budget_exhausted = True
         return False
     return True
+
+
+def _input_reservation(kwargs: dict, *, copies: int = 1) -> int:
+    """Conservative provider-input bound from actual request bytes.
+
+    BPE/SentencePiece inputs cannot contain more base text tokens than their UTF-8
+    bytes. Eight thousand tokens per copy cover provider-added message/tool framing;
+    the advisor path uses two copies because its sub-inference receives context too.
+    This deliberately over-reserves, then releases against provider-reported usage.
+    """
+    payload = {
+        "system": kwargs.get("system"),
+        "messages": kwargs.get("messages"),
+        "tools": kwargs.get("tools"),
+        "tool_choice": kwargs.get("tool_choice"),
+    }
+    raw_bytes = len(
+        json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    )
+    count = max(1, int(copies))
+    return raw_bytes * count + 8192 * count
+
+
+async def reserve_call(
+    kwargs: dict,
+    *,
+    extra_output_tokens: int = 0,
+    input_copies: int = 1,
+) -> BudgetReservation:
+    """Reserve the active run's conservative input + maximum output spend."""
+    requested_output = max(1, int(kwargs.get("max_tokens") or 0)) + max(
+        0, int(extra_output_tokens)
+    )
+    b = _budget_var.get()
+    if b is None:
+        return BudgetReservation(0, requested_output)
+    reservation = await b.reserve(
+        _input_reservation(kwargs, copies=input_copies), requested_output
+    )
+    if reservation is None:
+        raise TokenBudgetExceeded("per-run token budget exhausted before provider call")
+    return reservation
+
+
+async def release_call(reservation: BudgetReservation) -> None:
+    b = _budget_var.get()
+    if b is not None:
+        await b.release(reservation)
 
 
 def _input_tokens(u) -> int:

@@ -391,6 +391,8 @@ function Research() {
     <label className="flex flex-col gap-1">
       <span className={big ? "tabular text-caos-2xs uppercase tracking-wider text-caos-text" : labelCls}>{label}</span>
       <TextInput
+        name={`research-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+        autoComplete="off"
         value={value}
         onChange={(e) => set(e.target.value)}
         placeholder={placeholder}
@@ -486,7 +488,7 @@ function Research() {
                 mode === "sector" ? "Sector / theme" : "Issuer",
                 subject,
                 setSubject,
-                mode === "sector" ? "e.g. enterprise software (NA & EU)" : "e.g. Atlas Forge",
+                mode === "sector" ? "e.g. enterprise software (NA & EU)…" : "e.g. Atlas Forge…",
                 300,
                 true,
               )}
@@ -509,9 +511,9 @@ function Research() {
               {adv && (
                 <div className="flex flex-col gap-4 caos-enter">
                   <div className="flex flex-col gap-3">
-                    {field("Audience", audience, setAudience, "the credit investment committee", 200)}
-                    {field("Decision to inform", decision, setDecision, "position sizing and credit selection", 300)}
-                    {field("Timeframe", timeframe, setTimeframe, "the last 12 months to present", 200)}
+                    {field("Audience", audience, setAudience, "The credit investment committee…", 200)}
+                    {field("Decision to inform", decision, setDecision, "Position sizing and credit selection…", 300)}
+                    {field("Timeframe", timeframe, setTimeframe, "The last 12 months to present…", 200)}
                   </div>
                   <div className="flex flex-col gap-3">
                     {area("Focus areas (optional)", focus, setFocus, "geographies, sub-segments, capital-structure tiers…", 1000)}

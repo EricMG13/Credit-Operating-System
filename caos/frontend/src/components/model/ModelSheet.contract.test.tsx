@@ -21,6 +21,7 @@ function renderSheet(overrides: Partial<{
   onCommit: (value: string | null) => void;
   collapsedRows: Set<string>;
   onToggleRow: (row: string) => void;
+  onPasteCells: (result: unknown) => void;
 }> = {}) {
   return render(
     <Sheet
@@ -35,6 +36,7 @@ function renderSheet(overrides: Partial<{
       onCommit={overrides.onCommit ?? noop}
       collapsedRows={overrides.collapsedRows ?? new Set()}
       onToggleRow={overrides.onToggleRow ?? noop}
+      onPasteCells={overrides.onPasteCells}
     />,
   );
 }
@@ -94,7 +96,9 @@ describe("Model Builder worksheet feature contracts", () => {
     cleanup();
     onCommit.mockClear();
     renderSheet({ editing: { row: "rev", col: "q0" }, onCommit });
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Edit Total revenue, Mar-24" }), { key: "Escape" });
+    const escapeInput = screen.getByRole("textbox", { name: "Edit Total revenue, Mar-24" });
+    fireEvent.click(escapeInput);
+    fireEvent.keyDown(escapeInput, { key: "Escape" });
     expect(onCommit).toHaveBeenLastCalledWith(null);
 
     cleanup();
@@ -134,6 +138,10 @@ describe("Model Builder worksheet feature contracts", () => {
     expect(screen.getByText("Built from")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "CP-1 T4.7" }));
     expect(setHl).toHaveBeenCalledWith("cp1");
+
+    view.rerender(<Manifest hl="cp1" setHl={setHl} isReference />);
+    fireEvent.click(screen.getByRole("button", { name: "CP-1 T4.7" }));
+    expect(setHl).toHaveBeenLastCalledWith(null);
   });
 
   it("model-08 model-28 opens the selected source and discloses the reference derived-period gap", () => {
@@ -169,5 +177,66 @@ describe("Model Builder worksheet feature contracts", () => {
       />,
     );
     expect(screen.getByText(/select any cell to trace its formula and source lineage/)).toBeTruthy();
+  });
+
+  it("covers grid clicks, editable double-clicks, row collapse, paste, and terminal keyboard keys", () => {
+    const onSel = vi.fn();
+    const onEdit = vi.fn();
+    const onToggleRow = vi.fn();
+    const onPasteCells = vi.fn();
+    renderSheet({ sel: { row: "rev", col: "q0" }, onSel, onEdit, onToggleRow, onPasteCells });
+    const grid = screen.getByRole("grid", { name: "Model worksheet" });
+    const editable = document.getElementById("cell-rev-q0")!;
+    const forecast = document.getElementById("cell-rev-b0")!;
+    fireEvent.click(editable);
+    fireEvent.doubleClick(editable);
+    fireEvent.doubleClick(forecast);
+    expect(onSel).toHaveBeenCalledWith({ row: "rev", col: "q0" });
+    expect(onEdit).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Total revenue rows" }));
+    expect(onToggleRow).toHaveBeenCalledWith("rev");
+    fireEvent.paste(grid, { clipboardData: { getData: () => "100\t200" } });
+    expect(onPasteCells).toHaveBeenCalledOnce();
+    fireEvent.keyDown(grid, { key: "Home" });
+
+    cleanup();
+    onSel.mockClear();
+    renderSheet({ sel: { row: "sofr", col: model.columns.at(-1)!.key }, onSel });
+    fireEvent.keyDown(screen.getByRole("grid", { name: "Model worksheet" }), { key: "Tab" });
+    expect(onSel).not.toHaveBeenCalled();
+  });
+
+  it("renders base, downside, live-derived, formula/ref-note, warning, and hidden coordinates", () => {
+    const props = {
+      model,
+      overrides: {},
+      onResetCell: noop,
+      onOpenEvidence: noop,
+      showQ: true,
+      collapsedRows: new Set<string>(),
+    };
+    const view = render(<FormulaBar {...props} sel={{ row: "rev", col: "b0" }} isReference />);
+    expect(screen.getByText(/base case = sponsor model/)).toBeTruthy();
+
+    view.rerender(<FormulaBar {...props} sel={{ row: "rev", col: "b0" }} />);
+    expect(screen.getByText(/base case = agent forecast/)).toBeTruthy();
+    view.rerender(<FormulaBar {...props} sel={{ row: "rev", col: "d0" }} isReference />);
+    expect(screen.getByText(/downside = CP-2B pathway P1/)).toBeTruthy();
+    view.rerender(<FormulaBar {...props} sel={{ row: "rev", col: "d0" }} />);
+    expect(screen.getByText(/downside = CP-2B first-order/)).toBeTruthy();
+    view.rerender(<FormulaBar {...props} sel={{ row: "rev", col: "q7" }} />);
+    expect(screen.getByText("▸ derived period")).toBeTruthy();
+
+    view.rerender(<FormulaBar {...props} sel={{ row: "int", col: "q0" }} isReference />);
+    expect(screen.getByText("L-04")).toBeTruthy();
+    expect(screen.getByText(/Cash interest = .*CP-2F T2F.2/)).toBeTruthy();
+
+    view.rerender(<FormulaBar {...props} sel={{ row: "segD", col: "q0" }} isReference collapsedRows={new Set(["rev"])} />);
+    expect(screen.getByText(/Drivetrain — sourced from Operating model — segments/)).toBeTruthy();
+    expect(screen.queryByText(/^A\d+$/)).toBeNull();
+
+    view.rerender(<FormulaBar {...props} sel={{ row: "rev", col: "q0" }} />);
+    expect(screen.getByText(/Total revenue — sourced from model logic/)).toBeTruthy();
   });
 });

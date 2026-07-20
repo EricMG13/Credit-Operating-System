@@ -624,6 +624,19 @@ export function buildReports(inputs?: ModelInputs): Report[] {
   return [creditSnapshot(model), earningsUpdate(), creditMemo(model), covenantBrief(), monitoringDigest(), modelAppendix(model)];
 }
 
+export function buildReferenceReport(id: string | null | undefined, inputs?: ModelInputs): Report {
+  const model = buildModel(inputs?.severity ?? 1, inputs?.overrides ?? {}, inputs?.anchor, inputs?.assumptions);
+  const builders: Record<string, () => Report> = {
+    snapshot: () => creditSnapshot(model),
+    earnings: earningsUpdate,
+    memo: () => creditMemo(model),
+    covenant: covenantBrief,
+    monitor: monitoringDigest,
+    model: () => modelAppendix(model),
+  };
+  return (builders[id ?? "snapshot"] ?? builders.snapshot)();
+}
+
 export function citeCount(rep: Report): number {
   const set = new Set<string>();
   rep.srcs.forEach((s) => s.ev.forEach((e) => set.add(e)));

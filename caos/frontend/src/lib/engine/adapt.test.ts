@@ -183,6 +183,28 @@ describe("adaptModule — CP-5B live driver register", () => {
       expect(register.items[0].text).toContain("QA QA-CAP");
     }
   });
+
+  it("discloses an empty persisted register and degrades malformed driver fields honestly", () => {
+    const empty = adaptModule({
+      ...base, module_id: "CP-5B", runtime_output: { driver_register: [] },
+    } as unknown as ModuleDetailDTO);
+    expect(empty.sections.find((section) => section.title.includes("Driver register state"))).toMatchObject({
+      type: "text",
+      body: expect.stringContaining("No persisted analytical claims"),
+    });
+
+    const malformed = adaptModule({
+      ...base, module_id: "CP-5B", runtime_output: { driver_register: [{}] },
+    } as unknown as ModuleDetailDTO);
+    const register = malformed.sections.find((section) => section.title.includes("Decision-relevant driver lineage"));
+    expect(register?.type).toBe("flags");
+    if (register?.type === "flags") {
+      expect(register.items[0]).toMatchObject({ sev: "ok", ev: undefined });
+      expect(register.items[0].text).toContain("Unnamed driver");
+      expect(register.items[0].text).toContain("confidence unavailable");
+      expect(register.items[0].text).not.toContain(" · QA ");
+    }
+  });
 });
 
 describe("adaptModule", () => {
@@ -235,6 +257,25 @@ describe("adaptModule", () => {
     const out = adaptModule(bare);
     expect(out.kpis[0].l).toBe("QA status");
     expect(out.kpis[0].v).toBe("Restricted");
+  });
+
+  it("maps low and clean claim lineage and every QA fallback severity", () => {
+    const claims = [
+      { claim_id: "C-low", claim_text: "Source is insufficient.", evidence: [{ evidence_id: "E-low", extraction_type: "text", lineage_class: "Insufficient Information", source_locator: null, confidence: "Low", document_chunk_id: null }] },
+      { claim_id: "C-ok", claim_text: "Source is direct.", evidence: [{ evidence_id: "E-ok", extraction_type: "text", lineage_class: "Direct", source_locator: null, confidence: "High", document_chunk_id: null }] },
+    ];
+    const withClaims = adaptModule({
+      ...CP1, module_id: "CP-2", runtime_output: { score: 1 }, claims,
+    });
+    const section = withClaims.sections.find((candidate) => candidate.title.includes("Evidence-traced"));
+    expect(section?.type === "flags" ? section.items.map((item) => item.sev) : []).toEqual(["low", "ok"]);
+
+    const fallback = (qa_status: string) => adaptModule({
+      ...CP1, module_id: "CP-2", runtime_output: {}, claims: [], qa_status,
+    }).kpis[0];
+    expect(fallback("Blocked").sev).toBe("critical");
+    expect(fallback("Passed").sev).toBe("ok");
+    expect(fallback("Not Reviewed").sev).toBeUndefined();
   });
 });
 
@@ -425,5 +466,13 @@ describe("adaptModule — CP-4D / CP-2G closed registers", () => {
     const out = adaptModule(detail);
     expect(out.kpis.find((k) => k.l === "Module status")?.sev).toBe("critical");
     expect(out.sections.some((s) => s.type === "table" && /Gaps/.test(s.title))).toBe(true);
+  });
+
+  it("marks an ordinary completed specialized register as clean", () => {
+    const detail = {
+      ...CP1, module_id: "CP-2G", module_name: "ESGSustainabilityCreditRisk", claims: [],
+      runtime_output: { module_status: "Completed", source_register: [] },
+    } as unknown as ModuleDetailDTO;
+    expect(adaptModule(detail).kpis.find((kpi) => kpi.l === "Module status")?.sev).toBe("ok");
   });
 });

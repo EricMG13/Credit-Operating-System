@@ -394,9 +394,9 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
             results.append((module_id, await _attempt_synth(module_id)))
         parallel = [m for m in runnable if m not in _SESSION_SYNTH]
         if parallel:
-            # ponytail: concurrent synth can let two modules pass llm_allowed() before
-            # either records usage, overshooting run_token_budget by ~one call — fine,
-            # the budget is a runaway guard, not a hard cap. Tighten only if it matters.
+            # Provider calls reserve conservative input + maximum output through
+            # engine.budget before network I/O, so this fan-out shares one hard
+            # pre-call budget even though modules synthesize concurrently.
             gathered = await asyncio.gather(*(_attempt_synth(m) for m in parallel))
             results.extend(zip(parallel, gathered))
         for module_id, result in results:

@@ -98,6 +98,29 @@ class Exhibit:
 # ─── HTTP (fair-access enforced) ─────────────────────────────────────────────
 
 
+def _validate_sec_url(url: str) -> None:
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise EdgarError("EDGAR URL is malformed.") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or (host != "sec.gov" and not host.endswith(".sec.gov"))
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+    ):
+        raise EdgarError("EDGAR URL must use HTTPS on an SEC host.")
+
+
+class _SecOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        _validate_sec_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _http_get(url: str, accept: str = "application/json", cap_bytes: Optional[int] = None) -> bytes:
     """GET ``url`` with the configured fair-access User-Agent and throttle.
 
@@ -112,6 +135,7 @@ def _http_get(url: str, accept: str = "application/json", cap_bytes: Optional[in
             "fair-access requires it. No key or paid service is needed."
         )
 
+    _validate_sec_url(url)
     global _last_request
     with _rate_lock:
         wait = _process_min_interval_s() - (time.monotonic() - _last_request)
@@ -120,15 +144,12 @@ def _http_get(url: str, accept: str = "application/json", cap_bytes: Optional[in
         _last_request = time.monotonic()
 
     req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": accept})
+    opener = urllib.request.build_opener(_SecOnlyRedirectHandler())
     try:
-        with urllib.request.urlopen(req, timeout=settings.edgar_timeout_s) as resp:
-            # Defense-in-depth (review run-2 #B12): urlopen follows redirects, so confirm
-            # the fetch ended on an SEC host — an open redirect on sec.gov could otherwise
-            # bounce it to an internal address (SSRF). No such redirect is known; this is
-            # belt-and-suspenders. All EDGAR hosts (www./data.sec.gov) end in ".sec.gov".
-            host = (urllib.parse.urlsplit(resp.url).hostname or "").lower()
-            if host != "sec.gov" and not host.endswith(".sec.gov"):
-                raise EdgarError(f"EDGAR fetch redirected off sec.gov to {host!r}")
+        with opener.open(req, timeout=settings.edgar_timeout_s) as resp:
+            # The redirect handler rejects an unsafe target before dispatch. Keep
+            # the final check as defense in depth against a custom handler/response.
+            _validate_sec_url(resp.url)
             if cap_bytes is not None:
                 data = resp.read(cap_bytes + 1)
                 if len(data) > cap_bytes:

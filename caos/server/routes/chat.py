@@ -20,7 +20,7 @@ _MAX_TOTAL_CHARS = 60_000  # caps single-request LLM cost
 
 
 class ChatMessage(BaseModel):
-    role: str = Field(pattern="^(user|assistant)$")
+    role: str = Field(max_length=9, pattern="^(user|assistant)$")
     content: str = Field(min_length=1, max_length=20000)
 
 

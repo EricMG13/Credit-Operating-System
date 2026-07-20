@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -65,7 +66,7 @@ def _num(v: Any) -> Optional[float]:
         f = float(v)
     except (TypeError, ValueError):
         return None
-    return f if f == f and abs(f) != float("inf") else None  # reject NaN/inf
+    return f if math.isfinite(f) else None
 
 
 def parse_holdings_xlsx(content: bytes, max_rows: int = 20000) -> List[Dict[str, Any]]:

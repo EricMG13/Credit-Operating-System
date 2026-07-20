@@ -73,10 +73,10 @@ function BloombergMappingFields({ model }: { model: MarketImportModel }) {
   if (model.config.template !== "bloomberg") return null;
   return (
     <div className="grid grid-cols-2 gap-2">
-      <label className="text-caos-xs text-caos-text">Sheet<input value={model.config.sheet} onChange={(event) => model.updateConfig("sheet", event.target.value)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 text-caos-text focus-ring" /></label>
+      <label className="text-caos-xs text-caos-text">Sheet<input name="market-workbook-sheet" autoComplete="off" value={model.config.sheet} onChange={(event) => model.updateConfig("sheet", event.target.value)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 text-caos-text focus-ring" /></label>
       <label className="text-caos-xs text-caos-text">Price field<select value={model.config.priceHeader} onChange={(event) => model.updateConfig("priceHeader", event.target.value)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 text-caos-text focus-ring"><option>Ask</option><option>Bid</option><option>Price</option></select></label>
-      <label className="text-caos-xs text-caos-text">Currency<input value={model.config.currency} maxLength={3} onChange={(event) => model.updateConfig("currency", event.target.value)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 uppercase text-caos-text focus-ring" /></label>
-      <label className="text-caos-xs text-caos-text">Market as-of · required<input type="date" value={model.config.asOf} onChange={(event) => model.updateConfig("asOf", event.target.value)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 text-caos-text focus-ring" /></label>
+      <label className="text-caos-xs text-caos-text">Currency<input name="market-workbook-currency" autoComplete="off" value={model.config.currency} maxLength={3} onChange={(event) => model.updateConfig("currency", event.target.value)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 uppercase text-caos-text focus-ring" /></label>
+      <label className="text-caos-xs text-caos-text">Market as-of · required<input type="date" name="market-workbook-as-of" autoComplete="off" value={model.config.asOf} onChange={(event) => model.updateConfig("asOf", event.target.value)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 text-caos-text focus-ring" /></label>
     </div>
   );
 }
@@ -86,10 +86,10 @@ function MarketImportConfiguration({ model }: { model: MarketImportModel }) {
   return (
     <>
       <p className="text-caos-xs leading-relaxed text-caos-muted">Preview validates cached Bloomberg values and writes nothing. Commit creates one immutable, source-linked snapshot.</p>
-      <label className="block text-caos-xs text-caos-text">Workbook · .xlsx only<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => model.selectFile(event.target.files?.[0] ?? null)} className="mt-1 block w-full text-caos-xs text-caos-muted file:mr-2 file:rounded-sm file:border file:border-caos-border file:bg-caos-elevated file:px-2 file:py-1 file:text-caos-text" /></label>
+      <label className="block text-caos-xs text-caos-text">Workbook · .xlsx only<input type="file" name="market-workbook-file" autoComplete="off" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => model.selectFile(event.target.files?.[0] ?? null)} className="mt-1 block w-full text-caos-xs text-caos-muted file:mr-2 file:rounded-sm file:border file:border-caos-border file:bg-caos-elevated file:px-2 file:py-1 file:text-caos-text" /></label>
       <label className="block text-caos-xs text-caos-text">Layout<select value={model.config.template} onChange={(event) => model.updateConfig("template", event.target.value as Template)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 text-caos-xs text-caos-text focus-ring"><option value="bloomberg">Bloomberg Market Data sheet</option><option value="canonical">CAOS canonical headers</option></select></label>
       <BloombergMappingFields model={model} />
-      <label className="block text-caos-xs text-caos-text">Source label<input value={model.config.sourceLabel} maxLength={160} onChange={(event) => model.updateConfig("sourceLabel", event.target.value, false)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 text-caos-text focus-ring" /></label>
+      <label className="block text-caos-xs text-caos-text">Source label<input name="market-workbook-source" autoComplete="off" value={model.config.sourceLabel} maxLength={160} onChange={(event) => model.updateConfig("sourceLabel", event.target.value, false)} className="mt-1 h-8 w-full rounded-sm border border-caos-border bg-caos-panel px-2 text-caos-text focus-ring" /></label>
       <button type="button" onClick={() => void model.runPreview()} disabled={previewDisabled} className="caos-action-secondary focus-ring disabled:opacity-40">{model.busy === "preview" ? "Validating…" : "Preview workbook"}</button>
     </>
   );

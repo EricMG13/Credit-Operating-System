@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from engine import autonomy, locks, pipeline  # noqa: F401 — autonomy/pipeline used by executor; locks for the enqueue guard
+from engine import locks, pipeline
 from identity import CallerIdentity, get_identity, get_write_identity
 
 logger = logging.getLogger("caos.autonomy_route")

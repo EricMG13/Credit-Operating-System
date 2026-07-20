@@ -357,7 +357,7 @@ function handleEdgarVaulted(state: WizardState, vaulted: EdgarVaultResult) {
       name: vaulted.message,
       result: {
         document_id: vaulted.document_id,
-        issuer_id: state.selection.selectedIssuer?.id ?? "",
+        issuer_id: state.selection.selectedIssuer!.id,
         minio_key: vaulted.storage_key,
         chunks_created: vaulted.chunks_created,
         message: vaulted.message,
@@ -444,11 +444,12 @@ function WizardError({ message }: { message: string }) {
 
 function IssuerLoadStatus({ state }: { state: WizardState }) {
   if (state.navigation.step !== "issuer") return null;
-  if (state.directory.issuerLoadState === "loading") return <SurfaceState kind="loading" title="Loading issuer directory…" compact />;
+  if (state.directory.issuerLoadState === "loading") return <SurfaceState kind="loading" title="Loading issuer directory…" headingLevel={2} compact />;
   if (state.directory.issuerLoadState !== "error") return null;
   return <SurfaceState
     kind="error"
     title={state.directory.issuerLoadError}
+    headingLevel={2}
     compact
     primaryAction={<button type="button" className="caos-action-secondary focus-ring" onClick={() => void state.directory.loadIssuerDirectory()}>Retry issuer load</button>}
   />;
@@ -509,7 +510,7 @@ function FileStage({ controller }: { controller: UploadWizardController }) {
       portfolioId={state.intake.portfolioId}
       setPortfolioId={state.intake.setPortfolioId}
     />
-    {state.selection.selectedIssuer ? <EdgarImport issuer={state.selection.selectedIssuer} runMode={state.intake.runMode} onVaulted={(vaulted) => handleEdgarVaulted(state, vaulted)} /> : null}
+    <EdgarImport issuer={state.selection.selectedIssuer!} runMode={state.intake.runMode} onVaulted={(vaulted) => handleEdgarVaulted(state, vaulted)} />
   </>;
 }
 

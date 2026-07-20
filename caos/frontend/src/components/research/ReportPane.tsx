@@ -222,6 +222,15 @@ function ResearchFigures({ figures }: { figures: ResearchFigure[] }) {
   );
 }
 
+function safeResearchSourceUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 // The tear-sheet document itself — shared by the on-screen panel and the
 // body-level print portal so screen and exported paper carry identical
 // provenance (matrix 8.2: the AI-synthesis marker must survive export).
@@ -251,11 +260,16 @@ function ResearchDoc({ result, mode }: { result: ResearchResult; mode: "sector" 
         <section className="rdoc-sources">
           <div className="rdoc-sources-h">Sources ({result.sources.length})</div>
           <ol>
-            {result.sources.map((s, i) => (
-              <li key={i}>
-                <a href={s.url} target="_blank" rel="noreferrer">{s.title || s.url}</a>
-              </li>
-            ))}
+            {result.sources.map((s, i) => {
+              const href = safeResearchSourceUrl(s.url);
+              return (
+                <li key={i}>
+                  {href
+                    ? <a href={href} target="_blank" rel="noreferrer">{s.title || s.url}</a>
+                    : <span>{s.title || s.url}</span>}
+                </li>
+              );
+            })}
           </ol>
         </section>
       )}
