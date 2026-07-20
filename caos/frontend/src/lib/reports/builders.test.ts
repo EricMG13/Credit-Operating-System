@@ -84,7 +84,7 @@ describe("credit snapshot two-page contract", () => {
     expect(description?.body).toContain("working-capital release and aftermarket mix");
   });
 
-  it("applies the supplied recommendation guidance to Snapshot only", () => {
+  it("keeps the Snapshot recommendation rows without a methodology block", () => {
     const recommendation = flattenSections(snapshot.sections).find(
       (section): section is Extract<Section, { t: "profile" }> => section.t === "profile" && section.title === "RECOMMENDATION",
     );
@@ -94,17 +94,14 @@ describe("credit snapshot two-page contract", () => {
     expect(recommendation?.rows).toContainEqual(["Index HY", "2 — Modest OW"]);
     expect(recommendation?.rows.some(([label]) => label === "Indexed Lev Loan")).toBe(false);
 
-    const methodology = tableIn(snapshot, "RECOMMENDATION METHODOLOGY — FUNDAMENTALS + VALUATION");
-    expect(methodology.cols).toEqual(["Scale", "1", "2", "3", "4", "5"]);
-    expect(methodology.rows.map((row) => row.cells)).toEqual([
-      ["Credit score (fundamentals)", "Strong", "Good", "Fair", "Weak", "Stressed"],
-      ["Valuation", "Very attractive", "Attractive", "Fair", "Unattractive", "Very unattractive"],
-      ["Recommendation", "Strong OW", "Modest OW", "MW", "Modest UW", "Strong UW"],
-    ]);
-    expect(methodology.note).toContain("no mechanical combination formula is implied");
+    expect(flattenSections(snapshot.sections).some(
+      (section) => section.title === "RECOMMENDATION METHODOLOGY — FUNDAMENTALS + VALUATION",
+    )).toBe(false);
 
     const memoSections = flattenSections(reportById("memo").sections);
-    expect(memoSections.some((section) => section.title === methodology.title)).toBe(false);
+    expect(memoSections.some(
+      (section) => section.title === "RECOMMENDATION METHODOLOGY — FUNDAMENTALS + VALUATION",
+    )).toBe(false);
     const memoRecommendation = memoSections.find(
       (section): section is Extract<Section, { t: "profile" }> => section.t === "profile" && section.title === "RECOMMENDATION",
     );

@@ -2972,3 +2972,16 @@ Credit Summary.
 Decision: proceed with the field-scoped paper spacing and Snapshot-only section
 move. Reopen if the analyst edit path changes, COAS Thesis remains in the
 authoring area, or another deliverable's layout changes.
+
+## 2026-07-20 — Snapshot methodology removal critic pass
+
+Decision under review: remove the Recommendation Methodology table from Credit
+Snapshot without changing the recommendation itself.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-721 | Credit analyst | Removing the table could accidentally remove the requested CLO, Indexed Loans, and Index HY recommendation rows that use the same Snapshot option. | High | Resolve by section-only removal | Retain the Snapshot-specific recommendation rows and remove only the methodology section from the returned section list. |
+| RT-2026-07-20-722 | Scope reviewer | A shared summary-builder edit could change the IC Memo. | High | Resolve with regression coverage | Assert the Memo recommendation remains unchanged and neither deliverable contains the removed methodology title. |
+
+Decision: proceed with section-only removal. Reopen if any recommendation row
+changes or if the IC Memo is altered.

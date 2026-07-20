@@ -342,18 +342,6 @@ function companySummarySections(
       ] }],
       [{ t: "profile", title: "RECOMMENDATION", rows: recommendationRows }],
     ] }, page),
-    ...(options.snapshotRecommendationMethodology ? [onReportPage({
-      t: "table",
-      title: "RECOMMENDATION METHODOLOGY — FUNDAMENTALS + VALUATION",
-      cols: ["Scale", "1", "2", "3", "4", "5"],
-      align: [0, 0, 0, 0, 0, 0],
-      rows: [
-        { cells: ["Credit score (fundamentals)", "Strong", "Good", "Fair", "Weak", "Stressed"] },
-        { cells: ["Valuation", "Very attractive", "Attractive", "Fair", "Unattractive", "Very unattractive"] },
-        { cells: ["Recommendation", "Strong OW", "Modest OW", "MW", "Modest UW", "Strong UW"], b: 1 },
-      ],
-      note: "COAS Recommendation is a joint analyst assessment of credit fundamentals and valuation for CLO, Indexed Loans and Index HY. The scales are guidance; no mechanical combination formula is implied.",
-    }, page)] : []),
     onReportPage({ t: "table", title: "TRANSACTION SUMMARY AND NEW DEBT ISSUES", cols: ["Borrower", "Instrument", "Debt Type", "UoP", "Tranche ($Mn)", "Guidance / IPT", "OID", "Maturity", "Exp. Ratings", "CR Score", "Commit"], align: [0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0], rows: [
       { cells: ["Atlas Forge Intermediate Holdings", "2L TL '31", "2nd Lien Term Loan", "Refi 2L bridge + GCP", "900", "S+400–425 / IPT S+450", "99.41", "2031", "B3 / B−", "71", "May-26"] },
     ] }, page),
