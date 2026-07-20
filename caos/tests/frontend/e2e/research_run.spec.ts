@@ -50,49 +50,17 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
   // If this leg ever runs against a KEY-configured server it would kick off a
   // real multi-minute web search and time out — hence it is scoped to the demo
   // path and gated on the "Run example research" (demo-mode) button label.
-  test("un-stubbed demo run renders the real server report [E2E-6a]", async ({ page }) => {
+  test("un-stubbed no-key workspace fails closed without presenting demo output [E2E-6a]", async ({ page }) => {
     await page.goto("/research/");
 
     await expect(page.getByRole("heading", { name: "Research brief" })).toBeVisible({
       timeout: 15000,
     });
 
-    // Unique subject per run so nothing about the request collides across runs.
-    const subject = `E2E Enterprise Software ${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    await page.getByLabel("Sector / theme").fill(subject);
-
-    // Demo-mode label is "Run example research" (no key). The regex tolerates a
-    // key-configured server ("Run deep research") but the assertions below
-    // assume the demo report; see the describe-block note.
-    const run = page
-      .getByTestId("persona-workbench")
-      .getByRole("button", { name: /Run (deep|example) research/ });
-    await expect(run).toBeEnabled();
-    await run.click();
-
-    // The demo executor completes on the first poll, so the report replaces the
-    // running view quickly. Assert against the demo report's stable structure:
-    // the DEMO badge, the report's Executive Summary H2, and the honest
-    // "Illustrative · demo" provenance footer (0 structured sources).
-    await expect(page.getByText("DEMO", { exact: true })).toBeVisible({ timeout: 15000 });
-    await expect(
-      page.getByRole("heading", { name: "Executive Summary" }).first(),
-    ).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText("Detailed Findings").first()).toBeVisible({
-      timeout: 15000,
-    });
-
-    // Demo reports carry no citations → footer says "Illustrative · demo" and
-    // the "Sources (N)" section is intentionally absent (see the note above).
-    await expect(page.getByText("Illustrative · demo").first()).toBeVisible({
-      timeout: 15000,
-    });
-    await expect(page.getByText(/Sources \(\d+\)/)).toHaveCount(0);
-
-    // EXPORT PDF appears once a report is filed — the run truly completed.
-    await expect(page.getByRole("button", { name: "EXPORT PDF" })).toBeVisible({
-      timeout: 15000,
-    });
+    await expect(page.getByText("Live unavailable", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Run deep research" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Open reference example" })).toBeVisible();
+    await expect(page.getByText("DEMO", { exact: true })).toHaveCount(0);
   });
 
   // ── E2E-6c ────────────────────────────────────────────────────────────────
@@ -101,6 +69,9 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
   // the "Sources (N)" citation section, the sources link, and that the demo
   // footer does NOT show. Mirrors research_flow.spec.ts:47-69 with demo:false.
   test("live run shows the live-provenance render branch [E2E-6c]", async ({ page }) => {
+    await page.route((url) => url.pathname === "/api/settings", (route) =>
+      route.fulfill({ json: { llm_configured: true } }),
+    );
     // POST creates a job; the client then polls GET to completion.
     await page.route((url) => url.pathname === "/api/research", (route) =>
       route.fulfill({ status: 201, json: { id: "live-job-1", status: "running" } }),
@@ -133,9 +104,7 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
     await page.goto("/research/");
     const subject = `Live Marker Probe ${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     await page.getByLabel("Sector / theme").fill(subject);
-    const run = page
-      .getByTestId("persona-workbench")
-      .getByRole("button", { name: /Run (deep|example) research/ });
+    const run = page.getByRole("button", { name: "Run deep research" });
     await expect(run).toBeEnabled();
     await run.click();
 
@@ -160,6 +129,9 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
   // ── E2E-6c (exact marker) ───────────────────────────────────────────────────
   // The specific current provenance-marker text in the on-screen tear-sheet.
   test("live run shows the AI-synthesized marker text [E2E-6c marker]", async ({ page }) => {
+    await page.route((url) => url.pathname === "/api/settings", (route) =>
+      route.fulfill({ json: { llm_configured: true } }),
+    );
     await page.route((url) => url.pathname === "/api/research", (route) =>
       route.fulfill({ status: 201, json: { id: "live-job-2", status: "running" } }),
     );
@@ -189,10 +161,7 @@ test.describe("Deep Research — un-stubbed run & live provenance", () => {
     await page
       .getByLabel("Sector / theme")
       .fill(`Marker Probe ${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
-    await page
-      .getByTestId("persona-workbench")
-      .getByRole("button", { name: /Run (deep|example) research/ })
-      .click();
+    await page.getByRole("button", { name: "Run deep research" }).click();
 
     await expect(page.getByText("LIVE", { exact: true })).toBeVisible({ timeout: 15000 });
     // The badge marker + the tear-sheet footer both name the LLM synthesis.

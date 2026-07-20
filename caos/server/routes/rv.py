@@ -302,6 +302,27 @@ async def _run_out(db: AsyncSession, row: RVScreenRun) -> RVScreenRunOut:
     )
 
 
+async def _snapshot_for_screen(
+    db: AsyncSession, snapshot_id: str | None, caller: CallerIdentity
+) -> MarketSnapshot:
+    if snapshot_id:
+        return _require_snapshot_access(await db.get(MarketSnapshot, snapshot_id), caller)
+    snapshot = None
+    if get_settings().caos_market_xlsx_v2_enabled:
+        snapshot = (
+            await db.execute(
+                select(MarketSnapshot)
+                .where(
+                    MarketSnapshot.analyst_id == caller.id,
+                    MarketSnapshot.status == "ready",
+                )
+                .order_by(MarketSnapshot.as_of.desc(), MarketSnapshot.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+    return snapshot or await _ensure_reference_snapshot(db)
+
+
 class RVScreenCreate(BaseModel):
     context_id: str = Field(min_length=1, max_length=36)
     snapshot_id: Optional[str] = Field(default=None, max_length=36)
@@ -353,18 +374,7 @@ async def create_rv_screen(
         label="RV screen filters",
     )
     context = await _owned_context(db, body.context_id, caller.id)
-    if body.snapshot_id:
-        snapshot = _require_snapshot_access(
-            await db.get(MarketSnapshot, body.snapshot_id), caller
-        )
-    else:
-        snapshot = None
-        if get_settings().caos_market_xlsx_v2_enabled:
-            snapshot = (await db.execute(select(MarketSnapshot).where(
-                MarketSnapshot.analyst_id == caller.id,
-                MarketSnapshot.status == "ready",
-            ).order_by(MarketSnapshot.as_of.desc(), MarketSnapshot.created_at.desc()).limit(1))).scalar_one_or_none()
-        snapshot = snapshot or await _ensure_reference_snapshot(db)
+    snapshot = await _snapshot_for_screen(db, body.snapshot_id, caller)
     if snapshot is None:  # Defensive backstop for future snapshot selectors.
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,

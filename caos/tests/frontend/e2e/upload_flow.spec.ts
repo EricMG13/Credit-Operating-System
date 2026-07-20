@@ -55,10 +55,15 @@ test.describe("CAOS single-process app", () => {
     });
     await page.getByRole("button", { name: new RegExp(issuerName) }).click();
     await expect(page.getByText("Drop all deal documents", { exact: false })).toBeVisible();
-    await expect(page.getByText("Full IC Committee", { exact: true })).toBeVisible();
-    await expect(page.getByText("Earnings Update", { exact: true })).toBeVisible();
-    await expect(page.getByText("Relative Value", { exact: true })).toBeVisible();
-    await expect(page.getByText("Legal Review", { exact: true })).toBeVisible();
+    const runMode = page.getByLabel("Run mode", { exact: true });
+    await expect(runMode).toHaveValue("full");
+    await expect(runMode.locator("option")).toHaveText([
+      "R-IC · Full IC Committee",
+      "R-PT · Primary Transaction",
+      "R-ER · Earnings Update",
+      "R-RV · Relative Value",
+      "R-LG · Legal Review",
+    ]);
   });
 
   test("concept switcher navigates between concepts", async ({ page }) => {
@@ -68,7 +73,7 @@ test.describe("CAOS single-process app", () => {
     // the link's accessible name instead of title.
     await page.getByRole("link", { name: "Deep-Dive", exact: true }).click();
     await expect(page).toHaveURL(/\/deepdive/);
-    await page.getByRole("link", { name: "Command Center", exact: true }).click();
+    await page.getByRole("link", { name: "CAOS Command Center", exact: true }).click();
     await expect(page).toHaveURL(/\/command/);
   });
 

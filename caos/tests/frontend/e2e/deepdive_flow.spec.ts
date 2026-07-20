@@ -160,8 +160,7 @@ test.describe("Deep-Dive · evidence-sync (journey 2)", () => {
     await page.goto("/deepdive/?mode=reference");
 
     await expect(page.getByTestId("persona-workbench")).toBeVisible({ timeout: 15000 });
-    await expect(page.getByRole("button", { name: "Ask CAOS phone utility" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Ask CAOS utility" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Ask CAOS utility" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Open source for E-44" }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Open Layout and simulation" })).toBeVisible();
 

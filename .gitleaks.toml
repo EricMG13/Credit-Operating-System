@@ -11,6 +11,9 @@ paths = [
   # Compiled Next.js export shipped for the single-app deploy — minified bundles
   # read as high entropy and false-positive the generic rule.
   '''caos/server/static/.*''',
+  # Local Next.js preview/build worktrees. These contain generated per-build
+  # encryption material in manifests and must never be versioned or deployed.
+  '''caos/frontend/private/.*''',
   # Methodology prompt corpus (prose) and vendored agent-skill docs whose
   # examples include placeholder API keys (e.g. "sk-1234...").
   '''Modular OS/.*''',

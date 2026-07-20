@@ -151,7 +151,7 @@ test.describe("Bootstrap journey — create → run → output", () => {
     // The live header names the issuer then "— live CP-X run" (issuer-prefixed for
     // any non-reference issuer); the offline demo ends "… for the reference issuer".
     // Anchor on the live suffix so it matches the live header for any issuer.
-    await expect(page.getByText(/live CP-X run$/i)).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/persisted CP-X run$/i)).toBeVisible({ timeout: 15000 });
     await expect(page.getByText(`RUN ${runId.slice(0, 8)}`, { exact: false })).toBeVisible({
       timeout: 15000,
     });
@@ -224,6 +224,6 @@ test.describe("Bootstrap journey — create → run → output", () => {
     await expect(page.getByText("Drop all deal documents", { exact: false })).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByText("Full IC Committee", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Run mode", { exact: true })).toHaveValue("full");
   });
 });

@@ -750,6 +750,55 @@ def _result_source_ids(result: dict) -> list[str]:
     return sorted(found)
 
 
+async def _execute_query_lane(
+    body: QueryRunCreate,
+    db: AsyncSession,
+    caller: CallerIdentity,
+    row: AnalysisQueryRun,
+) -> None:
+    if body.selected_lane == "graph":
+        block_if_tenancy_unscoped()
+        if not body.capability_id:
+            row.status = "partial"
+            row.result = {
+                "missing_dependencies": ["capability_id"],
+                "available_lanes": ["metric", "grounded"],
+            }
+            return
+        row.result = await querygraph.build_graph(
+            db, body.capability_id, body.issuer_id, theme=body.question
+        )
+    elif body.selected_lane == "grounded":
+        if not queryanswer.available():
+            row.status = "partial"
+            row.result = {
+                "missing_dependencies": ["model_provider"],
+                "available_lanes": ["metric", "graph"],
+                "recovery": "Choose a deterministic lane; the question is preserved.",
+            }
+            return
+        row.result = await queryanswer.answer(
+            db,
+            body.question,
+            capability_id=body.capability_id,
+            issuer_id=body.issuer_id,
+            analyst_id=caller.id,
+            force=False,
+        )
+    else:
+        block_if_tenancy_unscoped()
+        mode, spec = await plan(body.question)
+        if mode == "semantic" and isinstance(spec, SemanticSpec):
+            row.result = await execute_semantic(db, spec)
+        elif mode == "synthesis" and isinstance(spec, SynthesisSpec):
+            row.result = await execute_synthesis(db, spec)
+        elif mode == "structured" and isinstance(spec, QuerySpec):
+            row.result = await execute(db, spec)
+        else:
+            raise QueryError("planner returned an inconsistent execution mode")
+    row.status = "observed-empty" if _is_observed_empty(row.result) else "ready"
+
+
 @router.post("/runs", response_model=QueryRun, status_code=status.HTTP_201_CREATED)
 async def create_query_run(
     body: QueryRunCreate,
@@ -799,49 +848,7 @@ async def create_query_run(
     authority.run_id = row.id
 
     try:
-        if body.selected_lane == "graph":
-            block_if_tenancy_unscoped()
-            if not body.capability_id:
-                row.status = "partial"
-                row.result = {
-                    "missing_dependencies": ["capability_id"],
-                    "available_lanes": ["metric", "grounded"],
-                }
-            else:
-                row.result = await querygraph.build_graph(
-                    db, body.capability_id, body.issuer_id, theme=body.question
-                )
-                row.status = "observed-empty" if _is_observed_empty(row.result) else "ready"
-        elif body.selected_lane == "grounded":
-            if not queryanswer.available():
-                row.status = "partial"
-                row.result = {
-                    "missing_dependencies": ["model_provider"],
-                    "available_lanes": ["metric", "graph"],
-                    "recovery": "Choose a deterministic lane; the question is preserved.",
-                }
-            else:
-                row.result = await queryanswer.answer(
-                    db,
-                    body.question,
-                    capability_id=body.capability_id,
-                    issuer_id=body.issuer_id,
-                    analyst_id=caller.id,
-                    force=False,
-                )
-                row.status = "observed-empty" if _is_observed_empty(row.result) else "ready"
-        else:
-            block_if_tenancy_unscoped()
-            mode, spec = await plan(body.question)
-            if mode == "semantic" and isinstance(spec, SemanticSpec):
-                row.result = await execute_semantic(db, spec)
-            elif mode == "synthesis" and isinstance(spec, SynthesisSpec):
-                row.result = await execute_synthesis(db, spec)
-            elif mode == "structured" and isinstance(spec, QuerySpec):
-                row.result = await execute(db, spec)
-            else:
-                raise QueryError("planner returned an inconsistent execution mode")
-            row.status = "observed-empty" if _is_observed_empty(row.result) else "ready"
+        await _execute_query_lane(body, db, caller, row)
     except (QueryError, KeyError) as exc:
         row.status = "error"
         row.error = str(exc)

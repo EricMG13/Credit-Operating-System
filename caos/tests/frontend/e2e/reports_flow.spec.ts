@@ -18,7 +18,7 @@ test.describe("Report Studio", () => {
       return response.request().method() === "GET"
         && url.pathname.startsWith("/api/reports/drafts/");
     });
-    await page.goto("/reports/");
+    await page.goto("/reports/?mode=reference");
     await expect(page.getByText("Committee Deliverables", { exact: true })).toBeVisible({ timeout: 15000 });
     await draftReady;
 
@@ -27,7 +27,7 @@ test.describe("Report Studio", () => {
       "Earnings Update — Q1-26",
       "IC Credit Memo",
       "Covenant & Capacity Brief",
-      "Monitoring Digest",
+      "Monitoring Exceptions — Reference",
       "Model Appendix",
     ];
     for (const title of titles) {
@@ -50,7 +50,7 @@ test.describe("Report Studio", () => {
       return response.request().method() === "GET"
         && url.pathname.startsWith("/api/reports/drafts/");
     });
-    await page.goto("/reports/");
+    await page.goto("/reports/?mode=reference");
     await expect(page.getByLabel("Report preview")).toBeVisible({ timeout: 15000 });
     const loadedDraft = await (await draftResponse).json() as {
       payload?: { show_sources?: boolean };
@@ -61,7 +61,7 @@ test.describe("Report Studio", () => {
     await utilities.getByRole("button", { name: "FIT" }).click();
     await expect.poll(() => page.evaluate(() => Number(localStorage.getItem("caos-e-zoom")))).toBeGreaterThanOrEqual(0.4);
 
-    const zoom100 = utilities.getByRole("button", { name: "Zoom 100 percent" });
+    const zoom100 = utilities.getByRole("button", { name: "100%", exact: true });
     await zoom100.click();
     await expect(zoom100).toHaveAttribute("aria-pressed", "true");
     const white = utilities.getByRole("button", { name: "Paper tone White" });
@@ -85,13 +85,13 @@ test.describe("Report Studio", () => {
     await expect(page.getByLabel("Report preview")).toBeVisible({ timeout: 15000 });
     await page.getByRole("button", { name: "Open Report utilities" }).click();
     utilities = page.getByRole("dialog", { name: "Report utilities" });
-    await expect(utilities.getByRole("button", { name: "Zoom 100 percent" })).toHaveAttribute("aria-pressed", "true");
+    await expect(utilities.getByRole("button", { name: "100%", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(utilities.getByRole("button", { name: "Paper tone White" })).toHaveAttribute("aria-pressed", "true");
     await expect(utilities.getByRole("button", { name: "SOURCES" })).toHaveAttribute("aria-pressed", "false");
   });
 
   test("reports-06 reports-07 reports-08 reports-22 reports-23 edits and composes report sections", async ({ page }) => {
-    await page.goto("/reports/");
+    await page.goto("/reports/?mode=reference");
     await expect(page.getByLabel("Report preview")).toBeVisible({ timeout: 15000 });
 
     await page.getByRole("button", { name: "Edit report", exact: true }).click();
@@ -117,9 +117,9 @@ test.describe("Report Studio", () => {
   });
 
   test("reports-09 reports-10 lineage evidence opens the source viewer and Escape closes it", async ({ page }) => {
-    await page.goto("/reports/");
+    await page.goto("/reports/?mode=reference");
     await expect(page.getByText("Lineage — built from", { exact: true })).toBeVisible({ timeout: 15000 });
-    const evidence = page.getByRole("button", { name: /^Open source for E-/ }).first();
+    const evidence = page.getByRole("button", { name: /^Open source E-/ }).first();
     await expect(evidence).toBeVisible();
     await evidence.click();
 

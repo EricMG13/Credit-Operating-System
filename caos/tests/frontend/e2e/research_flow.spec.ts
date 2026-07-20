@@ -33,15 +33,11 @@ test.describe("Deep Research", () => {
     await expect(subject).toHaveValue(loadedContext.surface_state?.research?.query ?? "");
     await subject.fill("");
     await expect(subject).toHaveValue("");
-    // Run is gated until a subject is entered.
-    // Label is "Run deep research" with a key, "Run example research" in demo mode (CI has no key).
-    await expect(
-      page
-        .getByTestId("persona-workbench")
-        .getByRole("button", { name: /Run (deep|example) research/ }),
-    ).toBeDisabled();
+    // A workspace without a configured live model fails closed and offers a
+    // reference example instead of presenting demo output as a live run.
+    await expect(page.getByRole("button", { name: "Run deep research" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Open reference example" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Research not run" })).toBeVisible();
-    await expect(page.getByText("Expected deliverable", { exact: true })).toBeVisible();
   });
 
   test("scope toggle swaps the subject field between sector and issuer", async ({ page }) => {
@@ -59,6 +55,9 @@ test.describe("Deep Research", () => {
   });
 
   test("running deep research renders the returned report and sources", async ({ page }) => {
+    await page.route((url) => url.pathname === "/api/settings", (route) =>
+      route.fulfill({ json: { llm_configured: true } }),
+    );
     // Durable flow (M-3): POST creates a job, the client polls GET to completion.
     // Stub both so the run is fast and deterministic (no real web search / key).
     await page.route((url) => url.pathname === "/api/research", (route) =>
@@ -80,7 +79,7 @@ test.describe("Deep Research", () => {
           status: "complete",
           report: "## Executive Summary\n\nNet leverage is elevated.\n\n## Detailed Findings\n\nDetail.",
           sources: [{ title: "Example credit filing", url: "https://example.com/filing" }],
-          demo: true,
+          demo: false,
           truncated: false,
         },
       });
@@ -88,9 +87,7 @@ test.describe("Deep Research", () => {
 
     await page.goto("/research/");
     await page.getByLabel("Sector / theme").fill("Enterprise Software");
-    const run = page
-      .getByTestId("persona-workbench")
-      .getByRole("button", { name: /Run (deep|example) research/ });
+    const run = page.getByRole("button", { name: "Run deep research" });
     await expect(run).toBeEnabled();
     await run.click();
 
@@ -98,7 +95,7 @@ test.describe("Deep Research", () => {
     const searchCounter = page.getByText("searches", { exact: true }).locator("..");
     await expect(sourceCounter.getByText("2", { exact: true })).toBeVisible({ timeout: 15000 });
     await expect(searchCounter.getByText("3", { exact: true })).toBeVisible();
-    await expect(page.getByText("DEMO", { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("LIVE", { exact: true })).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("heading", { name: "Executive Summary" })).toBeVisible({
       timeout: 15000,
     });

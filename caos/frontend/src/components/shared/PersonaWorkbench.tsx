@@ -112,9 +112,6 @@ export function usePersonaComposition(surface: AnalysisSurfaceName, persona?: Ro
   return getSurfaceComposition(surface, persona ?? provider.roleView);
 }
 
-/** @deprecated Prefer the public usePersonaComposition name. */
-export const useSurfaceComposition = usePersonaComposition;
-
 export function useWorkbenchComposition(): SurfaceComposition {
   const composition = useContext(WorkbenchCompositionContext);
   if (!composition) throw new Error("useWorkbenchComposition must be used within PersonaWorkbench");

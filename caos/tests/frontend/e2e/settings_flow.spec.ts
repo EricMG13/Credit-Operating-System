@@ -10,7 +10,7 @@ import { test, expect, type Page } from "@playwright/test";
 
 // Fill the Audience default, save, and wait for the confirmation.
 async function saveAudience(page: Page, value: string) {
-  await page.getByRole("tab", { name: "Research" }).click();
+  await page.getByRole("tab", { name: "Preferences" }).click();
   await page.getByLabel("Audience").fill(value);
   await page.getByRole("button", { name: "Save", exact: true }).click();
   // exact: the panel heading also contains "saved".
@@ -25,13 +25,13 @@ test.describe("Settings", () => {
     await expect(page.locator('span[title="Settings"]')).toBeVisible();
     const sections = page.getByRole("tablist", { name: "Settings sections" });
     await expect(sections).toBeVisible();
-    await expect(sections.getByRole("tab")).toHaveCount(5);
-    await page.getByRole("tab", { name: "Workspace" }).click();
+    await expect(sections.getByRole("tab")).toHaveCount(3);
+    await page.getByRole("tab", { name: "Workspace administration" }).click();
 
-    await expect(page.getByRole("heading", { name: "Workspace configuration", exact: true })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Workspace administration", exact: true })).toBeVisible({
       timeout: 10000,
     });
-    await expect(page.getByText(/\u00b7 runtime model /)).toBeVisible();
+    await page.getByText("Deployment diagnostics", { exact: true }).click();
     // These rows only render once /api/settings resolves (not the loading/error state).
     await expect(page.getByText("Governance & QA")).toBeVisible();
     await expect(page.getByText("Council seats")).toBeVisible();
@@ -45,7 +45,7 @@ test.describe("Settings", () => {
     await saveAudience(page, value);
 
     await page.reload();
-    await page.getByRole("tab", { name: "Research" }).click();
+    await page.getByRole("tab", { name: "Preferences" }).click();
     await expect(page.getByLabel("Audience")).toHaveValue(value);
   });
 
@@ -57,7 +57,7 @@ test.describe("Settings", () => {
     await expect(save).toHaveAttribute("title", "No unsaved changes");
 
     // Diverge one field → the primary becomes actionable.
-    await page.getByRole("tab", { name: "Research" }).click();
+    await page.getByRole("tab", { name: "Preferences" }).click();
     await page.getByLabel("Audience").fill(`Dirty ${Date.now()}`);
     await expect(save).not.toHaveAttribute("aria-disabled", "true");
     await expect(save).not.toHaveAttribute("title", "No unsaved changes");
@@ -100,14 +100,12 @@ test.describe("Settings", () => {
 
     const sections = page.getByRole("tablist", { name: "Settings sections" });
     await expect(sections).toBeVisible();
-    await expect(sections.getByRole("tab")).toHaveCount(5);
+    await expect(sections.getByRole("tab")).toHaveCount(3);
 
     const panels = [
-      ["Models", "settings-panel-models"],
-      ["Research", "settings-panel-research"],
-      ["Email Intel", "settings-panel-email"],
-      ["Portfolios", "settings-panel-portfolios"],
-      ["Workspace", "settings-panel-workspace"],
+      ["Preferences", "settings-panel-preferences"],
+      ["Integrations", "settings-panel-integrations"],
+      ["Workspace administration", "settings-panel-workspace-administration"],
     ] as const;
     for (const [label, panelId] of panels) {
       const tab = sections.getByRole("tab", { name: label });
@@ -120,9 +118,9 @@ test.describe("Settings", () => {
       expect(pageOverflow).toBeLessThanOrEqual(1);
     }
 
-    const workspace = sections.getByRole("tab", { name: "Workspace" });
+    const workspace = sections.getByRole("tab", { name: "Workspace administration" });
     await workspace.focus();
     await workspace.press("Home");
-    await expect(sections.getByRole("tab", { name: "Models" })).toHaveAttribute("aria-selected", "true");
+    await expect(sections.getByRole("tab", { name: "Preferences" })).toHaveAttribute("aria-selected", "true");
   });
 });

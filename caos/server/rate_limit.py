@@ -31,14 +31,7 @@ _DEFAULT_SHARED_PATH = _DEFAULT_SHARED_DIR / "rate-limit.sqlite3"
 _SHARED_PATH = os.getenv("CAOS_RATE_LIMIT_PATH", str(_DEFAULT_SHARED_PATH))
 
 
-def _secure_shared_path() -> str:
-    path = Path(_SHARED_PATH).absolute()
-    if path == _DEFAULT_SHARED_PATH:
-        try:
-            _DEFAULT_SHARED_DIR.mkdir(mode=0o700)
-        except FileExistsError:
-            pass
-
+def _validate_shared_parent(path: Path) -> None:
     try:
         parent_stat = os.lstat(path.parent)
     except OSError as exc:
@@ -48,6 +41,8 @@ def _secure_shared_path() -> str:
     if parent_stat.st_mode & 0o022:
         raise RuntimeError("Rate-limit store parent must not be group/world writable.")
 
+
+def _create_shared_file(path: Path) -> None:
     flags = os.O_CREAT | os.O_EXCL | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags, 0o600)
@@ -58,6 +53,8 @@ def _secure_shared_path() -> str:
     if descriptor is not None:
         os.close(descriptor)
 
+
+def _validate_shared_file(path: Path) -> None:
     try:
         file_stat = os.lstat(path)
     except OSError as exc:
@@ -66,6 +63,18 @@ def _secure_shared_path() -> str:
         raise RuntimeError("Rate-limit store must be a regular file.")
     if file_stat.st_uid != os.geteuid() or file_stat.st_mode & 0o077:
         raise RuntimeError("Rate-limit store must be owned by the app with mode 0600.")
+
+
+def _secure_shared_path() -> str:
+    path = Path(_SHARED_PATH).absolute()
+    if path == _DEFAULT_SHARED_PATH:
+        try:
+            _DEFAULT_SHARED_DIR.mkdir(mode=0o700)
+        except FileExistsError:
+            pass
+    _validate_shared_parent(path)
+    _create_shared_file(path)
+    _validate_shared_file(path)
     return str(path)
 
 

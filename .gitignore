@@ -6,6 +6,7 @@
 
 # Node / Next.js
 node_modules/
+.pnpm-store/
 .next/
 .next-qa*/
 .next-*/
@@ -32,6 +33,7 @@ caos/deploy/rclone.conf
 coverage/
 caos/frontend/test-results/
 caos/frontend/playwright-report/
+caos/frontend/private/
 
 # Local static-analysis databases and diagnostics
 /static_analysis_codeql_*/

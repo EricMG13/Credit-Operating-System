@@ -105,74 +105,49 @@ async def _cancel_and_drain(task: asyncio.Task) -> None:
         pass
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("CAOS starting (environment=%s)", settings.environment)
-    # Refuse a real deployment left on the dev ENVIRONMENT sentinel (which would
-    # silently re-enable the dev identity fallback + public defaults). See config.
+def _require_safe_deployment_configuration() -> None:
+    """Fail closed before startup work when deployed settings are unsafe."""
     require_sane_environment(settings)
-    # Fail-closed boot guards key on is_deployed (any ENVIRONMENT != "development",
-    # typo/unset included), not the exact string "production" — a mistyped or
-    # dropped env value must NOT silently disable the secret / signup-code guards.
-    if is_deployed(settings) and not settings.edge_proxy_secret:
-        # Fail closed (was warn-only): without the edge secret the app trusts the
-        # X-Forwarded-* identity headers on network isolation alone, so a rogue
-        # container on the internal net could hit app:8000 directly with forged
-        # identity. The deploy edge (Caddy) already injects X-Edge-Authorization
-        # and compose passes EDGE_PROXY_SECRET to both, so a prod boot without it
-        # is a misconfiguration — same posture as the SESSION_SECRET guard below.
+    if not is_deployed(settings):
+        require_postgres_in_production(settings)
+        require_malware_scanner_in_production(settings)
+        return
+
+    if not settings.edge_proxy_secret:
         raise RuntimeError(
             "EDGE_PROXY_SECRET must be set in production — forwarded-identity trust "
             "would otherwise rest on network isolation alone. Set it and have the "
             "edge inject X-Edge-Authorization (the deploy Caddyfile already does). "
             'Generate one with: python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
-    if is_deployed(settings):
-        _require_deployed_credential_strength(
-            "EDGE_PROXY_SECRET",
-            settings.edge_proxy_secret,
-            min_bytes=_MIN_EDGE_SECRET_BYTES,
-        )
-    if is_deployed(settings) and settings.session_secret in ("", "dev-insecure-session-secret"):
-        # Fail closed: the dev default is public (in source), so it would let
-        # anyone forge an analyst login cookie. Refuse to start without a real one.
+    _require_deployed_credential_strength(
+        "EDGE_PROXY_SECRET",
+        settings.edge_proxy_secret,
+        min_bytes=_MIN_EDGE_SECRET_BYTES,
+    )
+    if settings.session_secret in ("", "dev-insecure-session-secret"):
         raise RuntimeError(
             "SESSION_SECRET must be set to a random value in production — the dev "
             "default lets analyst login cookies be forged. Generate one with: "
             'python -c "import secrets;print(secrets.token_urlsafe(32))"'
         )
-    if is_deployed(settings):
-        _require_deployed_credential_strength(
-            "SESSION_SECRET",
-            settings.session_secret,
-            min_bytes=_MIN_SESSION_SECRET_BYTES,
-        )
-    if is_deployed(settings) and settings.analyst_signup_code in (
-        "", "131113", "change-me-private-code",
-    ):
-        # Fail closed (was M-4 warn-only): the default code is public (in source). SSO
-        # in front makes it defense-in-depth, but a non-SSO or trusted-network deploy
-        # would ship a known self-registration gate by omission. Refuse to start
-        # without a private one — same posture as the SESSION_SECRET guard above.
-        # The deny-list includes the historical .env.example placeholder: a deploy
-        # that shipped `cp .env.example .env` unedited booted cleanly with a
-        # repo-public signup code (audit 2026-07-10 DEP-3).
+    _require_deployed_credential_strength(
+        "SESSION_SECRET",
+        settings.session_secret,
+        min_bytes=_MIN_SESSION_SECRET_BYTES,
+    )
+    if settings.analyst_signup_code in ("", "131113", "change-me-private-code"):
         raise RuntimeError(
             "ANALYST_SIGNUP_CODE must be set to a private value in production — the "
             "in-source defaults/placeholders are public and would leave analyst "
             "profile self-registration open. Set ANALYST_SIGNUP_CODE."
         )
-    if is_deployed(settings):
-        _require_deployed_credential_strength(
-            "ANALYST_SIGNUP_CODE",
-            settings.analyst_signup_code,
-            min_bytes=_MIN_SIGNUP_CODE_BYTES,
-        )
-    if is_deployed(settings) and settings.caos_demo_seed:
-        # Fail closed (was warn-only): demo seeding ships fictional issuers + the
-        # ATLF reference deal + illustrative metrics. Refuse to seed demo data into
-        # a production database — same posture as the secret guards above. An
-        # operator who genuinely wants a prod demo must set ENVIRONMENT≠production.
+    _require_deployed_credential_strength(
+        "ANALYST_SIGNUP_CODE",
+        settings.analyst_signup_code,
+        min_bytes=_MIN_SIGNUP_CODE_BYTES,
+    )
+    if settings.caos_demo_seed:
         raise RuntimeError(
             "CAOS_DEMO_SEED must not be set in production — it would seed fictional "
             "demo issuers + the ATLF reference deal into the production database. "
@@ -180,11 +155,17 @@ async def lifespan(app: FastAPI):
         )
     require_postgres_in_production(settings)
     require_malware_scanner_in_production(settings)
-    if is_deployed(settings) and not _INLINE_SCRIPT_HASHES:
+    if not _INLINE_SCRIPT_HASHES:
         raise RuntimeError(
             "The production static export contains no hashable Next.js bootstrap "
             "scripts; refusing to boot with a CSP that would require unsafe-inline."
         )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("CAOS starting (environment=%s)", settings.environment)
+    _require_safe_deployment_configuration()
     await init_db()
     if settings.caos_demo_seed:
         await seed_demo_data()
@@ -334,6 +315,43 @@ _SECURITY_HEADERS = {
 }
 
 
+def _apply_policy_headers(
+    message: Message, *, is_api: bool, path: str
+) -> tuple[int, int]:
+    headers = MutableHeaders(scope=message)
+    for key, value in _SECURITY_HEADERS.items():
+        if key not in headers:
+            headers[key] = value
+
+    if "cache-control" not in headers:
+        if is_api:
+            headers["Cache-Control"] = "private, no-store"
+        elif path.startswith("/_next/static/"):
+            headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path == "/" or path.endswith(".html") or "." not in path.rsplit("/", 1)[-1]:
+            headers["Cache-Control"] = "no-cache"
+
+    try:
+        volume = int(headers.get("content-length", "0"))
+    except (TypeError, ValueError):
+        volume = 0
+    return int(message["status"]), volume
+
+
+def _edge_request_is_rejected(request: Request, *, is_api: bool, path: str) -> bool:
+    current_settings = get_settings()
+    return (
+        is_deployed(current_settings)
+        and bool(current_settings.edge_proxy_secret)
+        and is_api
+        and path != "/api/health"
+        and not hmac.compare_digest(
+            request.headers.get("x-edge-authorization", "").encode("utf-8", "ignore"),
+            current_settings.edge_proxy_secret.encode("utf-8"),
+        )
+    )
+
+
 # ─── Edge-origin guard (single chokepoint) ──────────────────────────────────
 # The edge proof (X-Edge-Authorization) must gate EVERY deployed /api request, not
 # only those that depend on get_identity. Enforcing it per-route let create_profile
@@ -370,33 +388,9 @@ class HTTPPolicyMiddleware:
         async def send_with_policy(message: Message) -> None:
             nonlocal response_status, response_volume
             if message["type"] == "http.response.start":
-                response_status = int(message["status"])
-                headers = MutableHeaders(scope=message)
-                for key, value in _SECURITY_HEADERS.items():
-                    if key not in headers:
-                        headers[key] = value
-
-                # Next's content-hashed bundles are immutable; HTML must
-                # revalidate, and authenticated financial data must not persist.
-                if "cache-control" not in headers:
-                    if is_api:
-                        headers["Cache-Control"] = "private, no-store"
-                    elif path.startswith("/_next/static/"):
-                        headers["Cache-Control"] = (
-                            "public, max-age=31536000, immutable"
-                        )
-                    elif (
-                        path == "/"
-                        or path.endswith(".html")
-                        or "." not in path.rsplit("/", 1)[-1]
-                    ):
-                        headers["Cache-Control"] = "no-cache"
-
-                try:
-                    response_volume = int(headers.get("content-length", "0"))
-                except (TypeError, ValueError):
-                    # Streaming/chunked responses omit Content-Length.
-                    response_volume = 0
+                response_status, response_volume = _apply_policy_headers(
+                    message, is_api=is_api, path=path
+                )
             await send(message)
 
         reason = csrf_rejection(request)
@@ -404,20 +398,7 @@ class HTTPPolicyMiddleware:
             response = JSONResponse({"detail": reason}, status_code=403)
             await response(scope, receive, send_with_policy)
         else:
-            current_settings = get_settings()
-            edge_rejected = (
-                is_deployed(current_settings)
-                and bool(current_settings.edge_proxy_secret)
-                and is_api
-                and path != "/api/health"
-                and not hmac.compare_digest(
-                    request.headers.get("x-edge-authorization", "").encode(
-                        "utf-8", "ignore"
-                    ),
-                    current_settings.edge_proxy_secret.encode("utf-8"),
-                )
-            )
-            if edge_rejected:
+            if _edge_request_is_rejected(request, is_api=is_api, path=path):
                 response = JSONResponse(
                     {"detail": "Request did not carry a valid edge credential."},
                     status_code=401,

@@ -40,7 +40,7 @@ test.describe("Query — persisted investigation workbench", () => {
     const title = await runInvestigation(page, `which issuer is most levered ${uniq()}`);
     expect(((await title.textContent()) ?? "").trim().length).toBeGreaterThan(0);
     await expect(page).toHaveURL(/(?:\?|&)run=/);
-    await expect(page.getByRole("button", { name: "metric", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Compare metrics", exact: true })).toHaveAttribute("aria-pressed", "true");
   });
 
   test("graph intent is explicit and URL-addressable", async ({ page }) => {
@@ -49,13 +49,13 @@ test.describe("Query — persisted investigation workbench", () => {
     // for that merge before changing lanes so the assertion tests lane state,
     // not a race between two legitimate replaceState operations.
     await expect(page).toHaveURL(/(?:\?|&)context=/);
-    const graph = page.getByRole("button", { name: "graph", exact: true });
+    const graph = page.getByRole("button", { name: "Map relationships", exact: true });
     await expect(graph).toBeEnabled();
     await graph.click();
     await expect(page).toHaveURL(/(?:\?|&)lane=graph(?:&|$)/);
-    await expect(page.getByRole("button", { name: "graph", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Map relationships", exact: true })).toHaveAttribute("aria-pressed", "true");
     await runInvestigation(page, `show the relationship graph for refinancing risk ${uniq()}`);
-    await expect(page.getByRole("button", { name: "graph", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Map relationships", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page).toHaveURL(/(?:\?|&)lane=graph(?:&|$)/);
     await expect(page).toHaveURL(/(?:\?|&)run=/);
   });

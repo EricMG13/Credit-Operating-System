@@ -28,7 +28,7 @@ test.describe("Pipeline", () => {
     await openReferenceDemo(page);
 
     await expect(page.getByText("Atlas Forge — reference route plan · 2L TL '31 new-issue review")).toBeVisible();
-    await expect(page.getByRole("region", { name: "Execution graph; scroll horizontally to inspect all module layers" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Execution graph; scroll horizontally to inspect all ordered stages" })).toBeVisible();
     await expect(page.getByRole("log", { name: "Execution trace log" })).toBeVisible();
     await page.getByRole("button", { name: "Open Run display controls" }).click();
     const controls = page.getByRole("dialog", { name: "Run display controls" });
@@ -60,7 +60,7 @@ test.describe("Pipeline", () => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await openReferenceDemo(page);
 
-    const graph = page.getByRole("region", { name: "Execution graph; scroll horizontally to inspect all module layers" });
+    const graph = page.getByRole("region", { name: "Execution graph; scroll horizontally to inspect all ordered stages" });
     const cp1 = graph.getByTitle(/Financial Spreading — Enter to select/);
     await cp1.click();
     await expect(cp1).toHaveAttribute("aria-pressed", "true");

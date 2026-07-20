@@ -105,7 +105,7 @@ test.describe("Model Builder", () => {
   // [3b] The engine-provenance badge renders (LIVE CP-1 anchor, or the seeded
   // demo fallback) — the model is grounded, not blank.
   test("provenance badge renders the CP-1 anchor state", async ({ page }) => {
-    await page.goto("/model/");
+    await page.goto("/model/?mode=reference");
 
     // Worksheet grid confirms the issuer-model branch rendered (not the
     // "No issuer-specific model output" empty state).
@@ -126,7 +126,7 @@ test.describe("Model Builder", () => {
   // readout is skipped separately below — it needs a run that produced CP-2B,
   // which the offline demo-fallback run does not.
   test("applying a scenario preset re-centers the best/base/worst lens", async ({ page }) => {
-    await page.goto("/model/");
+    await page.goto("/model/?mode=reference");
     await expect(page.getByLabel("Model worksheet")).toBeVisible({ timeout: 15000 });
 
     // Support surfaces are selected explicitly through the shared toolbar;
@@ -216,7 +216,7 @@ test.describe("Model Builder", () => {
         claims: [],
       },
     }));
-    await page.goto("/model/");
+    await page.goto("/model/?mode=reference");
     await page
       .getByRole("group", { name: "Model support" })
       .getByRole("button", { name: "Scenario" })

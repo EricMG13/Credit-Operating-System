@@ -378,6 +378,33 @@ async def preview_market_snapshot_import(
     )
 
 
+def _validate_commit_form(
+    *, mapping: str, preview_sha256: str, preview_token: str, source_label: str,
+) -> str:
+    if len(mapping) > _MAPPING_MAX_CHARS:
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE, "Workbook mapping is too large."
+        )
+    label = source_label.strip()
+    if not label or len(label) > 160:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Source label must be 1-160 characters.",
+        )
+    if len(preview_sha256) != 64 or any(
+        char not in "0123456789abcdefABCDEF" for char in preview_sha256
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "preview_sha256 must be a SHA-256 hex digest.",
+        )
+    if not preview_token or len(preview_token) > 2_048:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "preview_token is invalid."
+        )
+    return label
+
+
 @router.post(
     "/snapshots/import/commit",
     response_model=MarketImportCommitOut,
@@ -395,15 +422,12 @@ async def commit_market_snapshot_import(
     """Revalidate and atomically commit one immutable owned market snapshot."""
     _guard(caller)
     filename = file.filename or ""
-    if len(mapping) > _MAPPING_MAX_CHARS:
-        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Workbook mapping is too large.")
-    label = source_label.strip()
-    if not label or len(label) > 160:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source label must be 1-160 characters.")
-    if len(preview_sha256) != 64 or any(char not in "0123456789abcdefABCDEF" for char in preview_sha256):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "preview_sha256 must be a SHA-256 hex digest.")
-    if not preview_token or len(preview_token) > 2_048:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "preview_token is invalid.")
+    label = _validate_commit_form(
+        mapping=mapping,
+        preview_sha256=preview_sha256,
+        preview_token=preview_token,
+        source_label=source_label,
+    )
     explicit = _parse_issuer_mappings(issuer_mappings)
     try:
         require_xlsx_filename(filename)

@@ -26,8 +26,6 @@ import { nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/v
 import { analysisApi, useAnalysisContext, type QueryRun } from "@/lib/analysis-workbench";
 import { useAsk } from "@/components/shared/AskContext";
 
-export { AskProvider, useAsk } from "@/components/shared/AskContext";
-
 const loadGraphCanvas = () => import("@/components/query/GraphCanvas").then((module) => module.GraphCanvas);
 const loadRelativeValueTable = () => import("@/components/query/RelativeValueTable").then((module) => module.RelativeValueTable);
 const loadScatterCanvas = () => import("@/components/query/ScatterCanvas").then((module) => module.ScatterCanvas);

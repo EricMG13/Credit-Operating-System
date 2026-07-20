@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Annotated, Literal, Optional, cast
+from typing import Annotated, Any, Literal, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, model_validator
@@ -443,6 +443,42 @@ async def _validate_context_subjects(
                 ) from exc
 
 
+def _active_refs_by_kind(
+    context: AnalysisContextRecord, typed_refs: list[ArtifactRef]
+) -> dict[ArtifactKind, set[tuple[str, Optional[str]]]]:
+    current_by_kind: dict[ArtifactKind, set[tuple[str, Optional[str]]]] = {}
+    for ref in typed_refs:
+        current_by_kind.setdefault(ref.kind, set()).add((ref.id, ref.version))
+
+    raw_artifacts = context.artifacts or {}
+    for field, kind in LEGACY_REF_FIELDS.items():
+        if kind not in ARTIFACT_KINDS:
+            continue
+        typed_kind = cast(ArtifactKind, kind)
+        active_id = raw_artifacts.get(field)
+        if not isinstance(active_id, str) or not active_id:
+            continue
+        matching = {
+            (artifact_id, version)
+            for artifact_id, version in current_by_kind.get(typed_kind, set())
+            if artifact_id == active_id
+        }
+        current_by_kind[typed_kind] = matching or {(active_id, None)}
+        if len(matching) > 1:
+            current_by_kind[typed_kind] = set()
+
+    if context.rv_snapshot_id:
+        matching_snapshots = {
+            (artifact_id, version)
+            for artifact_id, version in current_by_kind.get("market_snapshot", set())
+            if artifact_id == context.rv_snapshot_id
+        }
+        current_by_kind["market_snapshot"] = matching_snapshots or {
+            (context.rv_snapshot_id, None)
+        }
+    return current_by_kind
+
+
 @router.get("/taxonomy")
 async def get_taxonomy(
     db: AsyncSession = Depends(get_db, scope="function"),
@@ -677,40 +713,13 @@ async def get_context_freshness(
     refs = AnalysisArtifactRefs.model_validate(context.artifacts or {})
     await _validate_artifact_refs(db, refs, context_id=context_id, caller=caller)
     typed_refs = list(refs.artifact_refs)
-    current_by_kind: dict[ArtifactKind, set[tuple[str, Optional[str]]]] = {}
-    for ref in typed_refs:
-        current_by_kind.setdefault(ref.kind, set()).add((ref.id, ref.version))
     # Phase 1B retains historical typed refs for audit, while the legacy scalar
     # fields remain the producer-maintained active pointer for singleton kinds.
     # Narrow those kinds to the active id so a newly derived artifact can become
     # current after a rebind instead of comparing forever against old history.
     # If the scalar id has multiple typed versions, it cannot identify which is
     # active; fail to unknown rather than guessing a sortable version scheme.
-    raw_artifacts = context.artifacts or {}
-    for field, kind in LEGACY_REF_FIELDS.items():
-        if kind not in ARTIFACT_KINDS:
-            continue
-        typed_kind = cast(ArtifactKind, kind)
-        active_id = raw_artifacts.get(field)
-        if not isinstance(active_id, str) or not active_id:
-            continue
-        matching = {
-            (artifact_id, version)
-            for artifact_id, version in current_by_kind.get(typed_kind, set())
-            if artifact_id == active_id
-        }
-        current_by_kind[typed_kind] = matching or {(active_id, None)}
-        if len(matching) > 1:
-            current_by_kind[typed_kind] = set()
-    if context.rv_snapshot_id:
-        matching_snapshots = {
-            (artifact_id, version)
-            for artifact_id, version in current_by_kind.get("market_snapshot", set())
-            if artifact_id == context.rv_snapshot_id
-        }
-        current_by_kind["market_snapshot"] = matching_snapshots or {
-            (context.rv_snapshot_id, None)
-        }
+    current_by_kind = _active_refs_by_kind(context, typed_refs)
     now = datetime.now(timezone.utc)
     results: list[ArtifactFreshness] = []
     parents_by_artifact: dict[
@@ -918,6 +927,18 @@ async def get_context_freshness(
     return ContextFreshness(context_id=context_id, evaluated_at=now, artifacts=propagated)
 
 
+def _merge_legacy_context_maps(
+    row: AnalysisContextRecord, changes: dict[str, Any]
+) -> None:
+    for legacy_field in ("filters", "selected"):
+        if legacy_field in changes:
+            prior = getattr(row, legacy_field) or {}
+            changes[legacy_field] = {
+                **(prior if isinstance(prior, dict) else {}),
+                **(changes[legacy_field] or {}),
+            }
+
+
 @router.patch("/contexts/{context_id}", response_model=AnalysisContext)
 async def patch_context(
     context_id: str,
@@ -1009,13 +1030,7 @@ async def patch_context(
         changes["surface_state"] = AnalysisSurfaceState.model_validate(
             merged_surface_state
         ).model_dump(mode="json", by_alias=True, exclude_none=True)
-    for legacy_field in ("filters", "selected"):
-        if legacy_field in changes:
-            prior = getattr(row, legacy_field) or {}
-            changes[legacy_field] = {
-                **(prior if isinstance(prior, dict) else {}),
-                **(changes[legacy_field] or {}),
-            }
+    _merge_legacy_context_maps(row, changes)
     if state_changed:
         require_bounded_json(
             {

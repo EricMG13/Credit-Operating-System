@@ -39,14 +39,6 @@ export const MODULES: ModuleDef[] = [
   { id: "CP-DB", name: "Persist", layer: "INFRA", desc: "Canonical state store" },
 ];
 
-export const LAYERS = [
-  { id: "L0", label: "Readiness" }, { id: "ORCH", label: "Routing" },
-  { id: "L1", label: "Base Build" }, { id: "L2", label: "Synthesis" },
-  { id: "L3", label: "Rel. Value" }, { id: "L4", label: "Legal" },
-  { id: "L5", label: "Governance" }, { id: "L6", label: "Debate" },
-  { id: "INFRA", label: "Export" },
-];
-
 export const EDGES: [string, string][] = [
   ["CP-0", "CP-X"], ["CP-X", "CP-1"], ["CP-X", "CP-1A"],
   ["CP-1", "CP-1B"], ["CP-1", "CP-1C"], ["CP-1", "CP-2"], ["CP-1", "CP-2B"], ["CP-1", "CP-2E"], ["CP-1", "CP-3"], ["CP-1", "CP-3D"], ["CP-1", "CP-4"], ["CP-1", "CP-4C"], ["CP-1", "CP-6A"],
@@ -60,21 +52,3 @@ export const EDGES: [string, string][] = [
   ["CP-5B", "CP-5"], ["CP-6A", "CP-6E"], ["CP-6A", "CP-5B"], ["CP-6A", "CP-RENDER"], ["CP-6A", "CP-EXTRACT"],
   ["CP-6E", "CP-5B"], ["CP-6E", "CP-RENDER"], ["CP-6E", "CP-EXTRACT"], ["CP-EXTRACT", "CP-DB"],
 ];
-
-export function ancestorsOf(id: string): Set<string> {
-  const result = new Set<string>();
-  const visit = (node: string) => EDGES.forEach(([source, target]) => {
-    if (target === node && !result.has(source)) { result.add(source); visit(source); }
-  });
-  visit(id);
-  return result;
-}
-
-export function descendantsOf(id: string): Set<string> {
-  const result = new Set<string>();
-  const visit = (node: string) => EDGES.forEach(([source, target]) => {
-    if (source === node && !result.has(target)) { result.add(target); visit(target); }
-  });
-  visit(id);
-  return result;
-}

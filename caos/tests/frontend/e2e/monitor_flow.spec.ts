@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe("Monitor", () => {
   test("monitor-01 monitor-03 email intake exposes fixed severity totals and filters the sample", async ({ page }) => {
-    await page.goto("/monitor/");
+    await page.goto("/monitor/?mode=reference");
     await expect(page.getByRole("tab", { name: "Email intake" })).toBeVisible({ timeout: 15000 });
     await page.getByRole("tab", { name: "Email intake" }).click();
 
@@ -36,7 +36,7 @@ test.describe("Monitor", () => {
     const monitorHydrated = page.waitForResponse((response) =>
       new URL(response.url()).pathname === "/api/settings/analyst" && response.ok(),
     );
-    await page.goto("/monitor/?dataset=email");
+    await page.goto("/monitor/?mode=reference&dataset=email");
     await monitorHydrated;
     const firstEmail = page.getByRole("button", { name: /^Open email:/ }).first();
     await expect(firstEmail).toBeVisible({ timeout: 15000 });
@@ -55,8 +55,8 @@ test.describe("Monitor", () => {
   });
 
   test("monitor-04 monitor-07 alert replay and header KPIs render with labelled severity and routing", async ({ page }) => {
-    await page.goto("/monitor/");
-    await expect(page.getByText("Monitor — email intelligence & alert routing")).toBeVisible({ timeout: 15000 });
+    await page.goto("/monitor/?mode=reference");
+    await expect(page.getByText("Monitor — Reference replay & email examples")).toBeVisible({ timeout: 15000 });
     await expect(page.getByText("Replay criticals", { exact: true })).toBeVisible();
     await expect(page.getByText("Replay today", { exact: true })).toBeVisible();
 
@@ -68,21 +68,24 @@ test.describe("Monitor", () => {
   });
 
   test("monitor-05 monitor-06 playback controls switch PAUSED and SIM states and apply speed", async ({ page }) => {
-    await page.goto("/monitor/");
-    await page.getByRole("button", { name: "Open Replay controls" }).click();
-    const controls = page.getByRole("dialog", { name: "Replay controls" });
+    await page.goto("/monitor/?mode=reference");
+    const controls = page.getByRole("toolbar", { name: "Simulation Controls" });
     await expect(controls).toBeVisible();
 
+    // The shared Reference clock may still be running after another workflow
+    // test. Normalize it before asserting the play/pause transition.
+    await controls.getByRole("button", { name: "Reset run" }).click();
     const pause = controls.getByRole("button", { name: "Pause simulation" });
     await expect(pause).toBeVisible({ timeout: 15000 });
     await pause.click();
-    await expect(controls.getByText(/^PAUSED · \d{2}:\d{2}:\d{2} ET$/)).toBeVisible();
-    await expect(controls.getByRole("button", { name: "Play simulation" })).toBeVisible();
+    await expect(page.getByText(/^PAUSED · seeded Reference replay/)).toBeVisible();
+    const play = controls.getByRole("button", { name: "Play simulation" });
+    await expect(play).toBeVisible();
 
     const speed = controls.getByRole("button", { name: "Speed 4x" });
     await speed.click();
     await expect(speed).toHaveAttribute("aria-pressed", "true");
-    await controls.getByRole("button", { name: "Play simulation" }).click();
-    await expect(controls.getByText(/^SIM · \d{2}:\d{2}:\d{2} ET$/)).toBeVisible();
+    await play.click();
+    await expect(page.getByText(/^SIM · seeded Reference replay/)).toBeVisible();
   });
 });

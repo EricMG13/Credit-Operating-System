@@ -45,6 +45,11 @@ def _declared_content_length(scope: Scope) -> int | None:
     return values.pop()
 
 
+def _declared_body_too_large(scope: Scope, limit: int) -> bool:
+    declared = _declared_content_length(scope)
+    return declared is not None and declared > limit
+
+
 class RequestBodyLimitMiddleware:
     """Reject oversized HTTP targets/bodies before framework routing/parsing.
 
@@ -72,30 +77,38 @@ class RequestBodyLimitMiddleware:
         self.default_limit_bytes = default_limit_bytes
         self.target_limit_bytes = target_limit_bytes
 
+    def _target_too_large(self, scope: Scope) -> bool:
+        return len(scope.get("raw_path", b"")) + len(
+            scope.get("query_string", b"")
+        ) > self.target_limit_bytes
+
+    def _body_limit(self, scope: Scope) -> int:
+        if _is_json_content_type(scope):
+            return self.json_limit_bytes
+        return self.default_limit_bytes
+
+    def _preflight_rejection(self, scope: Scope, limit: int) -> JSONResponse | None:
+        if self._target_too_large(scope):
+            return JSONResponse(
+                {"detail": "Request target too large."},
+                status_code=414,
+            )
+        if _declared_body_too_large(scope, limit):
+            return JSONResponse(
+                {"detail": "Request body too large."},
+                status_code=413,
+            )
+        return None
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
-        target_size = len(scope.get("raw_path", b"")) + len(
-            scope.get("query_string", b"")
-        )
-        if target_size > self.target_limit_bytes:
-            response = JSONResponse(
-                {"detail": "Request target too large."},
-                status_code=414,
-            )
-            await response(scope, receive, send)
-            return
-
-        limit = (
-            self.json_limit_bytes
-            if _is_json_content_type(scope)
-            else self.default_limit_bytes
-        )
-        declared = _declared_content_length(scope)
-        if declared is not None and declared > limit:
-            await self._reject(scope, receive, send)
+        limit = self._body_limit(scope)
+        rejection = self._preflight_rejection(scope, limit)
+        if rejection is not None:
+            await rejection(scope, receive, send)
             return
 
         received = 0

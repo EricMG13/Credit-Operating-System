@@ -243,7 +243,11 @@ test.describe("Sector Review — versioned dossier governance", () => {
     await page.goto("/sector/?context=sector-e2e-context");
 
     await expect(page.getByText("Telecom · v2", { exact: true })).toBeVisible({ timeout: 15000 });
-    for (const label of ["Overview", "Signals", "Comparables", "Early Warning", "Risks", "Sources"]) {
+    for (const label of ["Overview", "Signals", "Comparables", "Risks"]) {
+      await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
+    }
+    await page.getByText("More", { exact: true }).click();
+    for (const label of ["Early Warning", "Sources"]) {
       await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
     await expect(page.getByText("Wireless demand remains stable.", { exact: true }).first()).toBeVisible();
@@ -284,7 +288,12 @@ test.describe("Sector Review — versioned dossier governance", () => {
 
     await expect(page.getByText("Telecom · v2", { exact: true })).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("combobox", { name: "Active sector" })).toHaveValue("telecom");
-    for (const label of ["Overview", "Signals", "Comparables", "Early Warning", "Risks", "Sources"]) {
+    for (const label of ["Overview", "Signals", "Comparables", "Risks"]) {
+      await page.getByRole("button", { name: label, exact: true }).click();
+      await expect(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-current", "page");
+    }
+    await page.getByText("More", { exact: true }).click();
+    for (const label of ["Early Warning", "Sources"]) {
       await page.getByRole("button", { name: label, exact: true }).click();
       await expect(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-current", "page");
     }
@@ -292,8 +301,8 @@ test.describe("Sector Review — versioned dossier governance", () => {
     await page.getByRole("button", { name: "Open context drawer" }).click();
     const contextDrawer = page.getByRole("dialog", { name: "Context" });
     await expect(contextDrawer.getByRole("complementary", { name: "Canonical sectors" })).toBeVisible();
-    await contextDrawer.getByRole("switch", { name: "Alerts on" }).first().click();
-    await expect(contextDrawer.getByRole("switch", { name: "Alerts off" })).toBeVisible();
+    await contextDrawer.getByRole("switch", { name: "Alert coverage · active" }).first().click();
+    await expect(contextDrawer.getByRole("switch", { name: "Alert coverage · inactive" })).toBeVisible();
     await page.getByRole("button", { name: "Close context drawer" }).click();
 
     await page.getByRole("combobox", { name: "Active sector" }).selectOption("software");

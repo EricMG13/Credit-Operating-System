@@ -597,6 +597,22 @@ def source_fingerprint(payload: ModelDraftPayload) -> str:
     return _canonical_hash({"sources": sorted(sources), "authority": authority_rows})
 
 
+def _calculation_status(
+    periods: list[ModelPeriodCalculation], gaps: list[str]
+) -> Literal["ready", "partial", "insufficient_inputs"]:
+    if not periods:
+        return "insufficient_inputs"
+    if not gaps:
+        return "ready"
+    usable = any(
+        period.adjusted_ebitda is not None
+        or period.total_debt is not None
+        or period.net_debt is not None
+        for period in periods
+    )
+    return "partial" if usable else "insufficient_inputs"
+
+
 class ModelEngineV2:
     """Pure calculator. Instantiate once; ``calculate`` has no mutable state."""
 
@@ -1426,18 +1442,7 @@ class ModelEngineV2:
 
         unique_gaps = list(dict.fromkeys(gaps))
         unique_warnings = list(dict.fromkeys(warnings))
-        if not periods:
-            status: Literal["ready", "partial", "insufficient_inputs"] = "insufficient_inputs"
-        elif unique_gaps:
-            usable = any(
-                period.adjusted_ebitda is not None
-                or period.total_debt is not None
-                or period.net_debt is not None
-                for period in periods
-            )
-            status = "partial" if usable else "insufficient_inputs"
-        else:
-            status = "ready"
+        status = _calculation_status(periods, unique_gaps)
         result_without_hash = {
             "engine_version": self.version,
             "schema_version": MODEL_SCHEMA_VERSION,
