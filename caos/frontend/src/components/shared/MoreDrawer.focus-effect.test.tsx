@@ -64,6 +64,18 @@ it("runs the deferred portal-focus job and focuses its first control", async () 
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "First action" }));
 });
 
+it("focuses the first control without scrolling the page", async () => {
+  render(<Harness><button>First action</button></Harness>);
+  fireEvent.click(screen.getByRole("button", { name: "Open More" }));
+  await screen.findByRole("dialog", { name: "More" });
+  const first = screen.getByRole("button", { name: "First action" });
+  const focus = vi.spyOn(first, "focus");
+
+  act(() => rafCallbacks.shift()?.(0));
+
+  expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+});
+
 it("falls back to the panel when it has no focusable children", async () => {
   render(<Harness>Read-only context</Harness>);
   fireEvent.click(screen.getByRole("button", { name: "Open More" }));

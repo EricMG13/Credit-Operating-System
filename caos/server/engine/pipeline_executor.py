@@ -22,7 +22,7 @@ import socket
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 
 from config import get_settings
 from database import AsyncSessionLocal, PipelineRun, engine as db_engine
@@ -238,6 +238,31 @@ async def execute_job(job_id: str, *, expected_worker_id: str | None = None) -> 
             )
 
 
+async def _mark_shutdown_jobs_failed(
+    job_ids: Iterable[str], expected_worker_id: str
+) -> None:
+    """Terminalize owned jobs even if task cancellation cleanup is interrupted."""
+    ids = tuple(job_ids)
+    if not ids:
+        return
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(PipelineRun)
+            .where(
+                PipelineRun.id.in_(ids),
+                PipelineRun.status == "running",
+                PipelineRun.worker_id == expected_worker_id,
+            )
+            .values(
+                status="failed",
+                error="worker shutdown during autonomy cycle",
+                completed_at=_utcnow(),
+                lease_expires_at=None,
+            )
+        )
+        await db.commit()
+
+
 class PipelineExecutor:
     """Continuous, lease-backed autonomy worker for PostgreSQL and local SQLite."""
 
@@ -266,10 +291,12 @@ class PipelineExecutor:
         if self._loop_task is not None:
             await self._loop_task
         tasks = list(self._inflight)
+        job_ids = tuple(self._inflight_ids)
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        await _mark_shutdown_jobs_failed(job_ids, self._worker_id)
         self._inflight.clear()
         self._inflight_ids.clear()
 

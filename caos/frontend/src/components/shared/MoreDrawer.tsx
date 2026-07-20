@@ -65,8 +65,8 @@ export function MoreDrawer({
           'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])',
         ),
       ).filter((el) => el.offsetParent !== null);
-      if (focusables.length > 0) focusables[0].focus();
-      else panel.focus();
+      if (focusables.length > 0) focusables[0].focus({ preventScroll: true });
+      else panel.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(raf);
   }, [open]);
@@ -91,8 +91,7 @@ export function MoreDrawer({
     };
     const onResize = () => onOpenChange(false);
     // Close when the PAGE scrolls (the fixed panel would detach from its
-    // trigger), but ignore scrolls inside the panel's own list — auto-focus
-    // scrolls that list on open and must not self-close the drawer.
+    // trigger), but ignore scrolls inside the panel's own list.
     const onScroll = (e: Event) => {
       if (panelRef.current?.contains(e.target as Node)) return;
       onOpenChange(false);

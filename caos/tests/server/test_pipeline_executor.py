@@ -355,3 +355,35 @@ async def test_executor_stop_cancels_inflight(seeded_db, monkeypatch):
         row = await db.get(PipelineRun, jid)
     assert row.status == "failed"  # cancelled → marked failed, not stranded
     assert row.completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_executor_stop_terminalizes_inflight_when_task_skips_cleanup(
+    seeded_db, monkeypatch
+):
+    entered = asyncio.Event()
+
+    async def _skip_cancellation_cleanup(job_id, *, expected_worker_id=None):
+        del job_id, expected_worker_id
+        entered.set()
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            return
+
+    monkeypatch.setattr(pipeline_executor, "execute_job", _skip_cancellation_cleanup)
+    async with AsyncSessionLocal() as db:
+        jid = await pipeline.enqueue_cycle(db)
+    ex = pipeline_executor.PipelineExecutor()
+    await ex.start()
+    ex.enqueue(jid)
+    await asyncio.wait_for(entered.wait(), timeout=4.0)
+    await _wait_for_status(jid, "running", timeout=4.0)
+
+    await ex.stop()
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(PipelineRun, jid)
+    assert row.status == "failed"
+    assert row.error == "worker shutdown during autonomy cycle"
+    assert row.completed_at is not None
