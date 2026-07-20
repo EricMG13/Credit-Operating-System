@@ -21,17 +21,27 @@ publication/rating approval.
 | `database.py` insertion point | **CRITICAL** — 110 affected / 83 direct callers (exact); add related models only. |
 | `CallerIdentity` in `caos/server/identity.py` | **CRITICAL** — 72 affected / 38 direct callers (exact); all new reads/writes use existing tenancy helpers and 404 masking. |
 | `execute_run_by_id` | **LOW** — 5 affected / 2 direct callers (exact); run workers may create observations but may not dispatch or ratify. |
+| `refresh_alert_events` | **LOW** — 0 affected / 0 direct callers (exact); preserve the compatibility refresh path. |
+| `AlertInbox` | **LOW** — 0 affected / 0 direct callers (exact); keep it a persisted-alert compatibility reader. |
 
 ```mermaid
 flowchart LR
-  S[Authorized signal source] --> O[deterministic observation]
-  O --> T{single DB transaction}
-  T --> E[AlertEvent compatibility lifecycle]
-  T --> C[AlertEventContext]
-  T --> I[AlertDeliveryIntent: pending]
-  I -->|after commit| W[leased dispatcher]
-  W --> R[rendered_intent or not_sent]
-  R --> M[Monitor / AlertInbox reads]
+  RW[Run worker durable claim] --> GO[Completed governed outputs]
+  GO --> RE[Rule evaluation]
+  SC[Scheduled durable claim] --> EW[EDGAR / watch evaluation]
+  EW --> RE
+  AD[Autonomy draft] -->|evaluation input only| RE
+  RE --> CA[Matched candidate]
+  CA --> TX{Atomic materialization}
+  TX --> AE[Legacy AlertEvent]
+  TX --> EC[AlertEventContext]
+  AE --> AS[AlertState lifecycle]
+  AS --> LM[Persisted Live Monitor / AlertInbox]
+  EC --> DI[AlertDeliveryIntent]
+  DI -->|after commit| LD[Leased dispatcher]
+  LD --> RI[rendered_intent or not_sent]
+  NE[NotificationEvent workflow route / feed]
+  RM[Reference Monitor remains separate]
 ```
 
 ## Scope and visibility
@@ -72,6 +82,15 @@ canonical subject scope is tenant + issuer/portfolio identifiers (or explicit
 null sentinels). Replays of the same immutable fact therefore resolve to one
 evaluation/event context rather than a duplicate alert.
 
+`subject_scope_json` is exactly a JSON object with these and no other keys:
+`tenant_id` (UTF-8 string, 1–255 bytes), `issuer_id` (null or UTF-8 string,
+1–36 bytes), and `portfolio_id` (null or UTF-8 string, 1–36 bytes). Arrays,
+nested objects, numbers, booleans, missing `tenant_id`, additional keys, and
+overlength strings are rejected. Its canonical UTF-8 JSON form sorts keys
+lexicographically, uses no insignificant whitespace, and is at most 64 KiB;
+that canonical form—not database JSON key order—is the
+`canonical_subject_scope` input to the observation hash.
+
 For every Phase-1 materialized observation, the legacy-compatible
 `AlertEvent.alert_key` is exactly `c3:` plus the 64-character
 `observation_key` (67 characters total). Insert-or-get uses the existing unique
@@ -83,6 +102,9 @@ existing lifecycle contract.
 Each evaluation has a UUID `correlation_id`; a root evaluation sets
 `correlation_root_id = correlation_id`, and descendants retain that root.
 `hop_count` is an integer in `0..3`; creation that would exceed 3 is rejected.
+For every CP-SR↔CP-MON handoff, retain that root/correlation id and bounded
+`hop_count`, suppress any return edge for the same `observation_key`, and never
+auto-ratify or auto-publish.
 
 ## Additive five-table persistence model
 

@@ -2996,6 +2996,11 @@ chain. C13 records equivalent live services for CP-RENDER, implements CP-SR and
 CP-MON as independent services, and retires unsupported spec-only runtime
 promises rather than presenting them as implemented engine modules.
 
+Measurement clarification: RT-2026-07-20-760's 154-direct figure is the
+historical planning-worktree snapshot captured for that objection. The frozen
+C3 contract records the fresh isolated/base-index measurement of 83 direct
+callers (with the stated lower-bound qualification for `AlertEvent`/`AlertState`).
+
 | ID | Perspective | Objection | Impact | Status | Resolution / disposition |
 |----|-------------|-----------|--------|--------|--------------------------|
 | RT-2026-07-20-758 | Data-model reviewer | The old plan describes alert persistence and a quote store as absent, but the current tree already has `AlertEvent`, `AlertState`, `MarketSnapshot`, `MarketInstrument`, RV screens, and manual workbook import. Following it literally would create split-brain stores. | Critical | Resolve by extending current substrates | C3 must preserve the `NotificationEvent`/Watchtower distinction and extend `AlertEvent` additively. C5 must write normalized provider observations into immutable market snapshots and instruments; no parallel `market_quotes` table is permitted. |
