@@ -116,11 +116,66 @@ overlength input rather than truncating it.
 
 | Table | Required fields | Constraints and indexes |
 | --- | --- | --- |
-| `watch_rules` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `name varchar(160)`, `signal_type varchar(32)`, `enabled bool`, `current_version int`, `config_json jsonb`, `created_at`, `updated_at` | check signal enum and `current_version >= 1`; index `(tenant_id, owner_user_id)`, `(tenant_id, team_id_snapshot)`, `(tenant_id, issuer_id)`, `(tenant_id, portfolio_id)`. |
+| `watch_rules` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `name varchar(160)`, `signal_type varchar(32)`, `enabled bool`, `paused bool default false`, `current_version int`, `schedule_kind varchar(24)`, `schedule_interval_seconds?`, `next_evaluation_at?`, `schedule_cursor varchar(512)?`, `claim_token uuid?`, `claim_expires_at?`, `last_evaluated_at?`, `claim_attempt_count smallint default 0`, `config_json jsonb`, `created_at`, `updated_at` | check signal enum, `current_version >= 1`, schedule kind in `event_driven,interval,edgar`, interval in `60..86400` for `interval`/`edgar`, and attempt count in `0..5`; paired claim token/expiry; partial due-claim index `(next_evaluation_at, claim_expires_at) WHERE enabled AND NOT paused AND schedule_kind IN ('interval','edgar')`; scope indexes `(tenant_id, owner_user_id)`, `(tenant_id, team_id_snapshot)`, `(tenant_id, issuer_id)`, `(tenant_id, portfolio_id)`. |
 | `watch_rule_versions` | `id`, `watch_rule_id`, `version int`, `owner_user_id`, `team_id_snapshot`, `signal_type varchar(32)`, `config_json jsonb`, `created_at` | unique `(watch_rule_id, version)`; immutable after insert; index `(watch_rule_id, version desc)`. |
 | `watch_rule_evaluations` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `watch_rule_id`, `rule_version`, `signal_type varchar(32)`, `subject_scope_json jsonb`, `source_identity varchar(512)`, `observation_key char(64)`, `outcome varchar(24)`, `correlation_id`, `correlation_root_id`, `hop_count smallint`, `evaluated_at`, `detail_json jsonb` | unique `(tenant_id, observation_key)`; owner/team/scope are stamped from `CallerIdentity` and rule version; checks signal enum, outcome in `observed,matched,ignored,rejected`, `hop_count between 0 and 3`; indexes `(watch_rule_id, evaluated_at desc)`, `(correlation_root_id, evaluated_at)`, `(tenant_id, owner_user_id)`, `(tenant_id, team_id_snapshot)`. |
 | `alert_event_contexts` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `alert_event_id String(36)`, `watch_rule_evaluation_id`, `watch_rule_id`, `rule_version`, `signal_type varchar(32)`, `correlation_root_id`, `hop_count smallint`, `context_json jsonb`, `created_at` | owner/team/scope are stamped from `CallerIdentity` and evaluation; FKs to legacy alert event/evaluation/rule; unique `alert_event_id` and unique `watch_rule_evaluation_id` make the event↔evaluation context one-to-one; checks signal enum and `hop_count between 0 and 3`; indexes `(watch_rule_id, created_at desc)`, `(tenant_id, owner_user_id)`, `(tenant_id, team_id_snapshot)`. |
 | `alert_delivery_intents` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `alert_event_id String(36)`, `alert_event_context_id`, `channel varchar(24)`, `destination_ref varchar(256)`, `status varchar(24)`, `attempt_count smallint`, `max_attempts smallint`, `available_at`, `lease_token uuid?`, `lease_expires_at?`, `rendered_intent jsonb?`, `not_sent_reason varchar(256)?`, `correlation_root_id`, `created_at`, `updated_at` | owner/team/scope are stamped from `CallerIdentity` and context; unique `(alert_event_context_id, channel, destination_ref)`; checks channel in `in_app,email`, status in `pending,leased,rendered_intent,not_sent`, `attempt_count between 0 and max_attempts`, `max_attempts between 1 and 5`; indexes `(status, available_at)`, `(lease_expires_at)`, `(tenant_id, owner_user_id, created_at desc)`, `(tenant_id, team_id_snapshot)`. |
+
+`event_driven` rules have null `schedule_interval_seconds`,
+`next_evaluation_at`, `schedule_cursor`, `claim_token`, `claim_expires_at`, and
+`last_evaluated_at`, with `claim_attempt_count = 0`. `interval` and `edgar`
+rules require `schedule_interval_seconds` in `60..86400`; when enabled and not
+paused they require a non-null `next_evaluation_at`. A scheduled rule's claim
+token and expiry are both null or both non-null. `paused` suppresses both event
+and scheduled evaluation until an authorized owner/admin resumes it.
+
+### Scheduled rule claims
+
+Scheduled evaluation uses fields on `watch_rules`, never a sixth table. A worker
+claims a rule with one atomic update whose predicate is: matching rule id,
+`enabled = true`, `paused = false`, `schedule_kind IN ('interval','edgar')`,
+`next_evaluation_at <= now`, `claim_attempt_count < 5`, and (`claim_token IS
+NULL` or `claim_expires_at <= now`). The transition sets a fresh UUID
+`claim_token`, sets `claim_expires_at = now + 5 minutes`, and increments
+`claim_attempt_count` once. Its row predicate / lock makes a successful claim
+exclusive; expired claims are reclaimed only through the same transition.
+
+Completion or failure uses an atomic update requiring the matching token and
+`claim_expires_at > now`. It persists the supplied (or unchanged) bounded
+cursor, sets `last_evaluated_at = now`, calculates the next interval slot on
+success or a bounded exponential backoff on failure, and clears both claim
+fields. Success resets `claim_attempt_count` to zero. At the fifth failed
+claim, it instead sets `paused = true`, clears `next_evaluation_at`, and leaves
+the rule for an authorized resume/reset; it cannot be claimed again. Scheduled
+verification must cover two concurrent claimers (one wins), expired-lease
+reclaim, token-required completion/failure, successful next-slot calculation,
+failure backoff, and the fifth-failure pause.
+
+### Foreign keys, uniqueness, and deletion
+
+`alert_events` is the exact legacy `AlertEvent` table name. All listed FKs are
+enforced by the future migration; every FK column has an index unless covered by
+the named unique index.
+
+| Child relation | Exact target / required unique target | Delete rule |
+| --- | --- | --- |
+| `watch_rule_versions.watch_rule_id` | `watch_rules.id` | **RESTRICT**; rules and versions are disabled/paused, never hard-deleted. |
+| `watch_rule_evaluations.watch_rule_id` | `watch_rules.id` | **RESTRICT**. |
+| `watch_rule_evaluations.(watch_rule_id, rule_version)` | `watch_rule_versions.(watch_rule_id, version)` | **RESTRICT**; requires unique `(watch_rule_id, version)`. |
+| `alert_event_contexts.alert_event_id` | `alert_events.id` (`String(36)`) | **CASCADE** for authorized legacy-alert erasure. |
+| `alert_event_contexts.watch_rule_evaluation_id` | `watch_rule_evaluations.id` | **RESTRICT**. |
+| `alert_event_contexts.watch_rule_id` and `(watch_rule_id, rule_version)` | `watch_rules.id` and `watch_rule_versions.(watch_rule_id, version)` | **RESTRICT** for both rule/version links. |
+| `alert_delivery_intents.alert_event_context_id` | `alert_event_contexts.id` | **CASCADE** for authorized legacy-alert erasure. |
+| `alert_delivery_intents.alert_event_id` | `alert_events.id` (`String(36)`) | **CASCADE** for authorized legacy-alert erasure. |
+
+Required keys/indexes are: legacy `uq_alert_events_alert_key`; unique
+`watch_rule_versions(watch_rule_id, version)` (the composite FK target); unique
+`watch_rule_evaluations(tenant_id, observation_key)`; unique
+`alert_event_contexts(alert_event_id)` and
+`alert_event_contexts(watch_rule_evaluation_id)`; and unique
+`alert_delivery_intents(alert_event_context_id, channel, destination_ref)`.
+Indexes cover every standalone FK and the leading columns of each composite FK.
 
 `config_json`, `detail_json`, and `context_json` are bounded to 64 KiB serialized;
 `rendered_intent` is bounded to 256 KiB and contains the rendered payload or a
@@ -175,15 +230,16 @@ The Phase-1 migration is additive with `down_revision = "0065"`: create these
 five tables,
 foreign keys, checks, indexes, and unique constraints without altering legacy
 `AlertEvent` / `AlertState` columns or response schemas. Backfill is not
-required. Downgrade first drops only FKs/indexes/tables in reverse dependency
-order (`alert_delivery_intents`, `alert_event_contexts`,
-`watch_rule_evaluations`, `watch_rule_versions`, `watch_rules`); it must not
-delete or mutate legacy alerts/states.
+required. Downgrade first drops only the new FKs and dependent indexes, then
+tables in exact reverse dependency order: `alert_delivery_intents`,
+`alert_event_contexts`, `watch_rule_evaluations`, `watch_rule_versions`, and
+`watch_rules`. It must not delete or mutate legacy alerts/states.
 
 Verification must prove: migration upgrade/downgrade on a populated legacy
 database; deterministic replay yields one evaluation/context/intent set;
 atomic rollback leaves no partial event/context/intent; concurrent workers hold
 one durable lease; expiry/retry reaches `not_sent`; all scope permutations
 return 404 where required; `news` cannot run; hop 4 is rejected; legacy alert
-responses are byte-for-byte schema compatible; and logs contain no content or
-secrets.
+responses are byte-for-byte schema compatible; scheduled claims have one winner,
+reclaim safely after expiry, and require the token to finish; and logs contain
+no content or secrets.
