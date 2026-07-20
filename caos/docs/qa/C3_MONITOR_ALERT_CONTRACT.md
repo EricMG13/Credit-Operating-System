@@ -117,10 +117,10 @@ overlength input rather than truncating it.
 | Table | Required fields | Constraints and indexes |
 | --- | --- | --- |
 | `watch_rules` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `name varchar(160)`, `signal_type varchar(32)`, `enabled bool`, `paused bool default false`, `current_version int`, `schedule_kind varchar(24)`, `schedule_interval_seconds?`, `next_evaluation_at?`, `schedule_cursor varchar(512)?`, `claim_token uuid?`, `claim_expires_at?`, `last_evaluated_at?`, `claim_attempt_count smallint default 0`, `config_json jsonb`, `created_at`, `updated_at` | check signal enum, `current_version >= 1`, schedule kind in `event_driven,interval,edgar`, interval in `60..86400` for `interval`/`edgar`, and attempt count in `0..5`; paired claim token/expiry; partial due-claim index `(next_evaluation_at, claim_expires_at) WHERE enabled AND NOT paused AND schedule_kind IN ('interval','edgar')`; scope indexes `(tenant_id, owner_user_id)`, `(tenant_id, team_id_snapshot)`, `(tenant_id, issuer_id)`, `(tenant_id, portfolio_id)`. |
-| `watch_rule_versions` | `id`, `watch_rule_id`, `version int`, `owner_user_id`, `team_id_snapshot`, `signal_type varchar(32)`, `config_json jsonb`, `created_at` | unique `(watch_rule_id, version)`; immutable after insert; index `(watch_rule_id, version desc)`. |
-| `watch_rule_evaluations` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `watch_rule_id`, `rule_version`, `signal_type varchar(32)`, `subject_scope_json jsonb`, `source_identity varchar(512)`, `observation_key char(64)`, `outcome varchar(24)`, `correlation_id`, `correlation_root_id`, `hop_count smallint`, `evaluated_at`, `detail_json jsonb` | unique `(tenant_id, observation_key)`; owner/team/scope are stamped from `CallerIdentity` and rule version; checks signal enum, outcome in `observed,matched,ignored,rejected`, `hop_count between 0 and 3`; indexes `(watch_rule_id, evaluated_at desc)`, `(correlation_root_id, evaluated_at)`, `(tenant_id, owner_user_id)`, `(tenant_id, team_id_snapshot)`. |
-| `alert_event_contexts` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `alert_event_id String(36)`, `watch_rule_evaluation_id`, `watch_rule_id`, `rule_version`, `signal_type varchar(32)`, `correlation_root_id`, `hop_count smallint`, `context_json jsonb`, `created_at` | owner/team/scope are stamped from `CallerIdentity` and evaluation; FKs to legacy alert event/evaluation/rule; unique `alert_event_id` and unique `watch_rule_evaluation_id` make the event↔evaluation context one-to-one; checks signal enum and `hop_count between 0 and 3`; indexes `(watch_rule_id, created_at desc)`, `(tenant_id, owner_user_id)`, `(tenant_id, team_id_snapshot)`. |
-| `alert_delivery_intents` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `alert_event_id String(36)`, `alert_event_context_id`, `channel varchar(24)`, `destination_ref varchar(256)`, `status varchar(24)`, `attempt_count smallint`, `max_attempts smallint`, `available_at`, `lease_token uuid?`, `lease_expires_at?`, `rendered_intent jsonb?`, `not_sent_reason varchar(256)?`, `correlation_root_id`, `created_at`, `updated_at` | owner/team/scope are stamped from `CallerIdentity` and context; unique `(alert_event_context_id, channel, destination_ref)`; checks channel in `in_app,email`, status in `pending,leased,rendered_intent,not_sent`, `attempt_count between 0 and max_attempts`, `max_attempts between 1 and 5`; indexes `(status, available_at)`, `(lease_expires_at)`, `(tenant_id, owner_user_id, created_at desc)`, `(tenant_id, team_id_snapshot)`. |
+| `watch_rule_versions` | `id`, `watch_rule_id`, `version int`, `owner_user_id`, `team_id_snapshot`, `signal_type varchar(32)`, `config_json jsonb`, `created_at` | unique `(watch_rule_id, version)`; immutable after insert; index `(watch_rule_id, version)`. |
+| `watch_rule_evaluations` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `watch_rule_id`, `rule_version`, `signal_type varchar(32)`, `subject_scope_json jsonb`, `source_identity varchar(512)`, `observation_key char(64)`, `outcome varchar(24)`, `correlation_id`, `correlation_root_id`, `hop_count smallint`, `evaluated_at`, `detail_json jsonb` | unique `(tenant_id, observation_key)`; owner/team/scope are stamped from `CallerIdentity` and rule version; checks signal enum, outcome in `observed,matched,ignored,rejected`, `hop_count between 0 and 3`; indexes `(watch_rule_id, evaluated_at)`, `(correlation_root_id, evaluated_at)`, `(tenant_id, owner_user_id)`, `(tenant_id, team_id_snapshot)`. |
+| `alert_event_contexts` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `alert_event_id String(36)`, `watch_rule_evaluation_id`, `watch_rule_id`, `rule_version`, `signal_type varchar(32)`, `correlation_root_id`, `hop_count smallint`, `context_json jsonb`, `created_at` | owner/team/scope are stamped from `CallerIdentity` and evaluation; FKs to legacy alert event/evaluation/rule; unique `alert_event_id` and unique `watch_rule_evaluation_id` make the event↔evaluation context one-to-one; checks signal enum and `hop_count between 0 and 3`; indexes `(watch_rule_id, created_at)`, `(tenant_id, owner_user_id)`, `(tenant_id, team_id_snapshot)`. |
+| `alert_delivery_intents` | `id`, `tenant_id`, `owner_user_id`, `team_id_snapshot`, `issuer_id?`, `portfolio_id?`, `alert_event_id String(36)`, `alert_event_context_id`, `channel varchar(24)`, `destination_ref varchar(256)`, `status varchar(24)`, `attempt_count smallint`, `max_attempts smallint`, `available_at`, `lease_token uuid?`, `lease_expires_at?`, `rendered_intent jsonb?`, `not_sent_reason varchar(256)?`, `correlation_root_id`, `created_at`, `updated_at` | owner/team/scope are stamped from `CallerIdentity` and context; unique `(alert_event_context_id, channel, destination_ref)`; checks channel in `in_app,email`, status in `pending,leased,rendered_intent,not_sent`, `attempt_count between 0 and max_attempts`, `max_attempts between 1 and 5`; indexes `(status, available_at)`, `(lease_expires_at)`, `(tenant_id, owner_user_id, created_at)`, `(tenant_id, team_id_snapshot)`. |
 
 `event_driven` rules have null `schedule_interval_seconds`,
 `next_evaluation_at`, `schedule_cursor`, `claim_token`, `claim_expires_at`, and
@@ -223,6 +223,53 @@ lookup; a false “sent” state; dispatch in the database transaction; process-
 scheduling/leases; automatic ratification, publication, or fixture-to-live
 promotion; wall-clock-derived observation identity; and content or secrets in
 ordinary logs.
+
+## Wire contracts
+
+All five public wire models are Pydantic v2 models with forbidden extra fields,
+frozen instances, stripped string whitespace, and timezone-aware datetimes.
+Bounded JSON objects are measured in their canonical UTF-8 encoding (sorted
+keys, no insignificant whitespace). The contracts contain no
+`sent`/`delivered`/`accepted`/`connected` delivery vocabulary.
+
+`SubjectScope` is the shared helper: `tenant_id` is a string of 1..255 UTF-8
+bytes; `issuer_id` and `portfolio_id` are optional strings of 1..36 UTF-8 bytes;
+extra keys are forbidden; and the canonical JSON object is at most 64 KiB.
+
+- `SignalObservation`: `signal_type` is the exact frozen signal literal;
+  `subject_scope` is `SubjectScope`; `source_identity` is a 1..512-character
+  immutable fact/source identity; `observed_at` is aware; `numeric_value` is a
+  finite float or null; `categorical_value` is a string of at most 512
+  characters or null; `detail` is a JSON object bounded to 64 KiB;
+  `source_artifact_refs` is a tuple of at most 64 strings, each at most 512
+  characters; correlation and correlation-root ids are UUIDs; and `hop_count`
+  is 0..3. At least one of numeric value, categorical value, or non-empty detail
+  is required.
+- `EvaluationTrigger`: `trigger_kind` is one of `run_completed`, `manual`,
+  `scheduled_edgar`, or `scheduled_watchlist`; `trigger_identity` is a 1..512
+  string; `watch_rule_id` is a UUID; `rule_version >= 1`; `occurred_at` is
+  aware; `scheduled_for` is aware or null; correlation and correlation-root ids
+  are UUIDs; and `hop_count` is 0..3. `scheduled_for` is required exactly for
+  scheduled kinds and forbidden otherwise.
+- `AlertCandidate`: `evaluation_id` and `watch_rule_id` are UUIDs;
+  `rule_version >= 1`; `observation_key` is exactly 64 lowercase hexadecimal
+  characters; `alert_key` is exactly `c3:` plus that observation key;
+  `signal_type` and `subject_scope` use the shared types; optional `issuer_id`
+  and `portfolio_id` must equal the corresponding scope value; `run_id` is at
+  most 64 characters; `kind` is 1..64 characters; `title` is 1..240 characters;
+  `impact` is at most 4,000 characters; `evidence` and `authority` are JSON
+  objects bounded to 64 KiB; correlation and correlation-root ids are UUIDs;
+  and `hop_count` is 0..3. Key and scope mismatches are rejected.
+- `SinkIntent`: `channel` is `in_app` or `email`; `destination_ref` is a 1..256
+  string; `idempotency_key` is exactly 64 lowercase hexadecimal characters;
+  `status` is `pending`, `rendered_intent`, or `not_sent`; `rendered_intent` is
+  a JSON object bounded to 256 KiB or null; and `not_sent_reason` is at most 256
+  characters or null. A rendered payload is required only for
+  `rendered_intent`; a reason is required only for `not_sent`.
+- `SinkResult`: `channel` uses the same channel literal; `status` is
+  `rendered_intent` or `not_sent`; `intent_id` is a UUID or null;
+  `attempt_count` is 0..5; and `error_class` is at most 64 characters or null.
+  It has no free-form provider response or content field.
 
 ## Migration, downgrade, and verification
 

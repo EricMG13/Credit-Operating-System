@@ -21,14 +21,15 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from sqlalchemy import (
-    JSON, Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, delete, event, inspect, or_, select, text, update, Computed,
+    JSON, Boolean, CHAR, CheckConstraint, Computed, Date, DateTime, Float, ForeignKey,
+    ForeignKeyConstraint, Index, Integer, SmallInteger, String, Text, UniqueConstraint,
+    Uuid, delete, event, inspect, or_, select, text, update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 import json
 from sqlalchemy.types import TypeDecorator, UnicodeText
 from pgvector.sqlalchemy import Vector
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.ext.compiler import compiles
 
 logger = logging.getLogger("caos.database")
@@ -1307,6 +1308,376 @@ class AlertEvent(Base):
     evidence: Mapped[dict] = mapped_column(JSON, default=dict)
     authority: Mapped[dict] = mapped_column(JSON, default=dict)
     created_by: Mapped[Optional[str]] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+_C3_SIGNAL_TYPES_SQL = (
+    "'run_finding','qa_gate','covenant','edgar_filing','market_move',"
+    "'cp1b_monitoring','cp1c_peer_outlier','news'"
+)
+_C3_JSON_OBJECT = JSON(none_as_null=True).with_variant(
+    JSONB(none_as_null=True), "postgresql"
+)
+
+
+class WatchRule(Base):
+    """Analyst-owned durable monitor rule and scheduled-claim state."""
+
+    __tablename__ = "watch_rules"
+    __table_args__ = (
+        CheckConstraint(
+            f"signal_type IN ({_C3_SIGNAL_TYPES_SQL}) AND "
+            "(signal_type <> 'news' OR enabled = false)",
+            name="ck_watch_rules_signal_type",
+        ),
+        CheckConstraint("current_version >= 1", name="ck_watch_rules_current_version"),
+        CheckConstraint(
+            "schedule_kind IN ('event_driven','interval','edgar')",
+            name="ck_watch_rules_schedule_kind",
+        ),
+        CheckConstraint(
+            "(schedule_kind = 'event_driven' AND schedule_interval_seconds IS NULL "
+            "AND next_evaluation_at IS NULL AND schedule_cursor IS NULL "
+            "AND claim_token IS NULL AND claim_expires_at IS NULL "
+            "AND last_evaluated_at IS NULL AND claim_attempt_count = 0) OR "
+            "(schedule_kind IN ('interval','edgar') "
+            "AND schedule_interval_seconds BETWEEN 60 AND 86400 "
+            "AND (enabled = false OR paused = true OR next_evaluation_at IS NOT NULL))",
+            name="ck_watch_rules_schedule_state",
+        ),
+        CheckConstraint(
+            "(claim_token IS NULL AND claim_expires_at IS NULL) OR "
+            "(claim_token IS NOT NULL AND claim_expires_at IS NOT NULL)",
+            name="ck_watch_rules_claim_pair",
+        ),
+        CheckConstraint(
+            "claim_attempt_count BETWEEN 0 AND 5",
+            name="ck_watch_rules_claim_attempt_count",
+        ),
+        CheckConstraint(
+            "json_valid(config_json) AND json_type(config_json) = 'object' "
+            "AND length(CAST(config_json AS BLOB)) <= 65536",
+            name="ck_watch_rules_config_json",
+        ),
+        Index("ix_watch_rules_tenant_owner", "tenant_id", "owner_user_id"),
+        Index("ix_watch_rules_tenant_team", "tenant_id", "team_id_snapshot"),
+        Index("ix_watch_rules_tenant_issuer", "tenant_id", "issuer_id"),
+        Index("ix_watch_rules_tenant_portfolio", "tenant_id", "portfolio_id"),
+        Index(
+            "ix_watch_rules_due_claim",
+            "next_evaluation_at",
+            "claim_expires_at",
+            postgresql_where=text(
+                "enabled AND NOT paused AND schedule_kind IN ('interval','edgar')"
+            ),
+            sqlite_where=text(
+                "enabled AND NOT paused AND schedule_kind IN ('interval','edgar')"
+            ),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    paused: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    current_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    schedule_kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    schedule_interval_seconds: Mapped[Optional[int]] = mapped_column(Integer)
+    next_evaluation_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    schedule_cursor: Mapped[Optional[str]] = mapped_column(String(512))
+    claim_token: Mapped[Optional[str]] = mapped_column(Uuid(as_uuid=False))
+    claim_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_evaluated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    claim_attempt_count: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
+    config_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class WatchRuleVersion(Base):
+    """Immutable rule configuration snapshot."""
+
+    __tablename__ = "watch_rule_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "watch_rule_id", "version", name="uq_watch_rule_versions_rule_version"
+        ),
+        CheckConstraint("version >= 1", name="ck_watch_rule_versions_version"),
+        CheckConstraint(
+            f"signal_type IN ({_C3_SIGNAL_TYPES_SQL})",
+            name="ck_watch_rule_versions_signal_type",
+        ),
+        CheckConstraint(
+            "json_valid(config_json) AND json_type(config_json) = 'object' "
+            "AND length(CAST(config_json AS BLOB)) <= 65536",
+            name="ck_watch_rule_versions_config_json",
+        ),
+        Index(
+            "ix_watch_rule_versions_rule_version",
+            "watch_rule_id",
+            "version",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    watch_rule_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey("watch_rules.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    config_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+@event.listens_for(WatchRuleVersion, "before_update")
+def _watch_rule_version_is_immutable(_mapper, _connection, _target) -> None:
+    raise ValueError("WatchRuleVersion rows are immutable")
+
+
+class WatchRuleEvaluation(Base):
+    """One deterministic observation of an immutable rule version."""
+
+    __tablename__ = "watch_rule_evaluations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "observation_key",
+            name="uq_watch_rule_evaluations_tenant_observation",
+        ),
+        ForeignKeyConstraint(
+            ["watch_rule_id", "rule_version"],
+            ["watch_rule_versions.watch_rule_id", "watch_rule_versions.version"],
+            ondelete="RESTRICT",
+            name="fk_watch_rule_evaluations_rule_version",
+        ),
+        CheckConstraint(
+            f"signal_type IN ({_C3_SIGNAL_TYPES_SQL}) AND signal_type <> 'news'",
+            name="ck_watch_rule_evaluations_signal_type",
+        ),
+        CheckConstraint(
+            "outcome IN ('observed','matched','ignored','rejected')",
+            name="ck_watch_rule_evaluations_outcome",
+        ),
+        CheckConstraint(
+            "hop_count BETWEEN 0 AND 3",
+            name="ck_watch_rule_evaluations_hop_count",
+        ),
+        CheckConstraint(
+            "json_valid(subject_scope_json) "
+            "AND json_type(subject_scope_json) = 'object' "
+            "AND length(CAST(subject_scope_json AS BLOB)) <= 65536 "
+            "AND json_remove(subject_scope_json, '$.tenant_id', '$.issuer_id', "
+            "'$.portfolio_id') = '{}' "
+            "AND json_type(subject_scope_json, '$.tenant_id') = 'text' "
+            "AND length(CAST(json_extract(subject_scope_json, '$.tenant_id') AS BLOB)) "
+            "BETWEEN 1 AND 255 "
+            "AND json_type(subject_scope_json, '$.issuer_id') IS NOT NULL "
+            "AND json_type(subject_scope_json, '$.issuer_id') IN ('null','text') "
+            "AND (json_type(subject_scope_json, '$.issuer_id') = 'null' OR "
+            "length(CAST(json_extract(subject_scope_json, '$.issuer_id') AS BLOB)) "
+            "BETWEEN 1 AND 36) "
+            "AND json_type(subject_scope_json, '$.portfolio_id') IS NOT NULL "
+            "AND json_type(subject_scope_json, '$.portfolio_id') IN ('null','text') "
+            "AND (json_type(subject_scope_json, '$.portfolio_id') = 'null' OR "
+            "length(CAST(json_extract(subject_scope_json, '$.portfolio_id') AS BLOB)) "
+            "BETWEEN 1 AND 36)",
+            name="ck_watch_rule_evaluations_subject_scope_json",
+        ),
+        CheckConstraint(
+            "json_valid(detail_json) AND json_type(detail_json) = 'object' "
+            "AND length(CAST(detail_json AS BLOB)) <= 65536",
+            name="ck_watch_rule_evaluations_detail_json",
+        ),
+        Index(
+            "ix_watch_rule_evaluations_rule_evaluated",
+            "watch_rule_id",
+            "evaluated_at",
+        ),
+        Index(
+            "ix_watch_rule_evaluations_correlation_evaluated",
+            "correlation_root_id",
+            "evaluated_at",
+        ),
+        Index(
+            "ix_watch_rule_evaluations_tenant_owner", "tenant_id", "owner_user_id"
+        ),
+        Index(
+            "ix_watch_rule_evaluations_tenant_team", "tenant_id", "team_id_snapshot"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
+    watch_rule_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("watch_rules.id", ondelete="RESTRICT"), nullable=False
+    )
+    rule_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_scope_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False)
+    source_identity: Mapped[str] = mapped_column(String(512), nullable=False)
+    observation_key: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), nullable=False)
+    correlation_root_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), nullable=False)
+    hop_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    detail_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False, default=dict)
+
+
+class AlertEventContext(Base):
+    """Tenant-stamped one-to-one bridge from an evaluation to a legacy alert."""
+
+    __tablename__ = "alert_event_contexts"
+    __table_args__ = (
+        UniqueConstraint("alert_event_id", name="uq_alert_event_contexts_alert_event"),
+        UniqueConstraint(
+            "watch_rule_evaluation_id", name="uq_alert_event_contexts_evaluation"
+        ),
+        ForeignKeyConstraint(
+            ["watch_rule_id", "rule_version"],
+            ["watch_rule_versions.watch_rule_id", "watch_rule_versions.version"],
+            ondelete="RESTRICT",
+            name="fk_alert_event_contexts_rule_version",
+        ),
+        CheckConstraint(
+            f"signal_type IN ({_C3_SIGNAL_TYPES_SQL}) AND signal_type <> 'news'",
+            name="ck_alert_event_contexts_signal_type",
+        ),
+        CheckConstraint(
+            "hop_count BETWEEN 0 AND 3", name="ck_alert_event_contexts_hop_count"
+        ),
+        CheckConstraint(
+            "json_valid(context_json) AND json_type(context_json) = 'object' "
+            "AND length(CAST(context_json AS BLOB)) <= 65536",
+            name="ck_alert_event_contexts_context_json",
+        ),
+        Index("ix_alert_event_contexts_rule_created", "watch_rule_id", "created_at"),
+        Index("ix_alert_event_contexts_tenant_owner", "tenant_id", "owner_user_id"),
+        Index("ix_alert_event_contexts_tenant_team", "tenant_id", "team_id_snapshot"),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
+    alert_event_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("alert_events.id", ondelete="CASCADE"), nullable=False
+    )
+    watch_rule_evaluation_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey("watch_rule_evaluations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    watch_rule_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("watch_rules.id", ondelete="RESTRICT"), nullable=False
+    )
+    rule_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    correlation_root_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), nullable=False)
+    hop_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    context_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AlertDeliveryIntent(Base):
+    """Bounded, leased delivery work without a delivery-success claim."""
+
+    __tablename__ = "alert_delivery_intents"
+    __table_args__ = (
+        UniqueConstraint(
+            "alert_event_context_id", "channel", "destination_ref",
+            name="uq_alert_delivery_intents_destination",
+        ),
+        CheckConstraint(
+            "channel IN ('in_app','email')", name="ck_alert_delivery_intents_channel"
+        ),
+        CheckConstraint(
+            "status IN ('pending','leased','rendered_intent','not_sent')",
+            name="ck_alert_delivery_intents_status",
+        ),
+        CheckConstraint(
+            "max_attempts BETWEEN 1 AND 5 AND "
+            "attempt_count BETWEEN 0 AND max_attempts",
+            name="ck_alert_delivery_intents_attempts",
+        ),
+        CheckConstraint(
+            "(status = 'leased' AND lease_token IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL) OR "
+            "(status <> 'leased' AND lease_token IS NULL AND lease_expires_at IS NULL)",
+            name="ck_alert_delivery_intents_lease_pair",
+        ),
+        CheckConstraint(
+            "(status = 'rendered_intent' AND rendered_intent IS NOT NULL "
+            "AND not_sent_reason IS NULL) OR "
+            "(status = 'not_sent' AND rendered_intent IS NULL "
+            "AND not_sent_reason IS NOT NULL) OR "
+            "(status IN ('pending','leased') AND rendered_intent IS NULL "
+            "AND not_sent_reason IS NULL)",
+            name="ck_alert_delivery_intents_payload_state",
+        ),
+        CheckConstraint(
+            "rendered_intent IS NULL OR (json_valid(rendered_intent) "
+            "AND json_type(rendered_intent) = 'object' "
+            "AND length(CAST(rendered_intent AS BLOB)) <= 262144)",
+            name="ck_alert_delivery_intents_rendered_intent",
+        ),
+        Index("ix_alert_delivery_intents_alert_event_id", "alert_event_id"),
+        Index("ix_alert_delivery_intents_status_available", "status", "available_at"),
+        Index("ix_alert_delivery_intents_lease_expires_at", "lease_expires_at"),
+        Index(
+            "ix_alert_delivery_intents_tenant_owner_created",
+            "tenant_id", "owner_user_id", "created_at",
+        ),
+        Index(
+            "ix_alert_delivery_intents_tenant_team", "tenant_id", "team_id_snapshot"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
+    alert_event_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("alert_events.id", ondelete="CASCADE"), nullable=False
+    )
+    alert_event_context_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey("alert_event_contexts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    channel: Mapped[str] = mapped_column(String(24), nullable=False)
+    destination_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_token: Mapped[Optional[str]] = mapped_column(Uuid(as_uuid=False))
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rendered_intent: Mapped[Optional[dict]] = mapped_column(_C3_JSON_OBJECT)
+    not_sent_reason: Mapped[Optional[str]] = mapped_column(String(256))
+    correlation_root_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
