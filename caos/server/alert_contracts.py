@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import (
     AwareDatetime,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     JsonValue,
@@ -32,6 +33,18 @@ SignalType = Literal[
 ]
 Channel = Literal["in_app", "email"]
 HexKey = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+
+
+def _reject_bool(value: object) -> object:
+    if isinstance(value, bool):
+        raise ValueError("boolean values are not valid numbers")
+    return value
+
+
+FiniteWireNumber = Annotated[float, BeforeValidator(_reject_bool)]
+HopCount = Annotated[int, BeforeValidator(_reject_bool), Field(ge=0, le=3)]
+RuleVersion = Annotated[int, BeforeValidator(_reject_bool), Field(ge=1)]
+AttemptCount = Annotated[int, BeforeValidator(_reject_bool), Field(ge=0, le=5)]
 
 
 def _canonical_json(value: object, *, max_bytes: int, label: str) -> str:
@@ -97,7 +110,7 @@ class SignalObservation(_WireModel):
     subject_scope: SubjectScope
     source_identity: str = Field(min_length=1, max_length=512)
     observed_at: AwareDatetime
-    numeric_value: Optional[float] = None
+    numeric_value: Optional[FiniteWireNumber] = None
     categorical_value: Optional[str] = Field(default=None, max_length=512)
     detail: dict[str, JsonValue] = Field(default_factory=dict)
     source_artifact_refs: tuple[Annotated[str, StringConstraints(max_length=512)], ...] = Field(
@@ -105,7 +118,7 @@ class SignalObservation(_WireModel):
     )
     correlation_id: UUID
     correlation_root_id: UUID
-    hop_count: int = Field(ge=0, le=3)
+    hop_count: HopCount
 
     @field_validator("numeric_value")
     @classmethod
@@ -133,12 +146,12 @@ class EvaluationTrigger(_WireModel):
     ]
     trigger_identity: str = Field(min_length=1, max_length=512)
     watch_rule_id: UUID
-    rule_version: int = Field(ge=1)
+    rule_version: RuleVersion
     occurred_at: AwareDatetime
     scheduled_for: Optional[AwareDatetime] = None
     correlation_id: UUID
     correlation_root_id: UUID
-    hop_count: int = Field(ge=0, le=3)
+    hop_count: HopCount
 
     @model_validator(mode="after")
     def _scheduled_timestamp_matches_kind(self) -> "EvaluationTrigger":
@@ -151,7 +164,7 @@ class EvaluationTrigger(_WireModel):
 class AlertCandidate(_WireModel):
     evaluation_id: UUID
     watch_rule_id: UUID
-    rule_version: int = Field(ge=1)
+    rule_version: RuleVersion
     observation_key: HexKey
     alert_key: str = Field(pattern=r"^c3:[0-9a-f]{64}$")
     signal_type: SignalType
@@ -166,7 +179,7 @@ class AlertCandidate(_WireModel):
     authority: dict[str, JsonValue] = Field(default_factory=dict)
     correlation_id: UUID
     correlation_root_id: UUID
-    hop_count: int = Field(ge=0, le=3)
+    hop_count: HopCount
 
     @field_validator("evidence", "authority")
     @classmethod
@@ -219,5 +232,5 @@ class SinkResult(_WireModel):
     channel: Channel
     status: Literal["rendered_intent", "not_sent"]
     intent_id: Optional[UUID] = None
-    attempt_count: int = Field(ge=0, le=5)
+    attempt_count: AttemptCount
     error_class: Optional[str] = Field(default=None, max_length=64)

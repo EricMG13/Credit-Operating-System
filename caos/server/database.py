@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from sqlalchemy import (
-    JSON, Boolean, CHAR, CheckConstraint, Computed, Date, DateTime, Float, ForeignKey,
+    JSON, Boolean, CHAR, CheckConstraint, Computed, DDL, Date, DateTime, Float, ForeignKey,
     ForeignKeyConstraint, Index, Integer, SmallInteger, String, Text, UniqueConstraint,
     Uuid, delete, event, inspect, or_, select, text, update,
 )
@@ -1321,11 +1321,151 @@ _C3_JSON_OBJECT = JSON(none_as_null=True).with_variant(
 )
 
 
+def _c3_json_object_sql(
+    column: str,
+    maximum: int,
+    *,
+    dialect: str,
+    subject_scope: bool = False,
+) -> str:
+    if dialect == "postgresql":
+        object_check = (
+            f"jsonb_typeof({column}) = 'object' "
+            f"AND octet_length(CAST({column} AS text)) <= {maximum}"
+        )
+        if subject_scope:
+            object_check += (
+                f" AND {column} ?& ARRAY['tenant_id','issuer_id','portfolio_id'] "
+                f"AND ({column} - ARRAY['tenant_id','issuer_id','portfolio_id']) = '{{}}'::jsonb "
+                f"AND jsonb_typeof({column} -> 'tenant_id') = 'string' "
+                f"AND octet_length({column} ->> 'tenant_id') BETWEEN 1 AND 255 "
+                f"AND (jsonb_typeof({column} -> 'issuer_id') = 'null' OR "
+                f"(jsonb_typeof({column} -> 'issuer_id') = 'string' "
+                f"AND octet_length({column} ->> 'issuer_id') BETWEEN 1 AND 36)) "
+                f"AND (jsonb_typeof({column} -> 'portfolio_id') = 'null' OR "
+                f"(jsonb_typeof({column} -> 'portfolio_id') = 'string' "
+                f"AND octet_length({column} ->> 'portfolio_id') BETWEEN 1 AND 36))"
+            )
+        return object_check
+
+    object_check = (
+        f"json_valid({column}) AND json_type({column}) = 'object' "
+        f"AND length(CAST({column} AS BLOB)) <= {maximum}"
+    )
+    if subject_scope:
+        object_check += (
+            f" AND json_remove({column}, '$.tenant_id', '$.issuer_id', "
+            f"'$.portfolio_id') = '{{}}' "
+            f"AND json_type({column}, '$.tenant_id') = 'text' "
+            f"AND length(CAST(json_extract({column}, '$.tenant_id') AS BLOB)) "
+            f"BETWEEN 1 AND 255 "
+            f"AND json_type({column}, '$.issuer_id') IS NOT NULL "
+            f"AND json_type({column}, '$.issuer_id') IN ('null','text') "
+            f"AND (json_type({column}, '$.issuer_id') = 'null' OR "
+            f"length(CAST(json_extract({column}, '$.issuer_id') AS BLOB)) "
+            f"BETWEEN 1 AND 36) "
+            f"AND json_type({column}, '$.portfolio_id') IS NOT NULL "
+            f"AND json_type({column}, '$.portfolio_id') IN ('null','text') "
+            f"AND (json_type({column}, '$.portfolio_id') = 'null' OR "
+            f"length(CAST(json_extract({column}, '$.portfolio_id') AS BLOB)) "
+            f"BETWEEN 1 AND 36)"
+        )
+    return object_check
+
+
+class C3JsonObjectCheck(CheckConstraint):
+    """A named JSON-object CHECK with audited SQLite/PostgreSQL compilation."""
+
+    inherit_cache = True
+
+    def __init__(
+        self,
+        column: str,
+        maximum: int,
+        *,
+        name: str,
+        nullable: bool = False,
+        subject_scope: bool = False,
+    ) -> None:
+        self.c3_column = column
+        self.c3_maximum = maximum
+        self.c3_nullable = nullable
+        self.c3_subject_scope = subject_scope
+        sqlite_sql = _c3_json_object_sql(
+            column, maximum, dialect="sqlite", subject_scope=subject_scope
+        )
+        if nullable:
+            sqlite_sql = f"{column} IS NULL OR ({sqlite_sql})"
+        super().__init__(text(sqlite_sql), name=name)
+
+
+@compiles(C3JsonObjectCheck)
+def _compile_c3_json_object_check(element, compiler, **_kw):
+    dialect = "postgresql" if compiler.dialect.name == "postgresql" else "sqlite"
+    check_sql = _c3_json_object_sql(
+        element.c3_column,
+        element.c3_maximum,
+        dialect=dialect,
+        subject_scope=element.c3_subject_scope,
+    )
+    if element.c3_nullable:
+        check_sql = f"{element.c3_column} IS NULL OR ({check_sql})"
+    name = compiler.preparer.format_constraint(element)
+    return f"CONSTRAINT {name} CHECK ({check_sql})"
+
+
+def _c3_string_bounds(
+    table: str,
+    *bounds: tuple[str, int, int, bool],
+) -> CheckConstraint:
+    clauses = []
+    for column, minimum, maximum, nullable in bounds:
+        check = f"length({column}) BETWEEN {minimum} AND {maximum}"
+        clauses.append(f"({column} IS NULL OR {check})" if nullable else check)
+    return CheckConstraint(
+        " AND ".join(clauses), name=f"ck_{table}_string_bounds"
+    )
+
+
+class C3ObservationKeyCheck(CheckConstraint):
+    inherit_cache = True
+
+    def __init__(self) -> None:
+        super().__init__(
+            text(
+                "length(observation_key) = 64 AND "
+                "observation_key NOT GLOB '*[^0-9a-f]*'"
+            ),
+            name="ck_watch_rule_evaluations_observation_key",
+        )
+
+
+@compiles(C3ObservationKeyCheck, "postgresql")
+def _compile_c3_observation_key_check(element, compiler, **_kw):
+    name = compiler.preparer.format_constraint(element)
+    return (
+        f"CONSTRAINT {name} CHECK (length(observation_key) = 64 "
+        "AND observation_key ~ '^[0-9a-f]{64}$')"
+    )
+
+
 class WatchRule(Base):
     """Analyst-owned durable monitor rule and scheduled-claim state."""
 
     __tablename__ = "watch_rules"
     __table_args__ = (
+        _c3_string_bounds(
+            "watch_rules",
+            ("tenant_id", 1, 255, False),
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("issuer_id", 1, 36, True),
+            ("portfolio_id", 1, 36, True),
+            ("name", 1, 160, False),
+            ("signal_type", 1, 32, False),
+            ("schedule_kind", 1, 24, False),
+            ("schedule_cursor", 0, 512, True),
+        ),
         CheckConstraint(
             f"signal_type IN ({_C3_SIGNAL_TYPES_SQL}) AND "
             "(signal_type <> 'news' OR enabled = false)",
@@ -1355,9 +1495,9 @@ class WatchRule(Base):
             "claim_attempt_count BETWEEN 0 AND 5",
             name="ck_watch_rules_claim_attempt_count",
         ),
-        CheckConstraint(
-            "json_valid(config_json) AND json_type(config_json) = 'object' "
-            "AND length(CAST(config_json AS BLOB)) <= 65536",
+        C3JsonObjectCheck(
+            "config_json",
+            65536,
             name="ck_watch_rules_config_json",
         ),
         Index("ix_watch_rules_tenant_owner", "tenant_id", "owner_user_id"),
@@ -1410,6 +1550,12 @@ class WatchRuleVersion(Base):
 
     __tablename__ = "watch_rule_versions"
     __table_args__ = (
+        _c3_string_bounds(
+            "watch_rule_versions",
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("signal_type", 1, 32, False),
+        ),
         UniqueConstraint(
             "watch_rule_id", "version", name="uq_watch_rule_versions_rule_version"
         ),
@@ -1418,9 +1564,9 @@ class WatchRuleVersion(Base):
             f"signal_type IN ({_C3_SIGNAL_TYPES_SQL})",
             name="ck_watch_rule_versions_signal_type",
         ),
-        CheckConstraint(
-            "json_valid(config_json) AND json_type(config_json) = 'object' "
-            "AND length(CAST(config_json AS BLOB)) <= 65536",
+        C3JsonObjectCheck(
+            "config_json",
+            65536,
             name="ck_watch_rule_versions_config_json",
         ),
         Index(
@@ -1449,11 +1595,76 @@ def _watch_rule_version_is_immutable(_mapper, _connection, _target) -> None:
     raise ValueError("WatchRuleVersion rows are immutable")
 
 
+event.listen(
+    WatchRuleVersion.__table__,
+    "after_create",
+    DDL(
+        "CREATE TRIGGER trg_watch_rule_versions_immutable "
+        "BEFORE UPDATE ON watch_rule_versions "
+        "BEGIN SELECT RAISE(ABORT, 'watch_rule_versions are immutable'); END"
+    ).execute_if(dialect="sqlite"),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "before_drop",
+    DDL("DROP TRIGGER IF EXISTS trg_watch_rule_versions_immutable").execute_if(
+        dialect="sqlite"
+    ),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "after_create",
+    DDL(
+        "CREATE FUNCTION c3_reject_watch_rule_version_update() RETURNS trigger "
+        "LANGUAGE plpgsql AS $$ BEGIN "
+        "RAISE EXCEPTION 'watch_rule_versions are immutable' USING ERRCODE = '55000'; "
+        "RETURN OLD; END; $$"
+    ).execute_if(dialect="postgresql"),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "after_create",
+    DDL(
+        "CREATE TRIGGER trg_watch_rule_versions_immutable "
+        "BEFORE UPDATE ON watch_rule_versions FOR EACH ROW "
+        "EXECUTE FUNCTION c3_reject_watch_rule_version_update()"
+    ).execute_if(dialect="postgresql"),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "before_drop",
+    DDL(
+        "DROP TRIGGER IF EXISTS trg_watch_rule_versions_immutable "
+        "ON watch_rule_versions"
+    ).execute_if(dialect="postgresql"),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "after_drop",
+    DDL("DROP FUNCTION IF EXISTS c3_reject_watch_rule_version_update()").execute_if(
+        dialect="postgresql"
+    ),
+)
+
+
 class WatchRuleEvaluation(Base):
     """One deterministic observation of an immutable rule version."""
 
     __tablename__ = "watch_rule_evaluations"
     __table_args__ = (
+        _c3_string_bounds(
+            "watch_rule_evaluations",
+            ("tenant_id", 1, 255, False),
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("issuer_id", 1, 36, True),
+            ("portfolio_id", 1, 36, True),
+            ("signal_type", 1, 32, False),
+            ("source_identity", 1, 512, False),
+            ("observation_key", 64, 64, False),
+            ("outcome", 1, 24, False),
+        ),
+        C3ObservationKeyCheck(),
         UniqueConstraint(
             "tenant_id", "observation_key",
             name="uq_watch_rule_evaluations_tenant_observation",
@@ -1476,30 +1687,15 @@ class WatchRuleEvaluation(Base):
             "hop_count BETWEEN 0 AND 3",
             name="ck_watch_rule_evaluations_hop_count",
         ),
-        CheckConstraint(
-            "json_valid(subject_scope_json) "
-            "AND json_type(subject_scope_json) = 'object' "
-            "AND length(CAST(subject_scope_json AS BLOB)) <= 65536 "
-            "AND json_remove(subject_scope_json, '$.tenant_id', '$.issuer_id', "
-            "'$.portfolio_id') = '{}' "
-            "AND json_type(subject_scope_json, '$.tenant_id') = 'text' "
-            "AND length(CAST(json_extract(subject_scope_json, '$.tenant_id') AS BLOB)) "
-            "BETWEEN 1 AND 255 "
-            "AND json_type(subject_scope_json, '$.issuer_id') IS NOT NULL "
-            "AND json_type(subject_scope_json, '$.issuer_id') IN ('null','text') "
-            "AND (json_type(subject_scope_json, '$.issuer_id') = 'null' OR "
-            "length(CAST(json_extract(subject_scope_json, '$.issuer_id') AS BLOB)) "
-            "BETWEEN 1 AND 36) "
-            "AND json_type(subject_scope_json, '$.portfolio_id') IS NOT NULL "
-            "AND json_type(subject_scope_json, '$.portfolio_id') IN ('null','text') "
-            "AND (json_type(subject_scope_json, '$.portfolio_id') = 'null' OR "
-            "length(CAST(json_extract(subject_scope_json, '$.portfolio_id') AS BLOB)) "
-            "BETWEEN 1 AND 36)",
+        C3JsonObjectCheck(
+            "subject_scope_json",
+            65536,
             name="ck_watch_rule_evaluations_subject_scope_json",
+            subject_scope=True,
         ),
-        CheckConstraint(
-            "json_valid(detail_json) AND json_type(detail_json) = 'object' "
-            "AND length(CAST(detail_json AS BLOB)) <= 65536",
+        C3JsonObjectCheck(
+            "detail_json",
+            65536,
             name="ck_watch_rule_evaluations_detail_json",
         ),
         Index(
@@ -1547,6 +1743,16 @@ class AlertEventContext(Base):
 
     __tablename__ = "alert_event_contexts"
     __table_args__ = (
+        _c3_string_bounds(
+            "alert_event_contexts",
+            ("tenant_id", 1, 255, False),
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("issuer_id", 1, 36, True),
+            ("portfolio_id", 1, 36, True),
+            ("alert_event_id", 1, 36, False),
+            ("signal_type", 1, 32, False),
+        ),
         UniqueConstraint("alert_event_id", name="uq_alert_event_contexts_alert_event"),
         UniqueConstraint(
             "watch_rule_evaluation_id", name="uq_alert_event_contexts_evaluation"
@@ -1564,9 +1770,9 @@ class AlertEventContext(Base):
         CheckConstraint(
             "hop_count BETWEEN 0 AND 3", name="ck_alert_event_contexts_hop_count"
         ),
-        CheckConstraint(
-            "json_valid(context_json) AND json_type(context_json) = 'object' "
-            "AND length(CAST(context_json AS BLOB)) <= 65536",
+        C3JsonObjectCheck(
+            "context_json",
+            65536,
             name="ck_alert_event_contexts_context_json",
         ),
         Index("ix_alert_event_contexts_rule_created", "watch_rule_id", "created_at"),
@@ -1604,6 +1810,19 @@ class AlertDeliveryIntent(Base):
 
     __tablename__ = "alert_delivery_intents"
     __table_args__ = (
+        _c3_string_bounds(
+            "alert_delivery_intents",
+            ("tenant_id", 1, 255, False),
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("issuer_id", 1, 36, True),
+            ("portfolio_id", 1, 36, True),
+            ("alert_event_id", 1, 36, False),
+            ("channel", 1, 24, False),
+            ("destination_ref", 1, 256, False),
+            ("status", 1, 24, False),
+            ("not_sent_reason", 0, 256, True),
+        ),
         UniqueConstraint(
             "alert_event_context_id", "channel", "destination_ref",
             name="uq_alert_delivery_intents_destination",
@@ -1635,11 +1854,11 @@ class AlertDeliveryIntent(Base):
             "AND not_sent_reason IS NULL)",
             name="ck_alert_delivery_intents_payload_state",
         ),
-        CheckConstraint(
-            "rendered_intent IS NULL OR (json_valid(rendered_intent) "
-            "AND json_type(rendered_intent) = 'object' "
-            "AND length(CAST(rendered_intent AS BLOB)) <= 262144)",
+        C3JsonObjectCheck(
+            "rendered_intent",
+            262144,
             name="ck_alert_delivery_intents_rendered_intent",
+            nullable=True,
         ),
         Index("ix_alert_delivery_intents_alert_event_id", "alert_event_id"),
         Index("ix_alert_delivery_intents_status_available", "status", "available_at"),

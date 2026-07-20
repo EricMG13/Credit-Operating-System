@@ -9,11 +9,16 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from queue import Queue
+from threading import Barrier, Thread
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import ForeignKeyConstraint
+from sqlalchemy import ForeignKeyConstraint, create_engine
+from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.exc import DatabaseError
+from sqlalchemy.schema import CreateTable
 
 
 SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
@@ -229,6 +234,77 @@ def test_model_metadata_freezes_keys_indexes_checks_and_lease_fields() -> None:
     )
 
 
+def test_model_json_constraints_compile_for_sqlite_and_postgresql() -> None:
+    from database import (
+        AlertDeliveryIntent,
+        AlertEventContext,
+        WatchRule,
+        WatchRuleEvaluation,
+        WatchRuleVersion,
+    )
+
+    tables = (
+        WatchRule.__table__,
+        WatchRuleVersion.__table__,
+        WatchRuleEvaluation.__table__,
+        AlertEventContext.__table__,
+        AlertDeliveryIntent.__table__,
+    )
+    sqlite_ddl = "\n".join(
+        str(CreateTable(table).compile(dialect=sqlite.dialect())) for table in tables
+    )
+    postgres_ddl = "\n".join(
+        str(CreateTable(table).compile(dialect=postgresql.dialect())) for table in tables
+    )
+
+    assert "json_valid" in sqlite_ddl
+    assert "json_type" in sqlite_ddl
+    assert "AS BLOB" in sqlite_ddl
+    assert "jsonb_typeof" not in sqlite_ddl
+    assert "octet_length" not in sqlite_ddl
+    assert "jsonb_typeof" in postgres_ddl
+    assert "octet_length" in postgres_ddl
+    assert "json_valid" not in postgres_ddl
+    assert "json_type(" not in postgres_ddl
+    assert "json_extract" not in postgres_ddl
+    assert "AS BLOB" not in postgres_ddl
+
+
+def test_create_all_installs_watch_rule_version_immutability_trigger() -> None:
+    from database import Base, WatchRule, WatchRuleVersion
+
+    sync_engine = create_engine("sqlite://")
+    Base.metadata.create_all(
+        sync_engine,
+        tables=[WatchRule.__table__, WatchRuleVersion.__table__],
+    )
+    now = "2026-07-20 12:00:00+00:00"
+    rule_id = str(uuid4())
+    version_id = str(uuid4())
+    with sync_engine.begin() as connection:
+        connection.exec_driver_sql(
+            """INSERT INTO watch_rules
+               (id, tenant_id, owner_user_id, team_id_snapshot, name, signal_type,
+                enabled, paused, current_version, schedule_kind, claim_attempt_count,
+                config_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (rule_id, "tenant", "owner", "team", "Rule", "run_finding", 1, 0,
+             1, "event_driven", 0, "{}", now, now),
+        )
+        connection.exec_driver_sql(
+            """INSERT INTO watch_rule_versions
+               (id, watch_rule_id, version, owner_user_id, team_id_snapshot,
+                signal_type, config_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (version_id, rule_id, 1, "owner", "team", "run_finding", "{}", now),
+        )
+        with pytest.raises(DatabaseError, match="immutable"):
+            connection.exec_driver_sql(
+                "UPDATE watch_rule_versions SET owner_user_id = 'other' WHERE id = ?",
+                (version_id,),
+            )
+
+
 def test_upgrade_and_reverse_downgrade_preserve_populated_legacy_alerts(tmp_path: Path) -> None:
     db_path = tmp_path / "watch-rule-roundtrip.db"
     db_url = f"sqlite+aiosqlite:///{db_path}"
@@ -341,7 +417,391 @@ def _insert_graph(connection: sqlite3.Connection, *, observation_key: str = "a" 
     )
 
 
-def test_database_uniqueness_json_bounds_and_delete_rules(tmp_path: Path) -> None:
+def _insert_rule_and_version(connection: sqlite3.Connection) -> tuple[str, str]:
+    now = "2026-07-20 12:00:00+00:00"
+    rule_id = "10000000-0000-0000-0000-000000000001"
+    version_id = "10000000-0000-0000-0000-000000000002"
+    connection.execute("PRAGMA foreign_keys=ON")
+    connection.execute(
+        """INSERT INTO watch_rules
+           (id, tenant_id, owner_user_id, team_id_snapshot, name, signal_type,
+            enabled, paused, current_version, schedule_kind, claim_attempt_count,
+            config_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (rule_id, "tenant", "owner", "team", "Rule", "run_finding", 1, 0, 1,
+         "event_driven", 0, "{}", now, now),
+    )
+    connection.execute(
+        """INSERT INTO watch_rule_versions
+           (id, watch_rule_id, version, owner_user_id, team_id_snapshot,
+            signal_type, config_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (version_id, rule_id, 1, "owner", "team", "run_finding", "{}", now),
+    )
+    return rule_id, version_id
+
+
+def _evaluation_insert(evaluation_id: str) -> tuple[str, tuple]:
+    now = "2026-07-20 12:00:00+00:00"
+    correlation_id = "10000000-0000-0000-0000-000000000006"
+    return (
+        """INSERT INTO watch_rule_evaluations
+           (id, tenant_id, owner_user_id, team_id_snapshot, watch_rule_id,
+            rule_version, signal_type, subject_scope_json, source_identity,
+            observation_key, outcome, correlation_id, correlation_root_id,
+            hop_count, evaluated_at, detail_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (evaluation_id, "tenant", "owner", "team",
+         "10000000-0000-0000-0000-000000000001", 1, "run_finding",
+         '{"issuer_id":null,"portfolio_id":null,"tenant_id":"tenant"}',
+         "run:concurrent", "e" * 64, "matched", correlation_id, correlation_id,
+         0, now, "{}"),
+    )
+
+
+def test_concurrent_observation_conflict_and_dependent_uniqueness(tmp_path: Path) -> None:
+    db_path = tmp_path / "watch-rule-concurrent.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    with sqlite3.connect(db_path) as connection:
+        _insert_rule_and_version(connection)
+        connection.commit()
+
+    barrier = Barrier(2)
+    results: Queue[str] = Queue()
+
+    def insert_observation(evaluation_id: str) -> None:
+        connection = sqlite3.connect(db_path, timeout=5)
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA foreign_keys=ON")
+        try:
+            statement, values = _evaluation_insert(evaluation_id)
+            barrier.wait(timeout=5)
+            connection.execute(statement, values)
+            connection.commit()
+            results.put("success")
+        except sqlite3.IntegrityError:
+            connection.rollback()
+            results.put("integrity")
+        except BaseException as exc:  # surfaced below; never swallowed by worker threads
+            connection.rollback()
+            results.put(f"unexpected:{type(exc).__name__}:{exc}")
+        finally:
+            connection.close()
+
+    workers = [
+        Thread(target=insert_observation, args=(f"20000000-0000-0000-0000-00000000000{i}",))
+        for i in (1, 2)
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=10)
+        assert not worker.is_alive(), "concurrent observation insert did not terminate"
+
+    outcomes = sorted(results.get_nowait() for _ in workers)
+    assert outcomes == ["integrity", "success"]
+
+    now = "2026-07-20 12:00:00+00:00"
+    correlation_id = "10000000-0000-0000-0000-000000000006"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
+        evaluation_id = connection.execute(
+            "SELECT id FROM watch_rule_evaluations"
+        ).fetchone()[0]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM watch_rule_evaluations"
+        ).fetchone()[0] == 1
+        connection.execute(
+            """INSERT INTO alert_events
+               (id, alert_key, kind, title, impact, evidence, authority, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("concurrent-event", f"c3:{'e' * 64}", "run_finding", "Matched", "",
+             "{}", "{}", now, now),
+        )
+        context_values = (
+            "30000000-0000-0000-0000-000000000001", "tenant", "owner", "team",
+            "concurrent-event", evaluation_id,
+            "10000000-0000-0000-0000-000000000001", 1, "run_finding",
+            correlation_id, 0, "{}", now,
+        )
+        context_sql = """INSERT INTO alert_event_contexts
+            (id, tenant_id, owner_user_id, team_id_snapshot, alert_event_id,
+             watch_rule_evaluation_id, watch_rule_id, rule_version, signal_type,
+             correlation_root_id, hop_count, context_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        connection.execute(context_sql, context_values)
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                context_sql,
+                ("30000000-0000-0000-0000-000000000002", *context_values[1:]),
+            )
+        intent_values = (
+            "40000000-0000-0000-0000-000000000001", "tenant", "owner", "team",
+            "concurrent-event", context_values[0], "email", "desk", "pending", 0,
+            5, now, correlation_id, now, now,
+        )
+        intent_sql = """INSERT INTO alert_delivery_intents
+            (id, tenant_id, owner_user_id, team_id_snapshot, alert_event_id,
+             alert_event_context_id, channel, destination_ref, status,
+             attempt_count, max_attempts, available_at, correlation_root_id,
+             created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        connection.execute(intent_sql, intent_values)
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                intent_sql,
+                ("40000000-0000-0000-0000-000000000002", *intent_values[1:]),
+            )
+
+
+def test_atomic_graph_materialization_rolls_back_on_delivery_conflict(tmp_path: Path) -> None:
+    db_path = tmp_path / "watch-rule-atomic.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    with sqlite3.connect(db_path) as connection:
+        rule_id, _ = _insert_rule_and_version(connection)
+        connection.commit()
+        evaluation_id = "50000000-0000-0000-0000-000000000001"
+        event_id = "atomic-event"
+        context_id = "50000000-0000-0000-0000-000000000002"
+        correlation_id = "50000000-0000-0000-0000-000000000003"
+        now = "2026-07-20 12:00:00+00:00"
+        statement, values = _evaluation_insert(evaluation_id)
+
+        with pytest.raises(sqlite3.IntegrityError):
+            with connection:
+                connection.execute(statement, values)
+                connection.execute(
+                    """INSERT INTO alert_events
+                       (id, alert_key, kind, title, impact, evidence, authority,
+                        created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (event_id, f"c3:{'e' * 64}", "run_finding", "Atomic", "",
+                     "{}", "{}", now, now),
+                )
+                connection.execute(
+                    """INSERT INTO alert_event_contexts
+                       (id, tenant_id, owner_user_id, team_id_snapshot,
+                        alert_event_id, watch_rule_evaluation_id, watch_rule_id,
+                        rule_version, signal_type, correlation_root_id, hop_count,
+                        context_json, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (context_id, "tenant", "owner", "team", event_id, evaluation_id,
+                     rule_id, 1, "run_finding", correlation_id, 0, "{}", now),
+                )
+                intent_values = (
+                    "50000000-0000-0000-0000-000000000004", "tenant", "owner",
+                    "team", event_id, context_id, "email", "desk", "pending", 0,
+                    5, now, correlation_id, now, now,
+                )
+                intent_sql = """INSERT INTO alert_delivery_intents
+                    (id, tenant_id, owner_user_id, team_id_snapshot, alert_event_id,
+                     alert_event_context_id, channel, destination_ref, status,
+                     attempt_count, max_attempts, available_at, correlation_root_id,
+                     created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                connection.execute(intent_sql, intent_values)
+                connection.execute(
+                    intent_sql,
+                    ("50000000-0000-0000-0000-000000000005", *intent_values[1:]),
+                )
+
+        assert connection.execute(
+            "SELECT COUNT(*) FROM watch_rule_evaluations"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM alert_events WHERE id = ?", (event_id,)
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM alert_event_contexts"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM alert_delivery_intents"
+        ).fetchone()[0] == 0
+
+
+def test_watch_rule_version_updates_are_rejected_by_migrated_database(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "watch-rule-immutable.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    with sqlite3.connect(db_path) as connection:
+        _insert_rule_and_version(connection)
+        connection.commit()
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                "UPDATE watch_rule_versions SET owner_user_id = 'other'"
+            )
+
+
+def test_postgresql_offline_ddl_installs_and_removes_immutability_trigger() -> None:
+    postgres_url = "postgresql+asyncpg://caos:caos@localhost/caos"
+    upgrade = _alembic("upgrade", "0065:0066", "--sql", db_url=postgres_url)
+    assert upgrade.returncode == 0, upgrade.stderr
+    assert "CREATE FUNCTION c3_reject_watch_rule_version_update()" in upgrade.stdout
+    assert "CREATE TRIGGER trg_watch_rule_versions_immutable" in upgrade.stdout
+    assert "BEFORE UPDATE ON watch_rule_versions" in upgrade.stdout
+
+    downgrade = _alembic("downgrade", "0066:0065", "--sql", db_url=postgres_url)
+    assert downgrade.returncode == 0, downgrade.stderr
+    assert "DROP TRIGGER IF EXISTS trg_watch_rule_versions_immutable" in downgrade.stdout
+    assert "DROP FUNCTION IF EXISTS c3_reject_watch_rule_version_update()" in downgrade.stdout
+
+
+def test_sqlite_rejects_contract_string_overflow_across_all_five_tables(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "watch-rule-string-bounds.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    now = "2026-07-20 12:00:00+00:00"
+    rule_sql = """INSERT INTO watch_rules
+        (id, tenant_id, owner_user_id, team_id_snapshot, name, signal_type,
+         enabled, paused, current_version, schedule_kind,
+         schedule_interval_seconds, schedule_cursor, claim_attempt_count,
+         config_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+    version_sql = """INSERT INTO watch_rule_versions
+        (id, watch_rule_id, version, owner_user_id, team_id_snapshot, signal_type,
+         config_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
+    evaluation_sql = """INSERT INTO watch_rule_evaluations
+        (id, tenant_id, owner_user_id, team_id_snapshot, watch_rule_id,
+         rule_version, signal_type, subject_scope_json, source_identity,
+         observation_key, outcome, correlation_id, correlation_root_id,
+         hop_count, evaluated_at, detail_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+    context_sql = """INSERT INTO alert_event_contexts
+        (id, tenant_id, owner_user_id, team_id_snapshot, alert_event_id,
+         watch_rule_evaluation_id, watch_rule_id, rule_version, signal_type,
+         correlation_root_id, hop_count, context_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+    intent_sql = """INSERT INTO alert_delivery_intents
+        (id, tenant_id, owner_user_id, team_id_snapshot, alert_event_id,
+         alert_event_context_id, channel, destination_ref, status, attempt_count,
+         max_attempts, available_at, rendered_intent, not_sent_reason,
+         correlation_root_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+    scope = '{"issuer_id":null,"portfolio_id":null,"tenant_id":"tenant"}'
+    correlation_id = "60000000-0000-0000-0000-000000000006"
+
+    with sqlite3.connect(db_path) as connection:
+        invalid_writes = (
+            (rule_sql, ("60000000-0000-0000-0000-000000000001", "tenant", "owner",
+                        "team", "n" * 161, "run_finding", 1, 0, 1,
+                        "event_driven", None, None, 0, "{}", now, now)),
+            (rule_sql, ("60000000-0000-0000-0000-000000000002", "tenant", "owner",
+                        "team", "Rule", "s" * 33, 0, 0, 1,
+                        "event_driven", None, None, 0, "{}", now, now)),
+            (rule_sql, ("60000000-0000-0000-0000-000000000003", "tenant", "owner",
+                        "team", "Rule", "run_finding", 0, 0, 1,
+                        "interval", 60, "c" * 513, 0, "{}", now, now)),
+            (version_sql, ("60000000-0000-0000-0000-000000000004",
+                           "60000000-0000-0000-0000-000000000099", 1,
+                           "o" * 256, "team", "run_finding", "{}", now)),
+            (evaluation_sql, ("60000000-0000-0000-0000-000000000005", "tenant",
+                              "owner", "team",
+                              "60000000-0000-0000-0000-000000000099", 1,
+                              "run_finding", scope, "s" * 513, "a" * 64,
+                              "matched", correlation_id, correlation_id, 0, now, "{}")),
+            (evaluation_sql, ("60000000-0000-0000-0000-000000000007", "tenant",
+                              "owner", "team",
+                              "60000000-0000-0000-0000-000000000099", 1,
+                              "run_finding", scope, "source", "a" * 65,
+                              "matched", correlation_id, correlation_id, 0, now, "{}")),
+            (context_sql, ("60000000-0000-0000-0000-000000000008", "tenant",
+                           "owner", "team", "a" * 37,
+                           "60000000-0000-0000-0000-000000000098",
+                           "60000000-0000-0000-0000-000000000099", 1,
+                           "run_finding", correlation_id, 0, "{}", now)),
+            (intent_sql, ("60000000-0000-0000-0000-000000000009", "tenant", "owner",
+                          "team", "a" * 37,
+                          "60000000-0000-0000-0000-000000000097", "email", "desk",
+                          "pending", 0, 5, now, None, None, correlation_id, now, now)),
+            (intent_sql, ("60000000-0000-0000-0000-000000000010", "tenant", "owner",
+                          "team", "event",
+                          "60000000-0000-0000-0000-000000000097", "email", "d" * 257,
+                          "pending", 0, 5, now, None, None, correlation_id, now, now)),
+            (intent_sql, ("60000000-0000-0000-0000-000000000011", "tenant", "owner",
+                          "team", "event",
+                          "60000000-0000-0000-0000-000000000097", "email", "desk",
+                          "p" * 25, 0, 5, now, None, None, correlation_id, now, now)),
+            (intent_sql, ("60000000-0000-0000-0000-000000000012", "tenant", "owner",
+                          "team", "event",
+                          "60000000-0000-0000-0000-000000000097", "email", "desk",
+                          "not_sent", 1, 5, now, None, "r" * 257,
+                          correlation_id, now, now)),
+        )
+        for statement, values in invalid_writes:
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(statement, values)
+
+
+def test_delivery_lease_and_terminal_payload_state_checks_execute(tmp_path: Path) -> None:
+    db_path = tmp_path / "watch-rule-delivery-states.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    now = "2026-07-20 12:00:00+00:00"
+    lease_token = "70000000-0000-0000-0000-000000000001"
+    statement = """INSERT INTO alert_delivery_intents
+        (id, tenant_id, owner_user_id, team_id_snapshot, alert_event_id,
+         alert_event_context_id, channel, destination_ref, status, attempt_count,
+         max_attempts, available_at, lease_token, lease_expires_at,
+         rendered_intent, not_sent_reason, correlation_root_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+    with sqlite3.connect(db_path) as connection:
+        _insert_graph(connection)
+        connection.commit()
+        common = (
+            "tenant", "owner", "team", "legacy-c3-event",
+            "00000000-0000-0000-0000-000000000004", "email",
+        )
+
+        def values(
+            suffix: int,
+            destination: str,
+            status: str,
+            token=None,
+            expiry=None,
+            rendered=None,
+            reason=None,
+        ) -> tuple:
+            return (
+                f"70000000-0000-0000-0000-{suffix:012d}", *common, destination,
+                status, 1, 5, now, token, expiry, rendered, reason,
+                "00000000-0000-0000-0000-000000000006", now, now,
+            )
+
+        connection.execute(
+            statement, values(2, "leased-valid", "leased", lease_token, now)
+        )
+        connection.execute(
+            statement, values(3, "rendered-valid", "rendered_intent", rendered="{}")
+        )
+        connection.execute(
+            statement, values(4, "not-sent-valid", "not_sent", reason="bounded")
+        )
+        invalid = (
+            values(5, "leased-no-token", "leased", None, now),
+            values(6, "pending-with-token", "pending", lease_token, now),
+            values(7, "rendered-no-payload", "rendered_intent"),
+            values(8, "rendered-with-reason", "rendered_intent", rendered="{}", reason="bad"),
+            values(9, "not-sent-no-reason", "not_sent"),
+            values(10, "not-sent-with-rendered", "not_sent", rendered="{}", reason="bad"),
+        )
+        for row in invalid:
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(statement, row)
+
+
+def test_database_json_bounds_and_delete_rules(tmp_path: Path) -> None:
     db_path = tmp_path / "watch-rule-behavior.db"
     db_url = f"sqlite+aiosqlite:///{db_path}"
     upgraded = _alembic("upgrade", "head", db_url=db_url)
@@ -382,7 +842,7 @@ def test_database_uniqueness_json_bounds_and_delete_rules(tmp_path: Path) -> Non
         assert connection.execute("SELECT COUNT(*) FROM alert_delivery_intents").fetchone()[0] == 0
 
 
-def test_schedule_and_delivery_state_checks_reject_invalid_leases(tmp_path: Path) -> None:
+def test_schedule_state_checks_reject_invalid_claims(tmp_path: Path) -> None:
     db_path = tmp_path / "watch-rule-state-checks.db"
     db_url = f"sqlite+aiosqlite:///{db_path}"
     upgraded = _alembic("upgrade", "head", db_url=db_url)
@@ -450,6 +910,71 @@ def test_signal_observation_validates_finite_values_scope_and_canonical_identity
         SignalObservation.model_validate({**payload, "observed_at": datetime(2026, 7, 20)})
     with pytest.raises(ValidationError):
         observation.numeric_value = 3.0
+
+
+@pytest.mark.parametrize("boolean", (True, False))
+def test_wire_numeric_and_integer_fields_reject_booleans(boolean: bool) -> None:
+    from alert_contracts import AlertCandidate, EvaluationTrigger, SignalObservation, SinkResult
+
+    observation = _valid_observation_payload()
+    with pytest.raises(ValidationError):
+        SignalObservation.model_validate({**observation, "numeric_value": boolean})
+    with pytest.raises(ValidationError):
+        SignalObservation.model_validate({**observation, "hop_count": boolean})
+
+    common = {
+        "trigger_kind": "manual",
+        "trigger_identity": "manual:1",
+        "watch_rule_id": uuid4(),
+        "rule_version": 1,
+        "occurred_at": datetime.now(timezone.utc),
+        "scheduled_for": None,
+        "correlation_id": uuid4(),
+        "correlation_root_id": uuid4(),
+        "hop_count": 0,
+    }
+    with pytest.raises(ValidationError):
+        EvaluationTrigger.model_validate({**common, "rule_version": boolean})
+    with pytest.raises(ValidationError):
+        EvaluationTrigger.model_validate({**common, "hop_count": boolean})
+
+    key = "a" * 64
+    candidate = {
+        "evaluation_id": uuid4(),
+        "watch_rule_id": uuid4(),
+        "rule_version": 1,
+        "observation_key": key,
+        "alert_key": f"c3:{key}",
+        "signal_type": "run_finding",
+        "subject_scope": {"tenant_id": "tenant", "issuer_id": None, "portfolio_id": None},
+        "issuer_id": None,
+        "portfolio_id": None,
+        "kind": "run_finding",
+        "title": "Matched",
+        "impact": "",
+        "evidence": {},
+        "authority": {},
+        "correlation_id": uuid4(),
+        "correlation_root_id": uuid4(),
+        "hop_count": 0,
+    }
+    with pytest.raises(ValidationError):
+        AlertCandidate.model_validate({**candidate, "rule_version": boolean})
+    with pytest.raises(ValidationError):
+        AlertCandidate.model_validate({**candidate, "hop_count": boolean})
+    with pytest.raises(ValidationError):
+        SinkResult(
+            channel="email",
+            status="not_sent",
+            attempt_count=boolean,
+        )
+
+    assert SignalObservation.model_validate(
+        {**observation, "numeric_value": 1, "hop_count": 1}
+    ).numeric_value == 1.0
+    assert EvaluationTrigger.model_validate(common).rule_version == 1
+    assert AlertCandidate.model_validate(candidate).hop_count == 0
+    assert SinkResult(channel="email", status="not_sent", attempt_count=1).attempt_count == 1
 
 
 def test_wire_contracts_enforce_trigger_candidate_and_sink_state_machines() -> None:

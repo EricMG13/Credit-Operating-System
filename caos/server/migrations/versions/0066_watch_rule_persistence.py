@@ -50,12 +50,10 @@ def _subject_scope_check() -> str:
             "AND (subject_scope_json - ARRAY['tenant_id','issuer_id','portfolio_id']) = '{}'::jsonb "
             "AND jsonb_typeof(subject_scope_json -> 'tenant_id') = 'string' "
             "AND octet_length(subject_scope_json ->> 'tenant_id') BETWEEN 1 AND 255 "
-            "AND (subject_scope_json -> 'issuer_id' IS NULL "
-            "OR jsonb_typeof(subject_scope_json -> 'issuer_id') = 'null' "
+            "AND (jsonb_typeof(subject_scope_json -> 'issuer_id') = 'null' "
             "OR (jsonb_typeof(subject_scope_json -> 'issuer_id') = 'string' "
             "AND octet_length(subject_scope_json ->> 'issuer_id') BETWEEN 1 AND 36)) "
-            "AND (subject_scope_json -> 'portfolio_id' IS NULL "
-            "OR jsonb_typeof(subject_scope_json -> 'portfolio_id') = 'null' "
+            "AND (jsonb_typeof(subject_scope_json -> 'portfolio_id') = 'null' "
             "OR (jsonb_typeof(subject_scope_json -> 'portfolio_id') = 'string' "
             "AND octet_length(subject_scope_json ->> 'portfolio_id') BETWEEN 1 AND 36))"
         )
@@ -79,6 +77,55 @@ def _subject_scope_check() -> str:
         "length(CAST(json_extract(subject_scope_json, '$.portfolio_id') AS BLOB)) "
         "BETWEEN 1 AND 36)"
     )
+
+
+def _string_bounds(*bounds: tuple[str, int, int, bool]) -> str:
+    clauses = []
+    for column, minimum, maximum, nullable in bounds:
+        check = f"length({column}) BETWEEN {minimum} AND {maximum}"
+        clauses.append(f"({column} IS NULL OR {check})" if nullable else check)
+    return " AND ".join(clauses)
+
+
+def _observation_key_check() -> str:
+    if _is_postgres():
+        return "length(observation_key) = 64 AND observation_key ~ '^[0-9a-f]{64}$'"
+    return (
+        "length(observation_key) = 64 AND "
+        "observation_key NOT GLOB '*[^0-9a-f]*'"
+    )
+
+
+def _create_watch_rule_version_immutability_trigger() -> None:
+    if _is_postgres():
+        op.execute(
+            "CREATE FUNCTION c3_reject_watch_rule_version_update() RETURNS trigger "
+            "LANGUAGE plpgsql AS $$ BEGIN "
+            "RAISE EXCEPTION 'watch_rule_versions are immutable' USING ERRCODE = '55000'; "
+            "RETURN OLD; END; $$"
+        )
+        op.execute(
+            "CREATE TRIGGER trg_watch_rule_versions_immutable "
+            "BEFORE UPDATE ON watch_rule_versions FOR EACH ROW "
+            "EXECUTE FUNCTION c3_reject_watch_rule_version_update()"
+        )
+        return
+    op.execute(
+        "CREATE TRIGGER trg_watch_rule_versions_immutable "
+        "BEFORE UPDATE ON watch_rule_versions "
+        "BEGIN SELECT RAISE(ABORT, 'watch_rule_versions are immutable'); END"
+    )
+
+
+def _drop_watch_rule_version_immutability_trigger() -> None:
+    if _is_postgres():
+        op.execute(
+            "DROP TRIGGER IF EXISTS trg_watch_rule_versions_immutable "
+            "ON watch_rule_versions"
+        )
+        op.execute("DROP FUNCTION IF EXISTS c3_reject_watch_rule_version_update()")
+        return
+    op.execute("DROP TRIGGER IF EXISTS trg_watch_rule_versions_immutable")
 
 
 def _json_type():
@@ -116,6 +163,20 @@ def upgrade() -> None:
         sa.Column("config_json", _json_type(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            _string_bounds(
+                ("tenant_id", 1, 255, False),
+                ("owner_user_id", 1, 255, False),
+                ("team_id_snapshot", 1, 64, False),
+                ("issuer_id", 1, 36, True),
+                ("portfolio_id", 1, 36, True),
+                ("name", 1, 160, False),
+                ("signal_type", 1, 32, False),
+                ("schedule_kind", 1, 24, False),
+                ("schedule_cursor", 0, 512, True),
+            ),
+            name="ck_watch_rules_string_bounds",
+        ),
         sa.CheckConstraint(
             f"signal_type IN ({_SIGNALS}) AND (signal_type <> 'news' OR enabled = false)",
             name="ck_watch_rules_signal_type",
@@ -175,6 +236,14 @@ def upgrade() -> None:
         sa.Column("signal_type", sa.String(32), nullable=False),
         sa.Column("config_json", _json_type(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            _string_bounds(
+                ("owner_user_id", 1, 255, False),
+                ("team_id_snapshot", 1, 64, False),
+                ("signal_type", 1, 32, False),
+            ),
+            name="ck_watch_rule_versions_string_bounds",
+        ),
         sa.UniqueConstraint(
             "watch_rule_id", "version", name="uq_watch_rule_versions_rule_version"
         ),
@@ -192,6 +261,7 @@ def upgrade() -> None:
         "watch_rule_versions",
         ["watch_rule_id", "version"],
     )
+    _create_watch_rule_version_immutability_trigger()
 
     op.create_table(
         "watch_rule_evaluations",
@@ -216,6 +286,24 @@ def upgrade() -> None:
         sa.Column("hop_count", sa.SmallInteger(), nullable=False),
         sa.Column("evaluated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("detail_json", _json_type(), nullable=False),
+        sa.CheckConstraint(
+            _string_bounds(
+                ("tenant_id", 1, 255, False),
+                ("owner_user_id", 1, 255, False),
+                ("team_id_snapshot", 1, 64, False),
+                ("issuer_id", 1, 36, True),
+                ("portfolio_id", 1, 36, True),
+                ("signal_type", 1, 32, False),
+                ("source_identity", 1, 512, False),
+                ("observation_key", 64, 64, False),
+                ("outcome", 1, 24, False),
+            ),
+            name="ck_watch_rule_evaluations_string_bounds",
+        ),
+        sa.CheckConstraint(
+            _observation_key_check(),
+            name="ck_watch_rule_evaluations_observation_key",
+        ),
         sa.UniqueConstraint(
             "tenant_id", "observation_key",
             name="uq_watch_rule_evaluations_tenant_observation",
@@ -289,6 +377,18 @@ def upgrade() -> None:
         sa.Column("hop_count", sa.SmallInteger(), nullable=False),
         sa.Column("context_json", _json_type(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            _string_bounds(
+                ("tenant_id", 1, 255, False),
+                ("owner_user_id", 1, 255, False),
+                ("team_id_snapshot", 1, 64, False),
+                ("issuer_id", 1, 36, True),
+                ("portfolio_id", 1, 36, True),
+                ("alert_event_id", 1, 36, False),
+                ("signal_type", 1, 32, False),
+            ),
+            name="ck_alert_event_contexts_string_bounds",
+        ),
         sa.UniqueConstraint("alert_event_id", name="uq_alert_event_contexts_alert_event"),
         sa.UniqueConstraint(
             "watch_rule_evaluation_id", name="uq_alert_event_contexts_evaluation"
@@ -353,6 +453,21 @@ def upgrade() -> None:
         sa.Column("correlation_root_id", _uuid_type(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.CheckConstraint(
+            _string_bounds(
+                ("tenant_id", 1, 255, False),
+                ("owner_user_id", 1, 255, False),
+                ("team_id_snapshot", 1, 64, False),
+                ("issuer_id", 1, 36, True),
+                ("portfolio_id", 1, 36, True),
+                ("alert_event_id", 1, 36, False),
+                ("channel", 1, 24, False),
+                ("destination_ref", 1, 256, False),
+                ("status", 1, 24, False),
+                ("not_sent_reason", 0, 256, True),
+            ),
+            name="ck_alert_delivery_intents_string_bounds",
+        ),
         sa.UniqueConstraint(
             "alert_event_context_id", "channel", "destination_ref",
             name="uq_alert_delivery_intents_destination",
@@ -410,6 +525,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _drop_watch_rule_version_immutability_trigger()
+
     # PostgreSQL can remove named foreign keys explicitly before dependent
     # indexes/tables. SQLite cannot ALTER DROP CONSTRAINT; reverse table order is
     # its equivalent safe path and never touches either legacy alert table.
