@@ -44,7 +44,7 @@ const LIQ_STYLE: Record<Liquidity, { bg: string; fg: string }> = {
   Normal: { bg: "color-mix(in srgb, var(--caos-success) 9%, transparent)", fg: "var(--caos-success-bright)" },
   OK: { bg: "color-mix(in srgb, var(--caos-warning) 14%, transparent)", fg: "var(--caos-warning-bright)" },
   Concerning: { bg: "color-mix(in srgb, var(--caos-critical) 16%, transparent)", fg: "var(--caos-critical-bright)" },
-  Impaired: { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
+  Impaired: { bg: "color-mix(in srgb, var(--tranche-eq) 14%, transparent)", fg: "var(--caos-muted)" },
 };
 
 const RV_STYLE: Record<RVSignal, { bg: string; fg: string }> = {
@@ -53,7 +53,7 @@ const RV_STYLE: Record<RVSignal, { bg: string; fg: string }> = {
   Inline: { bg: "color-mix(in srgb, var(--tranche-2l) 12%, transparent)", fg: "var(--caos-accent)" },
   Tight: { bg: "color-mix(in srgb, var(--caos-warning) 14%, transparent)", fg: "var(--caos-warning-bright)" },
   Rich: { bg: "color-mix(in srgb, var(--caos-critical) 16%, transparent)", fg: "var(--caos-critical-bright)" },
-  "N/A": { bg: "rgba(148,163,184,0.14)", fg: "var(--caos-muted)" },
+  "N/A": { bg: "color-mix(in srgb, var(--tranche-eq) 14%, transparent)", fg: "var(--caos-muted)" },
 };
 const HEATMAP_BUCKETS = ["Ba1", "Ba2", "Ba3", "B1", "B2", "B3"];
 

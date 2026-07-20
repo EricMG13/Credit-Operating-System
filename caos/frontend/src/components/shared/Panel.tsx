@@ -1,21 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useId, useLayoutEffect, useState } from "react";
 
 const usePanelBody = (collapsed: boolean) => {
   const [bodyElement, setBodyElement] = useState<HTMLDivElement | null>(null);
   const bodyRef = useCallback((element: HTMLDivElement | null) => setBodyElement(element), []);
   const [scrollable, setScrollable] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = bodyElement;
     if (!element) { setScrollable(false); return; }
-    const measure = () => setScrollable(element.scrollHeight > element.clientHeight + 1);
+    const measure = () => setScrollable(
+      element.scrollHeight > element.clientHeight + 1
+      || element.scrollWidth > element.clientWidth + 1,
+    );
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    if (element.firstElementChild) observer.observe(element.firstElementChild);
-    return () => observer.disconnect();
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    resizeObserver?.observe(element);
+    for (const child of element.children) resizeObserver?.observe(child);
+    const mutationObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node instanceof Element) resizeObserver?.observe(node);
+        }
+      }
+      measure();
+    });
+    mutationObserver?.observe(element, { subtree: true, childList: true, characterData: true });
+    return () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+    };
   }, [bodyElement, collapsed]);
   return { bodyRef, scrollable };
 };
@@ -36,7 +50,7 @@ function PanelHeading({
   onToggle: () => void;
 }) {
   return (
-    <Heading className="caos-panel-title m-0 min-w-0 flex-1 tabular text-caos-xs font-semibold tracking-[0.12em] uppercase text-caos-text">
+    <Heading className="caos-panel-title m-0 min-w-0 flex-1 tabular font-semibold text-caos-text">
       {collapsible ? (
         <button
           type="button"

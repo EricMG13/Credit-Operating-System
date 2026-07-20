@@ -27,9 +27,9 @@ The first reproducible occurrence of any item below is a fault:
 1. Process crash, unhandled server exception, corrupted response, or state
    integrity mismatch.
 2. Unexpected HTTP status. Endpoint-specific designed controls remain valid:
-   `POST /api/query/nl` may return `429`; report generation may return `409`;
-   documented queue/admission limits may return `429` or `503` with an honest
-   rejection body.
+   `POST /api/query/nl` may return `429`; report generation may return `409` or
+   its documented per-principal `429`; documented queue/admission limits may
+   return `429` or `503` with an honest rejection body.
 3. Connection error or client timeout while the server is otherwise expected
    to be serving.
 4. Fixed read-budget breach: any of the canonical read smokes returns an error
@@ -49,7 +49,7 @@ stage once. A deterministic server traceback is independently sufficient.
 | 2 — read gate | `smoke.py` | 200 requests, concurrency 20, each canonical read | zero errors; p95 < 500 ms |
 | 3 — mixed baseline | Locust | 20 users, ramp 5/s, 60 s | zero unexpected failures and zero 5xx |
 | 4 — concurrency ramp | Locust | 40, 80, 160 users; ramp 10/s; 60 s each | same oracle; health recovers after each stage |
-| 5 — saturation | Locust | double users until the first fault or 640 users | stop immediately on the first oracle violation |
+| 5 — saturation | Locust plus concurrent canonical read probe | double users until the first fault or 640 users | zero unexpected load failures; the 200-request/concurrency-20 probe remains below 500 ms p95; health recovers |
 
 Canonical reads are health, runs list (`limit=100`), issuers list
 (`limit=200`), and one seeded CP-1 module detail. Locust exercises runs and

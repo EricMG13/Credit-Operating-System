@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("./IssuerProfileOverlay", () => ({
   useIssuerProfileOverlay: () => ({ openProfile: vi.fn() }),
 }));
-vi.mock("./Ask", () => ({
+vi.mock("./AskContext", () => ({
   useAsk: () => ({ openWith: vi.fn() }),
 }));
 vi.mock("./RoleViewProvider", () => ({

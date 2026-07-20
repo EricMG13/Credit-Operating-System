@@ -13,9 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
-import { RoleViewSwitch } from "@/components/shared/RoleViewSwitch";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
-import { ActionReason } from "@/components/shared/ActionReason";
 import { ScopeLabel } from "@/components/shared/ScopeLabel";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
@@ -29,6 +27,7 @@ import { PortfoliosPanel } from "@/components/settings/PortfoliosPanel";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { readWarnOnUnsavedLeave, writeWarnOnUnsavedLeave } from "@/lib/model-builder-preferences";
+import { useDataMode } from "@/lib/data-mode";
 
 export default function SettingsPage() {
   return (
@@ -41,13 +40,26 @@ export default function SettingsPage() {
 }
 
 const TABS = [
-  ["models", "Models"],
-  ["research", "Research"],
-  ["email", "Email Intel"],
-  ["portfolios", "Portfolios"],
-  ["workspace", "Workspace"],
+  ["preferences", "Preferences"],
+  ["integrations", "Integrations"],
+  ["workspace-administration", "Workspace administration"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
+
+const TAB_ALIASES: Record<string, Tab> = {
+  preferences: "preferences",
+  integrations: "integrations",
+  "workspace-administration": "workspace-administration",
+  models: "preferences",
+  research: "preferences",
+  email: "integrations",
+  portfolios: "workspace-administration",
+  workspace: "workspace-administration",
+};
+
+export function resolveSettingsTab(value: string | null): Tab {
+  return value ? TAB_ALIASES[value] ?? "preferences" : "preferences";
+}
 
 const canSaveSettings = (analystLoaded: boolean, saving: boolean): boolean =>
   analystLoaded && !saving;
@@ -178,16 +190,17 @@ function applyNestedDelta(base: Record<string, unknown>, delta: Record<string, u
 }
 
 const QUERY_MODELS = [
-  { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", reqKey: "ANTHROPIC_API_KEY", configuredKey: "llm_configured" as const },
-  { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", reqKey: "GEMINI_API_KEY", configuredKey: "gemini_configured" as const },
-  { id: "deepseek/deepseek-chat", name: "DeepSeek V3/V4", reqKey: "OPENROUTER_API_KEY", configuredKey: "openrouter_configured" as const },
+  { id: "claude-sonnet-4-6", name: "Balanced institutional answers", reqKey: "ANTHROPIC_API_KEY", configuredKey: "llm_configured" as const },
+  { id: "gemini-1.5-pro", name: "Citation-led research answers", reqKey: "GEMINI_API_KEY", configuredKey: "gemini_configured" as const },
+  { id: "deepseek/deepseek-chat", name: "Cost-aware structured answers", reqKey: "OPENROUTER_API_KEY", configuredKey: "openrouter_configured" as const },
 ];
 
 const modelReadiness = (configured: boolean | null, cfgError: boolean, requiredKey: string) => {
-  if (configured === true) return { title: "API key configured", label: "ready", color: "var(--caos-success)", dot: "var(--caos-success)" };
-  if (configured === false) return { title: `Requires ${requiredKey} in the environment`, label: "no key", color: "var(--caos-muted)", dot: "var(--caos-idle)" };
-  if (cfgError) return { title: "Key posture unavailable while the environment snapshot is offline", label: "unavailable", color: "var(--caos-muted)", dot: "var(--caos-idle)" };
-  return { title: "Checking environment key posture", label: "checking", color: "var(--caos-muted)", dot: "var(--caos-idle)" };
+  void requiredKey;
+  if (configured === true) return { title: "Available for analysis", label: "available", color: "var(--caos-success)", dot: "var(--caos-success)" };
+  if (configured === false) return { title: "Answer source is not connected", label: "not connected", color: "var(--caos-muted)", dot: "var(--caos-idle)" };
+  if (cfgError) return { title: "Answer-source status is unavailable", label: "status unavailable", color: "var(--caos-muted)", dot: "var(--caos-idle)" };
+  return { title: "Checking answer-source availability", label: "checking", color: "var(--caos-muted)", dot: "var(--caos-idle)" };
 };
 
 function QueryModelOption({
@@ -223,8 +236,7 @@ function QueryModelOption({
           </span>
         </span>
       </div>
-      <div className="tabular text-caos-3xs text-caos-muted font-mono mt-1 select-none">{model.id}</div>
-      {configured === false ? <div className="tabular text-caos-3xs text-caos-warning mt-1.5">Requires {model.reqKey} in env</div> : null}
+      {configured === false ? <div className="tabular text-caos-3xs text-caos-warning mt-1.5">Ask a workspace administrator to connect this answer source.</div> : null}
     </button>
   );
 }
@@ -237,8 +249,9 @@ function Settings() {
   // ── Active tab, synced to ?tab= so reload/back restores the section ──
   const router = useRouter();
   const searchParams = useSearchParams();
+  const dataMode = useDataMode();
   const tabParam = searchParams.get("tab");
-  const tab: Tab = TABS.some(([k]) => k === tabParam) ? (tabParam as Tab) : "models";
+  const tab = resolveSettingsTab(tabParam);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const selectTab = (next: Tab) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -313,6 +326,13 @@ function Settings() {
   // analyst's stored lanes/senders. `analystLoaded` gates every write.
   const [analystLoaded, setAnalystLoaded] = useState(false);
   const [analystLoadErr, setAnalystLoadErr] = useState(false);
+  const emailFeedStatus = dataMode === "reference"
+    ? "Reference feed"
+    : analystLoadErr
+      ? "Status unavailable"
+      : analystLoaded
+        ? analystSettings.email_intelligence?.outlook_connected ? "Connected" : "Not connected"
+        : "Status unavailable";
   // Raw textarea buffer for approved senders — parsed to the array only on save,
   // so Enter/commas stick while typing instead of being stripped every keystroke.
   const [sendersRaw, setSendersRaw] = useState("");
@@ -518,27 +538,31 @@ function Settings() {
   return (
     <EnterprisePage kind="object"
       identity={<ShellIdentity title="Settings" />}
-      primaryAction={<ActionReason reason={!analystLoaded ? "Loading profile…" : saving ? "Saving…" : dirty ? null : "No unsaved changes"} reasonDisplay="hidden" onClick={saveAll} className="caos-action-primary focus-ring">Save changes</ActionReason>}
+      primaryAction={{
+        label: "Save changes",
+        onAction: saveAll,
+        unavailableReason: !analystLoaded ? "Loading profile…" : saving ? "Saving…" : dirty ? null : "No unsaved changes",
+      }}
       utilityLabel="Settings utilities"
-      utilityControls={<button type="button" onClick={loadCfg} className="caos-action-secondary focus-ring">Refresh environment snapshot</button>}
+      utilityControls={<button type="button" onClick={loadCfg} className="caos-action-secondary focus-ring">Refresh workspace status</button>}
       contextualControls={
         cfg ? (
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">
-            <span title="Engine default lane model (server environment) — distinct from the browser-local Query Model card below">{cfg.workspace.environment} · runtime model {cfg.model}</span>
+            <span>Workspace status available</span>
           </span>
         ) : undefined
       }
       narrowContract={{ essentialControls: null }}
     >
       {/* body */}
-      <div className="caos-persona-route settings-workbench flex-1 min-h-0 overflow-auto p-2">
+      <div className="caos-persona-route settings-workbench flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2">
       <PersonaWorkbench surface="settings" primary={<div>
         <div className="max-w-3xl mx-auto flex flex-col gap-3">
           <div
             role="tablist"
             aria-label="Settings sections"
             aria-orientation="horizontal"
-            className="flex gap-1 overflow-x-auto rounded border border-caos-border bg-caos-panel p-1 sm:grid sm:grid-cols-5"
+            className="flex gap-1 overflow-x-auto rounded border border-caos-border bg-caos-panel p-1 sm:grid sm:grid-cols-3"
           >
             {TABS.map(([k, label], idx) => {
               const active = tab === k;
@@ -565,30 +589,18 @@ function Settings() {
               );
             })}
           </div>
-          {/* Models tab */}
-          {tab === "models" ? (
-          <div id="settings-panel-models" role="tabpanel" aria-labelledby="settings-tab-models" className="flex flex-col gap-2">
-          {/* Role view — mirrors the header selector; same provider state. */}
-          <Panel title="Role view" right={<ScopeLabel scope="profile" />}>
+          {/* Preferences */}
+          {tab === "preferences" ? (
+          <div id="settings-panel-preferences" role="tabpanel" aria-labelledby="settings-tab-preferences" className="flex flex-col gap-2">
+          {/* Analysis depth */}
+          <Panel title="Analysis depth and speed" right={<ScopeLabel scope="device" />}>
             <div className="p-3 flex flex-col gap-3">
               <p className="tabular text-caos-2xs text-caos-muted leading-snug">
-                Workspace presentation preference — chooses which composition analytical surfaces
-                open with (Analyst working density, PM posture-first, QA governance-first). It is
-                not access control: every view reads the same underlying data.
+                Choose the balance of turnaround time and analytical depth used for synthesis,
+                review, issuer questions, and investigations. Each saved run records the choice.
+                Applies to this browser.
               </p>
-              <RoleViewSwitch />
-            </div>
-          </Panel>
-
-          {/* Model mode */}
-          <Panel title="Model mode" right={<ScopeLabel scope="device" />}>
-            <div className="p-3 flex flex-col gap-3">
-              <p className="tabular text-caos-2xs text-caos-muted leading-snug">
-                The cost↔quality tier the engine runs its LLM lanes at — module synthesis, the
-                adversarial council, issuer chat, and queries. Sent with every request; each run
-                pins the mode it ran at. Applies to this browser.
-              </p>
-              <ModelModeToggle value={mode} onChange={changeMode} label="" ariaLabel="Model mode" />
+              <ModelModeToggle value={mode} onChange={changeMode} label="" ariaLabel="Analysis depth and speed" />
             </div>
           </Panel>
 
@@ -620,12 +632,12 @@ function Settings() {
             </div>
           </Panel>
 
-          {/* Query model */}
-          <Panel title="Query Model" right={<ScopeLabel scope="device" />}>
+          {/* Query answer source */}
+          <Panel title="Query answer source" right={<ScopeLabel scope="device" />}>
             <div className="p-3 flex flex-col gap-3">
               <p className="tabular text-caos-2xs text-caos-muted leading-snug">
-                The language model used by the Query workspace and the global Ask launcher to translate
-                natural language questions into metric graphs and semantic lookups. Applies to this browser.
+                Choose how answers are produced for Compare metrics, Map relationships, Research with
+                citations, and Ask. Applies to this browser.
               </p>
               <div className="flex flex-col sm:flex-row gap-2">
                 {QUERY_MODELS.map((model) => <QueryModelOption key={model.id} model={model} configured={cfg ? cfg[model.configuredKey] : null} cfgError={cfgErr} active={queryModel === model.id} onSelect={changeQueryModel} />)}
@@ -634,7 +646,7 @@ function Settings() {
           </Panel>
 
           <Panel
-              title="Custom model routing"
+              title="Task-specific analysis preferences"
               right={<ScopeLabel scope="profile" />}
             >
               <div className="p-3">
@@ -642,18 +654,12 @@ function Settings() {
                     disabled controls read as broken chrome; stored profile
                     values are preserved untouched. */}
                 <p className="tabular text-caos-2xs text-caos-muted leading-snug">
-                  Planned — per-lane routing activates with the run-lane override rollout; lanes
-                  currently run at the workspace tier above. Any preference already stored on your
-                  profile is preserved.
+                  Planned — task-specific preferences will become available after workspace-level
+                  controls are enabled. Any preference already stored on your profile is preserved.
                 </p>
               </div>
             </Panel>
-          </div>
-          ) : null}
-
           {/* Research defaults */}
-          {tab === "research" ? (
-          <div id="settings-panel-research" role="tabpanel" aria-labelledby="settings-tab-research">
           <Panel
             title="Research defaults"
             right={
@@ -709,14 +715,14 @@ function Settings() {
           </div>
           ) : null}
 
-          {tab === "email" ? (
-            <div id="settings-panel-email" role="tabpanel" aria-labelledby="settings-tab-email">
+          {tab === "integrations" ? (
+            <div id="settings-panel-integrations" role="tabpanel" aria-labelledby="settings-tab-integrations">
             <Panel
               title="Email Intelligence · Outlook connection"
               right={
                 <span className="flex items-center gap-2">
                   <ScopeLabel scope="profile" />
-                  <span className="tabular text-caos-xs text-caos-muted">feed built near production</span>
+                  <span className="tabular text-caos-xs text-caos-muted">{emailFeedStatus}</span>
                 </span>
               }
             >
@@ -725,12 +731,7 @@ function Settings() {
                   <span className="tabular text-caos-md text-caos-text">Outlook connection</span>
                   {/* Read the persisted flag — this was a hardcoded "Not connected"
                       that ignored the fetched setting (audit 2026-07-10 F16). */}
-                  <span
-                    className="tabular text-caos-xs"
-                    style={{ color: analystSettings.email_intelligence?.outlook_connected ? "var(--caos-success)" : "var(--caos-muted)" }}
-                  >
-                    {analystSettings.email_intelligence?.outlook_connected ? "Connected" : "Not connected"}
-                  </span>
+                  <span className="text-caos-xs text-caos-muted">Approved-sender intake</span>
                 </div>
                 <label className="flex flex-col gap-1">
                   <span className={labelCls}>Approved sender emails/domains — one per line</span>
@@ -759,14 +760,14 @@ function Settings() {
           ) : null}
 
           {/* Workspace configuration */}
-          {tab === "workspace" ? (
-          <div id="settings-panel-workspace" role="tabpanel" aria-labelledby="settings-tab-workspace">
+          {tab === "workspace-administration" ? (
+          <div id="settings-panel-workspace-administration" role="tabpanel" aria-labelledby="settings-tab-workspace-administration" className="flex flex-col gap-2">
           <Panel
-            title="Workspace configuration"
+            title="Workspace administration"
             right={
               <span className="flex items-center gap-2">
                 <ScopeLabel scope="workspace" />
-                {cfg && !cfg.llm_configured ? <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}>NO MODEL KEY · demo mode</span> : null}
+                {cfg && !cfg.llm_configured ? <span className="tabular text-caos-xs" style={{ color: "var(--caos-warning)" }}>Answer source · Not connected</span> : null}
               </span>
             }
           >
@@ -782,6 +783,14 @@ function Settings() {
                 <SurfaceState kind="loading" title="Loading workspace configuration" compact />
               ) : (
                 <div className="flex flex-col gap-4">
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="rounded border border-caos-border bg-caos-bg/50 p-3"><span className={labelCls}>Run analysis</span><p className="mt-2 text-caos-xs text-caos-text">{cfg.llm_configured || cfg.gemini_configured || cfg.openrouter_configured ? "Available" : "Not connected"}</p></div>
+                    <div className="rounded border border-caos-border bg-caos-bg/50 p-3"><span className={labelCls}>Review governance</span><p className="mt-2 text-caos-xs text-caos-text">{cfg.governance.council_enabled ? "Council review available" : "Standard QA gates"}</p></div>
+                    <div className="rounded border border-caos-border bg-caos-bg/50 p-3"><span className={labelCls}>Process documents</span><p className="mt-2 text-caos-xs text-caos-text">Uploads up to {cfg.workspace.max_upload_mb} MB · {cfg.workspace.run_concurrency} concurrent runs</p></div>
+                  </div>
+                  <details className="rounded border border-caos-border bg-caos-bg/30 p-3">
+                    <summary className="cursor-pointer tabular text-caos-xs font-semibold uppercase tracking-wider text-caos-muted focus-ring">Deployment diagnostics</summary>
+                    <div className="mt-4 flex flex-col gap-4">
                   {configGroups(cfg).map((g) => (
                     <div key={g.title}>
                       <div className="flex items-center gap-2 mb-2">
@@ -802,13 +811,15 @@ function Settings() {
                   <p className="tabular text-caos-2xs text-caos-muted leading-snug pt-1">
                     Read-only. These are set in the deployment environment (or noted code constant) and applied at boot. Secrets (API keys, database URL, storage paths) are never shown here.
                   </p>
+                    </div>
+                  </details>
                 </div>
               )}
             </div>
           </Panel>
+          <PortfoliosPanel />
           </div>
           ) : null}
-          {tab === "portfolios" ? <PortfoliosPanel /> : null}
         </div>
       </div>} />
       </div>

@@ -7,7 +7,7 @@
 
 import type { Report, Section, TableRow } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
-import { SemanticVisualization, type VisualizationDatum } from "@/components/charts/SemanticVisualization";
+import { ReportVisualization } from "./ReportVisualization";
 import { ReportAuthority } from "./AuthorityBlock";
 import type { DeepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import type { ProvFreshness } from "@/lib/provenance";
@@ -216,24 +216,9 @@ function RDList({ s, p, ctx }: { s: Extract<Section, { t: "list" }>; p: string; 
 }
 
 function RDChart({ s, p, ctx }: { s: Extract<Section, { t: "chart" }>; p: string; ctx: EditCtx }) {
-  const { data: chartData = [], ...chart } = s.spec;
-  const data = chartData as VisualizationDatum[];
   return (
     <div className="rd-sec">
-      <SemanticVisualization
-        height={s.h || 190}
-        mode="paper"
-        spec={{
-          kind: s.kind,
-          title: s.title,
-          unit: s.unit,
-          sourceIds: s.sourceIds,
-          accessibleSummary: s.accessibleSummary,
-          data,
-          tabularFallback: { label: `${s.title} data`, columns: s.columns, data },
-          chart,
-        }}
-      />
+      <ReportVisualization section={s} height={s.h || 190} />
       {s.note ? <div className="rd-note"><E p={p + ".note"} v={s.note} ctx={ctx} /></div> : null}
     </div>
   );
@@ -403,7 +388,7 @@ function ReferenceAuthorityNote() {
     role="note"
     style={{
       margin: "6px 0", padding: "4px 8px", border: "1px solid var(--caos-critical)",
-      color: "#b91c1c", fontSize: "10px", letterSpacing: "0.05em",
+      color: "var(--paper-critical)", fontSize: "10px", letterSpacing: "0.05em",
       textTransform: "uppercase", fontFamily: "var(--font-mono, monospace)",
     }}
   >Reference template — Atlas Forge Industrials fixture · illustrative committee format, not a live issuer run</div>;
@@ -414,7 +399,7 @@ function ReportAuthorityBlock({ authority }: { authority: ReportAuthority | unde
 }
 
 function ReportTitle({ rep, ctx }: { rep: Report; ctx: EditCtx }) {
-  return <><h1 className="rd-title"><E p="title" v={rep.title} ctx={ctx} /></h1><div className="rd-subtitle"><E p="subtitle" v={rep.subtitle} ctx={ctx} /></div></>;
+  return <><h2 className="rd-title"><E p="title" v={rep.title} ctx={ctx} /></h2><div className="rd-subtitle"><E p="subtitle" v={rep.subtitle} ctx={ctx} /></div></>;
 }
 
 function ReportSections({ sections, props, state, paged = false }: { sections: IndexedSection[]; props: ReportDocProps; state: ReportRenderState; paged?: boolean }) {
@@ -445,7 +430,7 @@ function PagedReportPage({ page, pageIndex, pages, props, state }: { page: Repor
 function PagedReport({ props, state }: { props: ReportDocProps; state: ReportRenderState }) {
   const pages = groupReportPages(state.sections);
   const paperClass = `rd-paper${props.onEdit ? " rd-editing" : ""}`;
-  return <div className={paperClass} style={{ background: props.paper || "#f7f5ee" }}>
+  return <div className={paperClass} style={{ background: props.paper || "var(--paper-bg)" }}>
     <ReportWatermark watermark={props.rep.watermark} />
     <ReportAuthorityBlock authority={props.authority} />
     {pages.map((page, index) => <PagedReportPage key={page.name} page={page} pageIndex={index} pages={pages} props={props} state={state} />)}
@@ -486,7 +471,7 @@ function FlatReportTail({ props, state }: { props: ReportDocProps; state: Report
 function FlatReport({ props, state }: { props: ReportDocProps; state: ReportRenderState }) {
   const editingClass = props.onEdit ? " rd-editing" : "";
   const modelClass = state.isModelAppendix ? " rd-model-appendix" : "";
-  return <div className={`rd-paper${editingClass}${modelClass}`} style={{ background: props.paper || "#f7f5ee" }}>
+  return <div className={`rd-paper${editingClass}${modelClass}`} style={{ background: props.paper || "var(--paper-bg)" }}>
     <ReportWatermark watermark={props.rep.watermark} />
     <FlatReportHeader props={props} state={state} />
     <ReportTitle rep={props.rep} ctx={state.ctx} />

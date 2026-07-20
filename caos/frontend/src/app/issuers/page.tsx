@@ -348,14 +348,7 @@ function IssuersDirectory() {
           <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap truncate min-w-0 hidden xl:inline">{summaryLabel}</span>
         </ShellIdentity>
       }
-      primaryAction={
-        <button
-          onClick={() => setShowForm(true)}
-          className="tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring"
-        >
-          + NEW ISSUER
-        </button>
-      }
+      primaryAction={{ label: "+ NEW ISSUER", onAction: () => setShowForm(true) }}
       status={<AnalysisContextSaveState analysis={analysis} />}
       contextualControls={
         <Link
@@ -377,7 +370,7 @@ function IssuersDirectory() {
       narrowContract={narrowContract}
     >
       <div className="caos-persona-route issuers-workbench flex-1 min-h-0 p-2">
-      <PersonaWorkbench surface="issuers" primary={<div className="h-full min-h-0 flex flex-col">
+      <PersonaWorkbench surface="issuers" primary={<div className="min-h-0 flex flex-col">
       <WorkbenchToolbar
         title="Coverage register"
         description="Filter, select and route covered names without losing issuer context."
@@ -427,11 +420,11 @@ function IssuersDirectory() {
       ) : null}
 
       {/* directory */}
-      <DominantTableRegion ownerId="issuer-register" label="Issuer coverage register" className="flex-1 min-h-0">
-      <div className="h-full min-h-0">
+      <DominantTableRegion ownerId="issuer-register" label="Issuer coverage register" className="min-h-0">
+      <div className="min-h-0">
         <Panel
           title="Issuer Register · coverage universe"
-          className="h-full"
+          className="issuer-register-panel"
           right={
             <span className="flex items-center gap-2">
               <span className="tabular text-caos-xs text-caos-muted hidden xl:inline">
@@ -629,13 +622,18 @@ function IssuersDirectory() {
                   </span>
                   {(() => {
                     const r = issuerRating(issuer);
+                    const distressed = ratingDistressed(r);
                     return (
                       <span
                         role="gridcell"
-                        className="tabular text-caos-md truncate"
+                        aria-label={distressed ? `Distressed rating: ${r}` : undefined}
+                        className="tabular text-caos-md truncate inline-flex items-center gap-1"
                         title={r ? "Agency rating — S&P / Moody's / Fitch (first on file)" : "No agency rating on file"}
-                        style={{ color: r ? (ratingDistressed(r) ? "var(--caos-critical-bright)" : "var(--caos-text)") : "var(--caos-muted)" }}
+                        style={{ color: r ? (distressed ? "var(--caos-critical-bright)" : "var(--caos-text)") : "var(--caos-muted)" }}
                       >
+                        {distressed ? (
+                          <StatusGlyph kind="critical" size={9} />
+                        ) : null}
                         {r || "—"}
                       </span>
                     );
@@ -727,7 +725,7 @@ function NewIssuerModal({
       >
         <div className="h-9 px-3 flex items-center gap-2 border-b border-caos-border bg-caos-elevated/60">
           <span className="tabular text-caos-xl text-caos-text">New Issuer</span>
-          <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted">registers to the coverage universe · opens its module route</span>
+          <span className="tabular text-caos-2xs px-1.5 py-px rounded border border-caos-border text-caos-muted">Creates the issuer and opens its profile</span>
           <div className="flex-1" />
           <CloseButton onClick={onClose} />
         </div>

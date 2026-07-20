@@ -60,8 +60,8 @@ export function AuthorityBlock({
       style={{
         margin: "6px 0",
         padding: "4px 8px",
-        border: `1px solid ${unknown ? "var(--caos-critical)" : "#16161e"}`,
-        color: unknown ? "#b91c1c" : "#16161e",
+        border: `1px solid ${unknown ? "var(--caos-critical)" : "var(--paper-ink)"}`,
+        color: unknown ? "var(--paper-critical)" : "var(--paper-ink)",
         fontSize: "10px",
         letterSpacing: "0.05em",
         textTransform: "uppercase",

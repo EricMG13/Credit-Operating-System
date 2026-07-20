@@ -21,13 +21,19 @@ import ReportsPage from "./page";
 
 type EnterprisePageMockProps = {
   identity?: React.ReactNode;
-  primaryAction?: React.ReactNode;
+  primaryAction?: { label: string; onAction?: () => void; href?: string; unavailableReason?: string | null; title?: string };
   status?: React.ReactNode;
   utilityControls?: React.ReactNode;
   contextualControls?: React.ReactNode;
   narrowContract?: { essentialControls?: React.ReactNode };
   children?: React.ReactNode;
 };
+
+function renderPageAction(action: EnterprisePageMockProps["primaryAction"]) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href} title={action.title}>{action.label}</a>;
+  return <button type="button" aria-disabled={action.unavailableReason ? "true" : undefined} title={action.unavailableReason ?? action.title} onClick={action.unavailableReason ? undefined : action.onAction}>{action.label}</button>;
+}
 
 const controls = vi.hoisted(() => ({
   patch: vi.fn().mockResolvedValue(undefined),
@@ -40,6 +46,7 @@ const controls = vi.hoisted(() => ({
   hasContext: true,
   reportParam: "version-1" as string | null,
   forceReference: false,
+  referenceMode: true,
   surfaceReports: undefined as Record<string, unknown> | null | undefined,
   liveOuts: {},
   liveStatus: {},
@@ -52,7 +59,12 @@ vi.mock("next/navigation", () => ({
     issuer: "issuer-1",
     run: controls.liveRunId,
     ...(controls.reportParam ? { report: controls.reportParam } : {}),
-  } : undefined),
+  } : controls.referenceMode ? { mode: "reference" } : undefined),
+}));
+vi.mock("@/lib/data-mode", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/data-mode")>()),
+  useDataMode: () => controls.live && !controls.forceReference || !controls.referenceMode ? "live" : "reference",
+  useCurrentAppHref: () => "/reports",
 }));
 
 vi.mock("@/components/shared/RequireAuth", () => ({
@@ -64,7 +76,7 @@ vi.mock("@/components/shared/EnterprisePage", () => ({
     identity, primaryAction, status, utilityControls, contextualControls, narrowContract, children,
   }: EnterprisePageMockProps) => (
     <div>
-      <header>{identity}{primaryAction}{status}{contextualControls}{narrowContract?.essentialControls}</header>
+      <header>{identity}{renderPageAction(primaryAction)}{status}{contextualControls}{narrowContract?.essentialControls}</header>
       <aside aria-label="Utilities">{utilityControls}</aside>
       <main>{children}</main>
     </div>
@@ -194,6 +206,7 @@ beforeEach(() => {
   controls.hasContext = true;
   controls.reportParam = "version-1";
   controls.forceReference = false;
+  controls.referenceMode = true;
   controls.surfaceReports = undefined;
   controls.liveOuts = {};
   controls.liveStatus = {};
@@ -250,6 +263,15 @@ afterEach(() => {
 });
 
 describe("Report Studio interactions", () => {
+  it("keeps the bare live route free of seeded report content and offers an explicit Reference entry", () => {
+    controls.live = false;
+    controls.referenceMode = false;
+    render(<ReportsPage />);
+    expect(screen.getByText("Select an issuer report")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open reference report" }).getAttribute("href")).toBe("/reports?mode=reference");
+    expect(screen.queryByText("Atlas Forge Industries")).toBeNull();
+  });
+
   it("drives display, compose, keyboard, evidence, edit-reset, and rail controls", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValue(true);
     render(<ReportsPage />);
@@ -262,19 +284,24 @@ describe("Report Studio interactions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Paper tone White" }));
     fireEvent.click(screen.getByRole("button", { name: "SOURCES" }));
-    fireEvent.click(screen.getByRole("button", { name: "Zoom 115 percent" }));
-    expect(screen.getAllByText(/ZOOM 115%/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "100%" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fit" })).toBeTruthy();
+    const zoomControl = screen.getByRole("slider", { name: "Document zoom" });
+    expect(zoomControl.getAttribute("aria-valuetext")).toBe("100 percent");
+    fireEvent.change(zoomControl, { target: { value: "125" } });
+    expect(screen.getAllByText(/ZOOM 125%/).length).toBeGreaterThan(0);
+    expect(zoomControl.getAttribute("aria-valuetext")).toBe("125 percent");
 
     const editModeButtons = screen.getAllByRole("button", { name: "Edit report" });
     fireEvent.click(editModeButtons[0]);
     fireEvent.click(screen.getAllByRole("button", { name: "Finish editing" })[1]);
 
     fireEvent.keyDown(window, { key: "-" });
-    expect(screen.getAllByText(/ZOOM 100%/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ZOOM 120%/).length).toBeGreaterThan(0);
     fireEvent.keyDown(window, { key: "+" });
-    expect(screen.getAllByText(/ZOOM 115%/).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "FIT" }));
-    expect(screen.getAllByText(/ZOOM 40%/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ZOOM 125%/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Fit" }));
+    expect(screen.getAllByText(/ZOOM 100%/).length).toBeGreaterThan(0);
     const reportButtons = screen.getAllByRole("button", { name: /^Select / });
     fireEvent.keyDown(window, { key: "2" });
     expect(reportButtons[1].getAttribute("aria-pressed")).toBe("true");
@@ -487,10 +514,10 @@ describe("Report Studio interactions", () => {
     const scroll = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(1200);
     const view = render(<ReportsPage />);
     await waitFor(() => expect(observe).toHaveBeenCalled());
-    expect(screen.getAllByText(/ZOOM 77%/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ZOOM 100%/).length).toBeGreaterThan(0);
     fireEvent.keyDown(window, { key: "f" });
     act(() => { resizeCallback?.([], {} as ResizeObserver); });
-    const staleFit = hostProps(screen.getByRole("button", { name: "FIT" })).onClick;
+    const staleFit = hostProps(screen.getByRole("button", { name: "Fit" })).onClick;
     view.unmount();
     act(() => { staleFit(); });
     expect(disconnect).toHaveBeenCalled();
@@ -504,6 +531,23 @@ describe("Report Studio interactions", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage blocked"); });
     render(<ReportsPage />);
     expect(await screen.findByText("REFERENCE")).toBeTruthy();
+  });
+
+  it("ignores an unsupported saved paper tone", async () => {
+    vi.mocked(getReportDraft).mockResolvedValue({
+      id: "draft-1",
+      context_id: "context-1",
+      revision: 4,
+      payload: { paper: "not-a-paper-token" },
+      updated_at: "2026-07-14T00:00:00Z",
+    } satisfies ReportDraftDTO);
+    render(<ReportsPage />);
+    await waitFor(() => expect(getReportDraft).toHaveBeenCalledWith("context-1"));
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Paper tone Warm" }).getAttribute("aria-pressed"),
+    ).toBe("true"));
+    expect(screen.getByRole("button", { name: "Paper tone White" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "Paper tone Cool" }).getAttribute("aria-pressed")).toBe("false");
   });
 
   it("patches a stale report context to the live run", async () => {
@@ -562,9 +606,10 @@ describe("Report Studio interactions", () => {
     controls.checkpointId = null;
     render(<ReportsPage />);
     const guarded = await screen.findByRole("button", { name: "Review frozen preview" }) as HTMLButtonElement;
-    expect(guarded.disabled).toBe(true);
+    expect(guarded.disabled).toBe(false);
+    expect(guarded.getAttribute("aria-disabled")).toBe("true");
     expect(guarded.title).toContain("Save an immutable Model checkpoint");
-    await act(async () => { await hostProps(guarded).onClick(); });
+    fireEvent.click(guarded);
     expect(previewReportVersion).toHaveBeenCalledOnce();
     expect(publishReportVersion).not.toHaveBeenCalled();
   });
@@ -618,8 +663,9 @@ describe("Report Studio interactions", () => {
     render(<ReportsPage />);
     const publish = await screen.findByRole("button", { name: "Review frozen preview" }) as HTMLButtonElement;
     expect(publish.title).toContain("Run is not committee ready");
-    const submit = screen.getByRole("button", { name: "Submit to IC" }) as HTMLButtonElement;
-    expect(submit.title).toContain("Run is not committee ready");
+    const decisionRoom = screen.getByRole("button", { name: "Open IC decision room" });
+    expect(decisionRoom.getAttribute("aria-disabled")).toBe("true");
+    expect(decisionRoom.getAttribute("title")).toContain("Run is not committee ready");
   });
 
   it("handles a sectionless frozen preview and editorial intents missing optional maps", async () => {
@@ -666,12 +712,12 @@ describe("Report Studio interactions", () => {
     vi.mocked(getReportDraft).mockResolvedValue(null);
     render(<ReportsPage />);
     await screen.findByText("No issuer-specific report output");
-    fireEvent.click(screen.getByRole("button", { name: "Open IC decision" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open IC decision room" }));
     const dialog = await screen.findByRole("dialog", { name: "Decision room" });
     expect(dialog.getAttribute("data-report-id")).toBe("snapshot");
   });
 
-  it("prints, downloads immutable binaries, and opens both IC decision controls", async () => {
+  it("prints, downloads immutable binaries, and exposes one IC decision-room opener", async () => {
     controls.live = true;
     const version: ReportVersionDTO = {
       id: "version-1",
@@ -728,10 +774,11 @@ describe("Report Studio interactions", () => {
     expect(await screen.findByRole("dialog", { name: "Evidence E-44" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Submit to IC" }));
-    expect(await screen.findByRole("dialog", { name: "Decision room" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Close decision" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open IC decision" }));
+    expect(screen.getAllByRole("button", { name: "Open IC decision room" })).toHaveLength(1);
+    for (const obsolete of ["Submit to IC", "Open IC decision", "CAPTURE DECISION"]) {
+      expect(screen.queryByRole("button", { name: obsolete })).toBeNull();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Open IC decision room" }));
     expect(await screen.findByRole("dialog", { name: "Decision room" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close decision" }));
   });

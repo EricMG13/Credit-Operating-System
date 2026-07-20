@@ -26,7 +26,12 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams({
     issuer: "a71f0000-0000-0000-0000-000000000001",
     run: state.runId,
+    mode: "live",
   }),
+}));
+vi.mock("@/lib/data-mode", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/data-mode")>()),
+  useDataMode: () => "live" as const,
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -39,7 +44,25 @@ vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
   }),
 }));
 vi.mock("@/lib/pipeline/useLivePipeline", () => ({
-  useLivePipelineStatus: () => ({ value: null, phase: "none", latest: null }),
+  useLivePipelineStatus: () => ({
+    value: {
+      runId: state.runId,
+      status: "complete",
+      gateStatus: "Ready with Limitations",
+      committeeStatus: "Restricted",
+      summary: "Persisted run",
+      sim: { mods: {}, events: [], tick: 0, done: true },
+      plan: [],
+      scope: new Set<string>(),
+      completed: 0,
+      total: 0,
+      produced: 0,
+      pending: 0,
+      blocked: [],
+    },
+    phase: "complete",
+    latest: null,
+  }),
 }));
 vi.mock("@/lib/engine/useLiveRun", () => ({
   useLiveRun: () => ({

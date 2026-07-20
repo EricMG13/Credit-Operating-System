@@ -5,11 +5,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { Report, Section } from "@/lib/reports/builders";
 import { ComposePanel, ExportPanel, LineagePanel, ReportList } from "./panels";
 
-vi.mock("./EvChip", () => ({
-  EvChip: ({ id, onOpen }: { id: string; onOpen: (id: string) => void }) => (
-    <button type="button" onClick={() => onOpen(id)}>evidence {id}</button>
-  ),
-}));
 vi.mock("./ExportToVaultButton", () => ({
   ExportToVaultButton: ({ runId }: { runId: string }) => <button type="button">vault {runId}</button>,
 }));
@@ -53,12 +48,14 @@ describe("report rail panels", () => {
         active="memo"
         onSel={onSel}
         onCollapse={onCollapse}
+        isReference
       />,
     );
     expect(screen.getByRole("button", { name: /Credit memo/ }).getAttribute("aria-current")).toBe("true");
     expect(screen.getByText("READY")).toBeTruthy();
     expect(screen.getByText("HELD")).toBeTruthy();
     expect(screen.getByText("3 sections · 3 citations")).toBeTruthy();
+    expect(screen.getByText(/reference deliverables.*QA-117 open/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Digest/ }));
     expect(onSel).toHaveBeenCalledWith("digest");
     fireEvent.click(screen.getByRole("button", { name: "COLLAPSE" }));
@@ -66,7 +63,7 @@ describe("report rail panels", () => {
   });
 
   it("renders report list without an optional collapse action", () => {
-    render(<ReportList reports={[report()]} active="other" onSel={vi.fn()} />);
+    render(<ReportList reports={[report()]} active="other" onSel={vi.fn()} isReference />);
     expect(screen.queryByRole("button", { name: "COLLAPSE" })).toBeNull();
     expect(screen.getByRole("button", { name: /Credit memo/ }).hasAttribute("aria-current")).toBe(false);
   });
@@ -74,10 +71,11 @@ describe("report rail panels", () => {
   it("resolves lineage names and opens evidence", () => {
     const onOpen = vi.fn();
     render(<LineagePanel rep={report()} onOpenEvidence={onOpen} />);
-    expect(screen.getByText("Market data feed")).toBeTruthy();
-    expect(screen.getByText("Cash-flow model M-118")).toBeTruthy();
-    expect(screen.getByText("render input")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "evidence E-1" }));
+    expect(screen.getByRole("option", { name: /E-2.*Market data feed/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /E-3.*Cash-flow model M-118/ })).toBeTruthy();
+    expect(screen.getByText(/No registered evidence ID · UNKNOWN/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: /E-1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open source E-1 —/ }));
     expect(onOpen).toHaveBeenCalledWith("E-1");
   });
 
@@ -137,11 +135,20 @@ describe("report rail panels", () => {
         reports={[report()]}
         active="memo"
         onSel={vi.fn()}
+        isReference={false}
         liveHeldReason="COMMITTEE: Restricted"
       />,
     );
     expect(screen.getByText("HELD")).toBeTruthy();
     expect(screen.queryByText("READY")).toBeNull();
+    expect(screen.getByText(/Live deliverables follow the active run/)).toBeTruthy();
+    expect(screen.getByText("COMMITTEE: Restricted")).toBeTruthy();
+    expect(screen.queryByText(/QA-117 open/)).toBeNull();
+    cleanup();
+
+    render(<ReportList reports={[report()]} active="memo" onSel={vi.fn()} isReference={false} />);
+    expect(screen.getByText(/Review the server-frozen preview before publication/)).toBeTruthy();
+    expect(screen.queryByText(/QA-117 open/)).toBeNull();
     cleanup();
 
     render(<ExportPanel rep={report()} omitCount={0} liveHeldReason="COMMITTEE: Restricted" />);

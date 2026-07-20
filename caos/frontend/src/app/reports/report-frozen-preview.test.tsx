@@ -150,7 +150,7 @@ describe("Report Studio frozen publication preview", () => {
     fireEvent.click(screen.getByRole("button", { name: "SOURCES" }));
 
     fireEvent.click(screen.getByRole("button", { name: /FROZEN ANALYSIS ENVELOPE/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Review editorial changes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Apply editorial changes to frozen preview" }));
     await waitFor(() => expect(previewReportVersion).toHaveBeenCalledTimes(2));
     expect(vi.mocked(previewReportVersion).mock.calls[1][0].payload).toMatchObject({
       omit: { "0": true },

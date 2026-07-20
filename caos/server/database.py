@@ -132,19 +132,79 @@ if settings.database_url.startswith("sqlite"):
 # Tests run async (pytest-asyncio) and a sync TestClient against this same global
 # engine on different event loops; a pooled connection cleaned up after its
 # creating loop closed raises "Event loop is closed" (notably with asyncpg).
-# NullPool in test mode avoids cross-loop connection reuse. Production keeps the
-# default pool (5 + 10 overflow).
-# ponytail: pool size and caos_run_concurrency are COUPLED (BE8-1) — each active
-# run holds one connection for its whole transaction, so raising the run
-# concurrency toward ~13+ without an explicit pool_size here exhausts the pool
-# and stalls requests for pool_timeout. Inert at the shipped default (2 runs vs
-# 15 slots); size pool_size ≈ caos_run_concurrency + request headroom if you
-# ever raise it.
+# NullPool in test mode avoids cross-loop connection reuse. SQLite keeps its
+# existing dialect pool. Postgres uses an explicit per-worker envelope: the
+# supported two-worker maximum therefore consumes at most 50 app connections by
+# default, leaving half of bundled Postgres's default 100 for migrations,
+# backup, probes, and operator access.
+_POSTGRES_AUTO_CONNECTIONS_PER_WORKER = 25
+_POSTGRES_MIN_INTERACTIVE_HEADROOM = 4
+
+
+def _postgres_pool_kwargs(
+    *,
+    database_url: str,
+    test_mode: bool,
+    configured_pool_size: int,
+    max_overflow: int,
+    pool_timeout_s: float,
+    run_concurrency: int,
+    synth_concurrency: int,
+) -> dict:
+    """Resolve bounded QueuePool settings for one Postgres worker process."""
+    if test_mode or not database_url.startswith("postgresql"):
+        return {}
+    if configured_pool_size < 0:
+        raise ValueError("CAOS_DB_POOL_SIZE must be 0 (auto) or a positive integer")
+    if max_overflow < 0:
+        raise ValueError("CAOS_DB_MAX_OVERFLOW must be non-negative")
+    if pool_timeout_s <= 0:
+        raise ValueError("CAOS_DB_POOL_TIMEOUT_S must be greater than zero")
+
+    if configured_pool_size:
+        pool_size = configured_pool_size
+    else:
+        pool_size = _POSTGRES_AUTO_CONNECTIONS_PER_WORKER - max_overflow
+        reserved = run_concurrency + synth_concurrency
+        if pool_size < reserved + _POSTGRES_MIN_INTERACTIVE_HEADROOM:
+            raise ValueError(
+                "Automatic Postgres pool cannot reserve executor demand plus "
+                "interactive headroom inside the 25-connection worker envelope; "
+                "set CAOS_DB_POOL_SIZE explicitly after sizing Postgres max_connections"
+            )
+
+    return {
+        "pool_size": pool_size,
+        "max_overflow": max_overflow,
+        "pool_timeout": pool_timeout_s,
+    }
+
+
+_test_mode = os.environ.get("CAOS_TEST") == "1"
 _engine_kwargs: dict = {"pool_pre_ping": True}
-if os.environ.get("CAOS_TEST") == "1":
+_engine_kwargs.update(
+    _postgres_pool_kwargs(
+        database_url=settings.database_url,
+        test_mode=_test_mode,
+        configured_pool_size=settings.caos_db_pool_size,
+        max_overflow=settings.caos_db_max_overflow,
+        pool_timeout_s=settings.caos_db_pool_timeout_s,
+        run_concurrency=settings.caos_run_concurrency,
+        synth_concurrency=settings.synth_concurrency,
+    )
+)
+if _test_mode:
     _engine_kwargs["poolclass"] = NullPool
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
+
+if "pool_size" in _engine_kwargs:
+    logger.info(
+        "Postgres pool configured (pool_size=%s, max_overflow=%s, pool_timeout_s=%s)",
+        _engine_kwargs["pool_size"],
+        _engine_kwargs["max_overflow"],
+        _engine_kwargs["pool_timeout"],
+    )
 
 # SQLite needs WAL + a busy timeout so the async executor and request handlers
 # can write concurrently without "database is locked". No-op on Postgres.
@@ -1224,6 +1284,7 @@ class NotificationEvent(Base):
     title: Mapped[str] = mapped_column(String(240), nullable=False)
     body: Mapped[Optional[str]] = mapped_column(Text)
     href: Mapped[Optional[str]] = mapped_column(String(600))
+    action_label: Mapped[Optional[str]] = mapped_column(String(120))
     idempotency_key: Mapped[str] = mapped_column(String(180), nullable=False)
     seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

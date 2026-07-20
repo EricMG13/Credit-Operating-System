@@ -16,6 +16,7 @@ import { STEP_OUTPUTS } from "@/lib/deepdive/step-outputs";
 import { MODULES } from "@/lib/pipeline/data";
 import { SEV_COLOR } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvChip";
+import { EvidenceSelectionList, type EvidenceSelectionItem } from "@/components/shared/EvidenceSelectionList";
 import { Dot, Tag } from "@/components/pipeline/atoms";
 import { OutSections } from "./OutSections";
 import type { ModuleOutput, OutSection } from "@/lib/deepdive/module-outputs";
@@ -361,10 +362,17 @@ function ProductionMetadata({ id, status, severity, stepNote }: { id: string; st
 }
 
 function StepEvidenceList({ evidence, onOpenEvidence }: { evidence: string[]; onOpenEvidence: (id: string) => void }) {
+  const items: EvidenceSelectionItem[] = evidence.map((id) => ({
+    id,
+    label: "Registered evidence",
+    description: "Cited by this workflow output",
+    status: "Cited",
+    effect: { kind: "callback", onOpen: onOpenEvidence },
+  }));
   return (
     <div className="px-3 py-2.5 border-b border-caos-border">
       <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1.5">Evidence cited · {evidence.length}</div>
-      {evidence.length ? <div className="flex flex-wrap gap-1">{evidence.map((id) => <EvChip key={id} id={id} onOpen={onOpenEvidence} />)}</div> : <div className="text-caos-sm text-caos-muted">No registered citations — synthesis or process output.</div>}
+      {evidence.length ? <EvidenceSelectionList label="Evidence cited" items={items} /> : <div className="text-caos-sm text-caos-muted">No registered citations — synthesis or process output.</div>}
     </div>
   );
 }

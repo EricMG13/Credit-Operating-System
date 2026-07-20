@@ -9,9 +9,16 @@ const mocks = vi.hoisted(() => ({
   patchContext: vi.fn().mockResolvedValue(undefined),
 }));
 
+type TestPageAction = { label: string; href?: string; onAction?: () => void; unavailableReason?: string | null };
+function renderPageAction(action?: TestPageAction) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href}>{action.label}</a>;
+  return <button type="button" aria-disabled={action.unavailableReason ? "true" : undefined} onClick={action.unavailableReason ? undefined : action.onAction}>{action.label}</button>;
+}
+
 vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/shared/AuthProvider", () => ({ useAuth: () => ({ user: { id: "analyst-1" } }) }));
-vi.mock("@/components/shared/EnterprisePage", () => ({ EnterprisePage: ({ identity, primaryAction, children }: { identity: React.ReactNode; primaryAction: React.ReactNode; children: React.ReactNode }) => <div>{identity}{primaryAction}{children}</div> }));
+vi.mock("@/components/shared/EnterprisePage", () => ({ EnterprisePage: ({ identity, primaryAction, children }: { identity: React.ReactNode; primaryAction?: TestPageAction; children: React.ReactNode }) => <div>{identity}{renderPageAction(primaryAction)}{children}</div> }));
 vi.mock("@/components/shared/PersonaWorkbench", () => ({ PersonaWorkbench: ({ context, primary }: { context: React.ReactNode; primary: React.ReactNode }) => <>{context}{primary}</> }));
 vi.mock("@/components/shared/ShellIdentity", () => ({ ShellIdentity: ({ title }: { title: string }) => <h1>{title}</h1> }));
 vi.mock("@/components/shared/Panel", () => ({ Panel: ({ title, children }: { title: string; children: React.ReactNode }) => <section aria-label={title}>{children}</section> }));
@@ -48,9 +55,20 @@ afterEach(() => {
   mocks.getResearchStatus.mockReset();
   mocks.resumeResearch.mockReset();
   mocks.patchContext.mockReset().mockResolvedValue(undefined);
+  window.history.replaceState({}, "", "/research");
 });
 
 describe("Deep Research recovery boundaries", () => {
+  it("makes live configuration the primary path and reference research secondary when no model is configured", async () => {
+    mocks.getSettings.mockResolvedValue({ llm_configured: false });
+    render(<ResearchPage />);
+
+    expect(await screen.findByRole("link", { name: "Configure live research" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open reference example" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Run example research" })).toBeNull();
+    expect(screen.getByText("No live research model is configured.")).toBeTruthy();
+  });
+
   it("blocks unknown provenance and retries configuration explicitly", async () => {
     // research-07 research-12: an unknown live/demo configuration fails closed
     // with a visible, retryable error rather than starting an ambiguously labelled run.
@@ -58,7 +76,8 @@ describe("Deep Research recovery boundaries", () => {
     render(<ResearchPage />);
 
     expect((await screen.findByRole("alert")).textContent).toContain("Research configuration unavailable");
-    expect(screen.getAllByRole("button", { name: "Research configuration unavailable" })[1].getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("link", { name: "Configure live research" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Run deep research" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Retry configuration" }));
 
     await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" }).length).toBeGreaterThan(0));

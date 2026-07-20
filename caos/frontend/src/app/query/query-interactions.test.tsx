@@ -118,12 +118,12 @@ describe("Query investigation edge interactions", () => {
 
     act(() => window.dispatchEvent(new CustomEvent("caos:query-focus", { detail: { text: "show connected contagion" } })));
     expect((input as HTMLTextAreaElement).value).toBe("show connected contagion");
-    expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Map relationships" }).getAttribute("aria-pressed")).toBe("true");
 
-    fireEvent.click(screen.getByRole("button", { name: "metric" }));
+    fireEvent.click(screen.getByRole("button", { name: "Compare metrics" }));
     expect(screen.getByRole("button", { name: "Use suggested lane" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Use suggested lane" }));
-    expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Map relationships" }).getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
     fireEvent.keyDown(input, { key: "Enter", metaKey: true });
@@ -140,7 +140,7 @@ describe("Query investigation edge interactions", () => {
     render(<QueryPage />);
     const starter = await screen.findByRole("button", { name: "Show evidence linking refinancing risk to sector posture." });
     fireEvent.click(starter);
-    expect(screen.getByRole("button", { name: "grounded" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Research with citations" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Run Query" }));
     expect(await screen.findByText("No sentence-level citations attached · keep in draft")).toBeTruthy();
   });
@@ -289,7 +289,7 @@ describe("Query investigation edge interactions", () => {
     const first = render(<QueryPage />);
     await submit("failed question");
     expect(await screen.findByText("The selected lane is incomplete.")).toBeTruthy();
-    expect(screen.getByText("Available alternatives · metric · graph")).toBeTruthy();
+    expect(screen.getByText("Available alternatives · Compare metrics · Map relationships")).toBeTruthy();
     first.unmount();
 
     render(<QueryPage />);
@@ -305,7 +305,7 @@ describe("Query investigation edge interactions", () => {
     fireEvent.change(screen.getByLabelText("Capability"), { target: { value: "ownership-network" } });
     fireEvent.click(await screen.findByRole("button", { name: "Saved graph question" }));
     expect((screen.getByLabelText("Query coverage") as HTMLTextAreaElement).value).toBe("Saved graph question");
-    expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Map relationships" }).getAttribute("aria-pressed")).toBe("true");
     expect(window.location.search).toContain("run=saved-run");
   });
 

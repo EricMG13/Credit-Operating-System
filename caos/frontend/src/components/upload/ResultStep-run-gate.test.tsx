@@ -46,27 +46,27 @@ function renderWith(runOutcome: RunQueueOutcome | null) {
 describe("ResultStep · run-creation double-fire guard", () => {
   it("hides the manual RUN button once the automatic queue attempt succeeded (queued)", () => {
     renderWith({ state: "queued", runId: "abc12345" });
-    expect(screen.queryByRole("button", { name: /START FULL CP-X RUN/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /START FULL ANALYSIS RUN/i })).toBeNull();
     expect(screen.getByText(/run queued/i)).toBeTruthy();
   });
 
   it("hides the manual RUN button while the automatic attempt is queuing", () => {
     renderWith({ state: "queuing" });
-    expect(screen.queryByRole("button", { name: /START FULL CP-X RUN/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /START FULL ANALYSIS RUN/i })).toBeNull();
   });
 
   it("hides the manual RUN button when a run is already active (409 dedup)", () => {
     renderWith({ state: "active" });
-    expect(screen.queryByRole("button", { name: /START FULL CP-X RUN/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /START FULL ANALYSIS RUN/i })).toBeNull();
   });
 
   it("shows the manual RUN button as a retry when the automatic attempt failed", () => {
     renderWith({ state: "failed", message: "network error" });
-    expect(screen.getByRole("button", { name: /START FULL CP-X RUN/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /START FULL ANALYSIS RUN/i })).toBeTruthy();
   });
 
   it("shows the manual RUN button when no automatic attempt happened at all", () => {
     renderWith(null);
-    expect(screen.getByRole("button", { name: /START FULL CP-X RUN/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /START FULL ANALYSIS RUN/i })).toBeTruthy();
   });
 });

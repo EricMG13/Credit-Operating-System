@@ -59,6 +59,7 @@ def test_notification_feed_is_owned_cursor_based_and_seen_is_idempotent():
             assert first.status_code == 200, first.text
             body = first.json()
             assert [row["subject_id"] for row in body["items"]] == [own_run_id]
+            assert body["items"][0]["action_label"] == "Open dependency map"
             cursor = body["next_cursor"]
             assert cursor
 
@@ -86,3 +87,27 @@ def test_notification_feed_is_owned_cursor_based_and_seen_is_idempotent():
             assert tampered.status_code == 400
         finally:
             app.dependency_overrides.pop(get_identity, None)
+
+
+def test_legacy_notification_without_action_label_remains_response_compatible():
+    from datetime import datetime, timezone
+
+    from database import NotificationEvent
+    from routes.notifications import _notification_out
+
+    legacy = NotificationEvent(
+        id="legacy-notification",
+        analyst_id="legacy-owner",
+        kind="legacy_event",
+        subject_kind="run",
+        subject_id="legacy-run",
+        issuer_id=None,
+        title="Historical notification",
+        body=None,
+        href="/issuers",
+        idempotency_key="legacy:notification",
+        seen_at=None,
+        created_at=datetime.now(timezone.utc),
+    )
+
+    assert _notification_out(legacy).action_label is None

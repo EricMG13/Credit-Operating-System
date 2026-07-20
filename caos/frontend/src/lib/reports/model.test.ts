@@ -28,6 +28,14 @@ describe("buildModel — seeded baseline", () => {
     expect(m.cols.l1.netlev!).toBeCloseTo(5.68, 1);
     expect(m.provenance.seededLtmNetlev).toBeCloseTo(m.cols.l1.netlev!, 5);
   });
+
+  it("degrades leverage and coverage when adjusted EBITDA is non-positive", () => {
+    const m = buildModel(1, { "f22:adj": -100 });
+    expect(m.cols.f22.srsec).toBeNull();
+    expect(m.cols.f22.totlev).toBeNull();
+    expect(m.cols.f22.netlev).toBeNull();
+    expect(m.cols.f22.intcov).toBeNull();
+  });
 });
 
 describe("buildModel — forecast assumptions", () => {
@@ -40,6 +48,23 @@ describe("buildModel — forecast assumptions", () => {
       expect(b.cols[k].netlev!).toBeCloseTo(a.cols[k].netlev!, 9);
       expect(b.cols[k].fcf).toBeCloseTo(a.cols[k].fcf, 9);
     }
+  });
+
+  it("uses the seeded annual SOFR and cash-interest curves as the no-op baseline", () => {
+    const m = buildModel();
+    expect([m.cols.b0.sofr, m.cols.b1.sofr, m.cols.b2.sofr]).toEqual([3.8, 3.5, 3.3]);
+    expect([m.cols.b0.int, m.cols.b1.int, m.cols.b2.int]).toEqual([196, 188, 180]);
+    expect([m.cols.d0.sofr, m.cols.d1.sofr, m.cols.d2.sofr]).toEqual([3.3, 3, 3]);
+    expect([m.cols.d0.int, m.cols.d1.int, m.cols.d2.int]).toEqual([200, 196, 190]);
+  });
+
+  it("applies a SOFR delta to the floating debt base and preserves the seeded baseline", () => {
+    const base = buildModel();
+    const up = buildModel(1, {}, undefined, withBase({ sofrDelta: 0.01 }));
+    const floatingDebt = 55 + 1406 + 900;
+    expect(up.cols.b0.sofr).toBeCloseTo(base.cols.b0.sofr + 1, 9);
+    expect(up.cols.b0.int).toBeCloseTo(base.cols.b0.int + floatingDebt * 0.01, 9);
+    expect(up.cols.d0.int).toBe(base.cols.d0.int);
   });
 
   it("a positive growth delta lifts base revenue; only the base case moves", () => {

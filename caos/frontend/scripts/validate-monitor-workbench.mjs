@@ -14,12 +14,12 @@ const page = await context.newPage();
 const results = [];
 
 for (const viewport of WORKBENCH_VIEWPORTS) {
-  await prepareWorkbenchViewport(page, { viewport, url: `${BASE}/monitor?dataset=alerts`, tabName: "Alerts", settleMs: 250 });
+  await prepareWorkbenchViewport(page, { viewport, url: `${BASE}/monitor?mode=reference&dataset=alerts`, tabName: "Replay", settleMs: 250 });
 
   const emailTab = page.getByRole("tab", { name: "Email intake" });
   await emailTab.click();
   await page.waitForURL(/dataset=email/);
-  await page.getByRole("tab", { name: "Alerts" }).click();
+  await page.getByRole("tab", { name: "Replay" }).click();
   await page.waitForURL(/dataset=alerts/);
 
   const drawerFocusRestored = await verifyDrawerFocus(page, viewport.width, ["Open context drawer", "Open evidence inspector drawer"]);

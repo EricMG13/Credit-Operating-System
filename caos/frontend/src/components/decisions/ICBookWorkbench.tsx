@@ -627,10 +627,9 @@ type RegisterSelectionProps = {
   onClear: () => void;
 };
 
-function AgendaRegisterContent({ rows, selected, sort, direction, filtered, issuerLabel, ownerLabel, onSort, onSelect, onClear, onAdd }: RegisterSelectionProps & {
+function AgendaRegisterContent({ rows, selected, sort, direction, filtered, issuerLabel, ownerLabel, onSort, onSelect, onClear }: RegisterSelectionProps & {
   rows: CommitteeAgendaItem[];
   ownerLabel: (id: string | null) => string;
-  onAdd: () => void;
 }) {
   if (rows.length) {
     return <AgendaTable rows={rows} selected={selected} sort={{ key: sort === "updated_at" ? "updated_at" : "scheduled_for", direction: direction === "desc" ? "desc" : "asc" }} onSort={(key) => onSort(key, "scheduled_for")} onSelect={onSelect} issuerLabel={issuerLabel} ownerLabel={ownerLabel} />;
@@ -638,7 +637,7 @@ function AgendaRegisterContent({ rows, selected, sort, direction, filtered, issu
   if (filtered) {
     return <SurfaceState kind="empty" headingLevel={2} title="No items match the current filters" detail="Clear the filters to see every agenda item." primaryAction={<ClearRegisterFilters onClear={onClear} />} />;
   }
-  return <SurfaceState kind="empty" headingLevel={2} title="No agenda items yet" detail="Add the first committee agenda item to begin the book." primaryAction={<button type="button" className="caos-action-primary focus-ring" onClick={onAdd}>Add agenda item</button>} />;
+  return <SurfaceState kind="empty" headingLevel={2} title="No agenda items yet" detail="Use Add agenda item in the page header to begin the book." />;
 }
 
 function HistoryRegisterContent({ rows, selected, sort, direction, filtered, issuerLabel, onSort, onSelect, onClear }: RegisterSelectionProps & {
@@ -658,14 +657,13 @@ type ICBookRegisterProps = RegisterSelectionProps & {
   decisions: DecisionBookItem[];
   nextCursor: string | null;
   ownerLabel: (id: string | null) => string;
-  onAdd: () => void;
   onNext: (cursor: string) => void;
 };
 
 function ICBookRegisterContent(props: Omit<ICBookRegisterProps, "nextCursor" | "onNext">) {
   if (props.loading) return <SurfaceState kind="loading" headingLevel={2} title="Loading IC Book" compact />;
   if (props.error && !props.agenda.length && !props.decisions.length) return <SurfaceState kind="error" headingLevel={2} title="IC Book unavailable" detail={props.error} compact />;
-  if (props.dataset === "agenda") return <AgendaRegisterContent rows={props.agenda} selected={props.selected} sort={props.sort} direction={props.direction} filtered={props.filtered} issuerLabel={props.issuerLabel} ownerLabel={props.ownerLabel} onSort={props.onSort} onSelect={props.onSelect} onClear={props.onClear} onAdd={props.onAdd} />;
+  if (props.dataset === "agenda") return <AgendaRegisterContent rows={props.agenda} selected={props.selected} sort={props.sort} direction={props.direction} filtered={props.filtered} issuerLabel={props.issuerLabel} ownerLabel={props.ownerLabel} onSort={props.onSort} onSelect={props.onSelect} onClear={props.onClear} />;
   return <HistoryRegisterContent rows={props.decisions} selected={props.selected} sort={props.sort} direction={props.direction} filtered={props.filtered} issuerLabel={props.issuerLabel} onSort={props.onSort} onSelect={props.onSelect} onClear={props.onClear} />;
 }
 
@@ -760,17 +758,64 @@ function AgendaCreateForm({ form, setForm, issuers, portfolios, runs, opinions, 
   busy: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<0 | 1 | 2>(0);
+  const [stepError, setStepError] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const steps = ["References", "Decision", "Thesis & review"] as const;
+  useEffect(() => {
+    if (!open) return;
+    const selector = step === 0 ? '[name="issuer"]' : step === 1 ? '[name="scheduled"]' : '[name="thesis"]';
+    formRef.current?.querySelector<HTMLElement>(selector)?.focus();
+  }, [open, step]);
+  const moveTo = (next: 0 | 1 | 2) => {
+    setStepError(null);
+    setStep(next);
+  };
+  const continueFromReferences = () => {
+    if (!form.issuer) {
+      setStepError("Issuer is required before continuing.");
+      formRef.current?.querySelector<HTMLElement>('[name="issuer"]')?.focus();
+      return;
+    }
+    moveTo(1);
+  };
+  const continueFromDecision = () => {
+    if (!form.scheduled) {
+      setStepError("Meeting time is required before continuing.");
+      formRef.current?.querySelector<HTMLElement>('[name="scheduled"]')?.focus();
+      return;
+    }
+    moveTo(2);
+  };
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    if (!form.thesis.trim()) {
+      event.preventDefault();
+      setStepError("Thesis is required before saving.");
+      formRef.current?.querySelector<HTMLElement>('[name="thesis"]')?.focus();
+      return;
+    }
+    onSubmit(event);
+  };
   return (
-    <details className="ic-book__create" id="ic-book-create">
+    <details className="ic-book__create" id="ic-book-create" onToggle={(event) => { setOpen(event.currentTarget.open); if (!event.currentTarget.open) moveTo(0); }}>
       <summary className="ic-book__create-summary">Agenda item form</summary>
-      <form className="ic-book__form" aria-label="Add agenda item" onSubmit={onSubmit}>
+      {open ? <form ref={formRef} className="ic-book__form" aria-label="Add agenda item" onSubmit={submit}>
+        <ol aria-label="Agenda item steps" className="flex flex-wrap gap-2">
+          {steps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} className="tabular text-caos-xs">{index + 1}. {label}</li>)}
+        </ol>
         {errors.filter((message): message is string => Boolean(message)).map((message) => <p key={message} role="alert">{message}</p>)}
-        <AgendaContextSummary form={form} issuers={issuers} />
-        <AgendaReferenceFields form={form} setForm={setForm} issuers={issuers} portfolios={portfolios} runs={runs} opinions={opinions} />
-        <AgendaDecisionFields form={form} setForm={setForm} />
-        <AgendaThesisFields form={form} setForm={setForm} />
-        <ActionReason type="submit" reason={busy ? "Saving…" : null}>{busy ? "Saving…" : "Add agenda item"}</ActionReason>
-      </form>
+        {stepError ? <p role="alert">{stepError}</p> : null}
+        {step === 0 ? <section aria-label="References"><AgendaContextSummary form={form} issuers={issuers} /><AgendaReferenceFields form={form} setForm={setForm} issuers={issuers} portfolios={portfolios} runs={runs} opinions={opinions} /></section> : null}
+        {step === 1 ? <section aria-label="Decision"><AgendaDecisionFields form={form} setForm={setForm} /></section> : null}
+        {step === 2 ? <section aria-label="Thesis and review"><AgendaContextSummary form={form} issuers={issuers} /><AgendaThesisFields form={form} setForm={setForm} /></section> : null}
+        <div className="flex items-center gap-2">
+          {step > 0 ? <button type="button" className="caos-action-secondary focus-ring" onClick={() => moveTo(step === 2 ? 1 : 0)}>Back</button> : null}
+          {step === 0 ? <button type="button" className="caos-action-primary focus-ring" onClick={continueFromReferences}>Continue to Decision</button> : null}
+          {step === 1 ? <button type="button" className="caos-action-primary focus-ring" onClick={continueFromDecision}>Continue to Thesis &amp; review</button> : null}
+          {step === 2 ? <ActionReason type="submit" reason={busy ? "Saving…" : null}>{busy ? "Saving…" : "Save agenda item"}</ActionReason> : null}
+        </div>
+      </form> : null}
     </details>
   );
 }
@@ -1095,7 +1140,7 @@ function ICBookPage(props: ICBookPageProps) {
       kind="worklist"
       identity={<ShellIdentity tag="IC" title="IC Book" />}
       status={<span className="tabular text-caos-2xs text-caos-muted">{props.total} {registerLabel}</span>}
-      primaryAction={<button type="button" className="caos-primary-action focus-ring" onClick={props.onAdd}>Add agenda item</button>}
+      primaryAction={{ label: "Add agenda item", onAction: props.onAdd }}
       narrowContract={{ essentialControls: <span className="tabular text-caos-2xs text-caos-muted">{props.total} records</span> }}
     >
       <div className="ic-book">
@@ -1180,7 +1225,6 @@ function buildRegisterPanel({ dataset, register, error, filters, selectedId, fil
     onSort: sortRegister,
     onSelect: select,
     onClear: clearFilters,
-    onAdd: openAgendaCreateForm,
     onNext: next,
   };
   return <ICBookRegister {...registerProps} />;

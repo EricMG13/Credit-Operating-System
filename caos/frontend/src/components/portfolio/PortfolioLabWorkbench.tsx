@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import { SemanticVisualization, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
+import type { VisualizationSpec } from "@/components/charts/SemanticVisualization";
+import { PortfolioVisualization } from "@/components/portfolio/PortfolioVisualization";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
@@ -170,7 +171,7 @@ export function PortfolioInsightCard({ insight, onRatify }: { insight: InsightAr
   return (
     <article className="portfolio-lab__insight" aria-label="Portfolio advisory insight">
       <header>
-        <span className="portfolio-lab__eyebrow">Advisory synthesis</span>
+        <span className="caos-panel-title text-caos-muted">Advisory synthesis</span>
         <span className="portfolio-lab__status" data-status={insight.status}>
           <span aria-hidden="true">●</span> <span>{insight.status}</span>
         </span>
@@ -531,7 +532,7 @@ function PortfolioDecision({ view }: { view: PortfolioLabViewModel }) {
   const authority = !view.selection.id ? "No portfolio" : view.support.analytics?.authority.approval_state ?? (view.support.analyticsError ? "Unavailable" : "Loading");
   return (
     <header className="portfolio-lab__decision-header">
-      <div><span className="portfolio-lab__eyebrow">{label}</span><h1>{view.portfolio?.name ?? "Portfolio Lab"}</h1></div>
+      <div><p className="caos-panel-title text-caos-muted">{label}</p><h2>{view.portfolio?.name ?? "Portfolio Lab"}</h2></div>
       <dl><div><dt>As of</dt><dd>{view.support.analytics?.as_of ?? view.portfolio?.as_of_date ?? "Unavailable"}</dd></div><div><dt>Positions</dt><dd>{view.positions.loading ? "—" : view.positions.positions?.total ?? view.portfolio?.n_positions ?? "—"}</dd></div><div><dt>Authority</dt><dd>{authority}</dd></div></dl>
     </header>
   );
@@ -562,7 +563,7 @@ function PortfolioFilters({ view }: { view: PortfolioLabViewModel }) {
   };
   const descending = view.values.direction === "desc";
   return (
-    <form className="portfolio-lab__filters" onSubmit={submit}>
+    <form aria-label="Portfolio position filters" className="portfolio-lab__filters" onSubmit={submit}>
       <label>Search<input name="portfolio-search" autoComplete="off" value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} /></label>
       <label>Sector<input name="portfolio-sector" autoComplete="off" value={draft.sector} onChange={(event) => setDraft((current) => ({ ...current, sector: event.target.value }))} /></label>
       <label>Rating<input name="portfolio-rating" autoComplete="off" value={draft.rating} onChange={(event) => setDraft((current) => ({ ...current, rating: event.target.value }))} /></label>
@@ -629,7 +630,7 @@ function PortfolioPrimary({ view }: { view: PortfolioLabViewModel }) {
 function PortfolioContextPane({ view }: { view: PortfolioLabViewModel }) {
   let content = <p role="status">Loading portfolio analytics…</p>;
   if (!view.selection.id) content = <p role="status">No portfolio selected — analytics unavailable.</p>;
-  else if (view.support.chartSpec) content = <SemanticVisualization spec={view.support.chartSpec} headingLevel={2} />;
+  else if (view.support.chartSpec) content = <PortfolioVisualization spec={view.support.chartSpec} headingLevel={2} />;
   else if (view.support.analyticsError) content = <p role="status">{view.support.analyticsError} The positions workflow remains live.</p>;
   return (
     <section className="portfolio-lab__context" aria-label="Portfolio visualization">
@@ -702,12 +703,24 @@ function StressResult({ run }: { run: StressRun | null }) {
 function PortfolioStressPane({ view }: { view: PortfolioLabViewModel }) {
   return (
     <section className="portfolio-lab__stress" aria-label="Deterministic stress controls">
-      <header><div><span className="portfolio-lab__eyebrow">Deterministic scenario</span><h2>Base downside</h2></div><ActionReason reason={view.selection.id ? null : "Create or open a portfolio first"} reasonDisplay="hidden" onClick={() => view.stress.setPreview(true)}>Preview stress</ActionReason></header>
+      <header><div><p className="caos-panel-title text-caos-muted">Deterministic scenario</p><h2>Base downside</h2></div><ActionReason reason={view.selection.id ? null : "Create or open a portfolio first"} reasonDisplay="hidden" onClick={() => view.stress.setPreview(true)}>Preview stress</ActionReason></header>
       <StressPreview view={view} />
       <StressTimeline view={view} />
       <StressResult run={view.support.selectedStress} />
     </section>
   );
+}
+
+function PortfolioSetupState({ view }: { view: PortfolioLabViewModel }) {
+  let state = <SurfaceState kind="loading" headingLevel={2} title="Loading portfolio register" compact />;
+  if (view.selection.requestedIsMissing) {
+    state = <SurfaceState kind="unavailable" headingLevel={2} title="Portfolio not found" detail={`The requested portfolio (${view.selection.requestedId}) is not available. Choose a portfolio from Settings.`} primaryAction={<Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Open Settings</Link>} compact />;
+  } else if (view.directory.error) {
+    state = <SurfaceState kind="offline" headingLevel={2} title="Portfolio register unavailable" detail={view.directory.error} compact />;
+  } else if (view.directory.loaded) {
+    state = <SurfaceState kind="empty" headingLevel={2} title="No portfolios are configured" detail="Create or import a portfolio in Settings before opening the lab." primaryAction={<Link href="/settings?tab=portfolios" className="text-caos-accent underline focus-ring">Open Settings</Link>} compact />;
+  }
+  return <section className="portfolio-lab__setup" aria-label="Portfolio setup">{state}</section>;
 }
 
 function PortfolioLabView({ view }: { view: PortfolioLabViewModel }) {
@@ -719,10 +732,15 @@ function PortfolioLabView({ view }: { view: PortfolioLabViewModel }) {
       kind="analytical"
       identity={<ShellIdentity tag="CP-PORT" title="Portfolio Lab" />}
       status={status}
-      primaryAction={<ActionReason className="caos-action-primary focus-ring" reason={view.selection.id ? null : "Create or open a portfolio first"} reasonDisplay="hidden" onClick={() => view.stress.setPreview(true)}>Run portfolio stress</ActionReason>}
+      primaryAction={view.selection.id ? {
+        label: "Preview portfolio stress",
+        onAction: () => view.stress.setPreview(true),
+      } : undefined}
       narrowContract={{ essentialControls: <span>{view.positions.loading ? "—" : view.positions.positions?.total ?? 0} positions</span> }}
     >
-      <PersonaWorkbench surface="portfolio-lab" decision={<PortfolioDecision view={view} />} primary={<PortfolioPrimary view={view} />} context={<PortfolioContextPane view={view} />} inspector={<PortfolioInspectorPane view={view} />} utility={<PortfolioStressPane view={view} />} />
+      {view.selection.id
+        ? <PersonaWorkbench surface="portfolio-lab" decision={<PortfolioDecision view={view} />} primary={<PortfolioPrimary view={view} />} context={<PortfolioContextPane view={view} />} inspector={<PortfolioInspectorPane view={view} />} utility={<PortfolioStressPane view={view} />} />
+        : <PersonaWorkbench surface="portfolio-lab" primary={<PortfolioSetupState view={view} />} />}
     </EnterprisePage>
   );
 }

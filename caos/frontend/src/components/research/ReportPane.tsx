@@ -35,15 +35,6 @@ const RESEARCH_PHASES = [
 const RESEARCH_PHASE_SECS = 25;
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-// The four deliverable sections, mirrored in the empty-state manifest so the
-// page previews its own output (the report's actual H2s).
-const DELIVERABLE: [string, string][] = [
-  ["Executive summary", "bottom-line credit conclusion"],
-  ["Detailed findings", "by investigation criterion"],
-  ["Summary tables", "leverage, ratings, valuation"],
-  ["Recommendations", "strategic actions · cited sources"],
-];
-
 // Filing date for the tear-sheet masthead — client-only (report renders post-run),
 // so no static-export hydration mismatch. Deliberately NOT lib/format-date: the
 // paper register uses its own print format ("15 JUL 2026"), distinct from the
@@ -124,7 +115,7 @@ function RunningView({
         <div className="tabular text-caos-xl text-caos-text mb-1 truncate" title={subj || undefined}>
           {subj ? `“${subj}”` : "Reattached run"}
         </div>
-        <p className="text-caos-2xs text-caos-muted leading-snug mb-5">{phase} · {executionMode === "live" ? "live web research" : "example research — demo mode"}</p>
+        <p className="text-caos-2xs text-caos-muted leading-snug mb-5">{phase} · {executionMode === "live" ? "live web research" : "reference example — seeded, not issuer research"}</p>
 
         {/* Real running counts — the server's actual web-search progress, eased up
             so it reads as accumulating. Never a fabricated number. */}
@@ -280,7 +271,7 @@ function ResearchDoc({ result, mode }: { result: ResearchResult; mode: "sector" 
         {/* Demo reports carry no structured citations; say "illustrative"
             rather than the misleading "0 sources". Live narrative is LLM-
             synthesized — say so, and tell the reader to verify. */}
-        <span>{result.demo ? "Illustrative · demo" : `AI-synthesized · ${result.sources.length} ${result.sources.length === 1 ? "source" : "sources"} — verify against cited sources`}{result.truncated ? " · TRUNCATED" : ""}</span>
+        <span>{result.demo ? "REFERENCE · seeded example · no live sources" : `AI-synthesized · ${result.sources.length} ${result.sources.length === 1 ? "source" : "sources"} — verify against cited sources`}{result.truncated ? " · TRUNCATED" : ""}</span>
       </footer>
     </article>
   );
@@ -308,26 +299,13 @@ function ResearchPrintPortal({ result, mode }: { result: ResearchResult; mode: "
 
 function EmptyView() {
   return (
-    <div className="h-full overflow-auto px-6 py-8">
-      <div className="w-full max-w-sm mx-auto">
+    <div className="px-3 py-3">
+      <div className="w-full max-w-md">
         <SurfaceState
           kind="not-run"
           title="Research not run"
           detail="Complete the brief and run research. The finished deliverable files here as a paper tear-sheet."
-          supporting={
-            <div>
-              <div className={labelCls + " mb-1"}>Expected deliverable</div>
-              <ol className="flex flex-col">
-                {DELIVERABLE.map(([h, d], i) => (
-                  <li key={h} className="list-none flex items-baseline gap-3 py-2 border-b border-caos-border/50 last:border-0">
-                    <span className="tabular text-caos-2xs text-caos-muted w-5 shrink-0">{String(i + 1).padStart(2, "0")}</span>
-                    <span className="tabular text-caos-sm text-caos-text shrink-0">{h}</span>
-                    <span className="text-caos-2xs text-caos-muted flex-1 min-w-0 text-right truncate">{d}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          }
+          compact
         />
       </div>
     </div>
@@ -394,7 +372,7 @@ export function ReportPane({
   );
 
   return (
-    <Panel title="Report" right={badge}>
+    <Panel title="Report" right={badge} className={!running && !error && !result ? "research-report--cold" : undefined}>
       <div className="h-full overflow-auto">
         {running ? (
           <RunningView elapsed={elapsed} subj={subj} progress={progress} criteria={criteria} executionMode={executionMode} onDetach={onDetach} />

@@ -13,7 +13,7 @@ import { useModalA11y } from "@/lib/use-modal-a11y";
 import { staticRows, type PaletteRow, type IssuerRow } from "@/lib/palette";
 import { getIssuers } from "@/lib/api";
 import { useIssuerProfileOverlay } from "./IssuerProfileOverlay";
-import { useAsk } from "./Ask";
+import { useAsk } from "./AskContext";
 import { useRoleView } from "./RoleViewProvider";
 import type { RoleView } from "@/lib/api";
 import { ModalBackdrop } from "./ModalBackdrop";

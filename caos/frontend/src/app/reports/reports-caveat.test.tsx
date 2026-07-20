@@ -12,7 +12,7 @@ let mockRunId: string | null = null;
 let mockLive: boolean | null = null;
 let mockPhase: string | null = null; // overrides the derived phase when set
 let mockLoading = false;
-let mockIssuer: string | null = null; // ?issuer= param; null -> ATLF reference page
+let mockIssuer: string | null = null; // ?issuer= param; null -> explicit ATLF Reference mode
 // Module-level, not inline in the mock factory: the real hook's anchor is
 // reference-stable across renders, and page.tsx's useMemo (line 98) depends on
 // that — an inline literal here recreates on every render and infinite-loops it.
@@ -23,7 +23,11 @@ const EMPTY_LIVE_STATUS = {};
 vi.mock("next/navigation", () => ({
   usePathname: () => "/reports",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(mockIssuer ? { issuer: mockIssuer } : undefined),
+  useSearchParams: () => new URLSearchParams(mockIssuer ? { issuer: mockIssuer } : { mode: "reference" }),
+}));
+vi.mock("@/lib/data-mode", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/data-mode")>()),
+  useDataMode: () => mockIssuer ? "live" : "reference",
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,

@@ -90,7 +90,19 @@ function HeaderDrawer({
 }
 
 function PrimaryAction({ children }: { children?: React.ReactNode }) {
-  return children ? <div className="shrink-0" data-page-primary-action>{children}</div> : null;
+  return (
+    <div
+      id="page-actions"
+      tabIndex={-1}
+      aria-label="Page actions"
+      className={children
+        ? "shrink-0"
+        : "sr-only focus:not-sr-only focus:relative focus:z-raised focus:rounded focus:border focus:border-caos-accent focus:bg-caos-elevated focus:px-2 focus:py-1 focus:text-caos-text focus-ring"}
+      data-page-primary-action={children ? true : undefined}
+    >
+      {children ?? "No page actions available"}
+    </div>
+  );
 }
 
 /**
@@ -159,14 +171,14 @@ export function SubHeader({
     <header
       ref={headerRef}
       aria-label={ariaLabel}
-      className={`h-11 shrink-0 border-b border-caos-border bg-caos-panel/75 flex items-center gap-3 px-3 md:px-4 ${className}`}
+      className={`caos-subheader h-11 shrink-0 border-b border-caos-border bg-caos-panel/75 flex items-center gap-3 px-3 md:px-4 ${className}`}
     >
       {/* Identity — always visible, truncates under squeeze. min-w-28 floors it
           so overflow is detectable (a 0-width identity would let the primary
           action be pushed off-screen instead of triggering collapse). */}
-      <div className="flex items-center gap-3 min-w-28 overflow-hidden">{identity}</div>
+      <div className="caos-subheader-identity flex items-center gap-3 min-w-28 overflow-hidden">{identity}</div>
 
-      <div className="flex-1 min-w-0" />
+      <div className="caos-subheader-spacer flex-1 min-w-0" />
 
       <SubHeaderStatus status={status} />
 

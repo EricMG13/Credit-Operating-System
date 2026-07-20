@@ -34,8 +34,9 @@ import {
   saveModel as saveIssuerModel,
   type ModelCheckpointDTO,
 } from "@/lib/api";
-import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
+import { EnterprisePage, type NarrowContract, type PageAction } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { CompletionStateSummary } from "@/components/shared/CompletionStateSummary";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { fromModelEngine } from "@/lib/provenance";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
@@ -49,8 +50,20 @@ import type { FreshnessEvaluation } from "@/lib/api";
 import type { LegacyModelRuntime } from "./LegacyCalculatorBridge";
 import { ModelAuthorityRoute } from "./ModelAuthorityRoute";
 import { fmtLocalDateTime, fmtUtcDateTime } from "@/lib/format-date";
+import { useDataMode, type DataMode } from "@/lib/data-mode";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 
 type SavedModel = Awaited<ReturnType<typeof getSavedModel>>;
+
+// A first-open worksheet shows the committee-relevant totals while keeping
+// segment, add-back, and instrument detail one row disclosure away. Persisted
+// analyst choices replace this default during hydration, including an explicit
+// empty set for a fully expanded workbook.
+const DEFAULT_COLLAPSED_MODEL_ROWS = ["rev", "adj", "tdebt"] as const;
+
+function defaultCollapsedModelRows() {
+  return new Set<string>(DEFAULT_COLLAPSED_MODEL_ROWS);
+}
 
 // Pull the typed, guarded pieces out of a saved-model payload (shared by the
 // hydrate effect and the retry handler). Returns null when there's no payload.
@@ -106,6 +119,7 @@ const DRIVER_ROWS: Record<string, string[]> = {
   mAcq: ["acq", "netlev", "srsec"],
   mDiss: ["diss", "netlev", "srsec"],
   divDelta: ["div", "netlev", "srsec"],
+  sofrDelta: ["sofr", "int", "intcov", "fcfd", "netlev", "srsec", "taxr"],
   // each add-back account moves Adj. EBITDA → leverage & coverage KPIs
   ...Object.fromEntries(ADDBACKS.map((a) => [a.key,
     [a.key, "abunreal", "ab", "adj", "adj2", "adjm", "srsec", "totlev", "netlev", "intcov", "fcfd"]])),
@@ -192,7 +206,7 @@ type ModelGridUi = ReturnType<typeof useModelGridUi>;
 
 function useModelDraftState() {
   const [assumptions, setAssumptions] = useState<Assumptions>(DEFAULT_ASSUMPTIONS);
-  const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
+  const [collapsedRows, setCollapsedRows] = useState<Set<string>>(defaultCollapsedModelRows);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState(false);
   const [restoreNonce, setRestoreNonce] = useState(0);
@@ -226,7 +240,7 @@ function resetDraftForHydration(draft: ModelDraftState, replaceOverrides: (overr
   draft.setHydratedIssuerId(null);
   replaceOverrides({});
   draft.setAssumptions({ base: { ...DEFAULT_CASE }, down: { ...DEFAULT_CASE }, baseYears: {}, downYears: {} });
-  draft.setCollapsedRows(new Set());
+  draft.setCollapsedRows(defaultCollapsedModelRows());
   draft.setSavedAt(null);
   draft.setRestoreError(false);
   draft.setSaveError(false);
@@ -240,7 +254,7 @@ function resetDraftForHydration(draft: ModelDraftState, replaceOverrides: (overr
 function loadLocalModelDraft(issuerId: string, storageKey: string, isReference: boolean) {
   let overrides: Overrides = {};
   let assumptions = DEFAULT_ASSUMPTIONS;
-  const collapsedRows = new Set<string>();
+  const collapsedRows = defaultCollapsedModelRows();
   try {
     let raw = sessionStorage.getItem(storageKey);
     if (raw == null && isReference) {
@@ -310,35 +324,29 @@ function useModelHydration(issuerId: string, isReference: boolean, grid: ModelGr
   return { hydrated, retryRestore };
 }
 
+type ModelSupportPanel = "assumptions" | "scenario" | "evidence" | "history" | null;
+
 function useModelPanels(hydrated: boolean) {
   const [showQuarters, setShowQuarters] = useState(true);
-  const [showScenarios, setShowScenarios] = useState(true);
-  const [showAssumptions, setShowAssumptions] = useState(true);
+  const [activeSupport, setActiveSupport] = useState<ModelSupportPanel>(null);
+  const showScenarios = activeSupport === "scenario";
+  const showAssumptions = activeSupport === "assumptions";
+  const setShowScenarios = (show: boolean) => setActiveSupport((current) => show ? "scenario" : current === "scenario" ? null : current);
+  const setShowAssumptions = (show: boolean) => setActiveSupport((current) => show ? "assumptions" : current === "assumptions" ? null : current);
   useEffect(() => {
-    const onCollapse = () => {
-      const next = !(showAssumptions || showScenarios);
-      setShowAssumptions(next);
-      setShowScenarios(next);
-    };
+    const onCollapse = () => setActiveSupport((current) => current ? null : "assumptions");
     window.addEventListener("caos:collapse-toggle", onCollapse);
     return () => window.removeEventListener("caos:collapse-toggle", onCollapse);
-  }, [showAssumptions, showScenarios]);
+  }, []);
   useEffect(() => {
     if (!hydrated || typeof window === "undefined") return;
-    const initialWidth = window.innerWidth;
-    if (initialWidth < 1280) setShowScenarios(false);
-    if (initialWidth < 1024) setShowAssumptions(false);
-    let previousWidth = initialWidth;
     const onResize = () => {
-      const width = window.innerWidth;
-      if (previousWidth >= 1280 && width < 1280) setShowScenarios(false);
-      if (previousWidth >= 1024 && width < 1024) setShowAssumptions(false);
-      previousWidth = width;
+      if (window.innerWidth < 1024) setActiveSupport(null);
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [hydrated]);
-  return { showQuarters, setShowQuarters, showScenarios, setShowScenarios, showAssumptions, setShowAssumptions };
+  return { showQuarters, setShowQuarters, activeSupport, setActiveSupport, showScenarios, setShowScenarios, showAssumptions, setShowAssumptions };
 }
 
 type ModelPanels = ReturnType<typeof useModelPanels>;
@@ -554,11 +562,7 @@ async function saveCurrentModel(params: {
   panels: ModelPanels;
   model: Model;
 }): Promise<SavedIssuerModel | null> {
-  const { issuerId, hydrated, draft, grid, panels, model } = params;
-  if (!hydrated) {
-    draft.setSaveError(true);
-    return null;
-  }
+  const { issuerId, draft, grid, panels, model } = params;
   const generation = draft.hydrateGeneration.current;
   draft.setSaving(true);
   draft.setSaveError(false);
@@ -712,16 +716,16 @@ function narrowModelContract(panels: ModelPanels): NarrowContract {
     essentialControls: (
       <>
         <ModelToggle label="QTRS" active={panels.showQuarters} onClick={() => panels.setShowQuarters(!panels.showQuarters)} />
-        <ModelToggle label="ASMP" active={panels.showAssumptions} title="Toggle the Assumptions panel" onClick={() => panels.setShowAssumptions(!panels.showAssumptions)} />
-        <ModelToggle label="SCEN" active={panels.showScenarios} title="Toggle the Scenario & Sensitivity panel" onClick={() => panels.setShowScenarios(!panels.showScenarios)} />
       </>
     ),
   };
 }
 
-function modelIssuerIdentity(searchParams: { get(name: string): string | null }) {
-  const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
-  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+function modelIssuerIdentity(searchParams: { get(name: string): string | null }, dataMode: DataMode) {
+  const requestedIssuerId = searchParams.get("issuer");
+  const isReference = dataMode === "reference";
+  const issuerId = isReference ? ATLF_REFERENCE_ISSUER_ID : requestedIssuerId;
+  if (!issuerId) throw new Error("Live Model Builder requires an explicit issuer");
   return {
     issuerId,
     isReference,
@@ -781,8 +785,8 @@ function useModelEngineState(
   };
 }
 
-function useModelBuilderController({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) {
-  const identity = modelIssuerIdentity(useSearchParams());
+function useModelBuilderController({ legacyRuntime, dataMode }: { legacyRuntime: LegacyModelRuntime; dataMode: DataMode }) {
+  const identity = modelIssuerIdentity(useSearchParams(), dataMode);
   const analysis = useAnalysisContext({ name: identity.issuerName + " model" });
   const grid = useModelGridUi(identity.issuerId);
   const draft = useModelDraftState();
@@ -867,27 +871,51 @@ function checkpointActionTitle(state: ModelBuilderController) {
   return "Save the working model, then create an immutable checkpoint for downstream reporting";
 }
 
-function ModelPrimaryActions({ state }: { state: ModelBuilderController }) {
+function ModelPrimaryActions({ state }: { state: ModelBuilderController }): PageAction {
   const checkpointDisabled = !state.hasIssuerModel || !state.hydrated || state.saving || state.checkpointing || state.analysis.loading;
-  const exportDisabled = !state.hasIssuerModel || state.exporting;
-  return (
-    <>
-      <button onClick={() => { if (!checkpointDisabled) state.saveCheckpoint(); }} aria-disabled={checkpointDisabled || undefined} aria-label="Save model checkpoint" title={checkpointActionTitle(state)} className="caos-action-primary focus-ring">
-        {state.saving || state.checkpointing ? "Saving…" : "Save checkpoint"}
-      </button>
-      <button onClick={() => { if (!exportDisabled) state.handleExport(); }} aria-disabled={exportDisabled || undefined} title={!state.hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : "Export the committee pack (.xlsx — model grid, scenarios, assumptions, headline facts, overrides)"} className="hidden md:inline-flex items-center gap-1.5 tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap focus-ring aria-disabled:opacity-40 aria-disabled:saturate-[0.35] aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent aria-disabled:hover:text-caos-accent">
-        {state.exporting ? "EXPORTING…" : "▦ EXPORT MODEL"}
-      </button>
-    </>
-  );
+  return {
+    label: "Save model checkpoint",
+    onAction: state.saveCheckpoint,
+    unavailableReason: checkpointDisabled
+      ? state.saving || state.checkpointing
+        ? "Model checkpoint save is in progress…"
+        : checkpointActionTitle(state)
+      : null,
+    title: checkpointActionTitle(state),
+  };
 }
 
 function ModelStatus({ state }: { state: ModelBuilderController }) {
+  const execution = state.saving || state.checkpointing || state.analysis.loading
+    ? "running"
+    : state.saveError || state.saveConflict
+      ? "failed"
+      : state.hasIssuerModel && state.hydrated
+        ? "complete"
+        : "not-started";
+  const persistence = state.dirty
+    ? "unsaved"
+    : state.savedAt || state.checkpointNotice
+      ? "saved"
+      : state.hasIssuerModel
+        ? "draft"
+        : "unsaved";
+  const compactStatus = execution === "running"
+    ? "Updating model"
+    : execution === "failed"
+      ? "Model action failed"
+      : persistence === "unsaved"
+        ? "Unsaved changes"
+        : persistence === "saved"
+          ? "Checkpoint saved"
+          : "Model draft";
   return (
-    <span className="flex items-center gap-2">
-      {state.modelAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Anchor {state.modelAsOf}</span> : null}
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <span className="2xl:hidden tabular text-caos-xs text-caos-muted">{compactStatus}</span>
+      <span className="hidden 2xl:inline"><CompletionStateSummary label="Model completion" execution={execution} persistence={persistence} approval="not-applicable" freshness="unknown" /></span>
+      {state.modelAsOf ? <span className="hidden 2xl:inline tabular text-caos-2xs text-caos-muted">Anchor {state.modelAsOf}</span> : null}
       {state.checkpointNotice ? <span role="status" className="tabular text-caos-2xs text-caos-muted">{state.checkpointNotice}</span> : null}
-    </span>
+    </div>
   );
 }
 
@@ -908,6 +936,32 @@ function ModelHistory({ state }: { state: ModelBuilderController }) {
         error={state.persistenceError}
       />
     </span>
+  );
+}
+
+const MODEL_SUPPORT_OPTIONS: readonly { id: Exclude<ModelSupportPanel, null>; label: string }[] = [
+  { id: "assumptions", label: "Assumptions" },
+  { id: "scenario", label: "Scenario" },
+  { id: "evidence", label: "Evidence" },
+  { id: "history", label: "History" },
+];
+
+function ModelSupportControls({ state }: { state: ModelBuilderController }) {
+  return (
+    <div role="group" aria-label="Model support" className="flex min-w-0 items-center gap-1">
+      {MODEL_SUPPORT_OPTIONS.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          aria-label={option.label}
+          aria-pressed={state.activeSupport === option.id}
+          onClick={() => state.setActiveSupport(state.activeSupport === option.id ? null : option.id)}
+          className="focus-ring tabular min-h-7 rounded border border-caos-border px-1.5 text-caos-xs text-caos-muted hover:border-caos-accent/60 hover:text-caos-text"
+        >
+          {option.id === "assumptions" ? "Inputs" : option.id === "scenario" ? "Cases" : option.id === "evidence" ? "Sources" : "History"}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -975,13 +1029,8 @@ function ModelUtilityControls({ state }: { state: ModelBuilderController }) {
     <>
       {state.restoreError ? <button type="button" onClick={state.retryRestore} className="md:hidden caos-action-secondary focus-ring w-full justify-start">Retry saved model</button> : null}
       {state.saveConflict ? <button type="button" onClick={() => { state.setSaveConflict(false); state.retryRestore(); }} className="md:hidden caos-action-secondary focus-ring w-full justify-start">Reload saved model</button> : null}
-      <button type="button" onClick={() => { if (!exportDisabled) state.handleExport(); }} aria-disabled={exportDisabled || undefined} title={!state.hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : undefined} className="md:hidden caos-action-secondary focus-ring w-full justify-start">{state.exporting ? "Exporting model…" : "Export model"}</button>
-      <button type="button" onClick={() => state.setShowAssumptions(true)} className="caos-action-secondary focus-ring w-full justify-start">Open assumptions</button>
-      <button type="button" onClick={() => state.setShowScenarios(true)} className="caos-action-secondary focus-ring w-full justify-start">Open scenarios</button>
-      <ModelServerCheckpoints state={state} />
+      <button type="button" onClick={() => { if (!exportDisabled) state.handleExport(); }} aria-disabled={exportDisabled || undefined} title={!state.hasIssuerModel ? "Load an issuer model first — the reference fixture is not exportable" : "Export the committee pack (.xlsx — model grid, scenarios, assumptions, headline facts, overrides)"} className="caos-action-secondary focus-ring w-full justify-start">{state.exporting ? "Exporting model…" : "Export model"}</button>
       <ModelToggle label="QUARTERS" active={state.showQuarters} onClick={() => state.setShowQuarters(!state.showQuarters)} />
-      <ModelToggle label="ASSUMPTIONS" active={state.showAssumptions} title="Toggle the Assumptions panel — sliders to nudge the agent's base/downside forecast drivers" onClick={() => state.setShowAssumptions(!state.showAssumptions)} />
-      <ModelToggle label="SCENARIOS" active={state.showScenarios} title="Toggle the forward Scenario & Sensitivity panel (best/base/worst + tornado)" onClick={() => state.setShowScenarios(!state.showScenarios)} />
       <ModelOverrideReset state={state} />
       <span className="tabular text-caos-xs uppercase tracking-wide px-1.5 py-px rounded border whitespace-nowrap hidden xl:inline" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)", background: "color-mix(in srgb, var(--caos-warning) 8%, transparent)" }}>
         forecast cells unaudited — CP-5 scope is actuals only
@@ -1055,12 +1104,11 @@ function AvailableModelWorkspace({ state }: { state: ModelBuilderController }) {
   return (
     <>
       <Manifest hl={state.hl} setHl={state.setHl} isReference={state.isReference} />
-      <FormulaBar model={state.model} sel={state.sel} severity={state.severity} overrides={state.overrides} onResetCell={state.resetCell} onOpenEvidence={state.setEvModal} showQ={state.showQuarters} collapsedRows={state.collapsedRows} isReference={state.isReference} />
+      <FormulaBar model={state.model} sel={state.sel} severity={state.severity} overrides={state.overrides} onResetCell={state.resetCell} onOpenEvidence={(id) => { state.setEvModal(id); state.setActiveSupport("evidence"); }} showQ={state.showQuarters} collapsedRows={state.collapsedRows} isReference={state.isReference} />
       <ModelEditorNotice state={state} />
       <div className="model-editor-layout flex-1 min-h-0 flex gap-2">
-        <ModelAssumptionsRail state={state} />
         <ModelSheetRegion state={state} />
-        <ModelScenarioRail state={state} />
+        <ModelSupportSurface state={state} />
       </div>
     </>
   );
@@ -1099,8 +1147,20 @@ function ModelPrimary({ state }: { state: ModelBuilderController }) {
   return (
     <div className="h-full min-h-0 flex flex-col">
       <ModelEditorWorkspace state={state} />
-      {state.evModal ? <EvidenceModal id={state.evModal} reports={state.reports} isLiveRun={!state.isReference} onClose={() => state.setEvModal(null)} /> : null}
     </div>
+  );
+}
+
+function ModelSupportSurface({ state }: { state: ModelBuilderController }) {
+  if (!state.activeSupport) return null;
+  return (
+    <aside aria-label={`${MODEL_SUPPORT_OPTIONS.find((option) => option.id === state.activeSupport)?.label ?? "Model"} support`} className="min-w-0 shrink-0">
+      {state.activeSupport === "assumptions" ? <ModelAssumptionsRail state={state} /> : null}
+      {state.activeSupport === "scenario" ? <ModelScenarioRail state={state} /> : null}
+      {state.activeSupport === "history" ? <div className="w-80 max-w-[36vw] rounded border border-caos-border bg-caos-panel p-2"><ModelHistory state={state} /><ModelServerCheckpoints state={state} /></div> : null}
+      {state.activeSupport === "evidence" && state.evModal ? <EvidenceModal id={state.evModal} reports={state.reports} isLiveRun={!state.isReference} onClose={() => { state.setEvModal(null); state.setActiveSupport(null); }} /> : null}
+      {state.activeSupport === "evidence" && !state.evModal ? <div className="w-80 max-w-[36vw] rounded border border-caos-border bg-caos-panel p-3 text-caos-sm text-caos-muted">Select a model cell citation to inspect its source.</div> : null}
+    </aside>
   );
 }
 
@@ -1109,9 +1169,9 @@ function ModelBuilderView({ state }: { state: ModelBuilderController }) {
     <EnterprisePage
       kind="editor"
       identity={<ModelIdentity state={state} />}
-      primaryAction={<ModelPrimaryActions state={state} />}
+      primaryAction={ModelPrimaryActions({ state })}
       status={<ModelStatus state={state} />}
-      contextualControls={<ModelHistory state={state} />}
+      contextualControls={<ModelSupportControls state={state} />}
       utilityLabel="Model tools"
       utilityControls={<ModelUtilityControls state={state} />}
       narrowContract={state.narrowContract}
@@ -1124,7 +1184,32 @@ function ModelBuilderView({ state }: { state: ModelBuilderController }) {
 }
 
 function ModelBuilder({ legacyRuntime }: { legacyRuntime: LegacyModelRuntime }) {
-  const state = useModelBuilderController({ legacyRuntime });
+  const searchParams = useSearchParams();
+  const dataMode = useDataMode();
+  if (dataMode === "live" && !searchParams.get("issuer")) return <ModelSetupState />;
+  return <BoundModelBuilder legacyRuntime={legacyRuntime} dataMode={dataMode} />;
+}
+
+function ModelSetupState() {
+  return (
+    <EnterprisePage
+      kind="editor"
+      identity={<ShellIdentity title="Model Builder — issuer model" />}
+      primaryAction={{ label: "Open reference model", href: "/model?mode=reference" }}
+      narrowContract={{ essentialControls: null }}
+    >
+      <div className="caos-persona-route model-workbench flex-1 min-h-0 p-2">
+        <PersonaWorkbench
+          surface="model"
+          primary={<SurfaceState kind="empty" title="Select an issuer model" detail="Open Model Builder from an issuer or choose the explicitly labelled reference model." headingLevel={2} compact />}
+        />
+      </div>
+    </EnterprisePage>
+  );
+}
+
+function BoundModelBuilder({ legacyRuntime, dataMode }: { legacyRuntime: LegacyModelRuntime; dataMode: DataMode }) {
+  const state = useModelBuilderController({ legacyRuntime, dataMode });
   return <ModelBuilderView state={state} />;
 }
 

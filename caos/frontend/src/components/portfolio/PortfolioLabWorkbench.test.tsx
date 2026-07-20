@@ -298,8 +298,9 @@ describe("Portfolio Lab workbench", () => {
     await waitFor(() => expect(window.location.search).toContain("cursor=cursor-2"));
     fireEvent.change(screen.getByLabelText("View"), { target: { value: "ratings" } });
     expect((screen.getByLabelText("View") as HTMLSelectElement).value).toBe("ratings");
-    fireEvent.click(screen.getByRole("button", { name: "Run portfolio stress" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview portfolio stress" }));
     expect(screen.getByText("Preview only")).toBeTruthy();
+    expect(mocks.createStressRun).not.toHaveBeenCalled();
   });
 
   it("renders sparse position, constraint, and stress records with explicit unavailable values", async () => {
@@ -400,11 +401,25 @@ describe("Portfolio Lab workbench", () => {
     mocks.getPortfolios.mockResolvedValue([]);
     render(<PortfolioLabWorkbench />);
     await screen.findByText(/no portfolios are configured/i);
-    fireEvent.click(screen.getByRole("button", { name: "Generate cited brief" }));
-    fireEvent.click(screen.getByRole("button", { name: "Preview stress" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm and persist" }));
+    expect(screen.queryByLabelText("Portfolio visualization")).toBeNull();
+    expect(screen.queryByLabelText("Portfolio evidence inspector")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Generate cited brief" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview stress" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Preview portfolio stress" })).toBeNull();
+    expect(screen.queryByLabelText("Deterministic stress controls")).toBeNull();
+    expect(screen.queryByRole("tablist", { name: "Portfolio datasets" })).toBeNull();
+    expect(screen.queryByLabelText("Portfolio working set")).toBeNull();
+    expect(screen.getAllByText(/no portfolios are configured/i)).toHaveLength(1);
     expect(mocks.createInsight).not.toHaveBeenCalled();
     expect(mocks.createStressRun).not.toHaveBeenCalled();
+  });
+
+  it("uses the standard semantic title tier without the bespoke portfolio eyebrow dialect", async () => {
+    render(<PortfolioLabWorkbench />);
+    await screen.findByRole("table", { name: "Portfolio positions" });
+    expect(document.querySelector(".portfolio-lab__eyebrow")).toBeNull();
+    expect(screen.getByText("Sizing workbench").className).toContain("caos-panel-title");
+    expect(screen.getByText("Deterministic scenario").className).toContain("caos-panel-title");
   });
 
   it("renders QA persona emphasis and the constraint support fallback", async () => {
@@ -523,6 +538,8 @@ describe("Portfolio Lab semantic artifacts", () => {
   it("invokes the ready insight ratification control", () => {
     const onRatify = vi.fn();
     render(<PortfolioInsightCard insight={makeInsight("ready")} onRatify={onRatify} />);
+    expect(document.querySelector(".portfolio-lab__eyebrow")).toBeNull();
+    expect(screen.getByText("Advisory synthesis").className).toContain("caos-panel-title");
     fireEvent.click(screen.getByRole("button", { name: "Ratify cited brief" }));
     expect(onRatify).toHaveBeenCalledOnce();
   });

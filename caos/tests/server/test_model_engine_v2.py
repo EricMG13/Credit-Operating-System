@@ -472,6 +472,64 @@ def test_zero_denominators_and_nonfinite_values_fail_safe() -> None:
         )
 
 
+def test_subannual_period_keeps_flows_but_suppresses_non_ltm_leverage() -> None:
+    payload = _payload()
+    period_input = payload.periods[0]
+    period_input.period_key = "Q1-2026"
+    period_input.label = "Q1 2026"
+    period_input.kind = "actual"
+    period_input.months = 3
+    payload.debt_instruments[0].periods[0].period_key = "Q1-2026"
+
+    result = calculate_model(payload)
+    period = result.periods[0]
+
+    assert period.total_debt == 190
+    assert period.adjusted_ebitda == 110
+    assert period.cash_interest == pytest.approx(4.91875)
+    assert period.interest_coverage == pytest.approx(110 / 4.91875)
+    assert period.gross_leverage is None
+    assert period.net_leverage is None
+    assert result.status == "ready"
+    assert any("12-month EBITDA basis" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize("field", ["taxes", "capex"])
+def test_negative_outflow_inputs_are_rejected_by_the_period_contract(field: str) -> None:
+    values = {
+        "period_key": "FY2026",
+        "label": "FY26e",
+        "kind": "forecast",
+        "authority": AUTHORITY,
+        field: -1,
+    }
+
+    with pytest.raises(ValidationError, match="greater than or equal to 0"):
+        ModelPeriodInput(**values)
+
+
+@pytest.mark.parametrize("field", ["taxes", "capex"])
+def test_negative_outflow_override_degrades_free_cash_flow(field: str) -> None:
+    payload = _payload(overrides=[CellOverride(
+        node_id=f"input:FY2026:{field}",
+        value_type="number",
+        value=-10,
+    )])
+
+    result = calculate_model(payload)
+    period = result.periods[0]
+    node = next(item for item in period.nodes if item.node_id == f"input:FY2026:{field}")
+
+    assert result.status == "partial"
+    assert node.overridden is True
+    assert node.value is None
+    assert period.free_cash_flow is None
+    assert any(
+        f"input:FY2026:{field}: {field} must be a non-negative outflow" in gap
+        for gap in result.gaps
+    )
+
+
 @pytest.mark.parametrize(
     ("repayments", "pik_rate", "gap_fragment"),
     [
@@ -537,6 +595,28 @@ def test_rate_type_missing_inputs_emit_named_gaps(
 
     assert result.status == "partial"
     assert any(f"missing debt input {missing_field}" in gap for gap in result.gaps)
+
+
+def test_missing_interest_input_does_not_erase_complete_debt_balances() -> None:
+    payload = _payload()
+    payload.debt_instruments[0].periods[0].benchmark_rate = None
+
+    result = calculate_model(payload)
+    period = result.periods[0]
+    instrument = period.instruments[0]
+
+    assert result.status == "partial"
+    assert instrument.debt_reporting_currency == 190
+    assert instrument.cash_interest is None
+    assert period.total_debt == 190
+    assert period.net_debt == 170
+    assert period.gross_leverage == pytest.approx(190 / 110)
+    assert period.cash_interest is None
+    assert period.interest_coverage is None
+    assert period.free_cash_flow is None
+    assert not any(
+        "total debt or a complete balance schedule" in gap for gap in result.gaps
+    )
 
 
 def test_fixed_and_floating_rate_types_do_not_double_count_interest() -> None:

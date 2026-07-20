@@ -7,7 +7,7 @@ import type { OutSection } from "@/lib/deepdive/module-outputs";
 import { EvChip } from "@/components/reports/EvChip";
 import { Dot } from "@/components/pipeline/atoms";
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { useState } from "react";
+import { useCallback, useLayoutEffect, useState } from "react";
 
 // Live adapters retain bounded first-paint rows/items here rather than dropping
 // them. The base OutSection contract stays backward-compatible for seeded views;
@@ -16,6 +16,27 @@ type ExpandableOutSection = OutSection & {
   overflowRows?: string[][];
   overflowItems?: { sev: string; text: string; ev?: string[] }[];
 };
+
+function useHorizontalScrollOwner() {
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [scrollable, setScrollable] = useState(false);
+  const ref = useCallback((node: HTMLDivElement | null) => setElement(node), []);
+  useLayoutEffect(() => {
+    if (!element) { setScrollable(false); return; }
+    const measure = () => setScrollable(element.scrollWidth > element.clientWidth + 1);
+    measure();
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    resizeObserver?.observe(element);
+    for (const child of element.children) resizeObserver?.observe(child);
+    const mutationObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(measure);
+    mutationObserver?.observe(element, { subtree: true, childList: true, characterData: true });
+    return () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+    };
+  }, [element]);
+  return { ref, scrollable };
+}
 
 function MoreButton({ count, expanded, onToggle, controls }: {
   count: number;
@@ -38,6 +59,7 @@ function MoreButton({ count, expanded, onToggle, controls }: {
 
 function TableSection({ section, index }: { section: Extract<OutSection, { type: "table" }>; index: number }) {
   const [expanded, setExpanded] = useState(false);
+  const scrollOwner = useHorizontalScrollOwner();
   const overflowRows = (section as ExpandableOutSection).overflowRows ?? [];
   const rows = expanded ? [...section.rows, ...overflowRows] : section.rows;
   const contentId = `deepdive-output-${index}`;
@@ -55,7 +77,13 @@ function TableSection({ section, index }: { section: Extract<OutSection, { type:
   return (
     <div className="rounded border border-caos-border bg-caos-bg">
       <div className="px-3 py-2 border-b border-caos-border tabular text-caos-xs font-semibold uppercase tracking-wider text-caos-text">{section.title}</div>
-      <div id={contentId} className="deepdive-output-table-scroll">
+      <div
+        id={contentId}
+        ref={scrollOwner.ref}
+        tabIndex={scrollOwner.scrollable ? 0 : undefined}
+        aria-label={scrollOwner.scrollable ? `${section.title} table` : undefined}
+        className={`deepdive-output-table-scroll${scrollOwner.scrollable ? " focus-ring" : ""}`}
+      >
         <DataTable
           columns={columns}
           rows={rows}

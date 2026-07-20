@@ -2,24 +2,33 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+type TestPageAction = { label: string; href?: string; onAction?: () => void; unavailableReason?: string | null };
+
+function renderPageAction(action?: TestPageAction) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href}>{action.label}</a>;
+  return <button type="button" aria-disabled={action.unavailableReason ? "true" : undefined} onClick={action.unavailableReason ? undefined : action.onAction}>{action.label}</button>;
+}
+
 vi.mock("next/dynamic", () => ({ default: () => function DynamicStub() { return <div data-testid="dynamic-stub" />; } }));
 vi.mock("next/link", () => ({
   default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => <a href={href} {...props}>{children}</a>,
 }));
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+const search = { value: "" };
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(search.value) }));
 vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/shared/EnterprisePage", () => ({
   EnterprisePage: ({ children, identity, decisionContext, primaryAction, contextualControls, utilityControls }: {
     children: React.ReactNode; identity?: React.ReactNode; decisionContext?: React.ReactNode;
-    primaryAction?: React.ReactNode; contextualControls?: React.ReactNode; utilityControls?: React.ReactNode;
-  }) => <main>{identity}{decisionContext}{primaryAction}{contextualControls}{utilityControls}{children}</main>,
+    primaryAction?: TestPageAction; contextualControls?: React.ReactNode; utilityControls?: React.ReactNode;
+  }) => <main>{identity}{decisionContext}{renderPageAction(primaryAction)}{contextualControls}{utilityControls}{children}</main>,
 }));
 vi.mock("@/components/shared/ShellIdentity", () => ({ ShellIdentity: ({ title }: { title: string }) => <h1>{title}</h1> }));
 vi.mock("@/components/shared/DecisionHeader", () => ({ DecisionHeader: () => <div>decision header</div> }));
 vi.mock("@/components/shared/PersonaWorkbench", () => ({
   PersonaWorkbench: ({ primary, context, utility }: { primary: React.ReactNode; context?: React.ReactNode; utility?: React.ReactNode }) => <>{primary}{context}{utility}</>,
 }));
-vi.mock("@/components/shared/Ask", () => ({ useAsk: () => ({ open: false, setOpen: vi.fn() }) }));
+vi.mock("@/components/shared/AskContext", () => ({ useAsk: () => ({ open: false, setOpen: vi.fn() }) }));
 vi.mock("@/components/shared/FirstRunHint", () => ({ FirstRunHint: () => <div>first run hint</div> }));
 vi.mock("@/components/shared/CrossDefaultDominoes", () => ({ CrossDefaultDominoes: () => null }));
 vi.mock("@/components/shared/StatusGlyph", () => ({ StatusGlyph: () => <span>status</span> }));
@@ -64,12 +73,24 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  search.value = "";
 });
 
 describe("Deep-Dive route smoke", () => {
   it("renders the complete reference workspace without a backend run", () => {
+    search.value = "mode=reference";
     render(<DeepDivePage />);
     expect(screen.getByRole("heading", { name: "2L TL '31 — new issue review" })).toBeTruthy();
     expect(screen.getByText("decision rail")).toBeTruthy();
+  });
+
+  it("requires an issuer in live mode instead of selecting Atlas Forge implicitly", () => {
+    search.value = "context=ctx-1&mod=CP-4";
+    render(<DeepDivePage />);
+    expect(screen.getByText("Select an issuer to begin Deep-Dive")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open reference example" }).getAttribute("href"))
+      .toBe("/deepdive?context=ctx-1&mod=CP-4&mode=reference");
+    expect(screen.queryByRole("heading", { name: "2L TL '31 — new issue review" })).toBeNull();
+    expect(screen.queryByText("decision rail")).toBeNull();
   });
 });

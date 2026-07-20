@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { EnterprisePage, type PageAction } from "@/components/shared/EnterprisePage";
 import { Panel } from "@/components/shared/Panel";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { SurfaceState } from "@/components/shared/SurfaceState";
+import { CompletionStateSummary } from "@/components/shared/CompletionStateSummary";
 import { useNavigationGuard } from "@/components/shared/NavigationGuardProvider";
 import { ScenarioNetworkPanel } from "@/components/model/ScenarioNetworkPanel";
 import { Button } from "@/components/ui/Button";
@@ -1489,46 +1490,41 @@ function pendingCommitReason(state: ReadyModelV2Controller) {
   return null;
 }
 
-function SuggestedModelPrimaryAction({ state }: { state: ReadyModelV2Controller }) {
+function SuggestedModelPrimaryAction({ state }: { state: ReadyModelV2Controller }): PageAction {
   const reason = state.saveContractMissing
     ? "No owned source run was identified to save against"
     : state.busy !== null
       ? "An action is already in progress"
       : null;
-  return (
-    <Button variant="primary" onClick={() => void state.saveSuggestion()} reason={reason}>
-      {state.busy === "save-suggestion" ? "Saving…" : "Save suggested draft"}
-    </Button>
-  );
+  return {
+    label: "Save suggested draft",
+    onAction: () => { void state.saveSuggestion(); },
+    unavailableReason: reason,
+  };
 }
 
-function ModelV2PrimaryAction({ state }: { state: ReadyModelV2Controller }) {
+function ModelV2PrimaryAction({ state }: { state: ReadyModelV2Controller }): PageAction {
   const {
     busy, commitPending, dirty, pendingCount, recalculateAndSave, record, requiresRecalculation,
   } = state;
-  if (!record) return <SuggestedModelPrimaryAction state={state} />;
-  return (
-    <span className="flex items-center gap-1">
-      {requiresRecalculation ? (
-        <button
-          type="button"
-          onClick={() => void recalculateAndSave()}
-          aria-disabled={(dirty || busy !== null) || undefined}
-          title={dirty ? "Commit or discard local pending edits first" : "Persist the current server calculation without changing model inputs"}
-          className="caos-primary-action focus-ring aria-disabled:opacity-40"
-        >
-          {busy === "recalculate" ? "Saving…" : "Recalculate & save"}
-        </button>
-      ) : null}
-      <Button
-        variant={requiresRecalculation ? "secondary" : "primary"}
-        onClick={() => void commitPending()}
-        reason={pendingCommitReason(state)}
-      >
-        {busy === "commit" ? "Committing…" : `Commit ${pendingCount} pending`}
-      </Button>
-    </span>
-  );
+  if (!record) return SuggestedModelPrimaryAction({ state });
+  if (requiresRecalculation) {
+    return {
+      label: "Recalculate & save",
+      onAction: () => { void recalculateAndSave(); },
+      unavailableReason: dirty
+        ? "Commit or discard local pending edits first"
+        : busy !== null
+          ? "An action is already in progress"
+          : null,
+      title: "Persist the current server calculation without changing model inputs",
+    };
+  }
+  return {
+    label: `Commit ${pendingCount} pending`,
+    onAction: () => { void commitPending(); },
+    unavailableReason: pendingCommitReason(state),
+  };
 }
 
 function ModelV2Status({ state }: { state: ReadyModelV2Controller }) {
@@ -1540,7 +1536,16 @@ function ModelV2Status({ state }: { state: ReadyModelV2Controller }) {
   else if (record && requiresRecalculation) {
     label = `Saved ${record.calculation_hash.slice(0, 10)} · current ${calculation.calculation_hash.slice(0, 10)} · save required`;
   } else if (record) label = `Hash ${record.calculation_hash.slice(0, 10)}`;
-  return <span className="tabular text-caos-2xs text-caos-muted">{label} · leave warning {warnOnLeave ? "on" : "off"}</span>;
+  return <div className="flex min-w-0 flex-wrap items-center gap-2">
+    <CompletionStateSummary
+      label="Model v2 completion"
+      execution={state.busy !== null ? "running" : record ? "complete" : "not-started"}
+      persistence={dirty || requiresRecalculation ? "unsaved" : record ? "saved" : "draft"}
+      approval="not-applicable"
+      freshness="unknown"
+    />
+    <span className="tabular text-caos-2xs text-caos-muted">{label} · leave warning {warnOnLeave ? "on" : "off"}</span>
+  </div>;
 }
 
 function pendingPreviewReason(state: ReadyModelV2Controller) {
@@ -1945,7 +1950,7 @@ function ModelV2View({ state }: { state: ReadyModelV2Controller }) {
     <EnterprisePage
       kind="editor"
       identity={<ModelV2Identity state={state} />}
-      primaryAction={<ModelV2PrimaryAction state={state} />}
+      primaryAction={ModelV2PrimaryAction({ state })}
       status={<ModelV2Status state={state} />}
       contextualControls={record ? <ModelV2ContextualControls state={state} /> : undefined}
       utilityLabel="Model v2 tools"

@@ -9,11 +9,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { useAuth } from "@/components/shared/AuthProvider";
-import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { EnterprisePage, type PageAction } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ScopeToggle } from "@/components/shared/ScopeToggle";
-import { ActionReason } from "@/components/shared/ActionReason";
 import { AiModeToggle } from "@/components/shared/AiModeToggle";
 import { labelCls } from "@/components/shared/styles";
 import { Panel } from "@/components/shared/Panel";
@@ -24,6 +23,8 @@ import { deepResearch, resumeResearch, getResearchStatus, isResearchAborted, isR
 import { DEFAULT_CRITERIA, loadPrefs, type AiMode } from "@/lib/research-prefs";
 import Link from "next/link";
 import { analysisApi, contextHref, useAnalysisContext } from "@/lib/analysis-workbench";
+import { OpenReferenceExample } from "@/components/shared/DataMode";
+import { useCurrentAppHref, useDataMode, withDataMode } from "@/lib/data-mode";
 
 export default function ResearchPage() {
   return (
@@ -69,6 +70,8 @@ const _storeJobId = (analystId: string, contextId: string | undefined, id: strin
 // ReportPane — splitting the form further would prop-drill 13 state fields.
 // fallow-ignore-next-line complexity -- Page orchestration shares thirteen state fields with the report pane.
 function Research() {
+  const dataMode = useDataMode();
+  const currentHref = useCurrentAppHref();
   const analysis = useAnalysisContext({ name: "Deep research" });
   const [mode, setMode] = useState<"sector" | "issuer">("sector");
   const [subject, setSubject] = useState("");
@@ -95,13 +98,39 @@ function Research() {
   const notify = useNotify();
   const { user } = useAuth();
   const analystId = user?.id ?? "";
-
-  // Abort handle for the active poll loop — aborted on unmount (so a closed/renav'd
-  // tab stops polling for up to 15 min) and on Detach. Aborting only stops the
-  // client watching; the durable server-side job keeps running (H3).
+  // Poll ownership is independent of the durable server job. A mode transition
+  // invalidates the local watcher and aborts only its client signal; the server
+  // job id remains in sessionStorage for a later live-mode reattach.
   const pollAbort = useRef<AbortController | null>(null);
   const activeJobId = useRef<string | null>(null);
+  const watchEpoch = useRef(0);
+  const dataModeRef = useRef(dataMode);
   const restoredContext = useRef<string | null>(null);
+  // Update during render, not only in the effect below: a poll promise can
+  // settle between a query-driven render and passive-effect flush, and must
+  // already observe that it no longer owns the visible mode.
+  dataModeRef.current = dataMode;
+
+  useEffect(() => {
+    let cancelled = false;
+    watchEpoch.current += 1;
+    if (dataMode !== "reference") {
+      setResult((current) => current?.demo ? null : current);
+      return;
+    }
+    pollAbort.current?.abort();
+    pollAbort.current = null;
+    setRunning(false);
+    setError(null);
+    setPrevResult(null);
+    setProgress(null);
+    setContextLinkError(null);
+    setResult(null);
+    void import("@/lib/research-reference").then(({ REFERENCE_RESEARCH_RESULT }) => {
+      if (!cancelled) setResult(REFERENCE_RESEARCH_RESULT);
+    });
+    return () => { cancelled = true; };
+  }, [dataMode]);
 
   useEffect(() => {
     const context = analysis.context;
@@ -162,6 +191,7 @@ function Research() {
   //   • gone/failed → drop the stale id quietly (never a scary "Research failed").
   // Runs once per analyst.
   useEffect(() => {
+    if (dataMode === "reference") return;
     const contextId = analysis.context?.id;
     if (!analystId || !contextId) return;
     const stored = _loadJobId(analystId, contextId);
@@ -178,6 +208,11 @@ function Research() {
         if (cancelled) return;
         setReattachError(null);
         if (st.state === "complete") {
+          if (st.result.demo) {
+            _storeJobId(analystId, contextId, null);
+            activeJobId.current = null;
+            return;
+          }
           setResult(st.result);
           return;
         }
@@ -210,7 +245,7 @@ function Research() {
     };
     // watch() is intentionally captured from the current analyst/context render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analystId, analysis.context?.id, reattachRetry]);
+  }, [analystId, analysis.context?.id, dataMode, reattachRetry]);
 
   // Abort the active poll on unmount so a closed / navigated-away tab stops
   // polling (previously it kept GETting for up to 15 min). The durable job is
@@ -220,17 +255,11 @@ function Research() {
   // Derived once per render and reused across the form + report pane.
   const subj = subject.trim();
   const canRun = subj.length >= 2;
-  const configReady = configState === "live" || configState === "demo";
+  const configReady = configState === "live";
   // One label + one reason, shared by the header primary and the brief-panel
   // CTA — the two previously computed the same ternary independently and one
   // was allowed to look enabled while the other was disabled with a reason.
-  const runLabel = running
-    ? "Researching…"
-    : configState === "demo"
-      ? "Run example research"
-      : configState === "live"
-        ? "Run deep research"
-        : "Research configuration unavailable";
+  const runLabel = "Run deep research";
   const runReason = running
     ? "Research in progress"
     : !configReady
@@ -243,7 +272,8 @@ function Research() {
   // This is deliberately link-only. The completed report is already on screen
   // and its durable job id is retained, so a retry must never submit another
   // research run or duplicate model/web spend.
-  const linkCompletedResearch = useCallback(async (done: ResearchResult, jobId: string) => {
+  const linkCompletedResearch = useCallback(async (done: ResearchResult, jobId: string, isCurrent: () => boolean = () => true) => {
+    if (done.demo || !isCurrent()) return;
     const context = analysis.context;
     if (!context) return;
     try {
@@ -260,6 +290,7 @@ function Research() {
         artifacts: { ...context.artifacts, research_job_id: jobId },
         surface_state: nextSurfaceState,
       });
+      if (!isCurrent()) return;
       setContextLinkError(null);
       void analysisApi.createFinding({
         context_id: context.id,
@@ -294,15 +325,33 @@ function Research() {
   async function watch(poll: Promise<ResearchResult>, ctrl: AbortController) {
     pollAbort.current?.abort(); // single active poll — a superseded one must not resolve into stale UI
     pollAbort.current = ctrl;
+    const ownerMode = dataMode;
+    const ownerEpoch = ++watchEpoch.current;
+    const ownsWatch = () => (
+      ownerMode === "live"
+      && dataModeRef.current === ownerMode
+      && watchEpoch.current === ownerEpoch
+      && pollAbort.current === ctrl
+      && !ctrl.signal.aborted
+    );
     setRunning(true);
     setError(null);
     setProgress(null);
     try {
       const done = await poll;
+      if (!ownsWatch()) return;
+      if (done.demo) {
+        setError("Live research returned reference-only output and was quarantined.");
+        const quarantinedJobId = activeJobId.current;
+        if (quarantinedJobId) _storeJobId(analystId, analysis.context?.id, null);
+        activeJobId.current = null;
+        return;
+      }
       setResult(done);
       setPrevResult(null); // the new report is the report now
       const jobId = activeJobId.current;
-      if (jobId) await linkCompletedResearch(done, jobId);
+      if (jobId) await linkCompletedResearch(done, jobId, ownsWatch);
+      if (!ownsWatch()) return;
       // Keep the durable job id in sessionStorage after a successful run (H3): the
       // completed job stays server-side and retrievable, so if the analyst hops to
       // Deep-Dive to cross-check a figure and returns (or reloads), the mount effect
@@ -314,6 +363,7 @@ function Research() {
       // so fall back to the scope alone rather than a dangling "· ".
       notify("Research complete", subj ? `${mode === "sector" ? "Sector" : "Issuer"} · ${subj}` : `${mode === "sector" ? "Sector" : "Issuer"} research`);
     } catch (e: unknown) {
+      if (!ownsWatch()) return;
       if (isResearchAborted(e)) return; // detach/unmount — leave the durable job alone
       if (isResearchGone(e)) {
         // Stale/foreign reattach id — the job no longer exists. Drop it quietly and
@@ -338,7 +388,7 @@ function Research() {
   }
 
   function run() {
-    if (!canRun || running) return;
+    if (dataMode !== "live" || !configReady || !canRun || running) return;
     // Keep the prior report reachable while the replacement is produced — a stray
     // Run (or a "just tweak the timeframe" rerun) must not erase a 2–4-minute
     // report before its successor exists (H5).
@@ -423,21 +473,23 @@ function Research() {
     </label>
   );
 
+  const pageAction: PageAction = dataMode === "reference"
+    ? { label: "Return to live research", href: withDataMode(currentHref, "live") }
+    : configState === "live"
+      ? { label: runLabel, onAction: run, unavailableReason: runReason }
+      : { label: "Configure live research", href: "/settings?tab=research" };
+
   return (
     <EnterprisePage kind="analytical"
       identity={<ShellIdentity title="Deep Research — sector & issuer credit intelligence" />}
-      primaryAction={
-        <ActionReason reason={runReason} reasonDisplay="hidden" onClick={run} className="caos-action-primary focus-ring">
-          {runLabel}
-        </ActionReason>
-      }
+      primaryAction={pageAction}
       contextualControls={
         result && analysis.context ? (
           <>
             {analysis.context.issuer_ids[0] ? (
-              <Link href={contextHref("/deepdive", analysis.context.id, { issuer: analysis.context.issuer_ids[0] })} className="caos-secondary-action focus-ring no-underline">Open Deep-Dive</Link>
+              <Link href={withDataMode(contextHref("/deepdive", analysis.context.id, { issuer: analysis.context.issuer_ids[0] }), dataMode)} className="caos-secondary-action focus-ring no-underline">Open Deep-Dive</Link>
             ) : null}
-            <Link href={contextHref("/reports", analysis.context.id)} className="caos-secondary-action focus-ring no-underline">Open Report Studio</Link>
+            <Link href={withDataMode(contextHref("/reports", analysis.context.id), dataMode)} className="caos-secondary-action focus-ring no-underline">Open Report Studio</Link>
           </>
         ) : null
       }
@@ -450,17 +502,17 @@ function Research() {
               panel's own overflow-auto scrolls when the advanced section is open —
               no flex-1 child to collapse and overlap on a short viewport. */}
           <div className="min-h-full p-3 flex flex-col gap-4">
-            {configState === "demo" && (
+            {dataMode === "live" && configState === "demo" && (
               <div
                 className="flex items-baseline gap-2 px-2.5 py-2 rounded border"
                 style={{ borderColor: "var(--caos-warning)", background: "color-mix(in srgb, var(--caos-warning) 6%, transparent)" }}
               >
-                <span className="tabular text-caos-2xs uppercase tracking-wider shrink-0" style={{ color: "var(--caos-warning)" }}>Demo mode</span>
-                <span className="text-caos-xs text-caos-muted leading-snug">No model key configured — runs return a canned example report.</span>
+                <span className="tabular text-caos-2xs uppercase tracking-wider shrink-0" style={{ color: "var(--caos-warning)" }}>Live unavailable</span>
+                <span className="text-caos-xs text-caos-muted leading-snug">No live research model is configured.</span>
               </div>
             )}
             {configState === "loading" ? (
-              <p role="status" className="text-caos-xs text-caos-muted">Checking live/demo research configuration…</p>
+              <p role="status" className="text-caos-xs text-caos-muted">Checking live research availability…</p>
             ) : null}
             {configState === "error" ? (
               <div role="alert" className="flex items-center gap-2 rounded border border-caos-critical/50 px-2.5 py-2">
@@ -527,23 +579,18 @@ function Research() {
               )}
             </div>
 
-            {/* Action — the primary move: a solid, confident button, anchored to
-                the panel foot (mt-auto) so it never floats mid-form. */}
+            {/* The page header owns the single run action. Keep only the selected
+                live-mode explanation here so the brief does not compete with it. */}
             <div className="flex flex-col gap-2 mt-auto pt-1">
-              <ActionReason
-                reason={runReason}
-                onClick={run}
-                className={
-                  "text-caos-md font-semibold px-3 py-2.5 rounded border transition-caos focus-ring " +
-                  (running
-                    ? "bg-caos-elevated border-caos-border text-caos-muted cursor-wait"
-                    : !canRun || !configReady
-                      ? "bg-caos-elevated border-caos-border text-caos-muted"
-                      : "bg-caos-accent border-caos-accent text-caos-bg hover:brightness-110")
-                }
-              >
-                {runLabel}
-              </ActionReason>
+              {dataMode === "reference" ? (
+                <p className="text-caos-xs text-caos-muted">Reference research is loaded for format review only.</p>
+              ) : configState === "live" ? (
+                <p className="rounded border border-caos-border/70 bg-caos-elevated/30 px-2.5 py-2 text-caos-xs text-caos-muted">
+                  {runReason ?? "Ready to run the framed brief from the page action."}
+                </p>
+              ) : (
+                <OpenReferenceExample />
+              )}
             </div>
           </div>
         </Panel>}
@@ -558,7 +605,7 @@ function Research() {
           elapsed={elapsed}
           subj={subj}
           mode={mode}
-          executionMode={configState === "demo" ? "demo" : "live"}
+          executionMode={dataMode === "reference" ? "demo" : "live"}
           onDetach={detach}
           onRestorePrev={() => {
             setResult(prevResult);

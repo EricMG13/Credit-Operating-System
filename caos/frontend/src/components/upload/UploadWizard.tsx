@@ -228,7 +228,8 @@ async function settleUploadFile(state: WizardState, issuer: Issuer, file: File, 
 async function processUploadFiles(state: WizardState, issuer: Issuer, batch: File[], initialContext: ActiveContext) {
   let context = initialContext;
   let vaultedAny = false;
-  for (let index = 0; index < batch.length; index += 1) {
+  let index = 0;
+  for (; index < batch.length; index += 1) {
     if (state.process.cancelRef.current) break;
     const file = batch[index];
     state.process.setProgress({ index: index + 1, total: batch.length, name: file.name });
@@ -236,6 +237,14 @@ async function processUploadFiles(state: WizardState, issuer: Issuer, batch: Fil
     context = settled.context;
     vaultedAny ||= settled.vaulted;
     state.process.setOutcomes((current) => [...current, settled.outcome]);
+  }
+  if (state.process.cancelRef.current && index < batch.length) {
+    const canceled = batch.slice(index).map((file) => ({
+      name: file.name,
+      error: "Not processed — intake canceled.",
+      file,
+    } satisfies FileOutcome));
+    state.process.setOutcomes((current) => [...current, ...canceled]);
   }
   return { context, vaultedAny };
 }
@@ -252,7 +261,7 @@ async function linkRunToContext(state: WizardState, context: ActiveContext, runI
 }
 
 async function linkQueuedRun(state: WizardState, context: ActiveContext, runId: string) {
-  await linkRunToContext(state, context, runId, state.process.setError, "Run queued, but the analysis context could not be linked. Use the exact Execution Graph link below.");
+  await linkRunToContext(state, context, runId, state.process.setError, "Run queued, but the analysis context could not be linked. Use the exact dependency-map link below.");
 }
 
 async function createIssuerRun(state: WizardState, issuer: Issuer, context: ActiveContext) {
@@ -311,7 +320,7 @@ function retryFailedUpload(state: WizardState) {
 }
 
 async function linkManualRun(state: WizardState, context: ActiveContext, runId: string) {
-  await linkRunToContext(state, context, runId, state.manual.setRunError, "Run queued, but the analysis context could not be linked. Use the exact Execution Graph link.");
+  await linkRunToContext(state, context, runId, state.manual.setRunError, "Run queued, but the analysis context could not be linked. Use the exact dependency-map link.");
 }
 
 async function handleCreateRun(state: WizardState) {

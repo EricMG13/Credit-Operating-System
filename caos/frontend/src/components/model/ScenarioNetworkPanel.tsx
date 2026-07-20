@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { propagateScenario, type ScenarioPropagationResult } from "@/lib/api";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { SurfaceState } from "@/components/shared/SurfaceState";
@@ -63,8 +63,12 @@ function ScenarioNode({ node, index }: { node: ScenarioPropagationResult["nodes"
 
 function ScenarioResult({ result }: { result: ScenarioPropagationResult | null }) {
   if (!result) return null;
+  const signed = (value: number, digits: number) => `${value < 0 ? "−" : "+"}${Math.abs(value).toFixed(digits)}`;
   return (
     <div className="mt-2">
+      <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1">
+        Run {result.shock.run_id} · EBITDA {signed(result.shock.ebitda_pct * 100, 1)}% · rate {signed(result.shock.rate_bps, 0)} bp
+      </div>
       {result.source ? (
         <div className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted mb-1.5">
           Source {result.source.qa_status} · {result.source.included_modules.length} accepted modules
@@ -78,22 +82,43 @@ function ScenarioResult({ result }: { result: ScenarioPropagationResult | null }
   );
 }
 
+type KeyedScenarioResult = { key: string; value: ScenarioPropagationResult };
+type KeyedScenarioRequest = { id: number; key: string };
+
+const scenarioKey = (issuerId: string, runId: string | null, ebitdaPct: number, rateBps: number) =>
+  `${issuerId}\u0000${runId ?? ""}\u0000${ebitdaPct}\u0000${rateBps}`;
+
 export function ScenarioNetworkPanel({ issuerId, runId }: { issuerId: string; runId: string | null }) {
   const [ebitdaPct, setEbitdaPct] = useState(-20);
   const [rateBps, setRateBps] = useState(0);
-  const [result, setResult] = useState<ScenarioPropagationResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [resultState, setResultState] = useState<KeyedScenarioResult | null>(null);
+  const [pending, setPending] = useState<KeyedScenarioRequest | null>(null);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+  const requestId = useRef(0);
+  const currentKey = scenarioKey(issuerId, runId, ebitdaPct, rateBps);
+  const currentKeyRef = useRef(currentKey);
+  currentKeyRef.current = currentKey;
+  const result = resultState?.key === currentKey ? resultState.value : null;
+  const busy = pending?.key === currentKey;
+  const error = errorKey === currentKey;
 
   const run = async () => {
     if (!runId || busy) return;
-    setBusy(true); setError(false);
+    const key = currentKey;
+    const id = ++requestId.current;
+    setPending({ id, key });
+    setErrorKey(null);
     try {
-      setResult(await propagateScenario({ issuer_id: issuerId, run_id: runId, ebitda_pct: ebitdaPct / 100, rate_bps: rateBps }));
+      const value = await propagateScenario({ issuer_id: issuerId, run_id: runId, ebitda_pct: ebitdaPct / 100, rate_bps: rateBps });
+      if (currentKeyRef.current === key && requestId.current === id) {
+        setResultState({ key, value });
+      }
     } catch {
-      setError(true);
+      if (currentKeyRef.current === key && requestId.current === id) {
+        setErrorKey(key);
+      }
     } finally {
-      setBusy(false);
+      setPending((current) => current?.id === id ? null : current);
     }
   };
 

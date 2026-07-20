@@ -426,6 +426,133 @@ def test_calculation_preview_requires_write_role(client):
     assert response.status_code == 403
 
 
+def test_calculation_api_returns_current_model_for_valid_payload(client):
+    owner = f"model-v2-calculate-valid-{uuid.uuid4().hex[:10]}"
+    issuer_id = str(_run(_seed_case(owner))["issuer_id"])
+    _as(owner)
+
+    response = client.post(
+        f"/api/models/v2/{issuer_id}/calculate",
+        json={"payload": _payload()},
+    )
+
+    assert response.status_code == 200, response.text
+    calculation = response.json()
+    assert calculation["status"] == "ready"
+    assert calculation["engine_version"]
+    assert calculation["calculation_hash"]
+    assert calculation["periods"][0]["gross_leverage"] == pytest.approx(190.0 / 110.0)
+
+
+def test_calculation_api_degrades_zero_ebitda_without_nonfinite_output(client):
+    owner = f"model-v2-calculate-degraded-{uuid.uuid4().hex[:10]}"
+    issuer_id = str(_run(_seed_case(owner))["issuer_id"])
+    _as(owner)
+    payload = _payload()
+    payload["periods"][0]["reported_ebitda"] = 0
+    payload["periods"][0]["adjustments"] = 0
+
+    response = client.post(
+        f"/api/models/v2/{issuer_id}/calculate",
+        json={"payload": payload},
+    )
+
+    assert response.status_code == 200, response.text
+    calculation = response.json()
+    assert calculation["status"] == "partial"
+    assert calculation["periods"][0]["gross_leverage"] is None
+    assert any("adjusted EBITDA is zero" in gap for gap in calculation["gaps"])
+    assert "NaN" not in response.text
+    assert "Infinity" not in response.text
+
+
+def test_v2_collection_reads_are_bounded_owned_and_non_enumerable(client):
+    owner = f"model-v2-collection-owner-{uuid.uuid4().hex[:10]}"
+    other = f"model-v2-collection-other-{uuid.uuid4().hex[:10]}"
+    seeded = _run(_seed_case(owner, context=True))
+    issuer_id = str(seeded["issuer_id"])
+    context_id = str(seeded["context_id"])
+    _as(owner)
+
+    assert client.get(f"/api/models/v2/{issuer_id}/history").json() == []
+    assert client.get(f"/api/models/v2/{issuer_id}/checkpoints").json() == []
+    created = _save(client, issuer_id, context_id=context_id)
+    checkpoint = client.post(
+        f"/api/models/v2/{issuer_id}/checkpoints",
+        json={
+            "context_id": context_id,
+            "expected_revision": created.json()["revision"],
+            "calculation_hash": created.json()["calculation_hash"],
+        },
+    )
+    assert checkpoint.status_code == 201, checkpoint.text
+    assert client.get(f"/api/models/v2/{issuer_id}/checkpoints").json()[0]["id"] == checkpoint.json()["id"]
+
+    _as(other)
+    assert client.get(f"/api/models/v2/{issuer_id}/history").json() == []
+    assert client.get(f"/api/models/v2/{issuer_id}/checkpoints").json() == []
+    missing_history = client.get("/api/models/v2/not-a-real-issuer/history")
+    missing_checkpoints = client.get("/api/models/v2/not-a-real-issuer/checkpoints")
+    assert missing_history.status_code == 404
+    assert missing_checkpoints.status_code == 404
+    assert missing_history.json() == {"detail": "Issuer not found"}
+    assert missing_checkpoints.json() == {"detail": "Issuer not found"}
+
+
+def test_viewer_cannot_cross_any_model_v2_mutation_boundary(client):
+    owner = f"model-v2-all-viewer-{uuid.uuid4().hex[:10]}"
+    seeded = _run(_seed_case(owner, context=True))
+    issuer_id = str(seeded["issuer_id"])
+    context_id = str(seeded["context_id"])
+    _as(owner)
+    created = _save(client, issuer_id, context_id=context_id)
+    assert created.status_code == 200
+    checkpoint = client.post(
+        f"/api/models/v2/{issuer_id}/checkpoints",
+        json={
+            "context_id": context_id,
+            "expected_revision": 1,
+            "calculation_hash": created.json()["calculation_hash"],
+        },
+    )
+    assert checkpoint.status_code == 201, checkpoint.text
+
+    _as(owner, role="viewer")
+    responses = [
+        _save(client, issuer_id, expected_revision=1),
+        client.post(
+            f"/api/models/v2/{issuer_id}/calculate",
+            json={"payload": _payload()},
+        ),
+        _set_override(client, issuer_id, 1),
+        client.post(
+            f"/api/models/v2/{issuer_id}/overrides/batch",
+            json={
+                "expected_revision": 1,
+                "mutations": [{
+                    "action": "reset",
+                    "node_id": "input:FY2026:cash",
+                }],
+            },
+        ),
+        client.post(
+            f"/api/models/v2/{issuer_id}/checkpoints",
+            json={
+                "context_id": context_id,
+                "expected_revision": 1,
+                "calculation_hash": created.json()["calculation_hash"],
+            },
+        ),
+        client.post(
+            f"/api/models/v2/{issuer_id}/checkpoints/{checkpoint.json()['id']}/restore",
+            json={"expected_revision": 1},
+        ),
+    ]
+
+    assert [response.status_code for response in responses] == [403] * 6
+    assert client.get(f"/api/models/v2/{issuer_id}").json()["record"]["revision"] == 2
+
+
 @pytest.mark.parametrize(
     ("field_name", "invalid_value"),
     [
@@ -954,6 +1081,25 @@ def test_override_undo_and_redo_are_revisioned_audit_events(client):
     assert [event["action"] for event in history] == ["redo", "undo", "set"]
     assert history[0]["inverse_event_id"] == event_id
     assert history[1]["inverse_event_id"] == event_id
+
+
+def test_replay_rejects_an_invalid_mode_without_revision_change(client):
+    owner = f"model-v2-replay-invalid-{uuid.uuid4().hex[:10]}"
+    issuer_id = str(_run(_seed_case(owner))["issuer_id"])
+    _as(owner)
+    assert _save(client, issuer_id).status_code == 200
+    assert _set_override(client, issuer_id, 1).status_code == 200
+    event_id = client.get(f"/api/models/v2/{issuer_id}/history").json()[0]["id"]
+
+    invalid = client.post(
+        f"/api/models/v2/{issuer_id}/history/{event_id}/replay",
+        json={"expected_revision": 2, "mode": "repeat"},
+    )
+
+    assert invalid.status_code == 422
+    current = client.get(f"/api/models/v2/{issuer_id}").json()["record"]
+    assert current["revision"] == 2
+    assert current["payload"]["overrides"][0]["value"] == 80.0
 
 
 def test_replay_rejects_an_old_event_after_the_cell_changed_again(client):

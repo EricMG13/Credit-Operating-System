@@ -7,17 +7,16 @@
 // evidence-synced chat (rendered inside its EvidenceSyncProvider) and only reads
 // `open` from this context, so the launcher never double-mounts a chat there.
 
-import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { CloseButton } from "@/components/shared/CloseButton";
 import dynamic from "next/dynamic";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { IssuerChat } from "@/components/deepdive/IssuerChat";
 import { useLiveRun } from "@/lib/engine/useLiveRun";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { getIssuer, queryCapabilities, toErrorMessage } from "@/lib/api";
-import { useModalA11y, hasOpenModalA11yOverlay } from "@/lib/use-modal-a11y";
-import { useAuth } from "@/components/shared/AuthProvider";
+import { useModalA11y } from "@/lib/use-modal-a11y";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { CitationViewer } from "@/components/command/CitationViewer";
 import { downloadQueryCsv } from "@/lib/query/export";
@@ -25,6 +24,9 @@ import type { Capability, CapabilitiesResult, GraphResult, GraphNode } from "@/l
 import { ANALYST_MEMO_PROMPT, rankQueryCapabilities } from "@/lib/query/routing";
 import { nativeView, viewsFor, VIEW_LABELS, type QueryView } from "@/lib/query/views";
 import { analysisApi, useAnalysisContext, type QueryRun } from "@/lib/analysis-workbench";
+import { useAsk } from "@/components/shared/AskContext";
+
+export { AskProvider, useAsk } from "@/components/shared/AskContext";
 
 const loadGraphCanvas = () => import("@/components/query/GraphCanvas").then((module) => module.GraphCanvas);
 const loadRelativeValueTable = () => import("@/components/query/RelativeValueTable").then((module) => module.RelativeValueTable);
@@ -58,27 +60,6 @@ function prefetchAskResultRenderers() {
 }
 
 export type QueryPrompt = { id: string; text: string; sub: string };
-
-interface AskCtx {
-  open: boolean;
-  setOpen: (v: boolean) => void;
-  toggle: () => void;
-  /** Open Ask with optional prefilled text — used by the ⌘K palette's
-      "Ask CAOS" passthrough row so typed text is never lost. */
-  openWith: (prefill?: string) => void;
-  /** One-shot prefill consumed by AskModal on open. */
-  prefill: string | null;
-}
-
-const Ctx = createContext<AskCtx>({
-  open: false,
-  setOpen: () => {},
-  toggle: () => {},
-  openWith: () => {},
-  prefill: null,
-});
-
-export const useAsk = () => useContext(Ctx);
 
 const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
   command: [
@@ -145,86 +126,6 @@ const PROMPTS_BY_CONCEPT: Record<string, QueryPrompt[]> = {
   ],
 };
 
-export function AskProvider({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const [prefill, setPrefill] = useState<string | null>(null);
-  const pathname = usePathname() || "";
-  const pathRef = useRef(pathname);
-  pathRef.current = pathname;
-
-  // One toggle for the Ask entry points (Alt+K via ConceptHotkeys and the
-  // header Ask button): the same gesture must do the same thing — on /query it
-  // focuses the query bar, else it toggles the modal. ⌘K/Ctrl+K now belongs to
-  // the global command palette (CommandPalette.tsx), whose "Ask CAOS" row
-  // routes back here through openWith() — muscle-memory text is preserved.
-  const openWith = useCallback((text?: string) => {
-    if (pathRef.current.startsWith("/query")) {
-      // Carry the typed text through — a bare Event has no payload, so
-      // ⌘K → type a question → Enter on /query used to focus (nothing,
-      // actually — see below) an empty composer and silently drop the
-      // question the analyst just typed.
-      window.dispatchEvent(new CustomEvent("caos:query-focus", { detail: { text } }));
-      return;
-    }
-    window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "ask" } }));
-    setPrefill(text ?? null);
-    setOpen(true);
-  }, []);
-
-  useEffect(() => {
-    const fire = () => {
-      if (pathname.startsWith("/query")) {
-        window.dispatchEvent(new Event("caos:query-focus"));
-      } else {
-        if (!open) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "ask" } }));
-        setOpen(!open);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      // AskModal (and anything opened over it, e.g. a citation viewer) is
-      // itself a useModalA11y-tracked overlay whose own topmost-gated
-      // handler already owns Escape correctly. This coordinator-level
-      // listener exists for the inline issuer-scoped Ask panel, which isn't
-      // a useModalA11y dialog — defer whenever a tracked overlay is open so
-      // this doesn't fire in parallel and collapse the wrong layer.
-      if (e.key === "Escape" && !hasOpenModalA11yOverlay()) setOpen(false);
-    };
-    const onAskToggle = () => fire();
-    const onModalOpen = (event: Event) => {
-      if ((event as CustomEvent<{ owner?: string }>).detail?.owner !== "ask") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("caos:ask-toggle", onAskToggle);
-    window.addEventListener("caos:modal-open", onModalOpen);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("caos:ask-toggle", onAskToggle);
-      window.removeEventListener("caos:modal-open", onModalOpen);
-    };
-  }, [pathname, open]);
-
-  // Clear the one-shot prefill when Ask closes so a later plain open is clean.
-  useEffect(() => {
-    if (!open) setPrefill(null);
-  }, [open]);
-
-  const setOpenCoordinated = useCallback((next: boolean) => {
-    if (next) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "ask" } }));
-    setOpen(next);
-  }, []);
-
-  const toggle = useCallback(() => {
-    if (!open) window.dispatchEvent(new CustomEvent("caos:modal-open", { detail: { owner: "ask" } }));
-    setOpen(!open);
-  }, [open]);
-
-  const value = useMemo(
-    () => ({ open, setOpen: setOpenCoordinated, toggle, openWith, prefill }),
-    [open, setOpenCoordinated, toggle, openWith, prefill],
-  );
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
-}
-
 // Where the conversation is scoped. Deep-Dive is split out because it renders
 // its own evidence-aware chat from `open`.
 function scopeFor(pathname: string): "deepdive" | "issuer" | "cross" {
@@ -269,61 +170,17 @@ function IssuerScopedAsk({ onClose }: { onClose: () => void }) {
 }
 
 
-// fallow-ignore-next-line complexity -- Global Ask ownership coordinates route, modal, profile, and issuer-chat lifecycles.
-export function AskLauncher() {
-  const { open, setOpen, toggle } = useAsk();
-  const { user, needsLogin } = useAuth();
-  const pathname = usePathname() || "";
+/** Heavy analytical surface mounted by the lightweight global Ask shell only while open. */
+export function AskOpenSurface({ pathname, onClose }: { pathname: string; onClose: () => void }) {
   const scope = scopeFor(pathname);
 
   useEffect(() => {
-    if (open) prefetchAskResultRenderers();
-  }, [open]);
+    prefetchAskResultRenderers();
+  }, []);
 
-  // Close on navigation — the overlay is transient, so changing concept
-  // shouldn't carry a stale Ask (or pop the wrong-scope surface on arrival).
-  useEffect(() => { setOpen(false); }, [pathname, setOpen]);
-
-  // Gate on a signed-in profile: Ask queries need an analyst identity, and the
-  // launcher must not float over the login landing (it sits in the root layout,
-  // outside RequireAuth). Loading/error/needs-login all resolve to "not ready".
-  if (!user || needsLogin) return null;
-
-  if (pathname.startsWith("/query")) return null;
-
-  const triggerPosition = pathname.startsWith("/sector") || pathname.startsWith("/command")
-    ? "bottom-16 right-3"
-    : "bottom-3 right-3";
-
-  // Floating trigger, hidden while open. Deep-Dive also has an in-panel ASK
-  // button, but this keeps ⌘K discoverable everywhere.
-  const trigger = !open ? (
-    <button
-      onClick={toggle}
-      onPointerEnter={prefetchAskResultRenderers}
-      onFocus={prefetchAskResultRenderers}
-      title="Ask CAOS (Alt+K, or via the ⌘K palette) — cross-issuer query, or issuer Q&A in Deep-Dive / Model"
-      className={`caos-ask-launcher fixed ${triggerPosition} z-overlay flex items-center gap-1.5 tabular text-caos-md px-2.5 py-1.5 rounded-full border border-caos-accent/60 bg-caos-panel text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring`}
-      style={{ boxShadow: "var(--shadow-pop)" }}
-    >
-      <AskMark /> Ask
-      <span className="tabular text-caos-2xs px-1 rounded border border-caos-border">Alt+K</span>
-    </button>
-  ) : null;
-
-  // Deep-Dive renders its own chat from `open`; the launcher only supplies the trigger.
-  if (scope === "deepdive") return <div className="caos-ask-dock contents">{trigger}</div>;
-  if (!open) return <div className="caos-ask-dock contents">{trigger}</div>;
-
-  // Model and other issuer-scoped concepts → the issuer Q&A slide-over, grounded in
-  // the CURRENT issuer's live run (never the ATLF fixture, unless this IS the
-  // reference deal). Only mounts when open, so useLiveRun fires only on demand. (F11)
-  if (scope === "issuer") {
-    return <div className="caos-ask-dock contents">{trigger}<IssuerScopedAsk onClose={() => setOpen(false)} /></div>;
-  }
-
-  // Everywhere else → the cross-issuer NL query, as a centered modal.
-  return <div className="caos-ask-dock contents"><AskModal pathname={pathname} onClose={() => setOpen(false)} /></div>;
+  if (scope === "deepdive" || pathname.startsWith("/query")) return null;
+  if (scope === "issuer") return <IssuerScopedAsk onClose={onClose} />;
+  return <AskModal pathname={pathname} onClose={onClose} />;
 }
 
 // Cross-issuer NL query — a true modal (backdrop + centered panel), so it gets
@@ -769,12 +626,12 @@ function AskCaveats({ state }: { state: AskModalController }) {
 
 function AskResultMain({ state }: { state: AskModalController }) {
   return (
-    <main className="flex-1 min-w-0 min-h-0 flex flex-col p-4 gap-3 overflow-hidden">
+    <section aria-label="Ask results" className="flex-1 min-w-0 min-h-0 flex flex-col p-4 gap-3 overflow-hidden">
       <AskSuggestionNotice state={state} />
       <AskResultHeader state={state} />
       <AskResultSurface state={state} />
       <AskCaveats state={state} />
-    </main>
+    </section>
   );
 }
 
@@ -791,7 +648,7 @@ function AskReader({ state }: { state: AskModalController }) {
   const node = state.selectedNode;
   if (!state.readerOpen || !node) return null;
   return (
-    <aside className="w-[380px] border-l border-caos-border bg-caos-panel flex flex-col p-4 gap-4 overflow-y-auto shrink-0 relative transition-caos" aria-label="Node detail reader">
+    <aside className="caos-ask-reader w-[380px] border-l border-caos-border bg-caos-panel flex flex-col p-4 gap-4 overflow-y-auto shrink-0 relative transition-caos" aria-label="Node detail reader">
       <div className="flex items-start justify-between pb-2 border-b border-caos-border">
         <div>
           <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-accent font-mono">{node.kind.replace("-", " ")}</span>
@@ -858,10 +715,9 @@ function AskModal({ pathname, onClose }: { pathname: string; onClose: () => void
   );
 }
 
-function AskMark({ small = false }: { small?: boolean }) {
-  const size = small ? "w-3.5 h-3.5" : "w-4 h-4";
+function AskMark() {
   return (
-    <span className={`${size} shrink-0 rounded-sm border border-caos-accent/70 bg-caos-accent/15 text-caos-accent flex items-center justify-center`} aria-hidden="true">
+    <span className="w-4 h-4 shrink-0 rounded-sm border border-caos-accent/70 bg-caos-accent/15 text-caos-accent flex items-center justify-center" aria-hidden="true">
       <svg viewBox="0 0 12 12" className="w-2.5 h-2.5 stroke-current" fill="none" strokeWidth="1.5" strokeLinecap="round">
         <path d="M2 6h8M6 2v8" />
       </svg>

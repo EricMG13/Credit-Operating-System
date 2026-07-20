@@ -154,7 +154,7 @@ function ComparablesPanel({ review }: { review: SectorReviewV2 }) {
   ];
   return (
     <DominantTableRegion ownerId="sector-comparables" label="Sector comparables" className="rounded-md border border-caos-border">
-      <DataTable columns={columns} rows={review.comparables} getRowId={(item) => item.issuer_id ?? item.issuer_name} caption="Sector comparables" />
+      <DataTable columns={columns} rows={review.comparables} getRowId={(item, index) => item.issuer_id ?? `${item.issuer_name}:${index}`} caption="Sector comparables" />
     </DominantTableRegion>
   );
 }

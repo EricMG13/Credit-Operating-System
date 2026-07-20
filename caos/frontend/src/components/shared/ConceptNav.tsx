@@ -18,6 +18,8 @@ import { AnalystBadge } from "./AnalystBadge";
 import { MoreDrawer } from "./MoreDrawer";
 import { RoleViewSwitch } from "./RoleViewSwitch";
 import { NAV_GROUPS, routeMatches } from "@/lib/nav";
+import { AskUtility } from "./AskShell";
+import { preserveDataModeInHref, useDataMode } from "@/lib/data-mode";
 
 /** Full-label concept list in a popover — the guaranteed nav path below the
  *  rail breakpoint. The icon chip row is a quick-jump enhancement that can
@@ -32,11 +34,11 @@ function ConceptsDrawer({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <MoreDrawer open={open} onOpenChange={setOpen} triggerLabel="Concepts" align="left">
+    <MoreDrawer open={open} onOpenChange={setOpen} triggerLabel="Workflows" triggerId="workflow-disclosure" align="left">
       <div className="border-b border-caos-border/60 px-2 pb-2">
         <RoleViewSwitch />
       </div>
-      <nav aria-label="All concepts" className="flex max-h-[70vh] flex-col gap-1 overflow-y-auto">
+      <nav aria-label="All Workflows" className="flex max-h-[70vh] flex-col gap-1 overflow-y-auto">
         {NAV_GROUPS.map((g) => (
           <section key={g.id} aria-label={g.label}>
             <h2 className="px-2 pt-1 text-caos-2xs uppercase tracking-widest text-caos-muted select-none">{g.label}</h2>
@@ -153,6 +155,7 @@ const ICONS: Record<string, Icon> = {
 
 export function ConceptNav({ compact = false }: { compact?: boolean }) {
   const pathname = usePathname();
+  const dataMode = useDataMode();
   const [analysisContextId, setAnalysisContextId] = useState<string | null>(null);
   useEffect(() => {
     setAnalysisContextId(new URLSearchParams(window.location.search).get("context"));
@@ -163,9 +166,11 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
     window.addEventListener("caos:analysis-context", onContext);
     return () => window.removeEventListener("caos:analysis-context", onContext);
   }, [pathname]);
-  const preserveContext = (href: string) => analysisContextId
-    ? `${href}${href.includes("?") ? "&" : "?"}context=${encodeURIComponent(analysisContextId)}`
-    : href;
+  const preserveContext = (href: string) => {
+    const url = new URL(href, "https://caos.invalid");
+    if (analysisContextId) url.searchParams.set("context", analysisContextId);
+    return preserveDataModeInHref(`${url.pathname}${url.search}${url.hash}`, dataMode);
+  };
   const Gear = ICONS.settings;
   const settingsActive = pathname.startsWith("/settings");
   return (
@@ -179,19 +184,21 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
       <span className="caos-concept-chips flex flex-1 items-center gap-1 min-w-0 overflow-x-auto">
       <nav
         id="concept-nav"
-        aria-label="Concepts"
+        tabIndex={-1}
+        aria-label={compact ? "Current workflow" : "Concepts"}
         className="flex items-center gap-1 shrink-0"
         title="Tip: hold ALT + ← / → to switch concepts"
       >
         {NAV_GROUPS.map((g, gIdx) => {
           const groupActive = g.items.some((i) => routeMatches(pathname, i.href));
-          // Group labels carry the workflow stage. In compact mode only the
-          // active group is labeled (you-are-here); inactive groups collapse
-          // to a separator so dense page headers still fit at 1280px (RT-60).
-          const showGroupLabel = !compact || groupActive;
+          // Compact mode needs one labelled current workflow beside the
+          // labelled Workflows drawer. Do not render inactive empty wrappers:
+          // their separators consumed header width and read as orphan chrome.
+          if (compact && !groupActive) return null;
+          const showGroupLabel = !compact;
           return (
             <span key={g.id} className="flex items-center gap-1">
-              {gIdx > 0 && <span className="h-4 w-px bg-caos-border mx-0.5" aria-hidden="true" />}
+              {gIdx > 0 && !compact ? <span className="h-4 w-px bg-caos-border mx-0.5" aria-hidden="true" /> : null}
               {showGroupLabel && (
                 <span
                   className="text-caos-2xs uppercase tracking-widest text-caos-muted select-none pl-0.5 pr-0.5"
@@ -208,6 +215,7 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
                 // header; every other page keeps it as the back-link.
                 if (!compact && s.href === "/issuers") return null;
                 const active = routeMatches(pathname, s.href);
+                if (compact && !active) return null;
                 const Glyph = ICONS[s.icon];
                 return (
                   <Link
@@ -237,8 +245,8 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
         })}
       </nav>
       {/* Settings is utility chrome, not a concept — kept outside the Concepts nav. */}
-      <span className="h-4 w-px bg-caos-border mx-0.5" />
-      <Link
+      {(!compact || settingsActive) ? <span className="h-4 w-px bg-caos-border mx-0.5" /> : null}
+      {(!compact || settingsActive) ? <Link
         href={preserveContext("/settings")}
         prefetch={false}
         title="Settings"
@@ -253,8 +261,9 @@ export function ConceptNav({ compact = false }: { compact?: boolean }) {
       >
         <Gear className={settingsActive ? "text-caos-accent" : ""} />
         <span className={compact ? (settingsActive ? "inline" : "hidden") : "inline"}>Settings</span>
-      </Link>
+      </Link> : null}
       </span>
+      {compact ? <span className="caos-ask-compact-utility" role="region" aria-label="Ask utility"><AskUtility /></span> : null}
       {/* Role view (Analyst/PM/QA) — persistent, secondary; presentation
           only. Below the squeeze cutoff the inline toggle collapses out
           (globals.css .caos-compact-view) — its non-shrinking width painted

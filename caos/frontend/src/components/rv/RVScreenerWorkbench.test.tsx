@@ -17,6 +17,13 @@ const controls = vi.hoisted(() => ({
   ratifyRVCandidate: vi.fn(),
 }));
 
+type TestPageAction = { label: string; href?: string; onAction?: () => void; unavailableReason?: string | null };
+function renderPageAction(action?: TestPageAction) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href}>{action.label}</a>;
+  return <button type="button" aria-disabled={action.unavailableReason ? "true" : undefined} data-reason={action.unavailableReason ?? ""} title={action.unavailableReason ?? undefined} onClick={action.unavailableReason ? undefined : action.onAction}>{action.label}</button>;
+}
+
 vi.mock("next/navigation", () => ({ usePathname: () => "/sector-rv" }));
 vi.mock("@/components/shared/RoleViewProvider", () => ({
   useRoleView: () => ({ roleView: controls.roleView, setRoleView: vi.fn(), ready: true }),
@@ -43,8 +50,8 @@ vi.mock("@/components/shared/DominantTableRegion", () => ({
   DominantTableRegion: ({ children, label }: { children: ReactNode; label: string }) => <section aria-label={label}>{children}</section>,
 }));
 vi.mock("@/components/shared/EnterprisePage", () => ({
-  EnterprisePage: ({ identity, status, primaryAction, contextualControls, utilityControls, children }: Record<string, ReactNode>) => (
-    <div>{identity}{status}{primaryAction}{contextualControls}<aside aria-label="RV utilities">{utilityControls}</aside>{children}</div>
+  EnterprisePage: ({ identity, status, primaryAction, contextualControls, utilityControls, children }: Record<string, ReactNode | TestPageAction>) => (
+    <div>{identity as ReactNode}{status as ReactNode}{renderPageAction(primaryAction as TestPageAction | undefined)}{contextualControls as ReactNode}<aside aria-label="RV utilities">{utilityControls as ReactNode}</aside>{children as ReactNode}</div>
   ),
 }));
 vi.mock("@/components/shared/PersonaWorkbench", () => ({
@@ -250,9 +257,9 @@ describe("RV Screener workbench", () => {
     viewport.scrollTop = 0;
     fireEvent.scroll(viewport);
 
-    fireEvent.click(screen.getByRole("tab", { name: "distribution" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Spread distribution" }));
     expect(screen.getAllByTestId("visualization")[0].textContent).toContain("6 instruments");
-    fireEvent.click(screen.getByRole("tab", { name: "table" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Ranked names" }));
 
     for (let index = 0; index < 5; index += 1) {
       fireEvent.click(screen.getAllByRole("button", { name: "Compare" })[0]);
@@ -260,10 +267,10 @@ describe("RV Screener workbench", () => {
     const capped = screen.getByRole("button", { name: "Compare" });
     expect(capped.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(capped);
-    expect(screen.getByRole("tab", { name: "compare (5)" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Compare selected (5)" })).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]);
-    expect(screen.getByRole("tab", { name: "compare (4)" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "compare (4)" }));
+    expect(screen.getByRole("tab", { name: "Compare selected (4)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Compare selected (4)" }));
     expect(screen.getAllByText("All gates satisfied").length).toBeGreaterThan(0);
   });
 
@@ -273,9 +280,15 @@ describe("RV Screener workbench", () => {
     controls.createRVScreen.mockReturnValueOnce(pending.promise);
     render(<RVScreenerWorkbench />);
     expect(await screen.findByText("Immutable snapshot required")).toBeTruthy();
+    expect(screen.queryByLabelText("Decision header")).toBeNull();
+    expect(screen.queryByTestId("visualization")).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "RV evidence inspector" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Run screen" }));
-    fireEvent.click(screen.getByRole("button", { name: "Running…" }));
+    const runningAction = screen.getByRole("button", { name: "Run screen" });
+    expect(runningAction.getAttribute("aria-disabled")).toBe("true");
+    expect(runningAction.getAttribute("data-reason")).toBe("Screen in progress");
+    fireEvent.click(runningAction);
     expect(controls.createRVScreen).toHaveBeenCalledTimes(1);
     await act(async () => pending.resolve(rvScreen({ candidates: [], counts: {} })));
     expect(await screen.findByRole("grid", { name: "Ranked RV candidates" })).toBeTruthy();
@@ -307,9 +320,10 @@ describe("RV Screener workbench", () => {
     expect(screen.getByTestId("findings").textContent).toBe("context-rv:1");
 
     controls.createFinding.mockRejectedValueOnce(new Error("finding offline"));
-    fireEvent.click(screen.getByRole("tab", { name: "table" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Ranked names" }));
     fireEvent.click(within(grid).getByText(/Beta Fiber/).closest('[role="row"]') as HTMLElement);
-    fireEvent.click(screen.getByRole("button", { name: "Monitor threshold" }));
+    fireEvent.click(screen.getByText("More"));
+    fireEvent.click(screen.getByRole("button", { name: "Pin threshold finding" }));
     expect((await screen.findByRole("alert")).textContent).toContain("finding offline");
     expect(controls.createFinding).toHaveBeenLastCalledWith(expect.objectContaining({
       body: "Decision gates missing: live market origin, recovery evidence.",

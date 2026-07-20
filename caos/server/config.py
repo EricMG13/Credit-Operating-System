@@ -234,6 +234,16 @@ class Settings(BaseSettings):
     caos_run_concurrency: int = 2        # max runs executing at once (Postgres worker)
     caos_run_queue_limit: int = 20       # max runs in queued/running status before rejecting
     caos_run_per_analyst_limit: int = 3   # max concurrent/queued runs allowed per analyst
+
+    # Postgres connection pool, per worker process. ``caos_db_pool_size=0``
+    # derives a bounded pool from executor demand while preserving interactive
+    # headroom; set a positive value only after sizing against Postgres
+    # ``max_connections`` × WEB_CONCURRENCY. SQLite and CAOS_TEST do not use
+    # these QueuePool knobs.
+    caos_db_pool_size: int = 0
+    caos_db_max_overflow: int = 5
+    caos_db_pool_timeout_s: float = 30.0
+
     # Max durable Deep Research jobs running at once (research_executor.py). POST
     # returns immediately and fires a background task, so without a ceiling a
     # sustained submission rate would accumulate unbounded multi-minute web-search

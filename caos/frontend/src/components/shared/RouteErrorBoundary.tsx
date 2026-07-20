@@ -8,6 +8,7 @@
 // this same body (fallow duplication finding, code-health audit 2026-07-10).
 
 import { useEffect } from "react";
+import { RouteHeadingOverride } from "@/components/shared/RouteHeading";
 
 export default function RouteErrorBoundary({
   error,
@@ -24,6 +25,7 @@ export default function RouteErrorBoundary({
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-caos-bg px-4">
+      <RouteHeadingOverride title="This view could not load" />
       <div
         role="alert"
         className="w-full max-w-md flex flex-col gap-5 rounded-lg border border-caos-border bg-caos-panel p-7"
@@ -32,7 +34,7 @@ export default function RouteErrorBoundary({
           <span className="font-mono text-caos-sm uppercase tracking-[0.2em] text-caos-critical">
             View error
           </span>
-          <h1 className="text-caos-text text-lg font-semibold">This view could not load</h1>
+          <h2 className="text-caos-text text-lg font-semibold">This view could not load</h2>
           <p className="text-caos-muted text-xs">
             Work on other CAOS surfaces is unchanged. Reload this view; if it fails again, refresh the workspace and quote the reference below.
           </p>

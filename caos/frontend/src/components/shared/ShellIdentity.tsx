@@ -1,9 +1,10 @@
 "use client";
 
 import { ConceptNav } from "./ConceptNav";
+import { DataModeMarker } from "./DataMode";
 
 function Divider() {
-  return <div className="h-4 w-px shrink-0 bg-caos-border" aria-hidden="true" />;
+  return <span className="caos-shell-identity-detail h-4 w-px shrink-0 bg-caos-border" aria-hidden="true" />;
 }
 
 export function ShellIdentity({
@@ -29,12 +30,13 @@ export function ShellIdentity({
   titleAs?: "span" | "h1" | "h2";
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className="caos-shell-identity flex min-w-0 items-center gap-3">
+      <DataModeMarker />
       {showConceptNav ? <ConceptNav compact /> : null}
       {tag && (
         <>
           <Divider />
-          <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap shrink-0">
+          <span className="caos-shell-identity-detail tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap shrink-0">
             {tag}
           </span>
         </>
@@ -42,14 +44,14 @@ export function ShellIdentity({
       {/* Badges shrink and truncate before the title does — a non-shrinking
           badge (e.g. a model id) in this no-wrap row otherwise pushes the
           strip into its overflow-hidden clip at narrow desktop widths. */}
-      {badges ? <span className="flex min-w-0 shrink items-center gap-3 overflow-hidden">{badges}</span> : null}
+      {badges ? <span className="caos-shell-identity-detail flex min-w-0 shrink items-center gap-3 overflow-hidden">{badges}</span> : null}
       {title && (
         <Title
           title={typeof title === "string" ? title : undefined}
-          className="text-caos-md font-semibold leading-tight text-caos-text whitespace-nowrap min-w-0 truncate m-0"
+          className="caos-shell-identity-title font-semibold leading-tight text-caos-text whitespace-nowrap min-w-0 truncate m-0"
         >{title}</Title>
       )}
-      {children}
+      {children ? <span className="caos-shell-identity-detail flex min-w-0 items-center gap-3 overflow-hidden">{children}</span> : null}
     </div>
   );
 }

@@ -529,10 +529,12 @@ def test_reports_19_vault_export_rejects_a_missing_run(client, tmp_path, monkeyp
 
 
 def test_reports_26_27_committee_export_endpoint_enforces_then_clears_the_gate(client, atlf_run):
-    """reports-26/reports-27: the route refuses Restricted and renders Ready."""
+    """reports-26/reports-27: missing and Restricted fail; Ready renders."""
     import asyncio
 
     from database import AsyncSessionLocal, Run
+
+    assert client.post("/api/runs/missing/report").status_code == 404
 
     restricted = client.post(f"/api/runs/{atlf_run['id']}/report")
     assert restricted.status_code == 409

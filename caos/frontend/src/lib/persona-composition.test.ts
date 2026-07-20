@@ -8,6 +8,17 @@ import {
   getSurfaceComposition,
 } from "./persona-composition";
 
+const legacyCompatibleComposition: SurfaceComposition = {
+  surface: "command",
+  persona: "analyst",
+  slotOrder: ["primary"],
+  dominantRepresentation: "table",
+  defaultOpenPanels: ["primary"],
+  summaryDensity: "detailed",
+  emphasizedSlot: "primary",
+  summaryLimit: null,
+};
+
 describe("persona composition registry", () => {
   it("covers every analysis surface for every presentation persona", () => {
     expect(Object.keys(PERSONA_COMPOSITIONS).sort()).toEqual(
@@ -38,11 +49,40 @@ describe("persona composition registry", () => {
     expect(densities).toHaveLength(3);
     expect(panels).toContain("custom-domain-panel");
     expect(lens).toBe("analyst");
+    expect(legacyCompatibleComposition.leadingDataset).toBeUndefined();
+    expect(legacyCompatibleComposition.actionPriority).toBeUndefined();
     expect(getSurfaceComposition("model", "pm").dominantRepresentation).toBe("model");
     expect(getSurfaceComposition("reports", "qa").dominantRepresentation).toBe("document");
     expect(getSurfaceComposition("pipeline", "pm").dominantRepresentation).toBe("graph");
     expect(getSurfaceComposition("query", "analyst").dominantRepresentation).toBe("graph");
-    expect(getSurfaceComposition("issuers", "analyst").tableColumnPreset).toBe("coverage");
+    expect(getSurfaceComposition("issuers", "analyst").tableColumnPreset).toBeUndefined();
+    expect(getSurfaceComposition("issuers", "analyst").actionPriority).toBeUndefined();
     expect("tablePreset" in getSurfaceComposition("issuers", "analyst")).toBe(false);
+  });
+
+  it("defines surface-specific analyst, PM, and QA operating compositions", () => {
+    expect(getSurfaceComposition("command", "analyst")).toMatchObject({
+      emphasizedSlot: "primary",
+      leadingDataset: "coverage",
+      summaryLimit: null,
+      summaryDensity: "detailed",
+      tableColumnPreset: undefined,
+    });
+    expect(getSurfaceComposition("command", "pm")).toMatchObject({
+      emphasizedSlot: "decision",
+      leadingDataset: "changes",
+      summaryLimit: 4,
+      summaryDensity: "compact",
+      tableColumnPreset: "pm-delta",
+    });
+    expect(getSurfaceComposition("monitor", "qa")).toMatchObject({
+      emphasizedSlot: "inspector",
+      leadingDataset: "governance",
+      summaryDensity: "standard",
+      tableColumnPreset: "qa-gates",
+    });
+    expect(getSurfaceComposition("monitor", "qa").defaultOpenPanels).toContain("inspector");
+    expect(getSurfaceComposition("monitor", "pm").defaultOpenPanels).not.toContain("context");
+    expect(getSurfaceComposition("monitor", "pm").defaultOpenPanels).not.toContain("inspector");
   });
 });

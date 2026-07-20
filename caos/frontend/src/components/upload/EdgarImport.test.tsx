@@ -72,12 +72,13 @@ describe("EdgarImport", () => {
     expect(await screen.findByText(/u\/bad — 404 not found/)).toBeTruthy();
   });
 
-  it("shows the not-configured guidance on a 503", async () => {
+  it("shows administrator guidance when SEC import is unavailable", async () => {
     vi.mocked(edgarVaultUrls).mockRejectedValue({ response: { status: 503 } });
     render(<EdgarImport issuer={issuer} runMode="legal" />);
     fireEvent.change(screen.getByLabelText("Public EDGAR document URLs"), { target: { value: "u/ex10" } });
     fireEvent.click(screen.getByText("VAULT URL"));
-    expect(await screen.findByText(/not configured/i, { exact: false })).toBeTruthy();
+    expect(await screen.findByText(/SEC filing import is unavailable/i, { exact: false })).toBeTruthy();
+    expect(screen.getByText(/workspace administrator/i, { exact: false })).toBeTruthy();
   });
 
   it.each([

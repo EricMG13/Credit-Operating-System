@@ -51,6 +51,7 @@ const harness = vi.hoisted(() => {
     edgarVaulted: null as null | ((vaulted: EdgarVaultResult) => void),
     fileProps: null as FileStepProps | null,
     resultProps: null as ResultStepProps | null,
+    renderRealResult: false,
     patch: vi.fn(),
     push: vi.fn(),
     createIssuer: vi.fn(),
@@ -142,6 +143,7 @@ vi.mock("@/components/upload/steps", async (importOriginal) => {
     },
     ResultStep: (props: ResultStepProps) => {
       harness.resultProps = props;
+      if (harness.renderRealResult) return <actual.ResultStep {...props} />;
       return <div>
         <span>RESULT {props.okCount} OK {props.failCount} FAIL {props.totalChunks} CHUNKS</span>
         {props.outcomes.map((outcome) => <div key={outcome.name}>{outcome.name}: {outcome.result ? "vaulted" : outcome.error}</div>)}
@@ -191,6 +193,7 @@ beforeEach(() => {
   harness.edgarVaulted = null;
   harness.fileProps = null;
   harness.resultProps = null;
+  harness.renderRealResult = false;
   harness.context.issuer_ids = [];
   harness.context.surface_state = {};
   harness.patch.mockImplementation(async (body: Partial<AnalysisContext>) => scopedContext(body));
@@ -326,9 +329,10 @@ describe("UploadWizard interactions", () => {
     expect(screen.getByText("linked.pdf: vaulted")).toBeTruthy();
   });
 
-  it("cancels between files and blocks a re-entrant batch", async () => {
+  it("materializes a canceled remainder as partial persistence and makes it retryable", async () => {
     const pending = deferred<ReturnType<typeof uploadResult>>();
     harness.uploadDocument.mockReturnValueOnce(pending.promise);
+    harness.renderRealResult = true;
     render(<UploadWizard initialIssuers={[issuerA]} />);
     fireEvent.click(screen.getByRole("button", { name: "Pick Alpha Credit" }));
     act(() => harness.drop?.([
@@ -344,9 +348,19 @@ describe("UploadWizard interactions", () => {
     act(() => harness.fileProps?.onCancel());
     await act(async () => pending.resolve(uploadResult("first")));
 
-    await waitFor(() => expect(screen.getByText("first.pdf: vaulted")).toBeTruthy());
+    expect(await screen.findByText("Intake partially complete · 1/2 vaulted.")).toBeTruthy();
+    expect(screen.getByText("1/2 vaulted · 2 chunks")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "CP-0 intake completion" }).getAttribute("data-persistence")).toBe("partial");
+    expect(screen.getByText("first.pdf")).toBeTruthy();
+    expect(screen.getByText("second.pdf")).toBeTruthy();
+    expect(screen.getByText("Not processed — intake canceled.")).toBeTruthy();
+    const retry = screen.getByRole("button", { name: /RETRY 1 FAILED/i });
     expect(harness.uploadDocument).toHaveBeenCalledTimes(1);
     expect(harness.createRun).not.toHaveBeenCalled();
+
+    fireEvent.click(retry);
+    await waitFor(() => expect(harness.uploadDocument).toHaveBeenCalledTimes(2));
+    expect((harness.uploadDocument.mock.calls[1]?.[0] as FormData).get("file")).toMatchObject({ name: "second.pdf" });
   });
 
   it("deep-links an existing issuer and surfaces selection-context and manual-run failures", async () => {

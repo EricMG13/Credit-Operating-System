@@ -2219,3 +2219,609 @@ Reopen if any request reaches `:8000` or `:8010`; the scratch database or
 storage path is not demonstrably isolated; a provider credential is present;
 expected backpressure is reported as a defect; the claimed fault cannot be
 reproduced; or product code is changed before the observed fault is recorded.
+
+## 2026-07-19 — Model Builder calculation-correction critic pass
+
+Decision under review: correct the seven verified Model Builder calculation
+defects across the live v2 engine, cross-module scenario rail, and ATLF-only
+reference calculator without broadening the two explicitly disclosed scenario
+model limitations.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-530 | Credit-methodology reviewer | Annualising one quarter of EBITDA would replace a known basis error with a seasonality-sensitive proxy that could still be read as covenant/LTM leverage. | Critical | Resolved fail-closed | Calculate leverage only for a 12-month EBITDA basis; for every other period retain debt and EBITDA but return no leverage and name the missing 12-month basis. Interest coverage remains period-consistent because both EBITDA and interest are period flows. |
+| RT-2026-07-19-531 | Cash-flow reviewer | Rejecting negative tax or capex could hide legitimate refunds or asset-sale proceeds. | High | Resolved by explicit sign contract | Preserve taxes and capex as non-negative outflow fields, including analyst overrides. Route refunds, proceeds, and other signed sources through `other_cash_flow`, matching the published workbook contract; negative outflow inputs fail closed rather than increasing FCF. |
+| RT-2026-07-19-532 | Debt-schedule reviewer | Splitting balance and interest completeness could accidentally aggregate a partial instrument set and understate debt. | Critical | Resolved with independent all-instrument gates | Keep the existing every-instrument period-row requirement for both gates; aggregate total debt only when every instrument has a usable reporting-currency balance, and aggregate cash interest only when every instrument has usable interest. One incomplete rate row can no longer erase a complete balance set. |
+| RT-2026-07-19-533 | Async-state reviewer | Merely clearing scenario results in an effect leaves a stale render frame and lets an older request overwrite a newer shock. | High | Resolved by request identity | Key result, pending, and error state to issuer + run + EBITDA shock + rate shock. Render only an exact-key response and echo its run/shock basis; old in-flight results may settle but cannot become visible or block a new-key request. |
+| RT-2026-07-19-534 | Forecast-methodology reviewer | Rebuilding interest from hard-coded spreads could still fail to reproduce the embedded agent baseline and would ignore fees/hedges already captured by the seeded cash-interest line. | High | Resolved by baseline-plus-delta | Make the embedded annual cash-interest and SOFR curve authoritative. Apply one explicit SOFR delta to the floating debt base, then apply the analyst cash-interest multiplier. Remove the unused EURIBOR/SONIA controls and exports from the USD/SOFR ATLF reference model. |
+| RT-2026-07-19-535 | Persistence reviewer | Changing the SOFR assumption from an absolute rate to a delta can corrupt previously saved reference sessions. | High | Resolved with backward-compatible parser | Introduce a versioned `sofrDelta` field and migrate legacy absolute `sofrRate` values into per-year deltas against each case's embedded curve; unknown EURIBOR/SONIA values are dropped. New defaults remain true no-ops. |
+| RT-2026-07-19-536 | Distress-output reviewer | A generic positive-denominator guard could blank valid negative FCF/debt ratios or net-cash positions along with meaningless leverage. | High | Resolved per-ratio | Require positive adjusted EBITDA only for leverage/coverage and positive interest only for coverage; retain signed numerators and require only a positive debt denominator for FCF/debt. Add direct negative-EBITDA regression coverage. |
+
+### Critic reopen conditions (Model Builder calculations)
+
+Reopen if any subannual period emits leverage; a negative tax/capex input or
+override increases FCF; incomplete interest erases complete debt balances; a
+scenario result survives an issuer/run/shock change; default ATLF interest no
+longer ties to its seeded annual line and curve; a removed currency control is
+still exported; or non-positive EBITDA renders a leverage/coverage multiple.
+
+## 2026-07-19 — All-surface frontend design-audit critic pass
+
+Decision under review: classify the current 18-route CAOS frontend as a shared
+experience-architecture redesign while preserving its institutional visual
+system, evidence/provenance model, Report Studio paper identity, and explicit
+state grammar.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-537 | Scope-control reviewer | A product-wide redesign recommendation can become an aesthetic rewrite that destroys the strongest existing assets and exceeds the evidence. | Critical | Resolved by preserve/discard boundary | Preserve the dark terminal tokens, light report paper, evidence/provenance primitives, keyboard/focus contracts, and explicit live/demo/reference states. Limit structural redesign to persona composition, navigation hierarchy, high-stakes action semantics, and narrow task contracts. |
+| RT-2026-07-19-538 | Visual-evidence reviewer | Dated 13 July captures could cause already-fixed overflows to be reported as current defects. | High | Resolved by current render matrix | Treat old captures only as regression history. Base current visual findings on the fresh 1440×900 and 390×844 route matrices, current source, and rendered axe output. |
+| RT-2026-07-19-539 | Buy-side workflow reviewer | Preserving every desktop control at 390 px can be mistaken for responsive completeness even when the credit task becomes unreadable or requires blind lateral panning. | Critical | Resolved by task-capability standard | Judge narrow modes by whether the role can complete the intended task, not by DOM presence. Give Report, Pipeline, Model, directory tables, and tab bands explicit read/triage or authoring contracts with visible handoff. |
+| RT-2026-07-19-540 | Persona reviewer | A role-view redesign could accidentally change permissions or hide shared facts, creating governance risk. | Critical | Resolved by composition-only boundary | Recompose priority, density, summaries, columns, and default panes while keeping the underlying authorized dataset and actions invariant; verify each persona against the same data authority. |
+| RT-2026-07-19-541 | Delivery reviewer | Scoring the worst instance across 18 routes can overstate product failure and encourage a full rebuild rather than targeted shared-shell changes. | High | Accepted with explicit interpretation | The mechanical Rams total determines REDESIGN, but the handoff must redesign the shared information architecture and role/task contracts, not rebuild every route or replace the visual language. Route-specific faults remain a sequenced remediation register. |
+
+### Critic reopen conditions (all-surface frontend design audit)
+
+Reopen if the proposed work changes brand tokens or Report Studio paper without a
+new evidence basis; changes role permissions or data authority; cites old
+captures as current truth; claims narrow support from element presence alone; or
+turns the mechanical REDESIGN verdict into an unbounded rewrite of all route
+implementations.
+# Desktop/tablet remediation implementation gate — 2026-07-19
+
+Scope: implement the approved 71-finding CAOS frontend remediation while
+excluding phone-specific task redesign. The design contract remains the dark
+institutional workspace, light Report paper, evidence authority, immutable
+finalization, and presentation-only role views.
+
+## Critic objections and binding mitigations
+
+1. **A big-bang persona or EnterprisePage API rewrite could break every route.**
+   GitNexus reports CRITICAL upstream impact for `PersonaWorkbench` (19 direct
+   consumers), `ConceptNav` (7 direct plus broad transitive reach), `Panel` (53
+   direct), and `EnterprisePage` (21 direct). Mitigation: land additive fields
+   and hooks first, keep current props compatible during migration, add 18-route
+   contract tests, and remove compatibility only after all callers pass.
+2. **Role-specific presentation could accidentally become authorization.**
+   Mitigation: role projections may change order, emphasis, columns, density,
+   and defaults only. Datasets, actions, backend calls, approval authority, and
+   permissions must remain invariant and are asserted in tests.
+3. **Reference mode could become another silent fixture fallback.**
+   Mitigation: live is the only default; `?mode=reference` is explicit and
+   screenshot-visible; missing live data remains an honest empty/unavailable
+   state; fixture bundles never mount in a live result region.
+4. **A generic success state could flatten processed, saved, published, and
+   ratified into one misleading green badge.** Mitigation: preserve
+   `SurfaceState` as non-happy-path and model completion with orthogonal
+   execution, persistence, approval, and freshness axes.
+5. **Typography remediation could destroy Report pagination or terminal
+   density.** Mitigation: separate screen proofing and print floors, paginate
+   rather than shrink, retain 12px dense workspace body and mono/tabular number
+   grammar, and verify both screen and print output.
+6. **Navigation simplification could hide specialist destinations.**
+   Mitigation: `NAV_GROUPS` remains canonical and complete for All Workflows,
+   headings, palette, and concept cycling; role projections alter prominence,
+   never availability.
+7. **Shared fixes could unintentionally expand phone scope.** Mitigation:
+   acceptance is >=768px plus keyboard and real 200% zoom. A 390px smoke only
+   checks mounting, landmarks, crashes, and regression of the existing axe
+   baseline; no phone-specific authoring or review representation is added.
+8. **The dirty worktree could absorb or overwrite parallel changes.**
+   Mitigation: remain on the existing `codex/112` branch so current work is
+   present, inspect overlapping hunks, use `apply_patch`, run explicit diffs,
+   never stage unrelated paths, and do not clean/reset/stash user work.
+
+Decision: proceed only with the mitigations above as release gates. Any shared
+contract that cannot stay additive or any persona change that alters authority
+returns to this critic gate before implementation continues.
+
+## 2026-07-19 — Postgres pool-contention remediation critic pass
+
+Decision under review: replace SQLAlchemy's implicit Postgres pool defaults with
+explicit, environment-configurable sizing coupled to executor concurrency, and
+correct the stress harness's designed-backpressure accounting.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-542 | Database-capacity reviewer | Increasing a per-process pool can multiply across workers, exceed Postgres `max_connections`, and merely move the queue from SQLAlchemy into the database. | Critical | Resolve with bounded auto-size | Keep the supported `WEB_CONCURRENCY` ceiling at two; cap the default auto envelope at 25 connections per worker (20 persistent + five overflow), leaving half of bundled Postgres's default 100 connections for migrations, probes, backups, and operator access. Explicit overrides remain operator-owned and documented. |
+| RT-2026-07-19-543 | Regression reviewer | Passing QueuePool-only arguments to SQLite or test `NullPool` can break local development and the multi-loop test suite. | High | Resolve by dialect/test branch | Apply pool sizing only to Postgres outside `CAOS_TEST`; preserve SQLite engine construction and test `NullPool` unchanged, with direct unit coverage of every branch. |
+| RT-2026-07-19-544 | Latency reviewer | A larger pool may hide slow transactions without fixing connection hold time, while adding CPU and database contention. | High | Resolve by same-oracle verification | Retain the existing transaction lifecycle, instrument checkout/SQL/event-loop waits, and repeat the 300-user issuer probe. Accept the change only if the fixed 500 ms gate passes without errors and SQL/health do not regress. |
+| RT-2026-07-19-545 | Configuration reviewer | Invalid negative sizes or a non-positive timeout can crash deep inside SQLAlchemy with an opaque boot failure. | High | Resolve fail-fast | Validate the resolved Postgres pool parameters before engine creation and raise a configuration-specific `ValueError`; exercise auto, explicit, SQLite, test, and invalid cases. |
+| RT-2026-07-19-546 | QA-signal reviewer | The tracked Locust client currently counts the report route's documented per-principal 429 as an application failure, contaminating the verification oracle. | High | Resolve in harness only | Accept 200/409/429 for report generation, preserve NL 429 handling, and keep all other statuses as failures. Do not weaken the product route or global failure oracle. |
+
+### Critic reopen conditions (Postgres pool remediation)
+
+Reopen if the default two-worker envelope can exceed 50 application
+connections; SQLite or `CAOS_TEST` receives QueuePool arguments; 300-user p95
+still exceeds 500 ms; any unexpected HTTP/5xx error appears; SQL p95 or recovery
+materially regresses; or the stress harness treats an undocumented response as
+success.
+
+## 2026-07-19 — HTTP policy middleware consolidation critic addendum
+
+Decision under review: replace four function-style FastAPI middleware layers
+with one raw ASGI policy layer after the pool-only remediation failed the
+300-user latency gate and an isolated upper-bound test cleared it when those
+layers were removed.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-553 | Security-boundary reviewer | Consolidation can silently change the established access-log → CSRF → edge-proof → security-header order, allowing an untrusted browser mutation to reach a route or causing a rejected request to disappear from telemetry. | Critical | Resolve by explicit control flow | Keep access telemetry outermost, evaluate CSRF before the edge proof as the current runtime stack does, apply the edge exemption only to `/api/health`, and inject response policy headers around every downstream or short-circuit response. Pin both 401 and 403 paths in integration tests. |
+| RT-2026-07-19-554 | HTTP-semantics reviewer | Rebuilding response headers can collapse duplicate fields such as `Set-Cookie`, overwrite a route's stricter cache policy, or omit policy headers from 413/414 responses emitted by the inner request-limit layer. | Critical | Resolve at `http.response.start` | Mutate the ASGI response-start message in place through `MutableHeaders`, use set-if-absent semantics, and leave all unrelated raw header entries untouched. Keep the request-limit middleware inside the policy layer and retain its 413/414 regression tests. |
+| RT-2026-07-19-555 | Streaming reviewer | A middleware optimized for timing may buffer response bodies or emit the access event before a streaming response actually completes. | High | Resolve without body interception | Forward every ASGI message immediately, capture status and declared content length only from response start, and emit the access event after the downstream application returns. Do not inspect, join, or retain body chunks. |
+| RT-2026-07-19-556 | Telemetry reviewer | Short-circuit responses or duplicated send callbacks can produce no event or multiple events, corrupting threat-detection volume and duration signals. | High | Resolve with request-scoped state | Capture a single status/volume pair per API scope and emit exactly once after completion; add tests asserting one 401 event, one 403 event, and preservation of 413/414 events. Static paths remain intentionally silent. |
+| RT-2026-07-19-557 | Performance reviewer | Removing `BaseHTTPMiddleware` in a diagnostic wrapper proves an upper bound but not that the combined production policy layer, synchronous access logging, and pool sizing clear the real gate. | Critical | Resolve by repeated release oracle | Run the uninstrumented product with all policies and access logging enabled at 300 users for three repetitions. Accept only if every issuer probe p95 is below 500 ms, no unexpected failures occur, and the tracked mix remains valid. |
+
+### Critic reopen conditions (HTTP policy middleware consolidation)
+
+Reopen if policy order changes; any 401/403/413/414 response lacks the standard
+security/cache headers or a single access event; duplicate response headers are
+collapsed; a response body is buffered; static traffic enters the access feed;
+or any of three 300-user verification repetitions misses the 500 ms issuer p95
+gate.
+
+## 2026-07-19 — Task 2A shared hierarchy/accessibility critic pass
+
+Decision under review: centralize route titles in the canonical navigation
+registry, move Ask into breakpoint-owned shell utilities, make Panel scroll
+focusability measurement-driven, and raise shared/report type floors.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-547 | Navigation architecture | A second route-title map can drift from `NAV_GROUPS`, recreating the exact wrong-heading defect while appearing centralized. | High | Resolved in design | Derive workflow titles from `NAV_GROUPS`; keep only explicit utility and more-specific dynamic-route metadata beside that registry, with longest-match resolution and unknown fallback tests. |
+| RT-2026-07-19-548 | Keyboard accessibility | Unconditionally focusable Panel bodies add dozens of inert tab stops, while resize-only measurement goes stale after late report content or font/layout changes. | Critical | Resolved in design | Focus only real overflow; observe the owner and content with `ResizeObserver` plus subtree `MutationObserver`; remeasure collapse transitions; retain the named visible focus treatment and avoid focusing or blurring during reclassification. |
+| RT-2026-07-19-549 | Shell interaction | Moving Ask can break Alt+K, Query-route focus routing, issuer grounding, or modal focus restore if trigger and overlay ownership are split inconsistently. | Critical | Resolved in design | Keep `AskProvider` as the sole state/route coordinator and `AskLauncher` as the sole overlay owner; add a shared utility trigger in the wide rail and compact header, preserving the existing `toggle`, route exclusions, modal components, and scope resolver. |
+| RT-2026-07-19-550 | Report production | Raising preview text by selector alone can overflow the fixed appendix or make print unusable, prompting a later regression back to microtype. | High | Resolved in design | Enforce separate screen and print floors; let screen paper widen/flow inside its named scroll owner and let print paginate/flow rather than scale below 9.5pt body and 8pt table/appendix floors. Pin both media contracts in executable CSS tests. |
+| RT-2026-07-19-551 | Design governance | A color-literal gate can become meaningless if whole directories are allowlisted, or brittle if comments/test fixtures and non-color identifiers such as run numbers are treated as colors. | High | Resolved in design | Scan production style-bearing files, permit root token declarations and an explicit file-level chart-rendering allowlist only, ignore tests/comments, and replace shared/report CSS literals with semantic variables before enabling the gate. |
+| RT-2026-07-19-552 | Parallel-work reviewer | Shared shell files overlap Task 1 dirty work; wholesale rewrites could erase reviewed persona navigation and skip-target repairs. | Critical | Resolved by execution constraint | Use narrow `apply_patch` hunks, retain role projections/drawers/skip ids unchanged, run the Task 1 62-test suite with Task 2A tests, and review explicit-path diffs only. |
+
+Decision: proceed with additive registry metadata, a shared Ask utility trigger,
+observer-driven Panel measurement, and media-specific type floors. Reopen if a
+route title is sourced outside the canonical registry seam, Ask creates two
+visible triggers at a supported width, or a fitting Panel enters the tab order.
+
+### Task 2A independent-review repair addendum
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-562 | Policy-gate reviewer | A documentary chart list or stylesheet-only regex can advertise production-wide governance while missing literals in TS/TSX and the very Report components under remediation. | Critical | Resolved | Add a recursive production-source scanner over `src/app`, `src/components`, and `src/lib`; exclude tests, consume an imported exact allowlist, permit only the `:root` token block plus the centralized CSS-independent token module, and prove allowed/rejected fixtures including four-digit hex. |
+| RT-2026-07-19-563 | Recovery semantics reviewer | Demoting local recovery titles leaves the sole global `h1` describing the requested route rather than the screen actually rendered. Adding local `h1`s would instead duplicate the outline. | Critical | Resolved | Keep one global `h1`; derive auth/loading/error titles directly from auth state and add a shared client override for mode-specific login and route-error titles. Unknown paths resolve to `Page not found`; root global error retains its standalone accurate `h1`. Rendered tests count exactly one and assert its accessible name. |
+| RT-2026-07-19-564 | Zoom-verification reviewer | A 768px emulated viewport does not exercise Chrome zoom state, host-specific zoom overrides, native rounding, or browser-zoom layout behavior. | High | Resolved | Use a dedicated headed Chrome profile, select 200% in Chrome's own Appearance UI, remove the localhost 100% host override through Chrome's native Zoom levels UI, and require zoom setting 2, DPR 4, outer/inner 1728/864, and `visualViewport.scale === 1` before route checks. |
+| RT-2026-07-19-565 | Compact-header reviewer | Preserving a long Report caveat as ordinary identity detail can clip the provenance chip or push utilities/primary action out at native 200% zoom. | High | Resolved | Move the must-survive provenance into `ShellIdentity.badges`, hide only secondary explanatory prose below the wide rail breakpoint, and assert settled DOMRects for Report utilities and the primary action remain inside the 864px layout viewport. |
+| RT-2026-07-19-566 | Dynamic-content reviewer | Even when every shell/recovery surface owns exactly one `h1`, authored or model-generated Research Markdown can inject another `h1` at runtime and invalidate the route outline. | Critical | Resolved | Override ReactMarkdown's authored `h1` renderer at the `ReportBody` boundary so its content remains visible as a paper-styled `h2`; retain the GFM table renderers and prove both the no-`h1` heading contract and numeric alignment in the rendered component test. |
+
+Decision: the repaired contracts are release-gated by the production color scan,
+rendered exact-one-heading cases, the standard axe viewport matrix, and the
+separate native Chrome 200% audit. Reopen if a new production literal bypasses
+the exact allowlist, an override or dynamic Markdown creates a second `h1`, or
+Chrome reports zoom 2 without the corresponding DPR/layout-viewport change.
+
+## 2026-07-19 — Task 2B typed page-action critic pass
+
+Decision under review: replace arbitrary `EnterprisePage.primaryAction` nodes
+with one discriminated link-or-callback contract, migrate every route, and
+correct the Model, Sector, Report, Sponsors, and IC Book action hierarchy.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-567 | Shared-contract reviewer | An arbitrary-node compatibility path would preserve multi-action primaries and let future routes bypass the one-effect guarantee. | Critical | Resolved in design | Export one `PageAction` union from `EnterprisePage`, accept no React-node escape hatch, migrate every direct caller in the same task, and render the action only at the shared boundary. |
+| RT-2026-07-19-568 | Keyboard reviewer | Turning unavailable hrefs into ordinary links with only `aria-disabled` would still navigate, while native-disabled callbacks would disappear from the tab order. | Critical | Resolved in design | Render live hrefs as links; render unavailable href or callback actions through the guarded `Button`/`ActionReason` path with a stable label, visible-on-attempt and screen-reader reason, no native `disabled`, and no callback/navigation effect. |
+| RT-2026-07-19-569 | Model-authority reviewer | Simplifying Model header actions could change checkpoint authority, calculation state, or erase parallel Model v2/report work. | Critical | Resolved by execution constraint | Change only action descriptors and utility placement. Legacy Save checkpoint keeps its existing handler/guards and Export keeps its existing handler in Model utilities; Model v2 keeps the state-dependent immediate handler while collapsing each state to one primary. No engine, checkpoint, revision, or calculation code changes. |
+| RT-2026-07-19-570 | Hierarchy reviewer | Promoting Sector refresh or IC Book add without removing the old entry point would merely relocate duplication and still create competing primaries. | High | Resolved in design | Sector's refresh branch leaves the finalization bar actionless while the header owns Request refresh; IC Book's empty state names the single header action instead of rendering a second Add control. |
+| RT-2026-07-19-571 | Skip-target reviewer | Omitting Sponsors' unavailable primary can leave the global page-actions skip link pointing to a dead target. | High | Resolved by existing shell contract | Preserve `SubHeader`'s honest focusable no-action target when `primaryAction` is absent; assert live, unavailable, and no-action skip states after migration. |
+| RT-2026-07-19-572 | Regression reviewer | A CRITICAL 20-caller migration can silently change labels or immediate effects on otherwise unrelated routes. | Critical | Resolved by verification plan | Inventory every `EnterprisePage` call, pin route label/effect pairs in focused tests, compile the exclusive union, scan rendered primaries for at most one interactive descendant and no native disabled state, then run Task 1/2A regressions plus desktop/tablet axe. |
+
+Decision: proceed with a single typed shared renderer and full call-site
+migration. Reopen if any route needs arbitrary action markup, any unavailable
+action navigates/fires, Model handlers differ from their current authority, or
+the page-action region contains more than one interactive descendant.
+
+### Task 2B independent-review repair addendum
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-579 | Shared-renderer reviewer | A live callback can supply `PageAction.title`, but the callback renderer drops it; an unavailable action must still expose the blocking reason instead of that live-state title. | High | Resolved | Thread the optional title through `EnterprisePage`, `Button`, and `ActionReason`; use `unavailableReason || actionTitle` so the blocking reason has explicit precedence, and pin both live and inert cases in the shared contract test. |
+| RT-2026-07-19-580 | Accessible-name reviewer | Busy-state prose in `label` changes an action's accessible name during activation, making assistive-technology and voice-control targeting unstable across Model, Sector, Query, Research, RV, Report, and Deep-Dive. | High | Resolved | Keep labels operation-based and invariant across ready/busy/unavailable transitions; carry progress through `unavailableReason` or existing status surfaces, statically audit the known descriptors, and exercise representative transitions in rendered tests. |
+
+Decision: the repaired contract is release-gated by title-precedence coverage,
+stable ready-to-busy accessible names, focusable inert behavior, TypeScript,
+focused lint, and scoped change detection. Reopen if progress text re-enters a
+`PageAction.label` or a blocking reason loses title precedence.
+
+## 2026-07-19 — Issuer direct-evidence and distress-rating critic pass
+
+Decision under review: reconcile the 23 remaining Issuer tracker gaps to
+assertion-level evidence and add a non-color distress cue to the register's
+Rating cell.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-558 | Accessibility reviewer | Adding only an accessible label would still leave a sighted colorblind analyst dependent on the existing critical-red rating text. | High | Resolve with visible and AT cues | Pair a compact critical glyph with explicit screen-reader text inside the existing Rating gridcell; retain the agency rating as visible text and keep the row's interaction model unchanged. |
+| RT-2026-07-19-559 | Dense-table reviewer | A verbose badge or added column would reduce scan density, disturb the eight-column grid, or crowd narrow horizontal layouts. | High | Resolve in-cell | Keep the existing column count and width; add only the shared 9px glyph with a one-gap inline layout, and validate the existing semantic grid rather than introducing a new control. |
+| RT-2026-07-19-560 | Evidence-governance reviewer | Mapping an entire Issuer file as direct evidence could overclaim features whose exact behavior is not asserted. | High | Resolve assertion-by-assertion | Map only named test nodes with matching assertions and explicit scenario classifications; keep unproved scenarios Designed even after every Issuer feature has at least one direct node. |
+| RT-2026-07-19-561 | Contract-drift reviewer | Reusing the legacy feature prose would preserve retired claims such as two profile ratings, G2-only trend charts, or a hardcoded US HY sleeve. | High | Resolve from current source | Override only the drifted rows with the current component behavior before rebuilding; preserve implementation-as-spec and record the correction as a tracker defect. |
+
+Decision: proceed with the in-cell glyph/text cue, exact-node mappings, and
+implementation-derived contract corrections. Reopen if the Rating column count
+changes, row focus/action semantics regress, or any mapping lacks a matching
+assertion in the cited test node.
+
+## 2026-07-19 — Command scenario-closure and position-authority critic pass
+
+Decision under review: close the 44 Command Center feature suites with exact
+scenario evidence, restore the selected-position facts promised by the current
+contract, and fail closed when a profile or Deep-Dive handoff lacks its required
+identity authority.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-573 | Identity reviewer | Rendering a missing ticker as a clickable em dash makes an unnamed-looking control open a profile and conflicts with the distinct company-link action. | High | Resolve by conditional ownership | Render the ticker as an `IssuerLink` only when both issuer id and ticker exist; retain the borrower-name profile link when issuer identity exists, and keep row selection isolated from either nested action. |
+| RT-2026-07-19-574 | Analytical-authority reviewer | A Deep-Dive link with an issuer but no bound run can silently open a newer or unrelated run, breaking the strip's promise to preserve portfolio-snapshot authority. | Critical | Resolve fail closed | Expose Open Deep-Dive only when both issuer id and run id exist; otherwise show an explicit authority-unavailable message. Encode both identifiers and pin the missing-run branch in a rendered test. |
+| RT-2026-07-19-575 | Dense-layout reviewer | Adding maturity, ratings, and governance state to the strip can crowd the bottom action region or make the Close target collide with global utilities. | High | Resolve within the existing wrapping contract | Reuse the compact two-line stat treatment inside the existing flex-wrap strip, combine QA and committee state into one concise value, retain the existing Close control/Ask offset, and verify the route at desktop and narrow viewports. |
+| RT-2026-07-19-576 | Evidence-governance reviewer | Bulk-mapping all seven scenario classes from a route-level pass would turn adjacency into false direct evidence and hide feature-specific gaps. | Critical | Resolve assertion-by-assertion | Attribute only exact named nodes whose assertions exercise the feature/scenario boundary; use shared authentication and rendered route geometry only for their genuine cross-cutting permission and mobile contracts, and keep a fail-closed 44-by-7 status gate. |
+| RT-2026-07-19-577 | Contract-drift reviewer | The tracker still says Open top change changes tabs and focuses a panel, while the product and E2E contract now navigate directly to the encoded top issuer. | High | Resolve from current implementation | Correct the canonical story, expected behavior, edge cases, and trigger to the implemented Deep-Dive action; test unavailable draft/empty/missing-issuer reasons and do not mutate product behavior to satisfy stale prose. |
+| RT-2026-07-19-578 | Concurrency reviewer | Focus refresh, portfolio switching, alert acknowledgement, insight generation, and context autosave can pass happy-path tests while stale completions overwrite newer state. | High | Resolve with existing and targeted race assertions | Map performance only to bounded virtualization, cleanup/race, duplicate-action, serialized-patch, or refresh assertions; do not treat a fast unit duration as a performance oracle, and retain the staged-load/recovery protocol for HTTP performance work. |
+
+Decision: proceed with the identity/authority fixes, implementation-derived
+contract correction, and exact-node evidence closure. Reopen if any missing
+identity renders an actionable dash, Deep-Dive can omit the run binding, the
+strip clips or loses Close at 390px, or the 44-by-7 gate is satisfied by a node
+that does not assert the named scenario.
+
+## 2026-07-19 — Task 2C completion/evidence contract critic pass
+
+Decision under review: add orthogonal completion presentation and one reusable
+evidence-selection list, then adopt them at Upload, Model, Report, Pipeline,
+Deep-Dive, and Report Lineage seams without changing authority or source effects.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-581 | Authority reviewer | A shared “success” component could infer saved, published, ratified, or current from execution completion and recreate F-014 behind a cleaner visual. | Critical | Resolved in design | Keep `SurfaceState` non-happy-path. Require callers to pass four independently typed axes; render only the supplied value or explicit N/A, and add a complete/unsaved/unratified/unknown regression. |
+| RT-2026-07-19-582 | Upload truth reviewer | A zero-success intake can still read CP-0 ready if the new axes are appended beneath the old unconditional headline. | Critical | Resolved in design | Make the completed-result panel title neutral, map zero successful vault writes to execution failed plus persistence unsaved, and pin a rendered zero-success assertion. Task 3 retains ownership of the fuller intake truth-copy rewrite. |
+| RT-2026-07-19-583 | Evidence-authority reviewer | Deduplicating every citation would merge contextual paper claims, provenance inspection, or immutable-version selection with a register browser that has a different effect. | Critical | Resolved by scope boundary | Migrate only Deep-Dive output-register evidence inventories and Report Lineage. Preserve `ReportDoc` paper citations, analytical inline `EvChip`s, provenance controls, and published-version selection unchanged. |
+| RT-2026-07-19-584 | Keyboard reviewer | A visually selected row without a real roving-focus contract can add tab stops or lose the selected source after Arrow/Home/End navigation. | Critical | Resolved in design | Use one listbox row tab stop, selection-following-focus, stable id-keyed refs, Arrow Up/Down and Home/End handling, `aria-selected` plus position/set-size, and one labelled external Open source action. |
+| RT-2026-07-19-585 | Focus reviewer | Moving the modal opener outside each row can cause dialog close to restore focus to a stale row or nowhere. | High | Resolved in design | Open from the shared action itself so the existing modal focus hook captures that element; do not remount the action on selection, and test close/restoration through the affected Report/Deep-Dive integration path. |
+| RT-2026-07-19-586 | Parallel-work reviewer | Model, Report, Pipeline, Deep-Dive and their tests already contain reviewed remediation or user WIP; broad rewrites could erase Task 1/2A/2B behavior. | Critical | Resolved by execution constraint | Use additive imports and tight `apply_patch` hunks, keep source IDs and handlers byte-for-byte, add new contract tests where practical, and review explicit-path diffs before verification. |
+
+Decision: proceed with caller-owned independent axes and a listbox-plus-shared-
+opener evidence contract. Reopen if any axis is derived inside the shared
+component, an inline paper citation is removed, a selected row becomes an
+additional modal opener, or zero successful uploads can render execution
+complete/CP-0 ready.
+
+## 2026-07-19 — Task 3A live/reference boundary critic pass
+
+Decision under review: introduce URL-addressable live/reference mode at the
+shared shell and make Profile, Research, and Deep-Dive refuse silent fixture
+substitution.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-593 | Data-authority reviewer | Treating the reference issuer id as equivalent to Reference mode would let a live URL silently cross the truth boundary and keep today’s fallback under a new label. | Critical | Resolved in design | Only exact `?mode=reference` authorizes reference fixtures; live mode defaults fail closed even when issuer is absent or happens to equal the fixture id. Tests cover both distinctions. |
+| RT-2026-07-19-594 | URL-state reviewer | Appending `mode=reference` ad hoc can drop issuer/run/context/module parameters, duplicate mode keys, or leak Reference into an explicit live transition. | Critical | Resolved in design | Centralize parse/set helpers around `URL`/`URLSearchParams`, retain all unrelated params and hash, replace duplicate mode keys, and remove the param for live. Pin round-trip cases. |
+| RT-2026-07-19-595 | Bundle/performance reviewer | Hiding seeded JSX is insufficient if fixture modules still load and execute on every live visit, preserving startup cost and accidental data reachability. | High | Resolved by implementation gate | Put heavy Reference-only views/fixtures behind mode-gated dynamic imports or the narrowest existing lazy seam; add a cold-live regression where practical and record any unavoidable shared lightweight metadata separately. |
+| RT-2026-07-19-596 | Header/zoom reviewer | A persistent marker can disappear when SubHeader collapses or displace the single page action at tablet/200% zoom. | High | Resolved in design | Give the marker a dedicated must-survive semantic slot in shared header chrome and include it in collapsed utilities; preserve the Task 2A responsive action region and add rendered/native-zoom geometry evidence. |
+| RT-2026-07-19-597 | Analytical-state reviewer | Deep-Dive can still combine an unavailable live DecisionHeader with seeded debate/scenario panels if only the module body is gated. | Critical | Resolved in design | Derive decision context, default module, bespoke eligibility, and evidence/report loading from DataMode; a live missing-issuer/no-run state renders no fixture-backed decision region. |
+| RT-2026-07-19-598 | Parallel-work reviewer | Profile, Research, Deep-Dive, ConceptNav, and SubHeader carry prior remediation and user WIP; broad rewrites could erase reviewed contracts. | Critical | Resolved by execution constraint | Use additive helpers and narrow patches, keep route/persona/action/evidence contracts intact, run their focused regression suites, and inspect explicit-path diffs before acceptance. |
+
+Decision: proceed with an exact URL-owned boundary and fail-closed live states.
+Reopen if any issuer id or missing API response activates fixtures without the
+query mode, the marker disappears in collapsed chrome, or a live cold state
+imports/renders a reference-only decision artifact.
+
+Implementation verification: RT-593/594 are pinned by exact parser and URL
+round-trip tests, including duplicate-mode replacement and preservation of
+issuer/run/module/context/hash. RT-595 is resolved by a mode-gated dynamic
+import for the Research fixture and by keeping Deep-Dive bespoke eligibility
+strictly Reference-only. RT-596 is resolved by an always-rendered, non-hidden
+header status marker plus 768px shell/axe coverage. RT-597 is resolved by the
+standalone live missing-issuer setup state, which mounts no fixture decision,
+scenario, evidence, or debate region. RT-598 is resolved by focused Task 3A and
+prior Task 1 shell regressions, explicit-path diff review, and an isolated-index
+GitNexus audit. No objection remains open within the Task 3A slice.
+
+### Task 3A independent-review repair addendum
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-605 | URL-store reviewer | Query-only Next `Link` transitions can leave persistent marker and WorkflowRail consumers stale even while the route-local tree follows the new query. | High | Resolved | Install one idempotent History API notifier for native/Next `pushState` and `replaceState`, retain popstate/hash/custom-event support, and prove real Next-link plus direct-URL live → Reference → live transitions with the persistent rail mounted. |
+| RT-2026-07-19-606 | Research-concurrency reviewer | A live poll can resolve after entering Reference, overwrite the fixture, and mutate context/findings; a fresh live `demo: true` terminal can also cross the truth boundary. | Critical | Resolved | Own each watch by live mode, job, controller, and epoch; abort the local poll on Reference entry without deleting the durable job pointer; reject stale or demo terminals before render, context patch, finding creation, or notification; cover both deferred races. |
+| RT-2026-07-19-607 | Deep-Dive-authority reviewer | Reference can mix a resolved live run's authority/actions or a missing live scenario warning into the seeded decision region. | Critical | Resolved | Reference now supplies fixed fixture-owned decision context and excludes live run output, council, evidence map, scenario, standing-view run authority, and Vault export. Null/populated live-run reference regressions prove isolation; the live issuer path retains scenario and export. |
+
+Decision: the repaired Task 3A boundary is release-gated by the real-browser
+round trip, deferred poll/demo quarantine tests, null/populated Reference
+Deep-Dive tests, focused and Task 1 shell suites, TypeScript/lint/diff checks,
+and the affected 12-case axe matrix. Reopen if any History transition escapes
+the store, a stale Research watch can mutate after mode change, or Reference
+mounts a live-run action or unavailable-state panel.
+
+## 2026-07-19 — Task 3C reference-isolation and desk-language critic pass
+
+Decision under review: complete the Pipeline/Monitor live-reference boundary
+and translate Query, Pipeline, RV, Sector, and Settings implementation language
+without changing analytical payloads, mutations, permissions, or URL effects.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-613 | Pipeline-authority reviewer | Treating “no selected persisted run” as permission to mount the route simulator would silently recreate the seeded/live substitution fixed in Task 3A. | Critical | Resolved in design | Consume the exact shared DataMode contract. Live mode renders persisted-run loading/error/no-run/run states only; Reference alone may evaluate simulation fixtures. Preserve issuer/run selection, status precedence, evidence ids, and completion axes. |
+| RT-2026-07-19-614 | Pre-execution-semantics reviewer | A fully populated Reference dependency graph can still imply completed work if planned nodes inherit green/passed glyphs, progress bars, or completion verbs before the simulation starts. | Critical | Resolved in design | Derive the plan count from the selected plan, state `N planned · 0 executed` before the first simulated event, and give untouched nodes neutral planned styling/labels. Simulated execution may change only the existing run-local state. |
+| RT-2026-07-19-615 | Monitor-data reviewer | Hiding replay behind a disclosure is insufficient when the disclosure, replay counters, static Email Intelligence rows, or replay-state chart still auto-mount beside an empty/offline live worklist. | Critical | Resolved in design | Live Monitor owns only routed live alerts and live governance/control-plane reads. Reference owns replay and static Email Intelligence. Live empty/offline renders one concise state with no zero chart/toggle/replay controls. |
+| RT-2026-07-19-616 | Persona reviewer | Gating Reference content could accidentally demote the QA governance-first composition or remove live alert effects shared with Analyst/PM. | High | Resolved by composition boundary | Keep `usePersonaComposition("monitor")`, slot ordering, selected-alert synchronization, acknowledgment, governance reads, and control-plane effects unchanged. Mode constrains datasets; persona still controls leading live region. |
+| RT-2026-07-19-617 | URL-compatibility reviewer | Renaming visible Pipeline/RV views can break saved `view=` URLs or mutate internal lane/capability payload values if display and transport identities are conflated. | Critical | Resolved by projection | Preserve existing canonical payload keys and legacy URL values; add display-label projections and explicit aliases only. Tests pin old and new query forms to the same state/effect. |
+| RT-2026-07-19-618 | Settings-truth reviewer | Inferring `Connected` from the presence of demo/static data or a configured provider key would overstate operational email intake. Moving every diagnostic into a disclosure could also hide task-relevant failures. | Critical | Resolved fail closed | Derive exactly four observable feed labels from connection read state plus explicit Reference mode: Connected, Not connected, Reference feed, Status unavailable. Keep task outcomes in primary copy; raw env/provider/code constants remain keyboard-reachable in a collapsed native disclosure. |
+| RT-2026-07-19-619 | Parallel-WIP reviewer | All seven affected surfaces already contain reviewed remediation and active unrelated changes; broad component rewrites could erase persona, typed-action, authority, or recovery work. | Critical | Resolved by execution constraint | Use TDD and narrow `apply_patch` hunks; inspect current diffs before each overlap; do per-symbol upstream impacts; preserve handlers and payload values byte-for-byte; verify focused prior regressions and scope change detection without staging. |
+
+Decision: proceed with mode-gated data ownership and display-only terminology
+projections. Reopen if live mode evaluates seeded Pipeline/Monitor fixtures,
+planned work looks completed, old URLs change effect, QA loses governance-first
+composition, or Settings claims connection without an observable live source.
+
+### Independent-review repair addendum
+
+The independent review reproduced four reopen conditions hidden by diagnostic
+attributes and shared render-time hooks. Each was treated as an architecture
+objection, not a copy-only defect.
+
+| ID | Objection | Impact | Resolution |
+|----|-----------|--------|------------|
+| RT-2026-07-19-625 | Branching inside a shared Pipeline view model still initializes seeded simulation in Live and calls live status/freshness/run hooks in Reference. | Critical | Branch before runtime hooks. Live imports a seed-free topology; Reference dynamically owns fixtures/simulation. Direct call counters prove zero cross-mode runtime reads, including `run=` in Reference. |
+| RT-2026-07-19-626 | `N planned · 0 executed` can coexist with a zero progress bar and completion-style axes, still implying execution has begun. | High | Before the first reference event, omit progress bars/count ratios and mark execution, persistence, approval, and freshness N/A. |
+| RT-2026-07-19-627 | Monitor tab filtering does not isolate data when a shared controller has already called autonomy, portfolio, governance, and insight hooks or rendered live decision context. | Critical | Use separate Live and Reference controllers before hooks. Reference returns an explicit adapter with decision context N/A and makes zero live authority calls. |
+| RT-2026-07-19-628 | Keeping legacy model/provider terms in ordinary Settings panels violates task-language truth even when raw ids also exist in diagnostics. | High | Rename ordinary panels and choices around analysis/answer outcomes; retain implementation ids only in collapsed Deployment diagnostics. |
+
+Addendum decision: proceed with the pre-hook controller boundaries above. All
+four objections were observed RED, repaired, and verified GREEN in the focused
+Task 3C suite and affected browser matrix.
+
+## 2026-07-19 — Task 3B action/outcome truth critic pass
+
+Decision under review: derive Upload completion from durable outcomes, correct
+immediate-effect action labels, and add producer-owned notification action
+labels through the database/API/toast boundary.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-599 | Readiness-authority reviewer | Vaulting and chunk creation are intake facts, not an affirmative CP-0 readiness verdict; deriving `CP-0 ready` locally would create another false green state. | Critical | Resolved in design | The Upload result may state processing, failure, partial vaulting, or not-ready. It may say CP-0 ready only if the response provides affirmative readiness prerequisites; otherwise it fails closed regardless of chunks/run queue state. |
+| RT-2026-07-19-600 | Migration reviewer | Making `action_label` required would break historical rows, fallback producers, fixtures, and rolling deployments where old writers omit it. | Critical | Resolved in design | Add a nullable column and optional response/DTO field; rich current producers supply it, legacy/null events fall back to `Open related item`, and no client inference from href is allowed. |
+| RT-2026-07-19-601 | Interaction reviewer | Renaming Command/Portfolio/Report actions without pinning effects can send empty users to no-op callbacks, persist a preview prematurely, or turn a drawer opener into an apparent mutation. | Critical | Resolved by contract tests | Test exact label→href/callback effects by state. Command uses real intake/worklist destinations; Portfolio preview remains non-mutating; one Report opener opens the room and only the drawer’s `Record IC decision` calls createDecision. |
+| RT-2026-07-19-602 | Compliance-language reviewer | Replacing the MNPI claim with a softer badge alone still omits the crucial fact that the system does not detect classification or enforce a need-to-know wall. | High | Resolved in design | Add a keyboard-focusable limitations disclosure explicitly separating analyst declaration, detection, workspace access, governance, and entitlement enforcement; make no legal guarantee. |
+| RT-2026-07-19-603 | Additive-schema reviewer | A downgrade that drops the new column while notification evidence exists could destroy producer-supplied labels or conflict with repository evidence-retention policy. | High | Resolved in design | Follow the additive migration convention: refuse destructive downgrade when populated labels exist, or otherwise drop only when safe; include chain and compatibility tests. |
+| RT-2026-07-19-604 | Parallel-work reviewer | Upload, Command, Report, Portfolio, database and migration files all contain active remediation/user WIP; broad cleanup could erase unrelated authority and engine changes. | Critical | Resolved by execution constraint | Use narrow patches, preserve handlers/payloads, add a new migration rather than altering history, inspect explicit-path diffs, and run focused prior-task regressions before acceptance. |
+
+Decision: proceed with fail-closed readiness, effect-pinned language, and a
+nullable producer-owned notification label. Reopen if Upload infers CP-0 ready,
+a label changes an underlying effect, historical notifications fail to render,
+or the MNPI disclosure implies automated detection/entitlement enforcement.
+
+## 2026-07-19 — Sector Review scenario-closure critic pass
+
+Decision under review: close all seven scenarios for the nine current Sector
+Review features while repairing context authority, failure visibility, and
+publication-state defects found during assertion-level reconciliation.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-587 | Context-authority reviewer | A late history response from the previous analysis context can replace the active dossier, while changing only a URL section currently refetches the whole history and increases the race surface. | Critical | Resolve with generation ownership | Key history loading only to context/review authority, cancel superseded effects, keep section URL synchronization separate from fetching, and prove the newer context wins when promises settle out of order. |
+| RT-2026-07-19-588 | Failure-state reviewer | Taxonomy/feed reads are silently converted to empty arrays and a rejected sector patch clears the visible dossier before persistence succeeds, making infrastructure failure look like authoritative absence. | Critical | Resolve fail closed | Surface bounded reference-data errors, preserve the current review until the context patch succeeds, disable re-entrant sector/feed mutations, and prove recovery re-enables the action. |
+| RT-2026-07-19-589 | Data-boundary reviewer | `list_sector_reviews` applies the 100-row limit before filtering the requested context, so a valid older context can appear to have no history once other contexts accumulate enough versions. | Critical | Resolve in the query | Validate context ownership, filter the JSON `context_id` in SQL before ordering/limit, retain a defensive payload check, and exercise a target row beyond 100 newer distractors. |
+| RT-2026-07-19-590 | Publication-authority reviewer | A published review is mapped to UNRATIFIED and falls back to a disabled Ratify updates control, contradicting the durable published state. | High | Resolve state semantics | Treat published authority as ratified for decision presentation and render no further ratification/publish action after publication; pin the post-publish state in the dossier test. |
+| RT-2026-07-19-591 | Evidence-governance reviewer | Promoting all 40 designed scenarios from the existing happy-path cohort would overclaim invalid, permission, performance, responsive, and race behavior that those nodes do not assert. | Critical | Resolve assertion-by-assertion | Map only exact named nodes; add route-auth, malformed URL/source, duplicate-action/recovery, bounded server, cross-browser workflow, and exact-built axe evidence; retain a fail-closed 9-by-7 gate. |
+| RT-2026-07-19-592 | Browser-fixture reviewer | A broad Playwright glob can miss queryless Axios traffic and silently exercise a developer database, while an overflow-only assertion can miss loss of narrow capabilities. | High | Resolve with exact predicates and capability inventory | Intercept pathname/method explicitly, record fixture hits, exercise all six tabs plus sector/feed/history/finalization controls at 390px, assert no document overflow, and visually inspect the narrow result after axe. |
+
+Decision: proceed with context-owned async state, persist-before-clear sector
+switching, SQL pre-limit context filtering, honest publication semantics, and
+exact-node scenario mapping. Reopen if a stale response can change the active
+context, a failed mutation erases prior evidence, the 63-row gate relies on
+suite adjacency, or the narrow route loses a desktop capability without an
+explicit alternative.
+
+## 2026-07-19 — Monitor scenario-matrix closure
+
+- Objection: mapping generic route evidence could overstate coverage for seven distinct Monitor contracts. Resolution: retain assertion-level mappings only; add direct invalid-URL and non-finite replay-KPI regressions; use the shared authentication gate, exact responsive route scan, and exact route performance audit only for the cross-cutting scenarios they actually prove.
+- Objection: clamping all large ticks could mask a completed replay. Resolution: preserve the authored upper cap (`ALERTS.length`) and only normalize non-finite or negative ticks to the opening baseline; valid ticks and the inactive/completed branch remain unchanged.
+- Objection: a zero-error performance sample alone would miss backpressure and recovery behavior. Resolution: the route audit is limited to UI responsiveness; any request-load exercise must separately report staged concurrency, expected backpressure, recovery, first-fault reproduction, and a post-load normal-user probe.
+
+## 2026-07-19 — Pipeline scenario-matrix closure
+
+Decision under review: close the 45-feature Pipeline matrix with assertion-level
+frontend, API, browser, accessibility, and route-performance evidence while
+repairing the defects found during reconciliation.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-608 | Evidence-governance reviewer | A route-wide browser or accessibility pass could be relabeled as endpoint validation or per-feature request-load proof. | Critical | Resolved by evidence boundaries | Use route/browser nodes only for composed UI, responsive, authentication, and cold-load scenarios. Map runs, modules, QA, issuer, and document API scenarios to exact server assertions; retain the staged-load protocol as a separate requirement and claim no Pipeline request-load result here. |
+| RT-2026-07-19-609 | Simulation-contract reviewer | Normalizing `simClock` has a CRITICAL transitive graph and could alter every authored integer tick consumed by the shared simulation. | Critical | Resolved after direct-caller review | The four direct consumers supply authored non-negative integer ticks. The guard preserves every such tick and changes only fractional, negative, or non-finite input; the complete scheduler/simulation cohort and browser journeys pass. |
+| RT-2026-07-19-610 | Narrow-workbench reviewer | Composing narrow essential controls with the full utility set duplicates progress, clearance, and Dependency map/Stage lanes controls in one phone dialog, creating ambiguous keyboard and screen-reader targets. | High | Resolved | CSS ownership now hides the desktop copies below `lg` while retaining run mode, simulation, clock, and dim controls. The 390px journey asserts exactly one Stage lanes control and passes in Chromium, Firefox, and WebKit; axe reports no duplicate-surface geometry or accessibility failures. |
+| RT-2026-07-19-611 | Hostile-state reviewer | Unit coverage for individual widgets does not prove the assembled route survives an unsupported view, invalid stored preference, and adversarial context identifier. | High | Resolved | A composed-route regression falls back to Dependency map, remains explicitly non-running, preserves graph/inspector/evidence behavior, and proves the special context identifier is encoded in the Deep-Dive handoff. |
+| RT-2026-07-19-612 | Static-artifact reviewer | Rebuilding while the validation server stays alive leaves stale CSP hashes and can make hydration failure look like a product defect. | High | Resolved by validation protocol | Restart the isolated FastAPI static server after every production artifact rebuild, then run browser, axe, and performance probes against the exact served artifact. |
+| RT-2026-07-19-613 | Data-provenance reviewer | A fixture-backed Pipeline that appears by default can make reference execution state look like a live operational run, especially when its planned progress is non-zero. | High | Resolved | Live mode now stays honestly empty, reference data requires `mode=reference`, route handoffs preserve that mode, and the planned reference plan begins with zero executed modules. Focused, cross-browser, and responsive accessibility matrices pass. |
+| RT-2026-07-19-614 | Publication-integrity reviewer | An immutable Report Studio deep link can race the active mutable draft, leaving publish briefly available for the wrong document state. | Critical | Resolved | Publishing is blocked while the requested immutable version is pending selection and remains unavailable after the immutable version is active. The complete affected Report Studio and responsive-recovery cohort passes 24/24. |
+| RT-2026-07-19-615 | Accessibility-runner reviewer | A readiness contract limited to Enterprise/persona containers can hide standalone error, loading, or empty states from axe and turn real defects into scan errors. | High | Resolved | The runner now accepts `data-surface-state`, immediately exposed the Pipeline empty-state heading-order defect, and the standalone states use route-level h2 headings. The final six-state matrix is clean. |
+
+Decision: proceed with the smallest storage, simulation-input, and narrow-control
+repairs. Reopen if a valid authored tick changes, phone controls duplicate again,
+an unsupported route value bypasses safe defaults, or workbook mappings conflate
+route cold-load evidence with request-load or endpoint validation.
+
+## 2026-07-19 — Monitor transport and global Ask bundle critic pass
+
+Decision under review: correct the route-performance lab so it matches the
+deployed Caddy gzip transport, then remove the closed global Ask surface from
+the initial shared bundle without changing Ask state, hotkeys, route scope, or
+analyst-visible behavior.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-620 | Measurement-validity reviewer | The prior Monitor result used an uncompressed development server even though the only supported public edge has `encode gzip`; treating 1,029KB and 6.18s LCP as deployed behavior creates a false product defect. | Critical | Resolved by transport-aligned protocol | Retain the raw result as diagnostic history, add a localhost gzip server that mirrors the checked-in edge setting, and require repeated cold-cache samples. Five current samples must stay explicit; no field-telemetry claim is made. |
+| RT-2026-07-19-621 | Bundle reviewer | Compression can hide parse/evaluation cost, so closing the defect on encoded bytes alone could leave a large blocking shared shell. | High | Resolve with dual evidence | Continue reporting raw and encoded payloads, LCP, ready time, and TBT. Split only the closed heavy Ask surface behind the existing open state, rebuild the exact export, and accept the change only if the initial waterfall shrinks without moving work into an eagerly requested chunk. |
+| RT-2026-07-19-622 | Ask-state reviewer | Moving a HIGH-risk shared context can create two providers, drop command-palette prefills, break Deep-Dive's inline chat, or change Escape/navigation/modal coordination. | Critical | Resolve through one context identity | Extract one provider/context module, re-export it from the legacy module for compatibility, update every production consumer to the same identity, and run provider, palette, Deep-Dive, hotkey, modal, prefill, pin-race, and browser regressions. |
+| RT-2026-07-19-623 | Lazy-loading reviewer | A nominal dynamic import can still preload on route hydration, remove the phone trigger while loading, or make the first Ask interaction inaccessible. | High | Resolve by boundary and measurement | Keep the lightweight authenticated trigger and utility controls in the initial shell; render the dynamic Ask surface only after `open` becomes true; preserve focusable labels and loading status; verify the heavy chunk is absent from the closed Monitor waterfall and loads on an exercised Ask journey. |
+| RT-2026-07-19-624 | Scope reviewer | A local gzip harness omits oauth2-proxy, WAN variability, cache/CDN policy, and production telemetry; passing it cannot prove population-level Core Web Vitals. | High | Accepted residual limitation | Label the result a constrained route lab, use p75 across five runs for the remediation gate, retain lack of field RUM as a low operational risk, and do not relabel this as request-load, backend-latency, or real-user evidence. |
+
+Decision: proceed with the compatibility-preserving context/lazy-surface split
+and transport-aligned measurement. Reopen if any Ask consumer resolves a
+different context, the heavy Ask chunk is fetched while closed, the phone
+trigger disappears, or the five-sample constrained-mobile p75 regresses.
+
+## 2026-07-19 — Task 4A cold-state and control-consolidation critic pass
+
+Decision under review: consolidate completion-evidence routes so each cold
+surface presents one bounded setup path, while moving secondary actions behind
+native disclosure controls and preserving every existing authority and mutation
+contract.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-629 | Workflow reviewer | Removing duplicate empty frames can also remove the only recovery action or the only way to enter a workflow. | Critical | Resolve by action inventory | Preserve one reachable setup or retry action in the page header or consolidated state, then assert the action effect rather than only its label. |
+| RT-2026-07-19-630 | Mutation-contract reviewer | Moving RV and Sector controls under `More` can silently change URL state, mutation keys, or keyboard reachability. | Critical | Resolve with native disclosure and effect tests | Use native `details`/`summary`, retain the existing handlers and tab identifiers verbatim, and exercise the hidden actions through the disclosure in interaction tests. |
+| RT-2026-07-19-631 | Evidence-governance reviewer | Hiding inspectors in cold state could imply that evidence or governance has been discarded once real data arrives. | High | Resolve by data-gated composition | Suppress only zero-data shells; restore the existing inspector, visualization, and evidence components unchanged whenever the authoritative dataset exists. |
+| RT-2026-07-19-632 | Responsive-layout reviewer | A desktop-only toolbar fix can still overlap at 200% zoom or when the persona grid narrows its container. | High | Resolve with container-aware wrapping | Keep filter sizing on flexible grid tracks, avoid fixed sibling widths, and verify Portfolio and Sector at real 200% zoom as well as 1440/1280/1024/768 CSS viewports. |
+| RT-2026-07-19-633 | Parallel-WIP reviewer | These files contain accepted work from earlier remediation tasks; broad rewrites could erase exact action effects or cancellation semantics. | Critical | Resolve by surgical patches | Edit only the mapped render branches and styles, preserve existing handlers and authority disclosures, and run the affected regression cohorts plus a scoped diff review. |
+| RT-2026-07-19-634 | Identity reviewer | Removing blank logo placeholders must not replace them with invented branding or derived images. | High | Resolve with text identity | Render the existing issuer name/ticker only unless a real asset is present; tests prohibit empty identity squares without asserting a fabricated logo. |
+
+Decision: proceed with the narrow render and style changes above. Reopen if a
+consolidated state loses its entry/retry action, a disclosure changes an action
+effect, a populated dataset loses evidence context, or responsive browser
+evidence shows overlap or full-height empty framing.
+
+## 2026-07-19 — Task 4B flagship-workbench critic pass
+
+Decision under review: reduce simultaneous control density in Deep-Dive, Model
+Builder, IC Book, and Report Studio without weakening analyst authority,
+evidence reachability, immutable publication, or desktop/tablet proofing.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-644 | Analytical-navigation reviewer | Collapsing seven Deep-Dive layers into three groups can hide modules or change the active live/reference decision region. | High | Resolved | Keep the finder, map every module into exactly one group, open the selected module's group, and prove all groups remain one disclosure away while existing evidence/live-reference contracts remain unchanged. |
+| RT-2026-07-19-645 | Model-authority reviewer | Unmounting support drawers can discard analyst work, while moving Export can accidentally change checkpoint CAS, dirty-state, or unsaved-leave behavior. | Critical | Resolved | Drawer controls select presentation only; assumptions and scenarios continue to mutate the shared model controller. Save remains the sole primary, Export retains its existing handler under utilities, and focused regressions cover exclusivity, checkpoint behavior, history, evidence, and reset paths. |
+| RT-2026-07-19-646 | Committee-workflow reviewer | Staging the agenda form can omit immutable references, submit a partial payload, or strand keyboard focus between steps. | Critical | Resolved | Retain one form state and the existing submit payload, validate the issuer/thesis boundaries before progression, move focus to each new step, expose Back plus one forward/save action, and cover permission and payload behavior in the complete IC Book cohort. |
+| RT-2026-07-19-647 | Proofing-accessibility reviewer | Replacing static Report zoom choices can shrink committee text below its floor or make zoom value changes invisible to assistive technology. | Critical | Resolved | Bound proofing to 100–150%, make Fit respect the 100% floor, use one labelled native range with announced percentage, keep the preview as the named focusable horizontal scroll owner, and verify body/table/metadata floors under native 200% browser zoom. |
+| RT-2026-07-19-648 | Responsive-shell reviewer | Dense flagship headers can pass unit tests yet clip the page primary at 1280px, tablet, or native 200% zoom. | High | Resolved | Use compact status presentation below the wide-workstation breakpoint without changing the primary label or effect, then gate exact production output at 1440/1280/1024/768 and native Chrome 200% with clipped-control and page-overflow assertions. |
+
+Decision: Task 4B may close with the retained focused tests and browser
+harnesses. Reopen if any Deep-Dive module becomes unreachable, switching Model
+support surfaces loses controller state, an agenda step changes the final
+payload, Report Fit drops below the proofing floor, or any page primary leaves
+the desktop/tablet viewport.
+
+### Task 4B independent-review repair addendum
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-649 | Catalog-integrity reviewer | The finder exposed all 27 modules while the three groups omitted CP-4C, CP-RENDER, CP-EXTRACT, and CP-DB, so a valid selection could expand a group that did not contain it. | Critical | Resolved with one derived partition | `DEEP_DIVE_MODULES` is now the shared Finder/workbench catalog. The three groups derive from canonical module layers; L0/ORCH/L1/INFRA map to Foundation, L2/L3/L4 to Analysis, and L5/L6 to Governance & Debate. Set equality, uniqueness, semantic assignments, and one-expanded-containing-group invariants cover every finder result. |
+| RT-2026-07-19-650 | Workflow-evidence reviewer | Cold-route screenshots cannot prove populated Deep-Dive grouping or the staged IC form, and a visible fixture 404 undermines the claimed state. | High | Resolved with retained workflow harness | `validate-task4b-workflows.mjs` selects CP-4C through the real keyboard finder and opens Add agenda item through Tab/Enter at 1440/1280/1024/768. The shared browser fixture now returns the bounded empty analyst-opinion history used by IC Book; captures contain the populated Analysis group and open References step without a 404. |
+| RT-2026-07-19-651 | Scroll-ownership reviewer | Populated CP-4C revealed eight horizontally overflowing output tables that were absent from cold-state axe evidence and unreachable by keyboard. | Critical | Resolved through actual-overflow ownership | Each output table measures horizontal overflow with resize/mutation observation and becomes a named focus target only while it clips. A regression proves the target appears on overflow and disappears when content fits; both populated browser matrices report zero serious nodes. |
+| RT-2026-07-19-652 | Motion/reproducibility reviewer | Screenshots without machine-readable standard and reduced-motion results cannot substantiate the responsive workflow claim or be independently rerun. | High | Resolved with persisted evidence | The retained harness emits compact JSON plus screenshots and runs the same keyboard, axe, document-overflow, and clipped-control assertions under normal and reduced-motion media. Both eight-cell matrices are persisted under `DESIGN-IS-2026-07-19/captures/after/`. |
+
+Decision: the independent Task 4B objection is closed. Reopen if the Finder and
+group catalog cease sharing one source, any module appears zero or multiple
+times, an overflowing output table loses its conditional focus contract, or a
+workflow-state matrix gains an accessibility/layout failure.
+
+### Task 4A reviewer-repair addendum
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-640 | Visual-system reviewer | Raising the Portfolio eyebrow from 9 px to 10 px preserves the same bespoke uppercase dialect instead of removing it. | High | Resolved | Removed every `portfolio-lab__eyebrow` render and rule; retained labels now use the shared `caos-panel-title` semantic tier. Focused DOM assertions and a zero-result source scan cover the contract. |
+| RT-2026-07-19-641 | Cold-state reviewer | Hiding only stress leaves Context, Evidence Atlas, cited-brief, and dataset frames mounted around the no-portfolio explanation. | Critical | Resolved | The no-selection branch mounts one `PortfolioSetupState` as the sole Persona primary. An explicit DOM inventory prohibits every auxiliary frame/control and proves the setup message occurs once. |
+| RT-2026-07-19-642 | Overflow-ownership reviewer | An absolute More popup inside the horizontally scrolling Sector tab rail can be clipped even when the closed-state route passes layout scans. | Critical | Resolved | More is now a sibling of a dedicated `[data-sector-tabs-scroll]` rail. The retained browser harness opens it and verifies effective ancestor clipping, viewport bounds, and ownership at four widths plus native 200%. |
+| RT-2026-07-19-643 | Reproducibility reviewer | Temporary screenshots and prose claims do not let a later reviewer rerun or audit the zoom/menu gate. | High | Resolved | Retained `validate-task4a-portfolio-sector.mjs`, documented its deterministic command, and saved compact machine-readable output under `DESIGN-IS-2026-07-19/captures/after/`. |
+
+Decision: Task 4A can close only with the retained harness, compact JSON,
+144-test consolidated regression, and affected axe/layout matrix cited in its
+report. Reopen if More returns under scroll ownership or a no-portfolio branch
+mounts analytical supporting panes.
+
+## 2026-07-19 — Report Studio authority-notice and scenario-closure critic pass
+
+Decision under review: make the deliverables notice reflect the active report
+authority, then close the 28-feature Report Studio scenario matrix using exact
+frontend, server, browser, accessibility, and route-performance evidence.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-635 | Authority reviewer | The unconditional Atlas Forge QA-117 footer can appear beside live issuer reports and falsely imply a reference-only hold applies to the active run. | Critical | Resolve with explicit authority | Pass reference/live authority into `ReportList`; retain the CP-5 notice only for the reference template, show the real live committee hold when present, and otherwise state that live deliverables follow the active run gate. |
+| RT-2026-07-19-636 | Evidence-governance reviewer | A route-wide axe or performance result could be relabelled as proof of immutable export, vault authorization, or server publication gates. | Critical | Resolve by evidence boundaries | Use route evidence only for responsive geometry, shared authentication, and cold-load behavior. Map immutable export, vault, ownership, rate, and committee gates only to exact component or server assertions. |
+| RT-2026-07-19-637 | Responsive reviewer | Initial-route geometry can miss utility-drawer and sequenced-rail controls below the phone fold. | High | Resolve with capability-preserving source and interaction evidence | Retain the implemented column sequencing, verify every rendered control is unclipped in the exact phone scan, and map behavior-specific mobile claims only where the corresponding route/component assertion remains operable. |
+| RT-2026-07-19-638 | Performance reviewer | One cold-load sample can hide variance, and a route timing result says nothing about request backpressure or export concurrency. | High | Resolve with repeated and layered evidence | Use five cold-cache constrained-mobile samples for route p75; keep renderer concurrency caps, pending-click suppression, autosave serialization, and endpoint rate limits as separate exact nodes. |
+| RT-2026-07-19-639 | Applicability reviewer | Forcing mobile scenarios onto backend-only `/runs/{id}/report` contracts creates meaningless evidence and inflates coverage. | High | Resolve as explicit N/A | Mark only reports-26 and reports-27 responsive-not-applicable; their UI-consuming publication workflow remains covered by Report Studio route features. |
+
+Decision: proceed with the authority-aware notice and assertion-level mapping.
+Reopen if reference copy leaks into a live issuer, backend gates inherit route
+evidence, a phone-only capability becomes unreachable, or the 28-by-seven gate
+can pass without exact evidence for every applicable row.
+
+## 2026-07-20 — Task 4C workflow-control critic pass
+
+Decision under review: replace engine-centric Pipeline, Monitor, and Settings
+composition with analyst-facing stages and controls while preserving every
+execution, governance, permission, and persistence contract.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-653 | Dependency-model reviewer | Aggregating engine layers into analyst stages can reorder execution or omit modules, while bundled edges may falsely imply module-level dependencies. | Critical | Resolve with derived parity | Keep runtime plans untouched; map every canonical module into exactly one ordered stage, prove set equality and order, and label bundles as stage transfers with counts. |
+| RT-2026-07-20-654 | Graph-accessibility reviewer | Dense labels or aggressive selection dimming can make the non-selected graph unreadable and leave a pointer-only map. | High | Resolve with peer semantics | Put full module labels before CP codes, retain keyboard node actions, keep unrelated nodes legible, and render the same ordered inventory as a semantic table. |
+| RT-2026-07-20-655 | Governance reviewer | Suppressing an empty alert visualization can also suppress QA governance or conceal the distinction between no alerts and an unavailable feed. | Critical | Resolve by narrow data gating | Remove only the zero-row severity chart/table toggle; retain one explicit live-state message and keep the QA control-plane dataset in its persona-leading region. |
+| RT-2026-07-20-656 | Settings-compatibility reviewer | Three primary tabs can orphan stored fields, break bookmarked `?tab=` URLs, or move actions across permission boundaries. | Critical | Resolve with alias and effect inventories | Use an explicit legacy-to-primary alias map, retain all existing panels and handlers under the three outcomes, and regression-test inventory, saved values, permissions, and mutation payloads. |
+| RT-2026-07-20-657 | Diagnostics-disclosure reviewer | Moving implementation vocabulary can either leave code constants in primary copy or expose secret values in an expanded diagnostics surface. | Critical | Resolve with bounded disclosure | Keep existing non-secret configuration/status values under a native collapsed disclosure; expose no credential material and scan primary tab copy for environment/code vocabulary. |
+| RT-2026-07-20-658 | Workflow-evidence reviewer | Cold screenshots and permissive fixtures can pass while populated workflows 404 or silently use an unintended route. | Critical | Resolve with failure-persistent browser proof | Exercise populated Pipeline, QA Monitor, and legacy Settings aliases by keyboard; prove fixture identity and exact/query route handling; fail on and persist every HTTP status at or above 400. |
+| RT-2026-07-20-659 | Parallel-WIP reviewer | Broad page rewrites could erase accepted Monitor and Settings work already present in the dirty tree. | High | Resolve by surgical integration | Preserve existing outcome-copy and empty/governance branches, patch only the stage/tab composition seams, then inspect the scoped diff against `origin/main`. |
+
+Decision: proceed with the bounded stage catalog, peer table, narrow empty-state
+suppression, explicit aliases, and failure-persistent workflow harness. Reopen if
+any canonical module or setting disappears, runtime ordering changes, QA loses
+its leading governance surface, diagnostics expose secrets, or browser evidence
+contains an unhandled HTTP failure.
+
+## 2026-07-19 — P5 final verification and design-audit critic pass
+
+Decision under review: declare the desktop/tablet remediation complete only
+after a full all-route regression matrix and independent `$design-is` and
+`$impeccable` evidence passes report no unresolved in-scope fault.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-19-660 | Evidence-validity reviewer | Cold-state screenshots alone can miss populated workflows, persona-specific priorities, open disclosures, and browser-only focus/overflow failures. | Critical | Resolve with layered evidence | Combine all-route viewport/axe evidence with populated Task 4A/4B/4C workflow harnesses, 18×3 persona assertions, keyboard walks, reduced motion, and native 200% zoom. Do not use one evidence type to stand in for another. |
+| RT-2026-07-19-661 | Audit-independence reviewer | Letting the implementation author score its own chosen examples can hide the worst route and inflate Rams or Nielsen results. | Critical | Resolve through independent evidence fan-out | Use the five `$design-is` evidence roles, require exact sources and known gaps, score the worst representative instance, and keep Rams synthesis with the orchestrator. Run the `$impeccable` technical audit separately. |
+| RT-2026-07-19-662 | Scope reviewer | Treating the excluded phone redesign as a release requirement would silently expand scope, while ignoring shared phone regressions could ship a broken shell. | High | Resolve by explicit boundary | Exclude phone-specific authoring, navigation, and review contracts; retain only mount, landmark, crash, existing-axe, and shared semantic smoke. Fix a shared failure without inventing a phone workflow. |
+| RT-2026-07-19-663 | Truth-contract reviewer | A polished screenshot can still conceal seeded/live substitution, misleading action labels, or completion states that overclaim persistence or approval. | Critical | Resolve with exact behavior assertions | Re-run live/reference isolation, renamed-action, notification destination, upload-outcome, completion-axis, and authority tests; Copy & Honesty evidence must cite both label and behavior. |
+| RT-2026-07-19-664 | Performance reviewer | A passing build and fast localhost sample do not prove changed routes stayed within the agreed startup-JS and long-task budget. | High | Resolve with bounded comparison | Report raw and encoded initial bytes plus attributed long tasks using the retained performance harness; compare to the recorded pre-remediation baseline where available and label any missing field telemetry as a limitation. |
+| RT-2026-07-19-665 | Dirty-tree reviewer | The repository contains extensive parallel WIP; broad cleanup, staging, or a generated-file sweep could destroy unrelated work. | Critical | Resolve by non-destructive verification | Make only evidence or narrowly justified remediation edits, use `apply_patch`, inspect scoped diffs, do not stage or commit, and preserve every unrelated file. |
+
+Decision: proceed with the locked 18-route evidence matrix and independent
+audits. Completion is prohibited while any P0/P1, WCAG AA violation,
+truth-contract mismatch, in-scope fault, or unexplained acceptance-gate failure
+remains.
+
+### P5 closure addendum — 2026-07-20
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-666 | Performance reviewer | The first P5 capture showed Reference Report at 640.8KiB encoded JS, which exceeded the recorded baseline and prohibited completion. | Critical | Resolved | Removed Report's startup dependency on the editor-grade G2 runtime and introduced an accessible first-party SVG/table renderer. Final Report JS is 261.3KiB, about 24.6% below the 354,855B comparator; visual, component, build, and browser gates pass. |
+| RT-2026-07-20-667 | Zoom/reflow reviewer | A clean 768px synthetic matrix did not prove native 200% zoom; the 720px CSS viewport exposed an absent skip target and Command controls beyond the viewport. | Critical | Resolved | Compact skip navigation is target-aware, panel headers share the stacked reflow through 767px, and the coverage grid fits its guttered owner. The rerun passes all 18 routes at native/observed 2.0× with no clipping, overflow, or collisions. |
+| RT-2026-07-20-668 | Design-system reviewer | Static source audit still found two undocumented graph-label colors despite the literal-color closure claim. | High | Resolved | Replaced both with `--caos-muted` and `--caos-text`. Impeccable detector now returns `[]`; Query visualization tests pass. |
+| RT-2026-07-20-669 | Change-attribution reviewer | GitNexus `origin/main` comparison could fail in the unusually large parallel dirty tree, making a clean-scope claim unverifiable. | High | Accepted tool limitation with compensating evidence | The compare failed closed with `spawnSync git ENOBUFS`; the all-worktree scan completed at CRITICAL aggregate risk (716 symbols, 184 files, 46 processes) but includes unrelated WIP. No stage/commit occurred; exact impact was run before symbol edits, and 1,829 frontend tests, lint, TypeScript, build, browser matrices, and prior 2,592-test server run provide regression evidence. |
+
+Decision: P5 may close. There are zero unresolved in-scope fault-register
+findings. Absolute Portfolio startup weight, Model initial DOM, and Command CLS
+are recorded as a bounded future REFINE opportunity, not silently promoted into
+this remediation scope.
+
+## 2026-07-20 — Impeccable performance-optimization critic pass
+
+Decision under review: remove Portfolio's editor-grade chart runtime from the
+startup path, then use measured evidence to decide whether Model DOM and Command
+layout stabilization warrant similarly bounded changes.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-20-670 | Analytical-truth reviewer | A lightweight renderer can distort negative headroom, silently omit rows, or make distinct chart modes look equivalent. | Critical | Resolve with data-derived geometry | Derive every bar from the complete tabular fallback, retain a visible zero baseline for signed values, print each label and value, and preserve the mode title, unit, status, note, sources, and full equivalent table. |
+| RT-2026-07-20-671 | Accessibility reviewer | Removing G2 can also remove the named image, summary relationship, keyboard table disclosure, or non-color status meaning. | Critical | Resolve with semantic parity | Keep the labelled figure and image region, `aria-describedby` summary, text status/glyph, native table-toggle button, and the existing `DominantTableRegion` fallback contract; add exact interaction tests. |
+| RT-2026-07-20-672 | Performance reviewer | A code split can appear successful while the G2 chunk remains in Portfolio's route graph or another new dependency replaces it. | High | Resolve with production measurement | Remove Portfolio's runtime import of `SemanticVisualization`, inspect emitted route chunks, and repeat the retained production performance audit. Accept only measured startup JS below 500 KiB without a new long task. |
+| RT-2026-07-20-673 | Model-workflow reviewer | Row virtualization can reduce DOM by breaking `aria-activedescendant`, paste ranges, arrow navigation, sticky labels, or source selection for off-screen cells. | Critical | Defer pending isolated design | Do not couple Model virtualization to the Portfolio repair. Prototype and test a virtual focus/scroll-to-selection contract separately before any Model edit. |
+| RT-2026-07-20-674 | Responsive reviewer | Reserving Command height to suppress CLS can create a blank artifact frame or excessive tablet whitespace when the digest is empty. | High | Defer pending lifecycle trace | Measure the decision region from first paint through settled data and identify the shifting node before applying a breakpoint-aware minimum; reject a blind fixed-height patch. |
+| RT-2026-07-20-675 | Dirty-tree reviewer | Broad dependency removal or shared chart rewrites can collide with accepted Monitor, RV, Research, and Deep-Dive work. | Critical | Resolve by route-local substitution | Leave the shared G2 renderer and package intact for other consumers; add one Portfolio-specific first-party renderer and patch only the Portfolio composition seam plus scoped styles/tests. |
+
+Decision: proceed with the route-local Portfolio substitution and re-measure.
+Model and Command optimization remain gated on separate evidence and must not be
+declared complete from Portfolio results.

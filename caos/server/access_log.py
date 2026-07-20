@@ -1,6 +1,6 @@
 """Structured per-request access log — the threat-detection app/auth feed.
 
-main.py's `access_log` middleware emits one JSON line per /api request on the
+main.py's `HTTPPolicyMiddleware` emits one JSON line per /api request on the
 `caos.access` logger. Fields are a superset of the threat_signal_analyzer
 events schema ({timestamp, entity, action, volume}); `status` + `source` carry
 the auth-brute / data-exfil triage signal. Extract analyzer input with:

@@ -20,7 +20,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("./IssuerProfileOverlay", () => ({
   useIssuerProfileOverlay: () => ({ openProfile: controls.openProfile }),
 }));
-vi.mock("./Ask", () => ({
+vi.mock("./AskContext", () => ({
   useAsk: () => ({ openWith: controls.openWith }),
 }));
 vi.mock("./RoleViewProvider", () => ({

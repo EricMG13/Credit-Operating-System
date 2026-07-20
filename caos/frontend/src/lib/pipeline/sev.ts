@@ -10,7 +10,7 @@ export const SEV_COLOR: Record<string, string> = {
   medium: "var(--caos-warning)", ok: "var(--caos-success)", pass: "var(--caos-success)",
   low: "var(--caos-muted)", info: "var(--caos-accent)", running: "var(--caos-accent)",
   idle: "var(--caos-idle)", held: "var(--caos-warning)", blocked: "var(--caos-critical)",
-  queued: "#52525e", clear: "var(--caos-success)", conditional: "var(--caos-warning)",
+  queued: "var(--caos-idle)", clear: "var(--caos-success)", conditional: "var(--caos-warning)",
 };
 
 /** Canonical "module has cleared its gate" predicate: passed, or passed with

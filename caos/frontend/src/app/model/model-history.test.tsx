@@ -2,16 +2,16 @@
 // Integration lock for G3: multi-cell paste applies as ONE undo step, ⌘Z/⌘⇧Z
 // undo/redo the override grid, and checkpoints round-trip through the shared
 // modal (save → list → restore).
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ModelPage from "./page";
 import { getAnalystSettings, updateAnalystWorkspace } from "@/lib/api";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/model",
-  // No ?issuer= — resolves to the ATLF reference issuer, which always has a
+  // Explicit Reference mode resolves to the ATLF seeded issuer, which always has a
   // usable model grid regardless of the (irrelevant here) engine anchor.
-  useSearchParams: () => ({ get: () => null }),
+  useSearchParams: () => new URLSearchParams({ mode: "reference" }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
@@ -35,6 +35,10 @@ const mockUpdateAnalystWorkspace = vi.mocked(updateAnalystWorkspace);
 function emptySettings(workspace: Record<string, unknown> = {}) {
   return { model_lanes: {}, email_intelligence: { approved_senders: [] }, workspace };
 }
+
+beforeEach(() => {
+  window.history.replaceState({}, "", "/model?mode=reference");
+});
 
 afterEach(() => {
   cleanup();
@@ -97,6 +101,7 @@ describe("Model Builder · checkpoints (G3)", () => {
     await waitFor(() => expect(screen.getByText("MANUAL OVERRIDE")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /Model tools/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
     fireEvent.click(await screen.findByTitle("Save or restore a named snapshot of your overrides"));
     const nameInput = await screen.findByLabelText("Checkpoint name");
     fireEvent.change(nameInput, { target: { value: "First pass" } });

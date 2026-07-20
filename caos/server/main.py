@@ -24,6 +24,8 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from access_log import access_event, client_source, principal
 from config import (
@@ -332,97 +334,122 @@ _SECURITY_HEADERS = {
 }
 
 
-@app.middleware("http")
-async def security_headers(request: Request, call_next):  # type: ignore[no-untyped-def]
-    response = await call_next(request)
-    for key, value in _SECURITY_HEADERS.items():
-        response.headers.setdefault(key, value)
-    # Static-asset caching: Next's content-hashed bundles are immutable and safe
-    # to cache forever; HTML documents must revalidate so a redeploy's new
-    # index.html isn't served stale (pointing at chunks that no longer exist). D6.
-    path = request.url.path
-    if path.startswith("/api/"):
-        # Authenticated financial payloads, evidence and documents must not be
-        # retained by browsers or intermediary caches.
-        response.headers.setdefault("Cache-Control", "private, no-store")
-    else:
-        if path.startswith("/_next/static/"):
-            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
-        elif path == "/" or path.endswith(".html") or "." not in path.rsplit("/", 1)[-1]:
-            response.headers.setdefault("Cache-Control", "no-cache")
-    return response
-
-
 # ─── Edge-origin guard (single chokepoint) ──────────────────────────────────
 # The edge proof (X-Edge-Authorization) must gate EVERY deployed /api request, not
 # only those that depend on get_identity. Enforcing it per-route let create_profile
 # and logout (which read cookies/headers directly, no get_identity dep) skip the
 # check; a future route could too. This middleware closes that — get_identity keeps
 # its own (now redundant) check. /api/health is exempt so monitors can probe
-# liveness. Registered AFTER security_headers so access_log (registered next) still
-# wraps and logs the 401. (#31)
-@app.middleware("http")
-async def edge_origin_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
-    settings = get_settings()
-    # Same fail-closed predicate as identity.get_identity (config.is_deployed).
-    deployed = is_deployed(settings)
-    path = request.url.path
-    if deployed and settings.edge_proxy_secret and path.startswith("/api/") and path != "/api/health":
-        presented = request.headers.get("x-edge-authorization", "")
-        if not hmac.compare_digest(
-            presented.encode("utf-8", "ignore"), settings.edge_proxy_secret.encode("utf-8")
-        ):
-            # This response short-circuits BEFORE the security_headers middleware
-            # (registered earlier = wrapped inner), so stamp the headers here too —
-            # otherwise the 401 ships without CSP/nosniff/HSTS.
-            return JSONResponse(
-                {"detail": "Request did not carry a valid edge credential."},
-                status_code=401,
-                headers=dict(_SECURITY_HEADERS),
+# liveness. The raw ASGI policy layer below preserves the prior runtime order:
+# access telemetry → CSRF → edge proof → response headers → request limits. (#31)
+
+
+class HTTPPolicyMiddleware:
+    """Apply CAOS HTTP policy without BaseHTTPMiddleware stream/task overhead."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive=receive)
+        path = request.url.path
+        is_api = path.startswith("/api/")
+        started = time.perf_counter() if is_api else 0.0
+        response_status = 500
+        response_volume = 0
+
+        async def send_with_policy(message: Message) -> None:
+            nonlocal response_status, response_volume
+            if message["type"] == "http.response.start":
+                response_status = int(message["status"])
+                headers = MutableHeaders(scope=message)
+                for key, value in _SECURITY_HEADERS.items():
+                    if key not in headers:
+                        headers[key] = value
+
+                # Next's content-hashed bundles are immutable; HTML must
+                # revalidate, and authenticated financial data must not persist.
+                if "cache-control" not in headers:
+                    if is_api:
+                        headers["Cache-Control"] = "private, no-store"
+                    elif path.startswith("/_next/static/"):
+                        headers["Cache-Control"] = (
+                            "public, max-age=31536000, immutable"
+                        )
+                    elif (
+                        path == "/"
+                        or path.endswith(".html")
+                        or "." not in path.rsplit("/", 1)[-1]
+                    ):
+                        headers["Cache-Control"] = "no-cache"
+
+                try:
+                    response_volume = int(headers.get("content-length", "0"))
+                except (TypeError, ValueError):
+                    # Streaming/chunked responses omit Content-Length.
+                    response_volume = 0
+            await send(message)
+
+        reason = csrf_rejection(request)
+        if reason:
+            response = JSONResponse({"detail": reason}, status_code=403)
+            await response(scope, receive, send_with_policy)
+        else:
+            current_settings = get_settings()
+            edge_rejected = (
+                is_deployed(current_settings)
+                and bool(current_settings.edge_proxy_secret)
+                and is_api
+                and path != "/api/health"
+                and not hmac.compare_digest(
+                    request.headers.get("x-edge-authorization", "").encode(
+                        "utf-8", "ignore"
+                    ),
+                    current_settings.edge_proxy_secret.encode("utf-8"),
+                )
             )
-    return await call_next(request)
+            if edge_rejected:
+                response = JSONResponse(
+                    {"detail": "Request did not carry a valid edge credential."},
+                    status_code=401,
+                )
+                await response(scope, receive, send_with_policy)
+            else:
+                await self.app(scope, receive, send_with_policy)
+
+        # One structured line per completed API request. Logging after the ASGI
+        # app returns makes streaming duration honest without buffering the body.
+        if is_api:
+            access_logger.info(
+                json.dumps(
+                    access_event(
+                        method=request.method,
+                        path=path,
+                        status=response_status,
+                        entity=principal(request.headers),
+                        source=client_source(
+                            request.headers,
+                            request.client.host if request.client else None,
+                        ),
+                        volume=response_volume,
+                        dur_ms=round((time.perf_counter() - started) * 1000, 1),
+                    )
+                )
+            )
 
 
-# Browser mutation guard. Registered between edge authentication and access
-# logging: access_log still records rejected probes, while direct service clients
-# remain supported behind the edge proof when they carry no browser session.
-@app.middleware("http")
-async def csrf_guard(request: Request, call_next):  # type: ignore[no-untyped-def]
-    reason = csrf_rejection(request)
-    if reason:
-        return JSONResponse(
-            {"detail": reason}, status_code=403, headers=dict(_SECURITY_HEADERS)
-        )
-    return await call_next(request)
-
-
-# ─── Access log (threat-detection app/auth feed) ────────────────────────────
-# One structured JSON line per /api request on `caos.access`. Feeds the
-# threat_signal_analyzer anomaly hunt: 401-by-source = brute force, auth_ok-by-
-# entity off-hours = account abuse, response-volume-by-entity = bulk pull/exfil.
-# /api only — static-asset requests are noise. See access_log.py for the
-# jq that extracts the analyzer events schema from these lines.
-@app.middleware("http")
-async def access_log(request: Request, call_next):  # type: ignore[no-untyped-def]
-    path = request.url.path
-    if not path.startswith("/api/"):
-        return await call_next(request)  # static-asset requests are noise — no timing/log
-    start = time.perf_counter()
-    response = await call_next(request)
-    try:
-        volume = int(response.headers.get("content-length", 0))
-    except (TypeError, ValueError):
-        volume = 0  # streaming/chunked responses omit Content-Length
-    access_logger.info(json.dumps(access_event(
-        method=request.method,
-        path=path,
-        status=response.status_code,
-        entity=principal(request.headers),
-        source=client_source(request.headers, request.client.host if request.client else None),
-        volume=volume,
-        dur_ms=round((time.perf_counter() - start) * 1000, 1),
-    )))
-    return response
+# Registered after RequestBodyLimitMiddleware, so this policy is outermost and
+# headers/telemetry cover 413/414 short-circuits from that inner layer.
+app.add_middleware(HTTPPolicyMiddleware)
 
 
 # ─── Error monitoring ───────────────────────────────────────────────────────

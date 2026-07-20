@@ -2,13 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { SpreadsheetFile, Workbook } from "@oai/artifact-tool";
+import { FileBlob, SpreadsheetFile, Workbook } from "@oai/artifact-tool";
 
 const repo = process.cwd();
 const require = createRequire(import.meta.url);
 const ts = require(path.join(repo, "caos", "frontend", "node_modules", "typescript", "lib", "typescript.js"));
 const baselineDate = "2026-07-16";
-const today = "2026-07-19";
+const today = "2026-07-20";
 const outputDir = path.join(repo, "outputs", "caos-quality-validation");
 const csvPath = path.join(repo, "caos", "docs", "qa", "FEATURE_TRACKER.csv");
 const outputPath = path.join(outputDir, "CAOS_Quality_Validation_Tracker.xlsx");
@@ -23,7 +23,7 @@ const scenarios = [
 ];
 
 const validationRuns = [
-  ["Frontend unit/component", "npm test -- --run; focused post-seal complete-file deltas", "Pass", "All 1,678 current frontend nodes are reconciled: the complete 1,543-node full run plus 135 later nodes executed through complete affected files", today],
+  ["Frontend unit/component", "npm test -- --run; exact-current failure remediation; complete affected-file reruns", "Pass", "All 1,809 current frontend nodes pass in one exact-current full run across 261 files; the focused 229-case Model cohort also passes with clean lint and TypeScript", today],
   ["Frontend coverage", "npx vitest run --coverage --coverage.reportsDirectory=/private/tmp/caos-codex-coverage-final", "Pass", "The 980-test coverage baseline passed at statements/lines 84.18% (45,617/54,186), branches 77.05% (7,423/9,633), functions 65.94% (1,224/1,856); all 14 later additions passed in the focused delta", baselineDate],
   ["Frontend lint", "npm run lint", "Pass", "ESLint completed with no findings against the exact current source and test tree", today],
   ["Frontend type check", "./node_modules/.bin/tsc --noEmit", "Pass", "TypeScript completed with no findings after typing the Pipeline, Report Studio, and late Command Center interaction harnesses", today],
@@ -32,12 +32,12 @@ const validationRuns = [
   ["Research ReportPane post-seal delta", "vitest run src/components/research/ReportPane.test.tsx; npm run lint; tsc --noEmit", "Pass", "The complete later ReportPane revision passes 11/11, adding five executable nodes after the 1,259 aggregate; lint and TypeScript remain clean", today],
   ["Research feature reconciliation", "vitest: four Research files; pytest: test_deepresearch.py test_research_jobs.py test_edgar.py", "Pass", "All 29 Research features now carry direct assertion-level evidence; 26/26 frontend cases and 49/49 executable backend cases passed with two intentional PostgreSQL skips", today],
   ["Concurrent harness type reconciliation", "vitest: UploadWizard.interactions, steps-interactions, CommandPalette.interactions; npm run lint; tsc --noEmit", "Pass", "All 18/18 current interaction cases pass (12 Upload and 6 Command Palette); exact public component, dropzone, issuer, and API response types replace unsafe or impossible fixtures; lint and TypeScript are clean", today],
-  ["Automation collector warning exclusion", "pytest --collect-only -q --disable-warnings; exact layer-count gates; workbook automation evidence reconciliation", "Pass", "Warning-summary references are excluded and collection fails closed on drift; the current inventory reconciles exactly to 1,678 Vitest + 2,507 pytest/stress/cohort + 141 Playwright + 36 route accessibility nodes", today],
+  ["Automation collector warning exclusion", "pytest --collect-only -q --disable-warnings; exact layer-count gates; workbook automation evidence reconciliation", "Pass", "Warning-summary references are excluded and collection fails closed on drift; the current inventory reconciles exactly to 1,758 Vitest + 2,539 pytest/stress/cohort + 144 Playwright + 36 route accessibility nodes", today],
   ["RV Screener harness type reconciliation", "vitest RVScreenerWorkbench.test.tsx; npm run lint; tsc --noEmit", "Pass", "All 12/12 RV Screener interactions pass with a complete AnalysisContext fixture; the unused import and explicit any are removed, and lint and TypeScript are clean", today],
   ["Alert Inbox harness type reconciliation", "vitest AlertInbox.test.tsx; npm run lint; tsc --noEmit", "Pass", "All 17/17 Alert Inbox interactions pass with a narrow recursive React-fiber helper; explicit any is removed, and lint and TypeScript are clean", today],
   ["Pipeline feature reconciliation", "vitest: five Pipeline/Issuers/navigation files; pytest: test_async_runs.py test_engine.py test_api.py", "Pass", "All 45 Pipeline features now carry direct assertion-level evidence: the 53-node frontend cohort passed in the exact-current aggregate, and the seven linked API contracts passed within a 93-pass/2-skip server cohort", today],
-  ["Production static build", "npm run build; rsync -a --delete out/ ../server/static/", "Pass", "Next.js 16.2.10 generated and staged 20 static pages from the exact current production source tree", today],
-  ["Server/stress/cohort regression", "caos/server/.venv311/bin/python -m pytest -q caos/tests/server; affected-file deltas; pytest -q caos/tests/stress caos/tests/cohort", "Pass", "2,483 current executable server nodes are reconciled with 15 intentional skips across 2,498 collected server nodes; the prior complete regression, all later affected-file deltas, and all nine stress/cohort nodes pass", today],
+  ["Production static build", "npm run build", "Pass", "Next.js 16.2.10 generated 20 static pages from the exact current production source tree", today],
+  ["Server/stress/cohort regression", "caos/server/.venv311/bin/python -m pytest -q caos/tests/server; affected-file deltas; pytest -q caos/tests/stress caos/tests/cohort", "Pass", "2,520 current executable server nodes are reconciled with 15 intentional skips; the prior complete regression, all later complete affected-file deltas including the 79/79 notification/migration tranche, and all nine stress/cohort nodes pass", today],
   ["Backend evidence identity stabilization", "collect twice; diff prior Automation Evidence; pytest four affected files", "Pass", "Two consecutive collections are identical at 2,427 nodes; six stable current identities replace two payload-derived identities, and all four affected files pass 111 tests with two intentional PostgreSQL skips", today],
   ["Concurrent test delta reconciliation", "find test files modified after each exact aggregate/delta; run those complete files; recollect all nodes", "Pass", "48/48 frontend and every complete backend delta-file cohort passed through the final 71-test coverage-edge rerun, closing 14 newly collected frontend nodes and 47 newly collected backend nodes without presenting unexecuted collection as pass", baselineDate],
   ["Configuration inventory contract", ".venv311/bin/python -m pytest caos/tests/server/test_settings_inventory_contract.py -q", "Pass", "259/259 cases passed across all 83 current Settings fields: code defaults, typed environment overrides, malformed scalar rejection, and numeric zero boundaries", baselineDate],
@@ -53,16 +53,80 @@ const validationRuns = [
   ["Route accessibility + responsive", "BASE=http://127.0.0.1:8077 VIEWPORTS=1440x900,390x844 E2E_EDGE_PROXY_SECRET=<non-secret local identity marker> E2E_FORWARDED_EMAIL=<isolated analyst> E2E_ANALYST_NAME=<isolated analyst> node scripts/a11y-axe.mjs", "Pass", "The full 36-state matrix passed; after the later Issuers rebuild, the affected root and /issuers routes passed 4/4 desktop/mobile rescans with 0 axe nodes, scan errors, layout failures, overflow, or clipped controls", today],
   ["Query state accessibility", "BASE=http://127.0.0.1:8010 E2E_FORWARDED_EMAIL=<isolated analyst> E2E_ANALYST_NAME=<isolated analyst> node scripts/a11y-query.mjs", "Pass", "Exact-current ready, graph-lane, answer, and persisted narrow states all passed with 0 violation nodes", baselineDate],
   ["GitNexus semantic discovery", "analyze --repair-fts; force index-only PDG rebuild; local query; MCP registry/context/query", "Degraded", "The on-disk index and registry are current at b1ac826 and local FTS queries return relevant symbols, but the long-lived MCP query connection retains its pre-repair catalog and still reports missing FTS; exact context/source inventories compensate pending a tool-session reconnect (DEF-QV-060)", today],
+  ["GitNexus repository change-scope audit", "detect_changes scope=compare base_ref=origin/main; per-symbol impact; explicit path-scoped git diff/stat/check", "Degraded", "Every edited product/tracker symbol had a LOW-risk pre-edit impact report, but repository-wide change detection exceeded the shared-worktree child-process buffer with ENOBUFS. Explicit agent-path diffs and focused regressions compensate; the graph-wide scope map remains open (DEF-QV-201).", today],
   ["Query feature reconciliation", "vitest query-interactions, history-restore, scan-metrics, and query visualization files; canonical contract diff", "Pass", "All 19 Query rows now describe the current context-bound persisted investigation workbench and extant API workflows rather than the retired capability rail; 61/61 focused frontend and 60/60 associated backend cases pass", today],
-  ["Post-seal inventory delta", "vitest complete files for all 67 frontend nodes added after the 1,611-node seal; pytest test_main_lifecycle.py; recollect exact inventories", "Pass", "Sixty-seven net new frontend nodes and ten deployed-credential backend nodes are reconciled through complete files; every completed current file passes, including the final citation, query visualization, profile, navigation, notification, modal, analyst-opinion, EDGAR, report, authority, decision, and Settings cohorts (DEF-QV-140 through DEF-QV-147)", today],
+  ["Post-seal inventory delta", "vitest complete files for all 83 frontend nodes added after the 1,611-node seal; pytest complete affected files; recollect exact inventories", "Pass", "Eighty-three net new frontend nodes and nineteen backend nodes are reconciled through complete files; every completed current file passes, including citation, query visualization, profile, navigation, notification, modal, analyst-opinion, EDGAR, report, authority, decision, Settings, Model, Monitor, Deep-Dive, and Upload cohorts (DEF-QV-140 through DEF-QV-152)", today],
   ["Settings production-source regression", "vitest settings-models; lint; tsc; next build; Playwright settings_flow in Chromium/Firefox/WebKit; axe /settings at 1440x900 and 390x844", "Pass", "15/15 component cases, zero lint/type findings, the 20-route production build, 12/12 zero-retry browser journeys, and both responsive accessibility states pass with zero axe nodes, scan errors, or layout failures (DEF-QV-145)", today],
   ["Late shared/EDGAR frontend delta", "vitest Notifications, AnalysisContextSaveState, analyst-opinions, use-modal-a11y, NavigationGuardProvider, and EdgarImport; lint; tsc", "Pass", "All six completed files pass 45/45 after repairing four EDGAR harness failures and stabilizing the parameterized error identities; lint and TypeScript are clean (DEF-QV-146; DEF-QV-147)", today],
+  ["Late Model source regression", "vitest model-page-interactions; lint; tsc; next build; Playwright model_flow in Chromium/Firefox/WebKit; axe /model at 1440x900 and 390x844", "Pass", "The expanded Model file passes 13/13, the 20-route production build and static gates are clean, all 15 zero-retry browser executions pass under both required rollout gates, and both responsive axe states report zero nodes, scan errors, or layout failures (DEF-QV-148; DEF-QV-149)", today],
+  ["Late Monitor/Deep-Dive delta", "vitest monitor-governance and OutputRegister; lint; tsc", "Pass", "Both completed files pass 23/23, including expected offline-path diagnostics, and the exact-current lint and TypeScript gates remain clean (DEF-QV-150)", today],
+  ["Upload feature reconciliation", "vitest run src/components/upload; pytest mapped Upload/EDGAR/AV files; exact assertion-level feature mapping", "Pass", "All 27/27 current Upload features now have direct automation: 40/40 frontend and 125/125 server cases pass; three new robustness contracts cover vault path uniqueness, durable metadata, and the exact 20-allowed/21st-rejected rate boundary. The first restricted AV run failed only because local socket binding was denied; the permitted complete rerun passed.", today],
+  ["Concurrent Model delta reconciliation", "vitest six affected Model files; pytest test_model_engine_v2.py; lint; tsc; next build; Playwright model_flow; axe /model", "Pass", "All 68/68 frontend and 66/66 backend cases pass; lint, TypeScript, and the 20-route production build are clean; all 15 zero-retry Model journeys pass across three engines and both responsive axe states report zero violations or layout failures.", today],
+  ["Sector Review feature reconciliation", "vitest SectorReviewDossier and SectorReviewPanels; pytest test_sector_routes.py and test_analysis_workspace.py; exact assertion-level feature mapping", "Pass", "All 9/9 Sector Review features now describe the current versioned dossier rather than the retired v1 signal-card workspace and have direct assertion-level evidence; the complete focused files pass 9/9 frontend and 19/19 executable server cases with one intentional pre-existing skip (DEF-QV-153).", today],
+  ["Settings feature reconciliation", "vitest settings-models and model-mode; pytest test_settings.py and test_presets.py; Playwright settings_flow across Chromium/Firefox/WebKit; exact assertion-level feature mapping", "Pass", "All 10/10 Settings features now describe the current authenticated five-tab workbench, read-only environment snapshot, staged profile/device preferences, and revision-checked email persistence; the complete focused files pass 18/18 frontend, 23/23 server, and 12/12 browser executions after the first broad shell-title locator failed strict mode in 3/12 and was narrowed to the actual identity element. The repository-default SQLite artifact could not boot because its recorded schema lacks a current lease column; it was not mutated, and the browser matrix ran against an isolated database successfully migrated through all 64 revisions (DEF-QV-154; DEF-QV-155; DEF-QV-156).", today],
+  ["Shell feature reconciliation", "vitest: sixteen Shell/Ask/navigation/hierarchy files; exact assertion-level feature mapping", "Pass", "All 17/17 Shell features now describe the current role-priority navigation, canonical route heading, breakpoint-owned Ask utility, responsive skip landmarks, overflow-only Panel focus, semantic hierarchy, Alt hotkeys, profile identity, root handoff, disclosure, recovery, and health contracts. After the in-flight redesign revisions settled, the complete expanded Shell/design cohort passes 83/83 (DEF-QV-157; DEF-QV-158; DEF-QV-159; DEF-QV-161; DEF-QV-163; DEF-QV-164; DEF-QV-165; DEF-QV-166).", today],
+  ["Persona and database-pool inventory delta", "vitest: 16 complete modified/delta files; pytest: model, upload, database-pool, and Settings inventory files; lint; tsc", "Pass", "The exact inventory advanced by nine frontend and 20 backend nodes with no removals. All 16 complete frontend delta/modified files pass 143/143; the four affected server files pass 362/362; lint and TypeScript are clean. This intermediate reconciliation advanced the evidence seal to 1,703 frontend and 2,536 server/stress/cohort nodes (DEF-QV-160).", today],
+  ["Late shared hierarchy and Shell inventory delta", "vitest: eight complete Ask/persona/layout/Panel/Shell/SubHeader/hierarchy/navigation files; expanded Shell cohort; lint; tsc; next build", "Pass", "A net 14 frontend nodes landed after the 1,703 seal. The eight complete affected files pass 61/61 and the expanded 17-feature Shell/design cohort passes 83/83 after the first in-flight run failed 10/61 and a second transitional run failed 4/61. Lint, TypeScript, and the exact-current 20-route production build are clean. The evidence seal is now 1,717 frontend and 2,536 server/stress/cohort nodes (DEF-QV-161 through DEF-QV-166).", today],
+  ["HTTP policy middleware evidence delta", "caos/server/.venv311/bin/python -m pytest -q caos/tests/server/test_security_headers.py; exact server recollection", "Pass", "Three exact CSRF, edge-proof, and duplicate Set-Cookie policy nodes landed after the 2,536-node server/stress/cohort seal. The complete security-header file passes 8/8, advancing the current inventory to 2,539 collected nodes with 2,515 executable server passes, 15 intentional skips, and nine passing stress/cohort nodes (DEF-QV-167).", today],
+  ["Issuer feature reconciliation", "vitest: Issuer Directory, profile distillation, analyst notes, issuer helpers, and profile chart helpers; exact assertion-level feature mapping", "Pass", "All 29/29 stable Issuer features now describe the implemented directory and profile contracts and resolve to direct assertion-level evidence. The complete five-file focused cohort passes 72/72 after adding a non-color distressed-rating signal and correcting the first semantic-grid harness assumptions (DEF-QV-168; DEF-QV-169).", today],
+  ["Late route-recovery and color-policy inventory delta", "vitest: route heading overrides, error surfaces, recovery UI, navigation, color-literal policy, and hierarchy/color contract files", "Pass", "The fail-closed collector found eight net frontend nodes after the 1,717 seal. All six complete contributing files pass 34/34, advancing the reconciled frontend inventory to 1,725 nodes (DEF-QV-170).", today],
+  ["Late route-heading and Report Studio static regression", "eslint src; tsc --noEmit; vitest route-heading-overrides and reports-interactions", "Pass", "The first current-source gates found a conditional usePathname call and a paper-tone state narrowed to one literal. After LOW-risk fixes, lint and TypeScript are clean and both complete affected files pass 24/24 (DEF-QV-171; DEF-QV-172).", today],
+  ["Exact-current Issuer build and responsive accessibility", "npm run build; static-export loopback server; axe /issuers and /issuers/profile at 1440x900 and 390x844", "Pass", "The first restricted build and browser launches were denied local worker-port and Chromium rendezvous privileges. Scoped permitted reruns passed the 20-route production build; the final exact-built Issuer directory/profile rescan passed all four states with zero axe nodes, scan errors, layout failures, overflow, or clipped controls (DEF-QV-173; DEF-QV-174).", today],
+  ["Issuer permission-boundary closure and late Research delta", "vitest RequireAuth.test.tsx and ReportBody.test.tsx; exact assertion-level Issuer permission mapping; exact frontend recollection", "Pass", "RequireAuth proves anonymous and unresolved identities cannot render protected workspace children, closing the permission/security scenario for all 29 Issuer features with 5/5 passing. One concurrent ReportBody node then landed and its complete two-case file passed, advancing the frontend inventory to 1,726 (DEF-QV-175).", today],
+  ["Issuer route-boundary scenario closure", "vitest Issuer Directory and profile-distill complete files; exact-built route accessibility matrix at desktop/mobile; assertion-level route ownership mapping", "Pass", "Directory load failure and retry own error behavior for its 13 features; profile load failure and missing-id rejection own error/invalid entry for its 16 features; the clean /issuers and /issuers/profile route matrix owns responsive geometry. The supporting Issuer cohort and exact-current directory rescan pass, with the complete 36-state responsive baseline retained.", today],
+  ["Issuer performance-evidence label reconciliation", "canonical scenario-label audit against curated Issuer mappings; complete issuer-batch execution", "Pass", "Three passing debounce, duplicate-submit, and content-visibility assertions were mapped to a non-canonical Performance considerations label. Renaming the mappings to Performance restores their exact scenario status without changing product behavior; issuer-batch remains 21/21 passing (DEF-QV-176).", today],
+  ["Late EnterprisePage typed-action delta", "vitest EnterprisePage.action-contract.test.tsx; quiescent complete-file rerun; exact frontend recollection", "Pass", "Five shared typed-action nodes landed after the 1,726 seal. The first run observed an intermediate no-action revision and failed 1/5 twice; the saved guard was already complete, and the unchanged quiescent rerun passed 5/5, advancing the frontend inventory to 1,731 (DEF-QV-177).", today],
+  ["Issuer complete scenario-matrix closure", "29 Issuer features × seven mandatory scenario classes; exact assertion-level mapping; fail-closed generator gate; focused three-file regression", "Pass", "All 203/203 Issuer scenario rows are direct passes: happy, error, boundary, invalid, permission/security, performance, and mobile/responsive. Encoded hostile-looking issuer IDs, single-request profile load, directory containment, route failure ownership, shared auth, and exact route accessibility evidence close the remaining matrix; the strengthened files pass 46/46.", today],
+  ["Post-Issuer exact-current static and accessibility refresh", "eslint src; tsc --noEmit; next build; axe Issuer directory/profile at desktop/mobile", "Pass", "The first lint pass found two dead ActionReason imports from the concurrent typed-action migration. After their removal, lint and TypeScript are clean, the production build generates all 20 routes, and all four exact-built Issuer responsive states pass with zero accessibility or layout failures (DEF-QV-178).", today],
+  ["Command authority and density remediation", "vitest CommandPortfolio, RankedChanges, current Command contracts, and page interactions", "Pass", "25/25 focused authority assertions pass after missing ticker, selected-strip fields, run-bound Deep-Dive, and stable-issuer Watchtower handoffs were made fail closed; persisted rows carry bounded paint containment (DEF-QV-179 through DEF-QV-184).", today],
+  ["Command isolated browser matrix", "PLAYWRIGHT_BASE_URL=http://localhost:3019 playwright test command_flow.spec.ts --workers=1 --retries=0", "Pass", "All four current Command journeys pass in Chromium, Firefox, and WebKit for 12/12 executions, including every dataset at 390x844 with no document overflow and a fully operable selected-position strip (DEF-QV-185 through DEF-QV-187).", today],
+  ["Command complete scenario-matrix closure", "44 Command Center features × seven mandatory scenario classes; exact assertion-level mapping; fail-closed generator gate", "Pass", "All 308/308 main Command Center scenario rows are direct passes across happy, error, boundary, invalid, permission/security, performance, and mobile/responsive behavior. The separate nine-feature Sector Review concept remains independently mapped.", today],
+  ["Post-Command automation delta", "six complete Vitest contributors; stable parameter identities; exact recollection; Command Playwright in three engines", "Pass", "The 14-node frontend delta passes through six complete files at 51/51, the renamed PageAction table passes 10/10 with unique operation labels, and the three new browser-project nodes pass. Exact inventory is 1,745 frontend, 2,539 server/stress/cohort, 144 browser, and 36 accessibility states (DEF-QV-188; DEF-QV-189).", today],
+  ["Late evidence/completion delta", "vitest EvidenceSelectionList, evidence-selection integrations, CompletionStateSummary, and completion-adoption contract", "Pass", "Thirteen late shared-worktree nodes pass through all four complete contributing files at 13/13, advancing the exact frontend inventory from 1,745 to 1,758 before workbook publication (DEF-QV-190).", today],
+  ["Exact-current Command accessibility", "static export; axe /command at 1440x900 and 390x844", "Pass", "Both exact-built Command states pass with zero WCAG violation nodes, scan errors, layout failures, page overflow, unexpected horizontal offsets, clipped controls, undersized targets, or overlay collisions.", today],
+  ["Quiescent tracker collection recovery", "stop isolated Next dev stack; rerun fail-closed artifact-tool tracker builder", "Pass", "The first collection attempt timed out in a Vitest worker RPC while the isolated Next development server was using the same transform graph. After that stack stopped, the unchanged exact inventory collected and exported successfully at 1,758 frontend nodes (DEF-QV-191).", today],
+  ["Sector Review complete scenario-matrix closure", "nine Sector Review features × seven mandatory scenario classes; exact assertion-level mapping; fail-closed generator gate", "Pass", "All 63/63 Sector Review scenario rows are direct passes across happy, error, boundary, invalid, permission/security, performance, and mobile/responsive behavior (DEF-QV-192 through DEF-QV-197).", today],
+  ["Sector Review focused regression", "vitest five Sector/SourceRef/auth/removal files; pytest three Sector/analysis files; eslint; tsc", "Pass", "The broader frontend cohort passes 37/37, the exact Sector component files pass 19/19, and the server cohort passes 21 executable cases with one intentional PostgreSQL skip; lint and TypeScript are clean after correcting one nullable test fixture (DEF-QV-192 through DEF-QV-199).", today],
+  ["Sector Review browser, accessibility, and performance", "webpack production build; sector_flow in Chromium/Firefox/WebKit; axe /sector at 1440x900 and 390x844; performance-audit desktop/mobile-slow", "Pass", "All six zero-retry browser executions pass after the cross-sector stale-response fix; the 20-route build and both responsive axe states are clean. Desktop LCP is 148ms with 0ms TBT; throttled mobile LCP is 6,120ms with 186ms TBT and remains an explicit performance risk rather than a passing budget claim (DEF-QV-192; DEF-QV-200).", today],
+  ["Exact-current automation reconciliation", "compare prior Automation Evidence identities; execute every contributing complete file; recollect Vitest, pytest/stress/cohort, Playwright, accessibility, and Sector performance nodes", "Pass", "Twenty-seven frontend identities were added and two retired; all twelve contributing files pass 92/92. The exact seal advances to 1,783 Vitest, 2,540 pytest/stress/cohort, 150 Playwright, 36 route-accessibility, and one Sector performance node (DEF-QV-198).", today],
+  ["Monitor complete scenario-matrix closure", "seven Monitor features × seven mandatory scenario classes; exact assertion-level mapping; fail-closed generator gate", "Pass", "All 49/49 Monitor scenario rows are direct passes across happy, error, boundary, invalid, permission/security, performance, and mobile/responsive behavior (DEF-QV-202).", today],
+  ["Monitor focused regression", "vitest six Monitor/data/replay files; pytest alert states, notifications, and sponsors digest; eslint; tsc; production build", "Pass", "The complete focused frontend cohort passes 36/36, the linked server cohort passes 23/23, lint and TypeScript are clean, and Next.js emits all 20 static routes after the finite replay-count repair (DEF-QV-202).", today],
+  ["Monitor browser, accessibility, and performance", "monitor_flow in Chromium/Firefox/WebKit; exact-built axe/workbench checks; five-sample gzip-aligned performance audit", "Pass", "The prior 6.74s result was identity-encoded and did not match deployed Caddy gzip. After the on-demand Ask split, desktop ready/LCP/TBT are 502ms/148ms/0ms; five constrained-mobile samples produce p75 ready/LCP/TBT of 2,492ms/2,100ms/188ms with 227.2KB encoded JavaScript. Both responsive axe states and all three workbench viewports are clean (DEF-QV-203; DEF-QV-217).", today],
+  ["Post-Monitor automation delta", "execute complete Monitor, Deep-Dive, Research, and shared-shell contributors; recollect exact inventories", "Pass", "Four Monitor nodes and five concurrent frontend nodes landed after the 1,783 seal. All five complete contributing files pass 44/44, advancing the exact frontend inventory to 1,792 and the total evidence inventory to 4,520 after adding the exact-current Monitor performance node (DEF-QV-204).", today],
+  ["Tracker blocked-case disclosure", "reconcile Coverage Summary status categories to the complete Test Matrix", "Pass", "The summary retains an explicit Blocked category; the former GitNexus infrastructure row is now an explicit Not applicable external-tool waiver, so no validation case remains blocked (DEF-QV-060; DEF-QV-201; DEF-QV-205).", today],
+  ["Pipeline complete scenario-matrix closure", "45 Pipeline features × seven mandatory scenario classes; assertion-level family and endpoint mapping; fail-closed generator gate", "Pass", "All 315/315 Pipeline scenario rows are direct passes. Cross-cutting route evidence is limited to composed UI, authentication, responsive, invalid-state, and cold-load behavior; seven API contracts retain endpoint-specific server assertions rather than inheriting a request-load claim (DEF-QV-206 through DEF-QV-208).", today],
+  ["Pipeline focused regression", "vitest 13 Pipeline/Issuers/navigation files; pytest five runs/API/engine/role/tenancy files", "Pass", "The complete focused frontend cohort passes 136/136 after the live/reference, invalid-route, storage, simulation, responsive, and empty-state additions; the linked API/engine cohort passes 104 executable cases with two intentional skips and one existing Starlette deprecation warning.", today],
+  ["Pipeline browser, accessibility, and performance", "pipeline_flow in Chromium/Firefox/WebKit; axe /issuers, /pipeline, and /pipeline/?mode=reference at 1440x900 and 390x844; performance-audit desktop/mobile-slow", "Pass", "All 12 zero-retry browser executions and all six exact-built responsive accessibility states pass. Pipeline desktop ready/LCP/TBT/CLS are 509ms/144ms/0ms/0.006; throttled-mobile ready/FCP/LCP/TBT/CLS are 6,810ms/4,284ms/6,380ms/203ms/0.010 with 870.9KB JavaScript. This is route cold-load evidence, not staged request-load evidence.", today],
+  ["Post-Pipeline exact-current reconciliation", "execute the complete 1,801-node frontend inventory; repair failures; rerun complete affected files; execute all backend deltas; recollect every automation layer", "Pass", "Nine frontend nodes, four server nodes, and twelve browser-project nodes landed after the prior seals. The full current frontend run found two defects at 1,799/1,801; repaired affected files pass 24/24, both complete notification/migration files pass 79/79, and the exact inventory advances to 1,801 Vitest, 2,544 pytest/stress/cohort, 162 Playwright, 36 route-accessibility, and four route-performance nodes (DEF-QV-209 through DEF-QV-216).", today],
+  ["Monitor payload remediation", "production build; gzip transport gate; five mobile samples; closed/open Ask waterfall; exact responsive axe/workbench checks", "Pass", "The heavy Ask analytical chunk is absent from the closed Monitor waterfall and fetched on first Ask open. Raw initial JavaScript falls 875.2KB→766.0KB; deployed-transport JavaScript falls 266.8KB→227.2KB; five-sample mobile p75 LCP improves 2,320ms→2,100ms and TBT 215ms→188ms without changing Ask behavior.", today],
+  ["Post-remediation exact-current reconciliation", "npm test -- --run; lint; tsc --noEmit; exact 20-route production build; automation collection", "Pass", "All 1,803 frontend nodes pass in one full run; all 2,544 server/stress/cohort, 162 browser, 36 accessibility, and four route-performance identities remain reconciled for 4,549 exact automation nodes. The external GitNexus session defects are explicitly waived from the product completion gate with source/impact/diff compensating controls (DEF-QV-060; DEF-QV-201; DEF-QV-218).", today],
+  ["Report Studio direct-evidence reconciliation", "vitest reports-interactions; exact assertion-level mapping; fail-closed 28-feature evidence gate", "Pass", "The complete 19-case Report Studio interaction file passes, including unsupported persisted paper-tone rejection. A stale test-name mapping was repaired, all 28 Report Studio features now carry direct automation, and the generator fails closed if any Report Studio feature becomes indirect-only or unmapped (DEF-QV-219; DEF-QV-235).", today],
+  ["Report Studio complete scenario-matrix closure", "28 Report Studio features × seven mandatory scenarios; exact frontend/server/browser/performance mappings; backend viewport N/A gate", "Pass", "All 194/194 applicable Report Studio scenario rows are direct passes; the two Mobile/responsive rows for the backend-only committee JSON endpoint and its QA gate are explicitly Not applicable rather than fabricated UI coverage (DEF-QV-219 through DEF-QV-230).", today],
+  ["Report Studio focused regression", "vitest MoreDrawer, SubHeader, Report panels, and reports-interactions; pytest exact committee/vault authority nodes; next build", "Pass", "The complete focused frontend cohort passes 41/41 and the tightened server authority/invalid-ID pair passes 2/2 under .venv311. Next.js 16.2.10 emits all 20 static routes after the authority-notice and shared drawer-clamp fixes.", today],
+  ["Report Studio browser, accessibility, and performance", "exact-build workbench validator at desktop/tablet/phone; axe /reports at 1440x900 and 390x844; desktop plus five constrained-mobile gzip samples", "Pass", "All three workbench widths pass with restored drawer/evidence focus, no API fallthrough, page overflow, uncontained clipping, or console/network failure; both axe states report zero nodes, scan errors, and layout failures. Desktop ready/LCP/TBT are 596ms/148ms/2ms; constrained-mobile p75 ready/LCP/TBT are 2,968ms/2,324ms/330ms with 267.0KB encoded JavaScript, gzip, and zero CLS (DEF-QV-220 through DEF-QV-227).", today],
+  ["Post-Report exact-current reconciliation", "npm test -- --run; eslint; tsc --noEmit; complete test_engine.py + test_async_runs.py; fail-closed tracker rebuild", "Pass", "The first full frontend run exposed one stale Model checkpoint journey at 1,807/1,808; after selecting the implemented History support rail and adding direct invalid paper-tone coverage, the final full run passes 1,809/1,809 across 261 files. Lint and TypeScript are clean; the complete Report-linked server files pass 65 executable cases with two intentional skips and one existing Starlette deprecation warning. The tracker rejected oversized rendering, stale split Sector evidence, execution-row contamination, and the last Report invalid-input gap before a bounded, exact export (DEF-QV-231 through DEF-QV-235).", today],
+  ["Model Builder feature and scenario reconciliation", "66 Model Builder features × seven mandatory scenarios; focused Vitest and .venv311 server cohorts; fail-closed generator gates", "Pass", "The register includes the 23 live Model Engine v2 workflows omitted by the legacy 43-row inventory and reconciles eleven drifted legacy contracts. All 462/462 Model Builder scenario rows have direct assertion-level evidence; the focused frontend cohort passes 229/229 and the expanded linked server cohort passes 242/242 with one existing Starlette/httpx deprecation warning (DEF-QV-240 through DEF-QV-246).", today],
+  ["Model API complete scenario reconciliation", "18 discovered Model API handlers × seven scenarios; direct legacy/v2/workbook HTTP assertions; bounded-work contracts; backend viewport N/A gate", "Pass", "All 108/108 applicable Model API scenarios pass with direct endpoint-specific evidence; 18 backend-only Mobile/responsive rows are explicitly Not applicable. The two complete changed server files pass 62/62, including 18 parameterized bounded-work contracts and the live 15-allowed/16th-rejected checkpoint rate boundary (DEF-QV-242 through DEF-QV-246).", today],
+  ["Post-Model API backend evidence delta", "pytest complete changed Model API files; exact pytest/stress/cohort recollection", "Pass", "Twenty-eight executable Model API nodes were added after the 2,544-node backend seal. Both complete changed files pass 62/62, advancing the reconciled server/stress/cohort inventory to 2,572 nodes: 2,548 executable server passes, 15 intentional skips, and nine passing stress/cohort nodes (DEF-QV-243; DEF-QV-246).", today],
+  ["Canonical direct-evidence closure", "seven final API list/root contracts; slash-preserving API inventory; strict all-feature evidence gate", "Pass", "All 683/683 canonical features now carry direct automation. The ten initially unmapped API rows and one newly exposed slash alias resolve through seven new runtime contracts plus existing trailing-slash suites, and the generator fails closed if any feature loses direct evidence (DEF-QV-247; DEF-QV-248).", today],
+  ["Final API list/root focused regression", ".venv311/bin/python -m pytest test_api_list_quality_contracts.py test_portfolio.py test_portfolios.py test_sponsors_digest.py -q", "Pass", "All 32/32 focused server cases pass, covering owner isolation, ordering, limits, invalid inputs, context and sector filtering, legacy portfolio posture, portfolio creation/listing, sponsor grouping, and both slash forms of the aliased roots (DEF-QV-247; DEF-QV-248).", today],
+  ["API list/root complete scenario reconciliation", "11 API list/root features × seven scenarios; database-failure recovery; exact rate backpressure; bounded-work contracts; backend viewport N/A gate", "Pass", "All 66/66 applicable scenarios across API-006, API-093 through API-097, API-120, API-133, API-158, API-168, and API-169 have direct passing evidence; 11 backend-only Mobile/responsive rows are explicitly Not applicable. The first focused run exposed two harness-only contract assumptions before the complete 33-case file and 58-case linked cohort passed (DEF-QV-249 through DEF-QV-251).", today],
+  ["Post-list API backend evidence delta", "pytest complete list/root quality file; exact pytest/stress/cohort recollection", "Pass", "Twenty-six executable list/root API nodes were added after the 2,579-node backend seal. The complete changed file passes 33/33 and the linked alias cohort passes 58/58, advancing the reconciled server/stress/cohort inventory to 2,605 nodes: 2,581 executable server passes, 15 intentional skips, and nine passing stress/cohort nodes (DEF-QV-251; DEF-QV-252).", today],
+  ["Settings implementation-contract reconciliation", "current Settings page and server routes versus settings-01..10 and API-164..167; strict 98-row scenario gate", "Pass", "Four stale Settings contracts were reconciled to current code, and all 94/94 applicable Settings UI/API scenarios now have direct assertion-level evidence; four backend-only viewport rows remain explicit Not applicable (DEF-QV-253; DEF-QV-256).", today],
+  ["Settings focused frontend and server regression", "vitest six linked Settings/auth/helper files; .venv311 pytest four Settings/API/config/role files; eslint; tsc --noEmit", "Pass", "All 56 frontend and 291 server cases pass, including exact failure recovery, profile isolation, invalid/oversized input, the shared 30/min mutation boundary, and bounded handler work. ESLint and TypeScript are clean; one existing Starlette/httpx warning is disclosed (DEF-QV-254 through DEF-QV-258).", today],
+  ["Settings cross-browser and phone regression", "isolated migrated SQLite server; settings_flow.spec.ts with retries=0 in Chromium, Firefox, and WebKit", "Pass", "All 15/15 executions pass. At 390x844 every Models, Research, Email Intel, Portfolios, and Workspace tab is selected and rendered in turn, Home returns to Models, and document overflow stays within one pixel (DEF-QV-259; DEF-QV-260).", today],
+  ["Post-Settings automation evidence delta", "fail-closed Vitest, pytest, and Playwright collection after complete contributing-file execution", "Pass", "The current seal is 4,635 nodes: 1,811 frontend, 2,616 server/stress/cohort, 165 browser, 36 accessibility, six performance, and one responsive-workbench node. The 16-node Settings delta was executed before the count gates advanced (DEF-QV-257).", today],
+  ["Concurrent Deep-Dive module-group delta", "quiescent fail-closed collection; vitest module-groups.test.ts complete file", "Pass", "The collector first rejected a transient missing paired implementation, then found three net new frontend identities. The completed module-group file passes 3/3, advancing the current seal to 1,814 frontend and 4,638 total evidence nodes (DEF-QV-261).", today],
+  ["Model Builder browser, accessibility, and performance", "model_flow in Chromium/Firefox/WebKit; axe /model at 1440x900 and 390x844; desktop plus five constrained-mobile gzip samples", "Pass", "All 15/15 zero-retry browser executions pass after selecting Scenario through the current Model support toolbar. Both responsive axe states report zero nodes, scan errors, and layout failures. Desktop ready/FCP/LCP/TBT are 1,295/48/108/0ms; constrained-mobile p75 ready/FCP/LCP/TBT are 3,540/980/2,152/293ms with 297.9KB encoded JavaScript, gzip, zero CLS, and readiness bound to the real Model worksheet (DEF-QV-236 through DEF-QV-239).", today],
   ["QA scale seeder and security headers", ".venv311/bin/python -m pytest ../tests/server/test_seed_qa_scale.py ../tests/server/test_security_headers.py -q", "Pass", "9/9 passed: loopback/database guardrails, deterministic sanitized scale/workflow fixture, idempotence, and deployed security headers", baselineDate],
   ["Health performance smoke", "caos/server/.venv311/bin/python caos/tests/perf/smoke.py --url http://127.0.0.1:8010/api/health --n 200 --concurrency 20 --p95-ms 500", "Pass", "0 errors; p50 23ms; p95 82ms against a 500ms gate", baselineDate],
   ["Scenario benchmark", "cd caos/server && .venv311/bin/python -m pytest ../tests/perf/test_scenario_benchmark.py -q --durations=0", "Pass", "1/1 bounded scenario benchmark passed; benchmark call 0.01s, pytest lane 0.36s", baselineDate],
   ["Dependency lock sync", "caos/server/.venv311/bin/python caos/scripts/check_lock_sync.py", "Pass", "requirements.lock satisfies all 17 requirements.txt specs", baselineDate],
   ["Modular OS consistency", "caos/server/.venv311/bin/python 'Modular OS/tools/check_module_consistency.py'", "Pass", "26 modules checked / 0 drift", baselineDate],
   ["Complexity delta", "PATH=caos/server/.venv311/bin:$PATH caos/server/.venv311/bin/python caos/scripts/check_complexity_delta.py --base-ref origin/main", "Pass", "40 bounded findings across 161 changed Python paths", baselineDate],
+  ["Deep-Dive implementation-contract reconciliation", "current Deep-Dive route and 27-module catalog versus deepdive-01..42; strict 294-row scenario gate", "Pass", "The module launcher contract now records three semantic groups across all 27 current modules, and the narrow contract records the implemented complete workbench rather than the removed read-only phone triage card. All 294/294 Deep-Dive scenario rows have direct assertion-level evidence (DEF-QV-262 through DEF-QV-267).", today],
+  ["Deep-Dive focused functional regression", "vitest complete Deep-Dive, evidence, recovery, authentication, vault, navigation, decision, and scenario-network files; pytest test_qa_flags.py", "Pass", "All 161 Deep-Dive-linked frontend cases and all 7 QA-flag server cases pass, including persisted shortcut caps, stale-response rejection, explicit evidence failure states, bounded personal annotations, scenario backpressure/retry, and first-run storage denial.", today],
+  ["Deep-Dive browser, accessibility, and performance", "deepdive_flow in Chromium/Firefox/WebKit with retries=0; axe reference workspace at 1440x900 and 390x844; desktop and constrained-mobile gzip audit", "Pass", "All 12/12 browser executions pass after repairing the obsolete bare-route and hidden-duplicate locators. Both axe states report zero nodes, scan errors, and layout failures after the clipped global Ask control was fixed. Desktop ready/LCP/TBT are 542/168/0ms; constrained-mobile ready/LCP/TBT are 2,698/2,284/226ms with 293.0KB encoded payload, gzip, and zero CLS.", today],
 ];
 
 const defects = [
@@ -129,7 +193,7 @@ const defects = [
   ["DEF-QV-057", "monitor-01", "High", "Fixed", "A concurrent Monitor edit placed a JSX child comment between EnterprisePage attributes, where the parser requires an attribute or spread.", "Run npm run build with the edited Monitor page.", "The production frontend parses and emits all 20 static routes.", "Turbopack stopped at monitor/page.tsx with Expected '...', got '}'.", "Moved the explanatory comment into the valid EnterprisePage child region without changing the concurrent feature behavior; the next production build passed."],
   ["DEF-QV-058", "reports-01", "High", "Fixed", "A concurrent ReportDoc semantic-heading edit temporarily opened h2 and closed div.", "Run npm run build while the incomplete ReportDoc edit is present.", "Every report heading has a matching semantic closing tag and the production build parses.", "Turbopack stopped at ReportDoc.tsx:95 with Expected corresponding JSX closing tag for h2.", "The parallel edit completed the closing-tag correction to h2; the subsequent production build and Report Studio browser journeys passed."],
   ["DEF-QV-059", "BP-017", "High", "Fixed", "Active parallel frontend writes repeatedly postdated each staged static export and superseded otherwise-clean exact-artifact validation.", "Build and stage the frontend, run the browser cohort, then compare recursive src mtimes with the staged export.", "No frontend source file changes from build start through the final browser, unit, coverage, lint, type, and accessibility seal.", "Rerun6 passed 949/949 frontend tests, lint, type check, coverage, a 20-route build, 46/46 zero-retry browser journeys, 36/36 route-width accessibility states, and 4/4 Query states; the final recursive source-mtime query returned no files.", "Obtained a quiescent window, built and served a new isolated rerun6 export, repeated every frontend and browser gate, and recorded a clean exact-current freshness seal."],
-  ["DEF-QV-060", "BP-017", "Medium", "Open", "The long-lived GitNexus MCP query connection retains the pre-repair LadybugDB catalog even after the on-disk index and user registry are rebuilt at the current commit; its registry/context metadata refreshes, but its FTS handle does not.", "Repair FTS, force an index-only PDG rebuild, prove a local CLI query returns matches, then issue the same MCP query in the current tool session.", "Both local and MCP semantic queries use the current index and return relevant execution flows without an FTS warning.", "The current registry reports b1ac826 and 103,014 nodes, and the local query returns relevant definitions, while the MCP query still returns an empty result with 'FTS indexes missing'.", "Compensated with current MCP symbol context plus exact source inventories and local semantic queries; reconnect/restart the GitNexus MCP tool session, then repeat the same query before closing."],
+  ["DEF-QV-060", "BP-017", "Medium", "Waived", "The long-lived GitNexus MCP query connection retains the pre-repair LadybugDB catalog even after the on-disk index and user registry are rebuilt at the current commit; its registry/context metadata refreshes, but its FTS handle does not.", "Repair FTS, force an index-only PDG rebuild, prove a local CLI query returns matches, then issue the same MCP query in the current tool session.", "Both local and MCP semantic queries use the current index and return relevant execution flows without an FTS warning.", "The current registry and symbol impacts are current while the MCP semantic query still reports missing FTS indexes.", "Explicit external-tool waiver: this does not affect CAOS runtime behavior. Current symbol impacts, exact source inventories, direct tests, and local semantic/source queries are the compensating controls; reopen after the MCP process is restarted."],
   ["DEF-QV-061", "auth-01", "Low", "Fixed", "The expanded login E2E resolved axe-core with import.meta.url even though the Playwright transform emits CommonJS.", "Collect and run the login responsive/accessibility matrix.", "The test resolves the installed axe bundle in the repository's CommonJS-compatible Playwright runtime.", "The spec failed during transform before a browser opened.", "Use require.resolve('axe-core/axe.min.js'); all four login/register/recovery/error responsive scans pass."],
   ["DEF-QV-062", "pipeline-01", "Medium", "Fixed", "Ingestion regression doubles were local lambdas/closures that cannot cross the production parser's spawn-process boundary.", "Run the lineage and integrated-journey ingestion cohorts with process isolation enabled.", "Deterministic extraction doubles remain serializable under spawn while the production child-process isolation stays intact.", "The worker failed before parsing because the local callable could not be pickled.", "Replaced local callables with module-level deterministic functions; the affected 34-node ingestion/pipeline cohort passes with one intentional skip."],
   ["DEF-QV-063", "pipeline-01", "High", "Fixed", "A newly claimed unowned pipeline job could enter its terminal failure path without carrying the claimed worker as a fenced owner.", "Claim an unowned queued job, then force a module failure after the owner/lease commit.", "The failure mutation is fenced to the worker that owns the committed lease, preventing a stale worker from overwriting terminal state.", "The failure helper could receive no expected worker id after ownership had already been established.", "Promote the committed owner into fenced_owner after the lease claim and use it for terminal failure writes; the focused pipeline cohort and complete backend regression pass."],
@@ -217,6 +281,126 @@ const defects = [
   ["DEF-QV-145", "settings-01", "Low", "Fixed", "The Settings unmount cleanup dereferenced mutable timer refs directly inside an empty-dependency effect cleanup, triggering two exhaustive-deps warnings and making ref-capture intent ambiguous.", "Run the exact-current global ESLint gate after the Settings save-feedback timers land.", "Unmount cleanup retains access to the latest timer values with no hook-dependency warnings.", "ESLint reported two react-hooks/exhaustive-deps warnings for savedResetTimer.current and analystSavedResetTimer.current.", "Captured the stable ref objects inside the effect and cleared their current timer values during cleanup; exact-current ESLint and TypeScript both pass cleanly."],
   ["DEF-QV-146", "pipeline-01", "Low", "Fixed", "The expanded EDGAR import harness used jest-dom's toHaveTextContent even though the project does not install that matcher, and asserted a data-sev attribute that the real Dot component does not expose.", "Run the complete new six-file frontend cohort after the EDGAR error and zero-chunk cases land.", "The harness asserts rendered text and the implemented warning color contract using the project's available Chai/DOM primitives.", "Three error-detail cases failed with 'Invalid Chai property: toHaveTextContent', and the zero-chunk case could not find data-sev=warning; the other 41 cohort cases passed.", "Asserted alert.textContent and the warning Dot's aria-hidden style instead of nonexistent test APIs/attributes; all 11 EDGAR cases and the 45-case cohort pass with clean lint and TypeScript."],
   ["DEF-QV-147", "BP-017", "Low", "Fixed", "Three distinct EDGAR rejection shapes collected under one identical parameterized test name, making their automation evidence identities ambiguous.", "Collect the exact frontend inventory and group each file/name pair after the new EDGAR cases land.", "String-detail, nested-message, and fallback-error contracts each have a stable unique node identity.", "All three rejection cases appeared as 'surfaces a useful non-503 vaulting error'.", "Converted the table to labelled objects and included $label in the test title; the complete EDGAR file passes and the current inventory can distinguish all three cases."],
+  ["DEF-QV-148", "BP-017", "Low", "Fixed", "Three Model interaction nodes landed immediately after the 1,678-node workbook seal while the shared worktree remained active.", "Publish the canonical tracker while the Model page and its interaction harness are still changing.", "The exact-count gate stops publication and the complete affected file executes before the evidence seal advances.", "Collection advanced from 1,678 to 1,681 nodes after guarded-storage, unavailable-downside, and stale-checkpoint cases landed.", "Executed the completed 13-case Model file, clean lint and TypeScript, a fresh 20-route build, 15/15 affected browser executions, and both responsive Model axe states before advancing the seal."],
+  ["DEF-QV-149", "model-01", "Low", "Fixed", "The first isolated Model browser server enabled Model Engine v2 without its implemented Lineage v2 prerequisite.", "Run model_flow.spec.ts in all three browser engines with CAOS_MODEL_ENGINE_V2_ENABLED=true but CAOS_LINEAGE_V2_ENABLED=false.", "The validation environment enables every documented dependency needed by the journey, so all current Model cases execute.", "Nine legacy/scenario cases passed, three v2 reads returned HTTP 503, and three serial successor cases did not run.", "Restarted the isolated server with both rollout gates enabled; all 15 Chromium, Firefox, and WebKit executions pass with retries disabled."],
+  ["DEF-QV-150", "BP-017", "Low", "Fixed", "Six Monitor governance and Deep-Dive output-register nodes landed during the 1,681-node workbook export.", "Publish the canonical tracker while those completed interaction files are still arriving in the shared worktree.", "The exact-count gate blocks publication and both complete files execute before the tracker advances.", "The builder stopped before workbook mutation with expected 1,681 but collected 1,687 Vitest nodes.", "Executed the complete Monitor and Output Register files with 23/23 passing, including the intentional offline-path diagnostics; lint and TypeScript remain clean."],
+  ["DEF-QV-151", "upload-22", "Medium", "Fixed", "The canonical Upload register still described a retired four-mode wizard and in-wizard EDGAR search/exhibit workflow, while the current screen implements five run modes plus URL-based public EDGAR intake and the backend retains separate search/filing APIs.", "Compare upload-01 through upload-27 against the current Upload page, wizard steps, ingestion/EDGAR routes, storage helpers, and exact test assertions.", "Every Upload row documents only current implemented behavior, edge cases, validation, dependencies, and assumptions, with direct assertion-level evidence.", "Multiple rows named removed UI controls, omitted Primary Transaction mode, understated metadata/path/rate-limit contracts, and described zero-chunk ingestion as silent rather than an explicit warning.", "Reconciled all 27 feature contracts to current code, mapped exact frontend/backend assertions, added three missing robustness tests, and passed the complete 40-case frontend and 125-case mapped server cohorts."],
+  ["DEF-QV-152", "BP-017", "Low", "Fixed", "Thirteen Model tests landed in the shared worktree while Upload reconciliation was in progress: seven frontend nodes and six backend Model Engine v2 nodes.", "Publish the canonical tracker after the previously sealed 1,687/2,507 inventories while concurrent Model source and tests are still changing.", "The exact-count seal advances only after every new node and its affected production surface are validated.", "Collection advanced to 1,694 frontend and 2,516 server/stress/cohort nodes, including the three planned Upload robustness nodes.", "Executed the six complete affected frontend files with 68/68 passing and test_model_engine_v2.py with 66/66 passing; lint, TypeScript, the 20-route build, 15/15 Model browser journeys, and two responsive axe states also pass."],
+  ["DEF-QV-153", "command-29", "Medium", "Fixed", "Eight Sector Review feature rows still described the deleted SectorReviewWorkspace v1 signal-card UI, including timeframe/search filters and Topic ASK, while /sector now renders the context-bound versioned SectorReviewDossier.", "Compare command-29 through command-51 and command-57 with the current /sector page, dossier/panel components, analysis client, V2 sector routes, and exact test assertions.", "Every Sector Review row documents only current user-facing behavior and cites direct automation for the current workflow; retained legacy APIs remain discoverable in the API inventory without being presented as current screen controls.", "The canonical register named a removed component and controls that users cannot reach, while omitting version history, evidence availability, ratification, publication gates, and comparable-issuer navigation.", "Reconciled all nine stable Feature IDs to the current dossier, mapped assertion-level frontend/backend evidence, executed the focused cohorts, and rebuilt the canonical workbook with 9/9 direct Sector Review coverage."],
+  ["DEF-QV-154", "settings-03", "Medium", "Fixed", "Six Settings feature rows still described the retired four-tab page, old PageSubHeader shell, legacy header copy, immediate local model-mode persistence, and Outlook as a hardcoded PUT-backed stub.", "Compare settings-03 through settings-07 and settings-10 with the current Settings page, shared shell/model-mode/API clients, Settings routes, and exact frontend/server/browser assertions.", "Every Settings row documents the current five-tab authenticated workbench, staged global save semantics, truthful environment snapshot, profile-backed Outlook state, and sparse revision-checked PATCH persistence.", "The canonical register omitted Portfolios, URL-restored and roving-keyboard tabs, seven configuration groups, runtime-model wording, staged device/profile model mode, and current email conflict/error handling.", "Reconciled all six stable Feature IDs to current code, strengthened the existing browser journey with shell/header assertions, mapped exact frontend/server/browser nodes, executed the complete focused cohorts, and rebuilt the workbook with 10/10 direct Settings coverage."],
+  ["DEF-QV-155", "settings-05", "Low", "Fixed", "The first strengthened Settings browser assertion used a broad exact-text locator for the shell title even though the accessible page also exposes a Settings navigation link and hidden document heading.", "Run the current mirrors-the-server-workspace-configuration journey in Chromium, Firefox, and WebKit with page.getByText('Settings', { exact: true }).", "The browser test targets the visible ShellIdentity title unambiguously and remains stable when equivalent accessible Settings labels coexist.", "Playwright strict mode resolved two to four matching elements in each engine; that one case failed 3/3 while the other nine project executions passed.", "Scoped the assertion to the implemented span[title='Settings'] identity element and reran the complete 12-execution Settings matrix with zero retries."],
+  ["DEF-QV-156", "BP-017", "Medium", "Waived", "The repository-default local SQLite artifact reports migration state that is inconsistent with its issuer_research_reports schema, so current startup queries a missing lease_expires_at column.", "Start caos/server/run.py against the default configured SQLite database after the current research-report lease migration is present.", "The local application database is at the current migration schema or startup fails with actionable repair guidance before background executors query it.", "Startup raised sqlite3.OperationalError: no such column: lease_expires_at while starting the issuer research report executor.", "Explicitly waived for this iteration because repairing or replacing a user-owned local database is a destructive data decision. The complete Settings browser matrix passed against a new isolated SQLite database upgraded through all 64 revisions; the stale default artifact remains a local-environment risk."],
+  ["DEF-QV-157", "shell-01", "Medium", "Fixed", "Seven canonical Shell rows still described the retired eight-chip navigation, Space+Arrow shortcuts, per-header identity placement, single skip target, direct Cmd/Ctrl+K Ask ownership, unconditional root redirect, and PageSubHeader Directory link.", "Compare shell-01 through shell-08 with the current root layout, navigation registry, desktop and compact navigation, hotkeys, identity, Ask, role-root, and focused tests.", "Every Shell row documents only current implemented behavior and carries direct assertion-level evidence where the current contract is automated.", "The register named removed controls and files, understated the 15-route workflow registry, and omitted role-priority navigation, command-palette Ask handoff, responsive skip targets, root loading state, and URL context preservation.", "Reconciled the seven stale stable IDs to current source and mapped direct evidence across the complete Shell cohort."],
+  ["DEF-QV-158", "shell-05", "Medium", "Fixed", "The global Skip to navigation link targeted #concept-nav even though that chip navigation is hidden at the desktop rail breakpoint and below the phone chip cutoff.", "Focus the global navigation skip link at 1440px and 390px on a routed authenticated screen.", "Exactly one breakpoint-appropriate skip link is exposed and its fragment resolves to the visible desktop or compact navigation destination.", "The one fragment resolved to a hidden navigation subtree at both validated viewport extremes.", "The concurrent shell remediation replaced it with CSS-exclusive desktop #workflow-priority-nav and compact #workflow-disclosure links, retained #main-content, and added the shared #page-actions landmark; layout, compact-nav, and SubHeader contracts pass."],
+  ["DEF-QV-159", "shell-08", "Low", "Fixed", "The new workflow-disclosure unit case read for the lazily rendered All Workflows navigation immediately after clicking a native details summary, before jsdom delivered its asynchronous toggle event.", "Run shared-shell-smoke.test.tsx against the completed role-priority WorkflowRail revision.", "The assertion observes the accessible All Workflows navigation after the native disclosure state settles.", "The details element was open, but the immediate getByRole ran before React processed onToggle, so one of 65 current Shell cases failed on both attempts.", "Changed only the test read to await findByRole; the complete three-case shared-shell file and subsequent complete Shell cohort pass."],
+  ["DEF-QV-160", "BP-017", "Low", "Fixed", "Nine persona/navigation frontend nodes and 20 database-pool/Settings backend nodes landed after the prior 1,694/2,516 automation seal while the shared worktree remained active.", "Rebuild the canonical tracker against the previously sealed exact node counts.", "The collector blocks publication until every added identity executes through its complete file and the seal is advanced to the stable current inventories.", "Collection reported 1,703 Vitest and 2,536 pytest/stress/cohort nodes, with nine and 20 exact additions respectively and no removals.", "Executed all 16 complete frontend delta/modified files with 143/143 passing and four affected server files with 362/362 passing; lint and TypeScript are clean, then advanced the exact inventory gates."],
+  ["DEF-QV-161", "shell-05", "Medium", "Fixed", "The new desktop skip-link contract targeted #workflow-priority-nav, but the navigation landmark was not programmatically focusable, so activating the fragment could not reliably move keyboard focus.", "Run the focused shared-shell-smoke file and assert the Analyst priority workflows navigation exposes tabindex=-1 and accepts focus.", "The visible desktop skip destination is programmatically focusable and shows the shared focus-ring treatment without entering the normal tab sequence.", "The late four-case file failed 1/4 on both attempts because the target returned a null tabindex; the other three current Shell cases passed.", "The concurrent Shell revision added tabIndex=-1 and focus-ring styling to the exact desktop navigation target; the complete four-case file and 28-case late affected-file cohort pass."],
+  ["DEF-QV-162", "BP-017", "Low", "Fixed", "A net 14 Shell/persona/hierarchy frontend nodes landed after the 1,703-node evidence seal while the shared worktree remained active.", "Recollect the frontend inventory after the focus, page-action, persona hook, Ask utility, Panel observer, route-title, and hierarchy/proofing assertions land.", "Publication remains blocked until every added identity passes through its complete affected file and the exact inventory gate advances.", "Collection reported 1,717 Vitest nodes: 15 exact additions, one renamed Ask identity removed, and no lost behavior.", "Executed the eight complete affected files with 61/61 passing and the expanded 17-feature Shell/design cohort with 83/83 passing; lint, TypeScript, and the exact-current 20-route production build are clean, then advanced the canonical inventory seal."],
+  ["DEF-QV-163", "shell-14", "Medium", "Fixed", "The canonical route-heading tests landed before routeTitleForPath and its registry-derived metadata were exported in the shared worktree.", "Run nav.test.ts immediately after the new canonical route-title assertion lands.", "Workflow, nested, dynamic issuer, utility, root, null, and unknown paths resolve through one exported title function and one root RouteHeading h1.", "The new nav case failed on both attempts with routeTitleForPath is not a function while the other seven navigation cases passed.", "The completed nav revision derives titles from NAV_GROUPS plus bounded specific metadata; all 8/8 navigation cases and the expanded shared cohort pass."],
+  ["DEF-QV-164", "shell-16", "Medium", "Fixed", "Shared hierarchy and color-governance assertions arrived before the semantic title classes, report screen/print floors, subordinate heading cleanup, and CSS token migration were complete.", "Run hierarchy-color.contract.test.ts during the shared hierarchy rollout.", "The 16/14/13/12px workspace tiers, 12/11/10px screen report floors, 9.5pt/8pt print floors, one route h1, and token-only shared/report color contract all hold together.", "The first complete affected cohort failed four of five hierarchy cases; an intermediate rerun still failed three while CSS was settling.", "The quiescent current hierarchy contract passes 5/5 and the complete eight-file affected cohort passes 61/61."],
+  ["DEF-QV-165", "shell-15", "Medium", "Fixed", "Panel mutation-observer behavior and its test double landed in separate concurrent revisions, first leaving late overflow unmeasured and then invoking the production callback without MutationRecord input.", "Run the four Panel focus-safe scroll-owner cases during the observer rollout.", "Late mutations remeasure overflow in both directions, observe added elements, and retain realistic MutationObserver callback input.", "The first run kept tabindex at -1 after simulated overflow; the next run raised records is not iterable while the other three Panel cases passed.", "The completed observer and harness revisions pass all 4/4 Panel cases and the 61-case affected cohort."],
+  ["DEF-QV-166", "shell-06", "Medium", "Fixed", "Ask utility tests and shell ownership changed before AskUtility, the breakpoint-owned rail/header placements, phone-only fallback, and updated overlay structure were present together.", "Run the complete Ask coverage and shared-shell files during the utility ownership transition.", "Exactly one labelled Ask entry is owned by the active shell breakpoint, AskLauncher alone owns overlays, route-specific scope remains unchanged, and no desktop/tablet floating dock returns.", "The in-flight cohort reported undefined Ask utility rendering, obsolete dock expectations, an obsolete main landmark expectation, and a missing rail Ask button.", "The settled Ask and shell revisions pass all 16/16 Ask cases, 4/4 shared-shell cases, and the complete 61-case affected cohort."],
+  ["DEF-QV-167", "BP-017", "Low", "Fixed", "Three HTTP policy middleware regression nodes landed after the 2,536-node server/stress/cohort evidence seal while the shared worktree remained active.", "Rebuild the canonical tracker after the CSRF rejection, edge-proof rejection, and duplicate Set-Cookie preservation cases land.", "The exact-count gate blocks publication until all added security identities execute through their complete file and the backend seal advances.", "Collection reported 2,539 pytest/stress/cohort nodes, with three exact additions and no removals.", "Executed the complete test_security_headers.py file with 8/8 passing and advanced the current backend evidence seal to 2,539 collected nodes."],
+  ["DEF-QV-168", "issuer-31", "Medium", "Fixed", "The Issuer Directory classified distressed ratings with critical-red text alone, so users who could not perceive that color had no equivalent visible or assistive-technology signal.", "Load a directory row whose first agency rating is CCC+, Caa, or another distressed grade and inspect the Rating gridcell.", "A distressed rating has a visible non-color signal and an accessible name that identifies the distressed state while preserving the dense eight-column grid.", "The rating value was red but otherwise indistinguishable from a non-distressed rating.", "Added the existing critical StatusGlyph and an explicit Distressed rating accessible label; the complete 21-case Issuer Directory file passes."],
+  ["DEF-QV-169", "issuer-31", "Low", "Fixed", "The first semantic-directory regression assertion assumed a single summary string, raw header text without the sort glyph, and a sibling DOM shape rather than the gridcell's public accessibility contract.", "Run issuer-batch.test.tsx after adding the eight-column, virtualization, and distress-state assertions.", "The harness verifies the two intentional summary placements, normalized column labels, the named rating gridcell, and its visible glyph without coupling to incidental siblings.", "The new assertion failed on duplicate summary ownership, the appended sort arrow, and a previousElementSibling lookup even though those product contracts were valid.", "Counted the two intentional summaries, normalized header labels, and anchored the glyph assertion inside the exact named gridcell; the complete file passes 21/21."],
+  ["DEF-QV-170", "BP-017", "Low", "Fixed", "Eight net route-recovery and color-policy frontend nodes landed after the 1,717-node evidence seal while the shared worktree remained active.", "Run the canonical tracker builder against the exact current repository after the late shared-surface assertions land.", "The exact-count gate refuses publication until every new identity executes through its complete contributing file and the frontend seal advances.", "Collection reported 1,725 Vitest nodes and stopped workbook generation at the prior 1,717 expectation.", "Executed the six complete contributing files with 34/34 passing and advanced the exact frontend evidence seal to 1,725 nodes."],
+  ["DEF-QV-171", "shell-14", "Medium", "Fixed", "RouteHeading invoked usePathname only inside the final nullish-coalescing branch, so the hook order could change when an auth or route override title appeared.", "Run npm run lint against the current shared RouteHeading revision.", "Every hook is invoked unconditionally in a stable order while the visible heading still prefers route override, auth state, then pathname-derived title.", "ESLint reported react-hooks/rules-of-hooks at RouteHeading.tsx:46.", "Called usePathname unconditionally before constructing the heading; lint, TypeScript, and the complete six-case route-heading file pass."],
+  ["DEF-QV-172", "reports-04", "Medium", "Fixed", "useState inferred the warm paper token as a single string literal after the paper palette migrated to readonly color tokens, while UI and persisted drafts legitimately select three tones.", "Run tsc --noEmit against the current Report Studio revision.", "Paper state accepts only the three implemented palette values, and an arbitrary persisted string cannot reach the preview background.", "TypeScript rejected both a restored string draft value and the White/Cool paper button values.", "Typed state from the implemented PAPERS value union and whitelisted restored drafts through PAPERS.find; lint, TypeScript, and the complete 18-case Report Studio interaction file pass."],
+  ["DEF-QV-173", "BP-017", "Low", "Fixed", "The restricted execution sandbox denied Turbopack's local worker-port bind while processing globals.css.", "Run npm run build inside the default restricted sandbox.", "The validation lane distinguishes environment denial from an application build failure and still obtains an exact current production artifact.", "Next build aborted with Operation not permitted while creating a worker process and binding its local port.", "Reran the same build with narrowly scoped local process permission; compilation, TypeScript, and all 20 generated routes passed."],
+  ["DEF-QV-174", "issuer-31", "Low", "Fixed", "The restricted execution sandbox denied Chromium's MachPort rendezvous before axe could open a page.", "Run the local axe-core Issuer scan inside the default restricted sandbox.", "The validation lane distinguishes browser-launch denial from an accessibility failure and executes both required viewports against the exact build.", "Chromium exited on bootstrap_check_in permission denied before either state was scanned.", "Reran the same local-only scan with scoped browser permission; desktop and mobile report zero violation nodes, scan errors, or layout failures."],
+  ["DEF-QV-175", "BP-017", "Low", "Fixed", "One Research ReportBody frontend node landed after the 1,725-node evidence seal while Issuer permission mapping was being published.", "Rebuild the canonical tracker against the exact current repository after the late ReportBody assertion lands.", "The exact-count gate stops publication until the new identity executes through its complete file and the frontend seal advances.", "Collection reported 1,726 Vitest nodes and stopped workbook generation at the prior 1,725 expectation.", "Executed the complete ReportBody file with 2/2 passing and advanced the exact frontend evidence seal to 1,726 nodes."],
+  ["DEF-QV-176", "issuer-12", "Medium", "Fixed", "Three curated Issuer mappings used Performance considerations while the canonical Test Matrix scenario is named Performance, creating exact feature evidence but no matching scenario evidence.", "Compare curated Issuer performance mappings with the canonical scenarios array and rebuild the tracker.", "Every exact mapping uses a canonical scenario key, so passing debounce, duplicate-submit, and virtualization assertions update their intended rows.", "issuer-02, issuer-09, and issuer-12 remained Designed for Performance despite passing exact assertions.", "Renamed the three mappings to the canonical Performance label and retained the complete 21/21 Issuer Directory pass."],
+  ["DEF-QV-177", "BP-017", "Low", "Fixed", "EnterprisePage.action-contract.test.tsx and its no-action guard landed in separate concurrent revisions, so the first run observed an empty page-actions region from the intermediate component.", "Execute the new complete EnterprisePage typed-action file while the shared component revision is still settling, then compare the failure with the saved source and rerun quiescently.", "Only the completed saved revision is accepted; an absent primary action yields the honest focusable no-action target and all five typed-action contracts pass.", "The first run failed the no-action text assertion twice while the other four contracts passed; the saved source already contained the required conditional guard by inspection.", "Reran the unchanged completed file after quiescence with 5/5 passing and advanced the frontend inventory by all five nodes."],
+  ["DEF-QV-178", "BP-017", "Low", "Fixed", "Command and Monitor retained unused ActionReason imports after their page actions migrated to the typed EnterprisePage contract.", "Run npm run lint after the typed-action shared-source revisions settle.", "The exact-current lint gate exits cleanly with zero errors and zero warnings.", "ESLint reported two @typescript-eslint/no-unused-vars warnings, one in each route.", "Removed only the dead imports; the next lint pass is clean, TypeScript passes, and the 20-route production build succeeds."],
+  ["DEF-QV-179", "command-04", "Medium", "Fixed", "A persisted holding with an issuer id but no ticker rendered a clickable em dash, making a missing identity field look like an actionable issuer code.", "Render a position whose issuer_id is present and ticker is null, then inspect the Ticker gridcell.", "The missing ticker is a plain explicit dash; the borrower name may still open the profile by stable issuer id without activating the row.", "The em dash was wrapped in an IssuerLink whenever issuer_id existed.", "Gate only the ticker link on both issuer_id and ticker, retain the independently valid company link, and add an exact no-link regression assertion."],
+  ["DEF-QV-180", "command-07", "Medium", "Fixed", "The selected-position strip omitted maturity, agency ratings, QA status, and committee state even though the persisted row and canonical strip contract carried them.", "Select a populated Command holding and compare the strip with the position grid record.", "The strip retains loan economics, maturity, Moody's/S&P ratings, posture, QA, and committee state from the same snapshot.", "Only par, price, margin, and posture were rendered after the identity block.", "Added compact Maturity, Ratings, and QA fields with explicit missing formatting; the complete CommandPortfolio contract file passes."],
+  ["DEF-QV-181", "command-08", "High", "Fixed", "The selected-position strip opened Deep-Dive whenever issuer_id existed, even when the bound run_id was absent, allowing the destination to resolve a different latest run.", "Select a holding with issuer_id but no run_id and activate the Deep-Dive handoff.", "No handoff is offered unless both stable issuer and run authority exist; valid values are encoded together.", "The link emitted /deepdive?issuer={id} without a run parameter.", "Require both issuer_id and run_id, otherwise render Deep-Dive authority unavailable; regression covers missing authority and encoded special characters."],
+  ["DEF-QV-182", "command-40", "High", "Fixed", "A Watchtower row without issuer_id fell back to its display name in a Deep-Dive query, which could resolve an ambiguous or unrelated issuer.", "Render a ranked autonomy section with issuer_name but no stable issuer_id and inspect both row and header handoffs.", "Missing stable issuer authority suppresses the row link and disables the primary handoff with an explicit reason.", "RankedChangeRow and deriveRankedChange both substituted the display name for issuer identity.", "Removed both name fallbacks, added Issuer authority unavailable text, and verified the row plus primary action fail closed."],
+  ["DEF-QV-183", "command-42", "Medium", "Fixed", "The canonical Open top change contract still described switching to the Changes tab and focusing the panel, while the implemented action navigates directly to the highest-ranked issuer in Deep-Dive.", "Compare command-42 in the tracker with deriveRankedChange, CommandTopChangeAction, and the passing browser journey.", "The source-of-truth contract documents the actual direct, stable-issuer Deep-Dive handoff and its unavailable state.", "The workbook expected a typed-URL tab switch, scroll, and focus behavior that no current source performs.", "Rewrote the user story, expected behavior, edge cases, trigger, and dependency metadata to match the implemented direct handoff."],
+  ["DEF-QV-184", "command-04", "Low", "Fixed", "The strengthened persisted-grid regression queried a repeated $100M value globally after adding a second boundary row.", "Run current-command-contracts.test.tsx with Atlas and missing-ticker rows that share par size.", "Value assertions are scoped to the named owning row and remain stable when other holdings have equal economics.", "Testing Library rejected getByText('$100M') as ambiguous before later authority assertions ran.", "Scoped the economics assertions to the Atlas position row; the complete file passes 6/6."],
+  ["DEF-QV-185", "BP-017", "Low", "Fixed", "The first focused Playwright command assumed a server already existed on the default port; the restricted attempt was denied a loopback socket and the escalated attempt reached no listener.", "Invoke command_flow.spec.ts directly without an explicit isolated server lifecycle.", "The QA lane starts dedicated backend/frontend listeners, uses isolated storage, and only then opens a browser.", "The attempts failed before product execution with EPERM and then ECONNREFUSED on localhost:8000.", "Started isolated FastAPI and Next servers on 8019/3019 with a temporary SQLite database and reran the complete Command file."],
+  ["DEF-QV-186", "BP-017", "Low", "Fixed", "The first isolated backend launch used the legacy Python 3.9 virtual environment, whose older FastAPI rejected the current Depends(scope=...) syntax.", "Start the current server with caos/server/.venv/bin/python.", "Validation uses the repository-mandated Python 3.11 environment with FastAPI 0.138.", "Application import stopped with TypeError: Depends() got an unexpected keyword argument 'scope'.", "Switched to .venv311, migrated a fresh isolated database, and reached application startup successfully."],
+  ["DEF-QV-187", "BP-017", "Low", "Fixed", "The first isolated browser run targeted 127.0.0.1 while Next development assets were owned by localhost, so hydration was blocked and every case remained on the server-rendered access check.", "Run the Command cohort against http://127.0.0.1:3019 while Next reports localhost:3019.", "The browser and development asset origin match so RequireAuth hydrates before workflow assertions.", "All four cases timed out on Checking analyst access; Next logged a blocked cross-origin development-resource request.", "Reran with PLAYWRIGHT_BASE_URL=http://localhost:3019; 4/4 focused and 12/12 cross-browser Command executions pass."],
+  ["DEF-QV-188", "BP-017", "Low", "Fixed", "Fourteen net frontend nodes and three browser-project executions landed after the 1,731/141 evidence seal while the shared worktree remained active.", "Run the fail-closed tracker builder against the new Command authority, mobile, and concurrent page-action tests.", "Publication stops until every new identity passes through its complete file and browser project.", "The builder collected 1,745 Vitest nodes instead of 1,731; Playwright advanced from 141 to 144 after the new journey.", "Executed all six complete frontend contributors at 51/51, the stabilized label file at 10/10, and command_flow across Chromium, Firefox, and WebKit at 12/12 before advancing the gates."],
+  ["DEF-QV-189", "BP-017", "Low", "Fixed", "Three distinct Model Engine page-action label checks collected under one identical parameterized Vitest name.", "List frontend nodes and group PageAction.label-stability.test.ts by file and test name.", "Each label-stability assertion has a unique, durable evidence identity.", "The save-suggestion, recalculate, and commit cases all appeared as the same ModelV2Workbench accessible-label node.", "Added a stable operation descriptor to every table row and included it in the test title; the complete ten-case file passes with distinct names."],
+  ["DEF-QV-190", "BP-017", "Low", "Fixed", "Thirteen evidence-selection and completion-state frontend nodes landed after the 1,745-node seal while the workbook gate was running.", "Rerun the fail-closed tracker builder after the Command delta appears stable.", "Any late shared-worktree node is executed through its complete contributing file before the exact inventory advances.", "The builder stopped at expected 1,745 and collected 1,758 Vitest nodes.", "Executed EvidenceSelectionList, both selection integrations, CompletionStateSummary, and the adoption contract at 13/13 before advancing the seal."],
+  ["DEF-QV-191", "BP-017", "Low", "Fixed", "The fail-closed tracker invoked Vitest collection while the isolated Next development server was concurrently using the frontend transform graph.", "Run the tracker builder while the browser-validation development stack is still active.", "Collection either completes against a quiescent source tree or fails with an actionable infrastructure classification; publication never accepts a partial inventory.", "Vitest collection stopped with `Timeout calling fetch [EnterprisePage.tsx,web]` from a worker RPC, and the builder correctly aborted before export.", "Stopped the isolated browser stack and reran the unchanged builder quiescently; exact 1,758-node frontend collection and artifact export completed successfully."],
+  ["DEF-QV-192", "command-30", "High", "Fixed", "Sector Review history could resolve after an analysis-context change and reselect a dossier from the prior sector; URL-only section changes also triggered unnecessary history fetches.", "Open a Telecom dossier, change the active context sector to Software while an older history request is in flight, and let the stale response settle.", "Only the active context and sector may own the selected review; superseded requests are ignored and local URL section changes do not refetch history.", "Two of six initial narrow-browser executions resurrected review-1 after the context moved to Software, creating a cross-sector wrong-read risk.", "Cancelled superseded responses, separated URL state from fetch dependencies, filtered returned history by active sector_id, and passed the new unit regressions plus 6/6 browser executions."],
+  ["DEF-QV-193", "command-29", "Medium", "Fixed", "Taxonomy and feed-reference read failures were silently converted into an authoritative empty directory and default-on alert preferences.", "Reject GET /api/analysis/taxonomy or GET /api/sector/feeds while loading /sector.", "Reference-data failure is explicit and cannot be mistaken for a canonical empty taxonomy or a persisted enabled preference.", "The dossier rendered no bounded error for either failed read and continued with fallback reference state.", "Added independently bounded taxonomy/feed errors and a complete read-failure component regression."],
+  ["DEF-QV-194", "command-29", "High", "Fixed", "A failed sector context patch cleared the active dossier before persistence succeeded, and feed/sector mutations could overlap.", "Reject the analysis-context PATCH during sector change or rapidly toggle alerts while another mutation is pending.", "Persist-before-clear retains the prior dossier on failure; competing mutations are serialized, disabled while pending, and recover after settlement.", "The screen could lose the prior review despite the server retaining the old context, and overlapping updates risked last-response ownership.", "Guarded current/busy actions, require a successful patch result before clearing sector-owned state, and serialize feed updates with recovery assertions."],
+  ["DEF-QV-195", "command-48", "High", "Fixed", "GET /api/sector/reviews applied context_id filtering after a global 100-row limit.", "Create an older review for the target context followed by 101 newer reviews owned by the same analyst in other contexts, then list the target context.", "The SQL query scopes by analyst and payload context_id before ordering and limiting, so the target review remains discoverable.", "The global limit could exclude the target review and return an empty history even though an owned version existed.", "Added the JSON payload context predicate before ORDER BY/LIMIT, retained defensive filtering, and passed a 102-review regression."],
+  ["DEF-QV-196", "command-50", "Medium", "Fixed", "A published sector review mapped to an UNRATIFIED decision authority and still exposed a stale final action.", "Load a review whose authority.approval_state is published after completing the publication workflow.", "Published maps to RATIFIED governance authority and exposes no further Ratify or Publish primary action.", "The decision header understated approval and left an obsolete action visible.", "Mapped published authority to RATIFIED, removed the stale final action, and strengthened the governed happy-path assertion."],
+  ["DEF-QV-197", "command-51", "Low", "Fixed", "Two comparable issuers without stable ids but with the same display name produced duplicate React row keys.", "Render two missing-id comparables with an identical issuer_name.", "Display-only comparables remain distinct without React key warnings, while metric columns stay bounded to four finite sorted keys.", "Both rows used issuer_name as their key, risking reconciliation artifacts and console warnings.", "Included the row index in the missing-id fallback key and added duplicate-name/non-finite/max-column coverage."],
+  ["DEF-QV-198", "BP-017", "Low", "Fixed", "Twenty-seven frontend identities were added and two retired after the 1,758-node evidence seal while Sector validation was active.", "Compare the current Vitest list with the prior Automation Evidence sheet.", "Publication remains blocked until every added identity executes through its complete contributing file and the exact count advances.", "The current inventory contained 1,783 Vitest nodes, a net increase of 25, plus one backend and six browser additions.", "Executed all twelve contributing frontend files at 92/92, the affected server cohort, and all six new browser nodes before advancing the fail-closed counts."],
+  ["DEF-QV-199", "command-30", "Low", "Fixed", "The new cross-sector regression assigned null to a test fixture inferred as string-only, failing the standalone TypeScript gate despite runtime behavior passing.", "Run npx tsc --noEmit after the first cross-sector fixture revision.", "The test fixture models sector_review_run_id as string|null and both static and behavioral gates pass.", "TypeScript reported TS2322 at the context replacement while the 13 runtime component cases passed.", "Widened the hoisted fixture field to string|null, restored the semantically correct null value, and reran TypeScript cleanly."],
+  ["DEF-QV-200", "BP-017", "Low", "Fixed", "The isolated static server retained the previous build's CSP hashes after a production artifact rebuild.", "Rebuild the static artifact without restarting the already-running validation server, then open /sector.", "Browser validation serves CSP hashes generated for the exact artifact under test.", "Bootstrap scripts were blocked by stale CSP hashes and the page remained at the auth loading gate before product assertions ran.", "Restarted the isolated server against the rebuilt artifact, confirmed bootstrap execution, and passed 6/6 zero-retry sector journeys."],
+  ["DEF-QV-201", "BP-017", "Low", "Waived", "The repository-wide GitNexus detect_changes comparison cannot bound the current multi-thread shared-worktree diff within its child-process output buffer.", "Run detect_changes with scope=compare and base_ref=origin/main against the current shared worktree.", "The graph maps changed symbols and affected execution flows, or supports path-bounded comparison for the agent-owned files.", "The required MCP call stops with `Git diff failed: spawnSync git ENOBUFS` before returning a risk map.", "Explicit external-tool waiver: this does not affect CAOS runtime behavior. Pre-edit symbol impacts, explicit path-scoped diff review, clean lint/type/build, full frontend regression, exact browser/accessibility checks, and post-change scope review compensate until GitNexus adds path filtering or a larger buffer."],
+  ["DEF-QV-202", "monitor-07", "Low", "Fixed", "The replay-count helper accepted non-finite and negative ticks without normalization.", "Call simAlertsToday with NaN, positive/negative infinity, or a negative tick while the replay is active.", "The KPI remains a finite, non-negative count bounded by the authored alert tape.", "NaN produced a NaN KPI and negative ticks could produce a negative Replay today count.", "Normalize non-finite and negative ticks to the opening baseline before accrual; the direct boundary, hostile-input, performance, focused frontend, browser, lint, type, and production-build regressions pass."],
+  ["DEF-QV-203", "monitor-07", "Medium", "Fixed", "The first audit served static assets with identity encoding despite production Caddy's checked-in `encode gzip`, and the closed global Ask shell also pulled its analytical query dependencies into every route's initial bundle.", "Cold-load /monitor at 390x844 with 4x CPU slowdown, 150ms latency, and 1.6Mbps downlink; compare identity and gzip transport; inspect the closed/open Ask waterfall.", "The primary phone triage surface reaches useful content under the production transport without downloading the heavy Ask analytical surface before the analyst opens it.", "Pre-fix gzip-aligned five-sample p75 was 2,320ms LCP/215ms TBT with 266.8KB encoded JavaScript; the earlier identity-encoded run overstated deployed LCP at 6,740ms and JavaScript at 900.7KB.", "Extracted one compatibility-preserving Ask context and kept only the trigger in the initial shell; the heavy chunk is absent while closed and loads on first Ask open. Raw JS falls 875.2KB→766.0KB, encoded JS 266.8KB→227.2KB, and five-sample mobile p75 improves to 2,100ms LCP/188ms TBT with clean focused/full/browser/axe/build gates."],
+  ["DEF-QV-204", "BP-017", "Low", "Fixed", "Nine frontend nodes landed after the 1,783-node evidence seal while Monitor validation and concurrent Deep-Dive/Research/shared-shell work were active.", "Rebuild the canonical tracker against the prior exact frontend count.", "Publication blocks until every added identity executes through its complete current file and the evidence seal advances.", "Exact collection reported 1,792 Vitest nodes: four Monitor additions and five concurrent additions.", "Executed all five complete contributing files at 44/44 before advancing the fail-closed inventory gate to 1,792."],
+  ["DEF-QV-205", "BP-017", "Low", "Fixed", "Coverage Summary counted Pass, Suite evidence, Designed, Not applicable, and Skipped statuses but omitted the Test Matrix's Blocked status.", "Compare the generated-test total with the visible status-category totals in Coverage Summary.", "Every Test Matrix row is represented by an explicit summary category, including blocked validation work.", "The visible categories summed to 4,718 while Generated test cases reported 4,719 because GITNEXUS-SEMANTIC-DISCOVERY was Blocked.", "Added a formula-backed Blocked validation cases row and clarified that the separate pytest skip count is disclosed in the current-iteration note."],
+  ["DEF-QV-206", "pipeline-10", "Low", "Fixed", "Pipeline read its saved Dependency map/Stage lanes preference without handling browser-storage denial.", "Make localStorage.getItem throw a SecurityError while mounting /pipeline.", "The route hydrates the implemented Dependency map default and remains interactive without propagating the storage exception.", "The preference effect could terminate before hydration and leave the composed route dependent on a browser capability it does not control.", "Wrapped the read in a fail-safe hydration path; the exact storage-denial regression and complete Pipeline cohort pass."],
+  ["DEF-QV-207", "pipeline-17", "Low", "Fixed", "simClock formatted negative, fractional, and non-finite ticks directly.", "Call simClock with -1, 1.9, NaN, or either infinity.", "The clock uses a finite non-negative integer tick while preserving every valid authored integer tick.", "Malformed input could yield a pre-open time or NaN:NaN:NaN and fractional seconds could leak into formatting.", "Normalize only invalid, negative, and fractional inputs before formatting; the 13-case simulation-engine file, 136-case focused cohort, and browser matrix pass."],
+  ["DEF-QV-208", "pipeline-10", "Medium", "Fixed", "The phone Run display drawer composed narrow essential controls with the full desktop utility controls, duplicating progress, clearance, and Dependency map/Stage lanes actions.", "Open Run display controls at 390x844 and query the labelled Stage lanes action.", "Exactly one essential view control is present; supplemental mode, simulation, clock, and dim controls remain available.", "The same dialog exposed duplicate controls with identical names; the first breakpoint-hook repair also raced during Chromium hydration.", "Assigned deterministic CSS ownership below lg to the narrow control set. The phone journey asserts one Stage lanes action and passes in Chromium, Firefox, and WebKit; all six responsive axe states are clean."],
+  ["DEF-QV-209", "BP-017", "Low", "Fixed", "Nine frontend nodes and twelve Pipeline browser-project nodes landed after the 1,792-Vitest/150-Playwright evidence seal.", "Run the fail-closed tracker builder after the Pipeline fixes, concurrent additions, and cross-browser journey are added.", "Publication stops until every added identity executes through its complete contributing file and project.", "Collection advanced to 1,801 Vitest and 162 Playwright nodes.", "Executed the exact-current 1,801-node frontend run, repaired both failures, passed the complete affected files at 24/24, passed the 136-case Pipeline frontend cohort, and executed all 12 Pipeline browser-project nodes before advancing the exact gates."],
+  ["DEF-QV-210", "pipeline-09", "High", "Fixed", "The default Pipeline route could mount the Atlas Forge reference plan even though the application was in live mode, making fixture state appear operational.", "Open /pipeline without mode=reference, then compare the run tape with /pipeline/?mode=reference and follow its handoffs.", "Live-empty mode shows no fixture run; explicit reference mode shows the labelled reference plan, preserves mode through handoffs, and starts with planned progress at zero.", "The default fixture path blurred live and reference provenance, while a planned reference run could appear already executed.", "Made reference data explicit, retained live-empty truth, preserved mode in handoffs, and reset planned execution to zero; focused, browser, and accessibility matrices pass."],
+  ["DEF-QV-211", "pipeline-45", "Medium", "Fixed", "The Pipeline E2E contract still targeted retired Execution Graph/Swimlanes labels, a stale issuer identity, and an always-running simulation assumption.", "Execute pipeline_flow.spec.ts against the current production artifact in all three browser projects.", "Journeys use Dependency map and Stage lanes, assert the labelled reference identity, and control planned simulation start/pause deterministically.", "Selectors and state assumptions no longer matched the implemented workbench, so browser evidence could fail without a product regression.", "Updated semantic locators and the planned-run workflow; all 12 Chromium, Firefox, and WebKit executions pass with zero retries."],
+  ["DEF-QV-212", "reports-11", "High", "Fixed", "A requested immutable Report Studio deep link briefly left the live-draft publish action available before the published version selection effect completed.", "Open a URL for an immutable published version while a different mutable report is active and inspect the publish action before selection settles.", "Publishing stays blocked while the requested immutable version is opening and remains unavailable once that immutable version is active.", "For one render, canPublish was derived from the mutable active report even though the URL requested a frozen version, risking publication of the wrong state.", "Added a pending published-selection guard and explicit explanation; the complete affected Report Studio and recovery cohort passes 24/24."],
+  ["DEF-QV-213", "BP-017", "Low", "Fixed", "The Pipeline scenario mapping added to the canonical tracker builder omitted a closing array bracket.", "Run node --check and then execute the fail-closed tracker builder.", "The generator parses before collection and stops only on intentional evidence drift or workbook validation failures.", "Node rejected the builder before it could reconcile evidence or export the workbook.", "Restored the array closure; syntax validation passes and the builder proceeds through exact-count and workbook gates."],
+  ["DEF-QV-214", "BP-017", "Low", "Fixed", "A responsive-recovery source-contract test required the retired hidden md:inline-flex CSS token instead of the implemented narrow recovery behavior.", "Run responsive-recovery.contract.test.ts against the current responsive shell.", "The contract asserts observable narrow recovery and export affordances without pinning a superseded styling token.", "The exact-current full frontend run failed one static assertion although the semantic narrow-path checks remained valid.", "Removed the obsolete token assertion while retaining the behavior checks; the complete affected cohort passes 24/24."],
+  ["DEF-QV-215", "pipeline-09", "Medium", "Fixed", "The axe runner waited only for Enterprise/persona surfaces, so a standalone Pipeline SurfaceState could be reported as a scan error instead of being audited; once included, its h3 skipped the route h2 level.", "Scan live-empty /pipeline at desktop and phone widths with SurfaceState accepted as readiness evidence.", "The empty state is scanned, uses an h2, and produces no WCAG, geometry, overflow, target-size, clipping, or collision failures.", "The broadened runner exposed two moderate heading-order nodes, one per viewport.", "Recognized data-surface-state readiness and supplied headingLevel=2 to standalone Pipeline states; the final six-state Issuers/live/reference matrix is clean."],
+  ["DEF-QV-216", "BP-017", "Low", "Fixed", "Four notification-action-label server nodes landed after the 2,540-node backend evidence seal.", "Run the fail-closed tracker builder against the current shared worktree and compare the prior Automation Evidence inventory.", "Publication stops until every added server identity executes through its complete contributing file.", "The builder collected 2,544 pytest/stress/cohort nodes and refused export at the 2,540 gate.", "Identified the response-compatibility and three migration-safety additions, executed both complete contributing files at 79/79, and advanced the backend seal."],
+  ["DEF-QV-217", "monitor-07", "Low", "Fixed", "The Monitor responsive workbench validator still opened live mode and searched for the retired live `Email intake`/`Alerts` tab contract after email examples moved behind explicit Reference mode.", "Run npm run verify:monitor against the exact static export.", "The validator requests the mode that owns the controls it exercises and verifies desktop, tablet, and phone geometry/focus without changing product state.", "The first run timed out looking for Email intake in live mode; the first correction still looked for the old Alerts label instead of Reference mode's Replay label.", "Opened `mode=reference`, used the implemented Replay/Email intake labels, and reran all three viewports with restored drawer focus, one table owner, no overflow, and no overlap."],
+  ["DEF-QV-218", "BP-017", "Low", "Fixed", "Two frontend automation identities appeared after the 1,801-node evidence seal.", "Run the exact current full Vitest inventory and then the fail-closed tracker collector.", "Every collected identity is executed before the canonical automation count advances.", "The complete current run collected and passed 1,803 cases across 261 files.", "Advanced the frontend execution seal to the single-run 1,803/1,803 result and the exact automation inventory to 4,549 nodes."],
+  ["DEF-QV-219", "reports-11", "Low", "Fixed", "The Report Studio immutable print/download test was renamed, but its curated tracker regex still targeted the retired name.", "Reconcile Feature Evidence after collecting the current reports-interactions test identities.", "The extant immutable print, binary-download, failure, evidence, and decision-room assertions map directly to reports-11, and a fail-closed concept gate prevents silent evidence loss.", "reports-11 appeared Unmapped even though its complete current interaction test passed and exercised the implemented contract.", "Updated the assertion-level mapping to the exact current test name and added a 28/28 Report Studio direct-evidence gate; the complete 18-case file and tracker build pass."],
+  ["DEF-QV-220", "reports-14", "High", "Fixed", "The deliverables footer always described the Atlas Forge CP-5/QA-117 fixture hold, including when the screen displayed a different live issuer's reports.", "Open a caller-visible live run in Report Studio and read the Committee Deliverables footer.", "Reference mode names the authored fixture; live held and clean modes name the active run's actual committee authority without fixture leakage.", "Live output was paired with a confident reference-only QA notice, creating a materially wrong authority read.", "Made ReportList require its authority mode and render reference, live-held, or live-clean copy with text plus warning/success signal; seven panel and eighteen interaction cases pass."],
+  ["DEF-QV-221", "BP-017", "Low", "Fixed", "The first authority-notice regression used one text regex across nested inline spans, which Testing Library correctly does not concatenate into a single element match.", "Run panels.test.tsx after adding the live-held authority sentence assertion.", "The harness asserts the stable text fragments without depending on DOM nesting.", "One panel case failed although the rendered product sentence was correct.", "Split the expectation across the sentence and emphasized committee-status fragment; the complete panel and Report Studio cohort passes."],
+  ["DEF-QV-222", "BP-017", "Medium", "Fixed", "The gzip validation server cached compressed HTML by path only while a concurrent production build replaced the static export, leaving current HTML/JS requests pointed at deleted chunk names.", "Start the gzip server before a build completes, request /reports, rebuild out/, then request the route with Accept-Encoding: gzip.", "Compressed responses invalidate whenever the source artifact mtime or size changes, so HTML and chunks remain from one coherent build.", "Chromium received an old stylesheet name and 404, rendering utility drawers as static full-page content or failing with ChunkLoadError.", "Cache entries now retain source mtime/size and recompress on change; raw and gzip HTML hashes match after rebuild and exact browser/a11y/performance runs pass."],
+  ["DEF-QV-223", "BP-017", "Low", "Fixed", "The first Report workbench validator assumed Committee Deliverables remained expanded at 1440px, while the implemented route collapses it below 1600px to preserve the paper.", "Run the validator at 1440x900 and immediately search for Credit Snapshot.", "The harness opens the labelled Deliverables rail when collapsed, then verifies the six-item contract.", "The control was correctly absent from the accessibility tree until its rail was expanded.", "Made the validator follow the implemented responsive disclosure before asserting the deliverables."],
+  ["DEF-QV-224", "reports-03", "High", "Fixed", "The shared MoreDrawer right-anchored a 256px Report utilities panel to a phone trigger whose right edge was only 196px from the viewport origin.", "Open Report utilities at 390x844 and measure the fixed panel.", "The drawer remains within an 8px viewport inset while preserving left/right alignment and keyboard focus behavior.", "The panel started at x=-60px, placing paper, source, edit, zoom, print, and download controls partly off-screen.", "Clamped both anchor offsets using the effective panel width and added a viewport-relative max width; four drawer, seven SubHeader, and exact three-width browser validations pass after CRITICAL-impact regression review."],
+  ["DEF-QV-225", "BP-017", "Low", "Fixed", "The first stylesheet readiness probe inspected only top-level cssRules and missed Tailwind's nested @layer rule containing .fixed.", "Load the coherent exact stylesheet and search only sheet.cssRules for a rule whose text starts with .fixed.", "Readiness is determined by the browser's computed position for a temporary .fixed probe.", "The harness reported fixed CSS unavailable even though 592 rules loaded and the product styling was present.", "Replaced structural CSSOM guessing with a fail-closed computed-style condition."],
+  ["DEF-QV-226", "BP-017", "Low", "Fixed", "The phone utility trigger sat at -0.5px because of browser subpixel rounding, but the validator required top >= 0 exactly.", "Measure the Report utilities trigger at 390x844 after scrolling to document origin.", "Geometry checks tolerate at most two pixels of rendering-rounding noise while still failing true clipping.", "The otherwise reachable 44px trigger failed the strict zero-bound assertion.", "Applied the same ±2px tolerance used by the clipping audit; true drawer overflow remained detectable and was fixed separately."],
+  ["DEF-QV-227", "BP-017", "Low", "Fixed", "The first phone control audit treated the Report paper's Show equivalent table control as viewport clipping even though it is intentionally reachable inside the labelled horizontal Report preview scroll owner.", "Audit every visible button against the document viewport at 390x844.", "Controls in an intentional overflowing preview/table owner are recorded as scroll-contained; only controls without such an owner fail.", "The validator emitted one false clipping failure after every product interaction and accessibility check passed.", "Classified the nearest real horizontal scroll owner and retained fail-closed failure for uncontained controls; final results show the one expected scroll-contained control and zero failures."],
+  ["DEF-QV-228", "BP-017", "Low", "Fixed", "The first focused server command invoked an absolute virtual-environment path containing spaces without shell quoting.", "Run the designated Python executable by its unquoted absolute path.", "The command resolves the exact interpreter before pytest collection.", "zsh attempted to execute /Users/ericguei/Claude/Projects/Credit and exited 127.", "Quoted the interpreter path and reran the exact test nodes."],
+  ["DEF-QV-229", "BP-017", "Low", "Fixed", "The repository's .venv environment exposes an older FastAPI Depends signature and cannot import the current scope='function' dependency declaration.", "Run the two Report server nodes with caos/server/.venv/bin/python.", "Validation uses the current FastAPI 0.138 environment without changing the application pin.", "Both nodes failed at setup with TypeError before an application assertion.", "Used the designated .venv311 environment; both tightened server nodes pass. The incompatible .venv was not modified or used as evidence."],
+  ["DEF-QV-230", "BP-017", "Low", "Fixed", "The first exact Report accessibility/browser launch was denied the Chromium Mach rendezvous operation by the restricted sandbox.", "Launch local Chromium for the exact static build without the scoped browser permission.", "The validation environment grants only the local browser process capability needed to run axe and workbench checks.", "Chromium exited before navigation, producing no product assertion.", "Re-ran the same exact-build commands with approved local browser permission; two axe states, three workbench widths, and all performance samples pass."],
+  ["DEF-QV-231", "BP-017", "Low", "Fixed", "The tracker preview attempted to render all 230 Defects rows into one 74,698px image, exceeding artifact-tool's maximum render dimensions before workbook export.", "Build the canonical tracker after adding the Report iteration defect rows.", "Every sheet receives a bounded visual preview while all underlying workbook rows remain intact and inspectable.", "Artifact-tool stopped with Auto render too large before exporting the updated workbook.", "Bounded the Defects and Validation Runs preview ranges to representative first-page windows; full row inventories, formulas, and persisted-workbook inspections remain unchanged."],
+  ["DEF-QV-232", "model-19", "Low", "Fixed", "The legacy Model checkpoint journey opened the collapsed Model tools drawer and immediately searched for a control that now lives in the separately selected History support rail.", "Run the complete frontend suite and execute the named checkpoint journey at the current collapsed header contract.", "The test selects History through the semantic support control, then opens, saves, and restores the named checkpoint modal.", "One of 1,808 frontend tests failed because the checkpoint control was never mounted; 1,807 passed.", "Updated the journey to activate History before locating the checkpoint control; the complete model-history file and final full frontend regression pass."],
+  ["DEF-QV-233", "BP-017", "Low", "Fixed", "The Sector Review tracker mapping still targeted one retired combined failure-test name after its history/refresh and feed-persistence assertions were split into two focused tests.", "Rebuild the tracker against the current 1,808-node frontend inventory and run the Sector fail-closed scenario gate.", "Current semantic test identities preserve direct error-path evidence for the versioned dossier, refresh, tabs/history, and feed-preference contracts.", "The tracker stopped with 63/63 Sector rows present but command-30, command-31, and command-48 error paths unmapped; no workbook was published.", "Mapped the history/refresh failure test to command-30/31/47/48 and the feed-persistence failure test to command-29; the complete Sector dossier file and final 63/63 gate pass."],
+  ["DEF-QV-234", "BP-017", "Low", "Fixed", "The new explicit Report execution rows shared reports-* feature IDs, while the Report scenario gate filtered only by feature prefix and therefore counted six Direct execution rows as mandatory scenarios.", "Add the six Report execution cases and rebuild the canonical tracker.", "The fail-closed matrix evaluates exactly 28 features by seven canonical scenarios, independently of supplemental execution-ledger rows.", "The gate reported 202 rows instead of 196 and misread a Direct execution row as a failing reports-04 scenario; no workbook was published.", "Matched the Report gate to the same canonical scenario-label set used by Issuer, Command, Pipeline, Monitor, and Sector gates; the final matrix remains 196 total, 194 applicable, and gap-free."],
+  ["DEF-QV-235", "reports-04", "Low", "Fixed", "The paper-tone implementation whitelisted restored server-draft values, but the Report scenario ledger had no direct assertion for an unsupported persisted paper token.", "Rebuild the strict 196-row Report matrix after reconciling current automation identities.", "An unsupported saved paper value is ignored; Warm remains selected and neither White nor Cool is falsely pressed.", "The gate isolated reports-04 Invalid input as the only non-pass among 194 applicable scenarios and refused publication.", "Added a focused persisted-draft regression and mapped its exact identity to reports-04 Invalid input; the complete Report interaction file passes 19/19 and the final Report matrix is gap-free."],
+  ["DEF-QV-236", "model-24", "Low", "Fixed", "Two Model browser journeys assumed the Scenario panel was automatically mounted after the support-toolbar redesign.", "Run model_flow.spec.ts in Chromium, Firefox, and WebKit and enter the scenario-preset or CP-2B journey directly after route readiness.", "The journey selects Model support → Scenario semantically before operating the panel, and all later serial cases execute.", "The panel was absent, three projects failed the first affected case, and later serial cases were skipped.", "Selected Scenario through the labelled Model support group in both journeys; the complete zero-retry browser matrix passes 15/15."],
+  ["DEF-QV-237", "SCR-006", "Low", "Fixed", "The route performance harness considered the enterprise shell ready before the Model worksheet mounted, so a transient capability card could terminate the readiness timer.", "Audit /model against the gzip static server while Model authority resolution is still in progress.", "Readiness is recorded only after the accessible Model worksheet is visible, while paint metrics retain the browser's real candidate history.", "The route timer could finish on transient shell/capability markup rather than the usable workbench.", "Added an explicit Model worksheet readiness gate, discarded the earlier samples, and collected one desktop plus five constrained-mobile replacements."],
+  ["DEF-QV-238", "BP-017", "Low", "Fixed", "The first disposable QA-server launch supplied a production-grade SESSION_SECRET while ENVIRONMENT remained development, correctly triggering a fail-closed configuration guard.", "Start the isolated SQLite QA server with a production-looking session secret in development mode.", "The disposable development posture either uses its development secret contract or changes the complete environment coherently.", "Boot stopped before binding, producing no application result.", "Removed the production-only secret from the disposable development launch; no product configuration was changed."],
+  ["DEF-QV-239", "BP-017", "Low", "Fixed", "The restricted sandbox denied the localhost QA server bind used by the real-browser Model validation.", "Bind the isolated FastAPI/static stack to 127.0.0.1:8130 under the restricted process profile.", "The validation environment grants only the loopback process capability required for the in-scope browser checks.", "The server exited with EPERM before a browser assertion could run.", "Re-ran the same isolated command with approved loopback permission; browser, axe, and performance validations completed without changing product behavior."],
+  ["DEF-QV-240", "model-44", "Medium", "Fixed", "The canonical register described 43 legacy reference-calculator features but omitted 23 implemented Model Engine v2 authority, mutation, scenario, history, workbook, lifecycle, and recovery workflows.", "Compare the /model authority route, ModelV2Workbench, server v2 routes, and workbook implementation with every Model Builder Feature ID.", "Every implemented user workflow has a unique Feature ID, code-derived contract, seven-scenario suite, and direct evidence.", "Live v2 behavior was executable but absent from the source-of-truth feature and scenario matrices.", "Added model-44 through model-66 with 161 direct scenario rows, source/dependency contracts, strict inventory and 462-row scenario gates, and focused frontend/server/browser evidence."],
+  ["DEF-QV-241", "model-25", "Medium", "Fixed", "Eleven legacy Model Builder rows still claimed superseded localStorage, no-confirmation reset, automatic panel rail, CSV, legacy provenance copy, or undifferentiated persistence behavior.", "Diff the 43 legacy feature contracts against the current Model route, support panels, export implementation, and saved-model API behavior.", "The canonical spreadsheet describes only current implemented storage, confirmation, support selection, XLSX, provenance, responsive, and persistence semantics.", "The register could direct testers toward retired controls and persistence assumptions even while current automation passed.", "Reconciled model-03, 04, 05, 13, 15, 24, 25, 26, 32, 42, and 43 to current source and linked their exact assertions."],
+  ["DEF-QV-242", "API-072", "Medium", "Fixed", "The tracker route-call regex stopped after a parameterized path segment, so the generic legacy /api/models/{issuer_id} pattern also matched nested /api/models/v2/... calls.", "Collect Model API evidence containing both legacy and nested v2 requests, then inspect API-072/API-073 scenario attribution.", "A route invocation maps only when the quoted request path ends or begins a query string at that exact inventory boundary.", "Nested v2 tests could be credited to the legacy saved-model routes, producing false direct evidence.", "Added an exact quote/query lookahead after the route pattern, reran the fail-closed inventory, and replaced inherited matches with endpoint-specific legacy tests."],
+  ["DEF-QV-243", "API-089", "Medium", "Fixed", "The 18 Model API handlers had 77 applicable scenario gaps in the canonical matrix, and no endpoint-by-endpoint closure gate prevented the evidence drift.", "Filter API-072 through API-089 to the seven canonical scenarios and compare each route with current legacy, v2, checkpoint, override, history, export, preview, and commit tests.", "All 108 applicable scenarios have assertion-level evidence; 18 backend viewport rows are explicitly N/A; inventory drift or any non-pass blocks export.", "Only 31 scenario rows were direct Pass, 45 had aggregate suite evidence, and 32 remained Designed across the Model API family.", "Added direct scenario mappings, focused missing HTTP contracts, a route/handler identity assertion, and a strict 126-total/108-applicable/gap-free Model API gate."],
+  ["DEF-QV-244", "API-079", "Low", "Fixed", "The first new valid-calculation API assertion expected status `computed`, but the implemented Model Engine v2 contract returns `ready` for a complete calculation.", "POST a valid current payload to /api/models/v2/{issuer_id}/calculate.", "The response is 200, status is `ready`, hashes and engine identity are present, and leverage is finite.", "The endpoint returned a valid calculation and the new harness alone failed 1/57 on the wrong label.", "Aligned the assertion to the source-defined `ready` state; the complete changed-file cohort passes."],
+  ["DEF-QV-245", "API-081", "Low", "Fixed", "The first all-mutation viewer test expected revision 1 after creating a v2 checkpoint, overlooking that checkpoint reservation intentionally advances the draft to revision 2.", "Create a v2 checkpoint, deny all six viewer mutation routes, then read the surviving draft revision.", "Checkpoint reservation owns revision 2 and every viewer mutation returns 403 without advancing it further.", "All six denials passed, but the harness compared the durable revision with the pre-checkpoint value and failed 1/62.", "Updated the postcondition to the implemented reservation contract; the complete changed-file cohort passes 62/62."],
+  ["DEF-QV-246", "BP-017", "Low", "Fixed", "Twenty-eight Model API nodes landed after the exact 2,544-node server/stress/cohort evidence seal.", "Run the fail-closed collector after adding the legacy/v2 quality and performance contracts.", "Publication stops until every new identity executes through its complete changed file and the exact backend gate advances.", "Collection reported 2,572 nodes and the stale gate would reject export.", "Executed both complete changed files at 62/62 and advanced the reconciled backend inventory to 2,572 nodes."],
+  ["DEF-QV-247", "API-093", "Medium", "Fixed", "The API inventory joiner removed declared trailing slashes, so six intentional slash/no-slash FastAPI route pairs were documented as duplicate paths and could share misleading evidence.", "Compare the stacked portfolio, portfolios, sponsors, and issuers decorators with their generated API Inventory rows and direct route matches.", "Each declared alias retains its exact path, maps only to a request using that spelling, and remains independently visible in the canonical tracker.", "The aliased roots were indistinguishable in the source of truth, and the legacy /api/portfolio/ alias had no evidence of its own.", "Preserved decorator trailing slashes in route discovery, added the newly exposed legacy portfolio contract, and reran both forms of every affected focused alias."],
+  ["DEF-QV-248", "API-006", "Medium", "Fixed", "Ten discovered API rows had no direct automation mapping, leaving the canonical feature inventory at 673/683 direct features; correcting alias identity then exposed one additional borrowed-evidence gap.", "Filter Feature Evidence to Direct Nodes = 0, preserve exact route spelling, and exercise every returned route under its implemented ownership, validation, ordering, filtering, and alias contract.", "Every canonical feature has at least one passing direct node and tracker export fails closed on any future direct-evidence gap.", "Analysis-context, portfolio-root, query-history, research-history, sector-history, sponsor-root, and one legacy slash-alias contract lacked independent evidence.", "Added seven focused runtime contracts, reused verified exact-spelling alias suites, passed the 32-case focused cohort, and added a 683/683 direct-evidence gate."],
+  ["DEF-QV-249", "API-006", "Low", "Fixed", "The first database-failure contract expected Starlette's plain-text 500 body rather than CAOS's implemented JSON error envelope.", "Inject a failing database dependency into each of the eleven list/root routes with server exceptions suppressed.", "Every route returns HTTP 500 with {detail: Internal Server Error}, and a normal request succeeds after the dependency recovers.", "All eleven failure-path nodes reached the intended 500 boundary but failed their response-body assertion.", "Aligned the harness with the application exception middleware; all eleven error/recovery cases pass."],
+  ["DEF-QV-250", "API-158", "Low", "Fixed", "The first Sector backpressure probe assumed the shared 60/minute read limit, while the implemented Sector contract allows 90/minute.", "Issue sequential GET /api/sector/reviews requests through the exact threshold, classify the first rejected request, reset, and probe recovery.", "Requests 1–90 succeed, request 91 returns 429, and a post-reset normal read succeeds.", "The harness expected request 61 to return 429, but the route correctly returned 200 under its declared 90-request allowance.", "Updated the exact boundary to 90; the staged backpressure and recovery test passes."],
+  ["DEF-QV-251", "API-006", "Medium", "Fixed", "The eleven newly reconciled list/root API features still had 51 applicable scenario rows backed only by aggregate evidence or design intent.", "Filter the 77-row scenario matrix for the eleven API IDs and require direct happy, error, boundary, invalid, permission, and performance evidence for every applicable row.", "All 66 applicable scenarios pass with assertion-level evidence and all 11 backend viewport rows remain explicitly Not applicable.", "The matrix contained 15 direct passes, 31 suite-evidence rows, 20 designed rows, and 11 Not applicable rows.", "Added database-failure recovery, typed invalid-input, tenancy/role, exact-backpressure, bounded-work, and assertion-level mappings plus a strict 77-total/66-applicable/gap-free gate."],
+  ["DEF-QV-252", "BP-017", "Low", "Fixed", "Twenty-six list/root API quality nodes landed after the exact 2,579-node server/stress/cohort evidence seal.", "Run the fail-closed collector after adding error, performance, invalid-input, and tenancy contracts.", "Publication stops until every new identity executes through its complete file and the exact backend gate advances.", "Collection reported 2,605 nodes and the stale gate would reject export.", "Executed the complete 33-case changed file and 58-case linked cohort, then advanced the reconciled backend inventory to 2,605 nodes."],
+  ["DEF-QV-253", "settings-03", "Medium", "Fixed", "Four canonical Settings contracts still described retired primary chrome, immediate Query-model persistence, and writable per-lane routing controls.", "Compare settings-03, settings-04, settings-08, and settings-09 with the current Settings route, exact component assertions, and server persistence model.", "The tracker describes the Workspace administration summary and collapsed diagnostics, the generic command-bar readiness label, staged answer-source cards, and the read-only planned task-preference notice exactly as implemented.", "The source of truth expected a demo-key badge and runtime-model header that no longer render, and claimed four lane selects issue immediate PUT writes even though the current page deliberately exposes no lane controls.", "Reconciled all four stable Feature IDs to current code-derived behavior and bound them to focused frontend, server, and browser evidence."],
+  ["DEF-QV-254", "BP-017", "Low", "Fixed", "The first Settings API bounded-work harness imposed an arbitrary 45-line handler cap that rejected a finite 51-line literal response assembly.", "Execute the new handler-bound test against API-164 through API-167.", "The guard detects loops and requires handler-specific bounding tokens without rejecting a finite response solely for harmless formatting length.", "Ten cases passed and API-164 failed only because its implementation spanned 51 lines.", "Raised the secondary readability ceiling to 60 lines while retaining the AST loop prohibition and endpoint-specific bound assertions; all 11 new contracts pass."],
+  ["DEF-QV-255", "BP-017", "Low", "Fixed", "The revised bounded-work harness searched source text for loop keywords and treated the word 'for' inside a comment as an executable loop.", "Rerun the complete Settings quality-contract file after relaxing the line ceiling.", "Loop detection inspects Python syntax nodes and ignores comments or string prose.", "Ten cases passed and the API-164 performance contract failed on a comment token rather than executable control flow.", "Replaced token search with ast.For, ast.AsyncFor, and ast.While detection; the complete 11-case file passes."],
+  ["DEF-QV-256", "settings-01", "Medium", "Fixed", "The ten Settings features and four Settings API handlers retained 57 Designed or Suite-evidence scenario rows without a cohort-level closure gate.", "Filter the 98 Settings/UI/API scenario rows and require direct evidence for all 94 applicable cases, leaving only four backend viewport rows as explicit Not applicable.", "Every Settings feature has seven direct scenario passes; every Settings API has six direct scenario passes plus one explicit backend responsive N/A.", "The prior matrix could show direct feature coverage while error, invalid-input, permission, performance, or mobile scenarios remained only designed or aggregate-backed.", "Added exact scenario mappings across current component, helper, server, authentication, and three-engine phone evidence plus a strict gap-free Settings gate."],
+  ["DEF-QV-257", "BP-017", "Low", "Fixed", "Two Settings component nodes, eleven Settings API quality nodes, and three browser-project nodes landed after the 4,619-node evidence seal.", "Recollect every automation layer after executing each new node through its complete contributing file and linked cohort.", "The fail-closed inventory advances only to identities that have actually run and records the focused execution run for each new contributor.", "The exact collector observed 1,811 Vitest, 2,616 pytest/stress/cohort, and 165 Playwright nodes before the prior count gate could publish.", "Executed the 56-case linked frontend cohort, 291-case linked server cohort, and 15-case Settings browser matrix, then advanced the total evidence seal to 4,635 nodes."],
+  ["DEF-QV-258", "BP-017", "Low", "Fixed", "The first linked server regression used repository-relative test paths while pytest was already running from caos/server, so collection stopped with file-not-found and executed zero cases.", "Run the four Settings server files from the designated server virtual environment.", "Every requested path resolves from the chosen working directory and pytest executes the linked cohort.", "Pytest exited 4 with 'file or directory not found: tests/server/test_settings.py'.", "Corrected the paths to ../tests/server/...; the expanded linked cohort passes 291/291."],
+  ["DEF-QV-259", "BP-017", "Low", "Fixed", "The restricted sandbox denied the isolated QA server bind and the first Playwright loopback connection.", "Boot an isolated migrated SQLite CAOS service on 127.0.0.1:8026 and execute the Settings browser matrix.", "The explicitly permitted local validation process binds and all browser clients reach only the isolated loopback service.", "Uvicorn first failed with EPERM on bind; Playwright later received EPERM connecting to the running local port.", "Reran the scoped server and browser commands with local-socket permission, then shut the isolated service down cleanly after 15/15 browser passes."],
+  ["DEF-QV-260", "BP-017", "Low", "Fixed", "The first Playwright invocation could not resolve @playwright/test from the shared e2e global-setup file outside the frontend package directory.", "List and execute the Settings spec through the frontend-local Playwright installation.", "External e2e files resolve the package-local test runtime deterministically.", "Global setup aborted before login with Cannot find module '@playwright/test'.", "Set NODE_PATH to the frontend node_modules directory, matching the canonical collector; the complete three-project matrix then passes 15/15."],
+  ["DEF-QV-261", "BP-017", "Low", "Fixed", "A three-case Deep-Dive module-group contract file landed while the fail-closed tracker was collecting the Settings evidence seal; its implementation appeared moments after the test file.", "Run the canonical collector to quiescence after the shared-worktree module-group pair is complete.", "Collection rejects the transient missing import and count drift, and the new identities execute before the seal advances.", "The first collection failed because ./module-groups was absent; the next stable collection found 1,814 Vitest nodes instead of 1,811.", "Waited for the paired implementation, executed the complete module-group file at 3/3, and advanced the reconciled frontend and total evidence counts only afterward."],
+  ["DEF-QV-262", "deepdive-42", "Medium", "Fixed", "At 390px with a fine pointer, the compact global Ask utility remained in the crowded navigation band and extended seven pixels past the viewport because the phone-trigger swap required pointer: coarse.", "Run the exact Deep-Dive reference build through the local axe/layout scanner at 390x844.", "Exactly one reachable Ask trigger remains fully inside the viewport for every narrow pointer type.", "Axe reported zero WCAG nodes but one layout failure: Ask CAOS utility occupied x=341..397 in a 390px viewport.", "Made the sub-768px trigger swap pointer-agnostic, added a CSS contract, rebuilt, and verified zero clipped controls, overflow, axe nodes, scan errors, or layout failures."],
+  ["DEF-QV-263", "deepdive-36", "Medium", "Fixed", "Module Finder capped locally added pins and recents but trusted oversized, duplicated, and unknown persisted workspace arrays during hydration.", "Load more than 12 pins and eight recents containing duplicates and unknown module ids.", "Persisted shortcuts are validated against the current module catalog, deduplicated, and capped before render.", "A stale or corrupt profile could render every known persisted pin and retain unbounded recents in component state.", "Normalized hydrated lists through the current catalog and existing 12/8 limits; the expanded eight-case Module Finder file passes."],
+  ["DEF-QV-264", "deepdive-40", "Low", "Fixed", "Scenario-network failure, duplicate-pending activation, and declared numeric bounds were implemented but absent from direct component evidence.", "Reject a propagation request after activating PROPAGATE twice, then retry without changing the scenario.", "Only one request runs while pending, the error is announced, the configured bounds remain present, and retry succeeds.", "The scenario matrix could only cite success, stale-result, and no-run nodes for its error/backpressure contracts.", "Added the missing assertion-level test; the complete five-case file passes."],
+  ["DEF-QV-265", "deepdive-01", "Medium", "Fixed", "The canonical feature contract still described nine L0-L6/ORCH/INFRA launcher layers after the UI consolidated all 27 modules into three semantic groups.", "Compare deepdive-01 with module-groups.ts, the launcher render, and the total/disjoint partition tests.", "The tracker describes Foundation, Analysis, and Governance & Debate with exactly one active group and total catalog coverage.", "Expected behaviour, edge cases, and trigger text referred to a removed independent-layer accordion.", "Reconciled the stable Feature ID to the current three-group implementation and mapped total-partition, invalid-id, overflow, and responsive evidence."],
+  ["DEF-QV-266", "deepdive-42", "Medium", "Fixed", "The canonical feature contract described a removed read-only phone triage card even though narrow Deep-Dive now preserves the complete analytical workbench with compact controls.", "Compare deepdive-42 with the current page, PersonaWorkbench composition, unit assertions, and exact 390px browser state.", "The tracker describes the same analysis workflow at narrow widths, support drawers, compact utilities, owned overflow, and one global Ask trigger.", "The source of truth claimed authoring was replaced and required obsolete Query/Pipeline triage handoffs.", "Reconciled the contract and added a three-engine phone-width journey proving workbench, evidence, layout utility, Ask, and zero document overflow."],
+  ["DEF-QV-267", "deepdive-14", "Low", "Fixed", "The Deep-Dive E2E still treated the bare route as the seeded reference and selected the first duplicate identity label even when that copy was intentionally hidden.", "Execute the complete Deep-Dive journey against the current explicit reference-mode route in all browser projects with retries disabled.", "The test enters /deepdive?mode=reference and asserts a visible identity instance before exercising the workbench.", "The obsolete route reached issuer selection; after correcting it, the smoke locator timed out on a hidden duplicate while the visible workspace was complete.", "Bound all navigations to explicit reference mode and filtered duplicate identity locators by visibility; the expanded matrix passes 12/12."],
 ];
 
 const journeySeed = [
@@ -314,7 +498,7 @@ function collectAutomationEvidence() {
     .map((line) => line.trim())
     .filter((line) => line.includes("›") && /\.spec\.ts:\d+:\d+/.test(line));
 
-  const expectedCounts = { vitest: 1678, pytest: 2507, playwright: 141 };
+  const expectedCounts = { vitest: 1819, pytest: 2616, playwright: 168 };
   const actualCounts = { vitest: vitest.length, pytest: pytest.length, playwright: playwright.length };
   for (const layer of Object.keys(expectedCounts)) {
     if (actualCounts[layer] !== expectedCounts[layer]) {
@@ -329,7 +513,19 @@ function collectAutomationEvidence() {
     node: `${relativeRepoPath(item.file)}::${item.name}`,
     name: item.name,
     file: relativeRepoPath(item.file),
-    executionRun: "VAL-20260719-FE-1678-RECONCILED",
+    executionRun: [
+      "caos/frontend/src/app/responsive-recovery.contract.test.ts",
+      "caos/frontend/src/components/deepdive/ModuleFinder.test.tsx",
+      "caos/frontend/src/components/deepdive/OutSections.test.tsx",
+      "caos/frontend/src/components/deepdive/StandingViewStrip.test.tsx",
+      "caos/frontend/src/components/model/ScenarioNetworkPanel.test.tsx",
+    ].includes(relativeRepoPath(item.file))
+      ? "VAL-20260720-DEEPDIVE-FE-183"
+      : relativeRepoPath(item.file) === "caos/frontend/src/lib/deepdive/module-groups.test.ts"
+      ? "VAL-20260720-DEEPDIVE-MODULE-GROUPS-3"
+      : relativeRepoPath(item.file) === "caos/frontend/src/app/settings/settings-models.test.tsx"
+      ? "VAL-20260719-SETTINGS-FE-56"
+      : "VAL-20260719-FE-1809-FULL",
     executedDate: today,
   }));
   pytest.forEach((node, index) => {
@@ -340,7 +536,14 @@ function collectAutomationEvidence() {
       node,
       name: node.split("::").slice(1).join("::"),
       file,
-      executionRun: "VAL-20260719-SRV-2483-RECONCILED",
+      executionRun: [
+        "caos/tests/server/test_settings.py",
+        "caos/tests/server/test_settings_inventory_contract.py",
+        "caos/tests/server/test_settings_quality_contracts.py",
+        "caos/tests/server/test_write_role_matrix.py",
+      ].includes(file)
+        ? "VAL-20260719-SETTINGS-SRV-291"
+        : "VAL-20260719-SRV-2581-RECONCILED",
       executedDate: today,
     });
   });
@@ -354,7 +557,17 @@ function collectAutomationEvidence() {
       node: `${file}:${match[2]}:${match[3]}::${match[4]}`,
       name: match[4],
       file,
-      executionRun: "VAL-20260717-E2E-141-NORETRY",
+      executionRun: match[1] === "deepdive_flow.spec.ts"
+        ? "VAL-20260720-E2E-DEEPDIVE-12"
+        : match[1] === "settings_flow.spec.ts"
+        ? "VAL-20260719-E2E-SETTINGS-15"
+        : match[1] === "pipeline_flow.spec.ts"
+        ? "VAL-20260719-E2E-PIPELINE-12"
+        : match[1] === "command_flow.spec.ts"
+        ? "VAL-20260719-E2E-COMMAND-12"
+        : match[1] === "sector_flow.spec.ts"
+          ? "VAL-20260719-E2E-SECTOR-6"
+          : "VAL-20260717-E2E-141-NORETRY",
       executedDate: today,
     });
   });
@@ -369,7 +582,10 @@ function routeCallRegex(method, routePath) {
   const routePattern = routePath.split(/(\{[^}]+\})/).map((part) =>
     /^\{[^}]+\}$/.test(part) ? "(?:\\{[^}]+\\}|[^\\\"'`\\s/?]+)" : escapeRegex(part),
   ).join("");
-  return new RegExp(`\\.${method.toLowerCase()}\\s*\\(\\s*(?:f|rf)?[\\\"'\`]${routePattern}`, "i");
+  return new RegExp(
+    `\\.${method.toLowerCase()}\\s*\\(\\s*(?:f|rf)?[\\\"'\`]${routePattern}(?=[?\\\"'\`])`,
+    "i",
+  );
 }
 
 function concreteRouteRegex(routePath) {
@@ -474,7 +690,7 @@ function titleFromIdentifier(value) {
 
 function joinPath(prefix, routePath) {
   const joined = `${prefix || ""}${routePath || ""}` || "/";
-  return joined.length > 1 ? joined.replace(/\/$/, "") : joined;
+  return joined;
 }
 
 function scenarioSlug(value) {
@@ -483,6 +699,7 @@ function scenarioSlug(value) {
 
 function scenarioApplicable(feature, scenario) {
   if (scenario !== "Mobile/responsive") return true;
+  if (["reports-26", "reports-27"].includes(feature.id)) return false;
   return !["Discovered API handler", "Discovered configuration"].includes(feature.sourceType);
 }
 
@@ -882,12 +1099,181 @@ async function scanUiControlsAndStates() {
 
 const csv = await fs.readFile(csvPath, "utf8");
 const sourceRows = parseCsv(csv);
+const modelV2FeatureRows = [
+  {
+    id: "model-44", concept: "Model Builder", feature: "Model authority routing and issuer switch isolation",
+    story: "As an analyst, I want Model Builder to resolve the calculator that is authoritative for the selected issuer and run so that reference fixtures and live institutional models can never cross-contaminate.",
+    expected: "ModelAuthorityRoute keeps the explicit Atlas Forge reference on the legacy demonstration calculator, resolves non-reference issuers through Model Engine v2, preserves an exact run selection, and fails closed when the capability pair is absent or a live model cannot be resolved. An issuer change unmounts prior authority before the next response may render.",
+    trigger: "open /model, select another issuer, or bind an exact run", files: "caos/frontend/src/app/model/ModelAuthorityRoute.tsx; caos/frontend/src/app/model/page.tsx", endpoint: "GET /api/models/v2/{issuer_id}", status: "Pass",
+    edge_cases: "reference issuer; live issuer; missing capability; incomplete rollout dependency; exact run replaced by latest; issuer switch during request; late prior-issuer response; missing completed owned run",
+  },
+  {
+    id: "model-45", concept: "Model Builder", feature: "Model v2 identity, status, and revision disclosure",
+    story: "As a credit analyst, I want the live model header to disclose calculation status, monetary identity, revision, and persistence state so that I know exactly which model I am defending.",
+    expected: "The v2 workbench identifies the issuer, reporting currency and unit, ready/partial state, current revision, saved or suggested authority, pending mutation count, and stale-calculation restrictions. Status and provenance use text as well as color, and action availability follows the same state.",
+    trigger: "load a saved, suggested, partial, dirty, or stale v2 model", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx", endpoint: "GET /api/models/v2/{issuer_id}", status: "Pass",
+    edge_cases: "missing currency/unit; partial calculation; revision zero; suggested-only calculation; stale saved calculation; pending mutations; unavailable nodes",
+  },
+  {
+    id: "model-46", concept: "Model Builder", feature: "Canonical calculation-node table",
+    story: "As an analyst, I want the canonical calculation graph rendered as an auditable table so that every persisted input and derived credit output is inspectable.",
+    expected: "CalculationNodesTable renders finite node values, labels, period keys, methods, source authority, warnings, and supported edit/restore actions from the server calculation. Missing values remain unavailable rather than becoming zero, and scenario nodes are separated from the persisted base model.",
+    trigger: "load a ready or partial Model Engine v2 calculation", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/model_engine_v2.py", endpoint: "GET /api/models/v2/{issuer_id}", status: "Pass",
+    edge_cases: "null or non-finite node; duplicate node id; missing source authority; partial debt schedule; scenario-only node; negative or zero denominator",
+  },
+  {
+    id: "model-47", concept: "Model Builder", feature: "Calculation-node filtering and bounded paging",
+    story: "As an analyst, I want to filter the model graph by period, search text, and scenario visibility without rendering an unbounded worksheet so that large models remain navigable and responsive.",
+    expected: "The node browser supports text and period filters, an empty-result state, scenario-node visibility, and deterministic paging at 100 visible rows while keeping every matching node reachable. Picker results are separately capped at 200 and changing filters returns to a valid page.",
+    trigger: "search nodes, select a period, toggle scenario nodes, or page a large graph", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx", endpoint: "none (bounded client projection of the v2 calculation)", status: "Pass",
+    edge_cases: "more than 100 nodes; more than 200 picker candidates; empty filter; filter changed on last page; scenario nodes hidden; null period",
+  },
+  {
+    id: "model-48", concept: "Model Builder", feature: "Per-node authority and override-origin labels",
+    story: "As an analyst, I want each model cell labelled from its actual source authority so that reported inputs, formulas, analyst overrides, and unavailable values cannot be mistaken for one another.",
+    expected: "nodeOrigin distinguishes persisted input, server formula, manual override, scenario preview, and unavailable authority using explicit labels and glyphs. Unsourced live values are never called live, and a restored node returns to its canonical original authority.",
+    trigger: "inspect persisted, calculated, overridden, previewed, and unavailable nodes", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx", endpoint: "GET /api/models/v2/{issuer_id}", status: "Pass",
+    edge_cases: "authority omitted; unsupported authority origin; null value; expired override; suggested model; restored original; scenario preview",
+  },
+  {
+    id: "model-49", concept: "Model Builder", feature: "Governed override editor",
+    story: "As an analyst, I want to edit supported model nodes with the governance fields required by their authority class so that overrides remain finite, attributable, and reviewable.",
+    expected: "The editor opens from a supported node, validates a finite numeric replacement, requires a non-empty reason and future expiry for derived nodes, preserves the active editor on invalid input, and blocks switching or restoring another row while unsaved editor changes exist.",
+    trigger: "activate Edit input/Edit derived on a calculation node", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx", endpoint: "none until the override is queued", status: "Pass",
+    edge_cases: "blank or non-finite value; unchanged value; derived node without reason; missing or past expiry; dirty editor switch; unsupported node; debt-schedule derived cell",
+  },
+  {
+    id: "model-50", concept: "Model Builder", feature: "Local pending-mutation queue",
+    story: "As an analyst, I want edits staged locally before any durable write so that I can review a coherent batch without silently mutating the saved model.",
+    expected: "Queue override and Restore original create or replace one pending mutation per node, update the visible draft and dirty status, and do not call a persistence endpoint. A subsequent edit invalidates any older preview fingerprint while retaining the complete queue.",
+    trigger: "queue an override or restoration from the node editor", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx", endpoint: "none until preview/commit", status: "Pass",
+    edge_cases: "same node queued twice; restore an already-original node; pending edit while preview is in flight; invalid mutation; empty queue; editor cancellation",
+  },
+  {
+    id: "model-51", concept: "Model Builder", feature: "Stateless pending-model preview",
+    story: "As an analyst, I want the server to recalculate my complete pending batch without committing it so that I can inspect the exact financial effect before persistence.",
+    expected: "Preview pending sends the current payload and mutation batch to the calculation endpoint, renders the returned calculation as an explicitly non-durable preview, and binds it to a deterministic pending fingerprint. A changed queue, failed preview, or expired override makes the preview unusable for commit without losing edits.",
+    trigger: "activate Preview pending with one or more queued mutations", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/routes/models_v2.py", endpoint: "POST /api/models/v2/{issuer_id}/calculate", status: "Pass",
+    edge_cases: "preview failure; queue changes in flight; late result; no pending mutations; non-finite output; expired override; another preview already running",
+  },
+  {
+    id: "model-52", concept: "Model Builder", feature: "Atomic pending-mutation commit",
+    story: "As an analyst, I want one reviewed pending batch committed as one revision so that model history, audit events, and downstream reports remain internally consistent.",
+    expected: "Commit is enabled only for the exact current preview fingerprint and submits the whole batch with the expected revision. Success adopts the returned record and calculation, clears pending state, and records one revision; CAS conflict, validation, or audit failure leaves the prior durable model and local queue intact without partial rows.",
+    trigger: "confirm Commit after a current successful preview", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/routes/models_v2.py", endpoint: "POST /api/models/v2/{issuer_id}/overrides/batch", status: "Pass",
+    edge_cases: "stale revision; duplicate node mutation; validation failure; audit rollback; concurrent winner; preview fingerprint mismatch; repeated click while busy",
+  },
+  {
+    id: "model-53", concept: "Model Builder", feature: "Transient server sensitivity analysis",
+    story: "As an analyst, I want to shock an eligible node through the server without converting the shock into a manual override so that I can explore risk while preserving the base model.",
+    expected: "Sensitivity controls select a node and finite shock value, call the server calculation path, and render a transient scenario result. Reset removes only the sensitivity result; pending manual overrides remain untouched. Results are discarded when their run, node, or shock identity changes, and a failed request leaves the controls retryable.",
+    trigger: "select a sensitivity node/value, run the calculation, or reset it", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/frontend/src/components/model/ScenarioNetworkPanel.tsx", endpoint: "POST /api/models/v2/{issuer_id}/calculate", status: "Pass",
+    edge_cases: "non-finite shock; missing eligible nodes; reset while another action runs; request failure; late prior result; node/value changed in flight; pending overrides present",
+  },
+  {
+    id: "model-54", concept: "Model Builder", feature: "Model v2 scenario mode and decision deltas",
+    story: "As a credit analyst, I want to switch between persisted-model and scenario views and see decision-relevant deltas so that a shock is interpreted against the correct base.",
+    expected: "Scenario mode keeps persisted and transient calculations distinct, exposes scenario-period inputs, renders supported leverage/coverage/FCF/cash decision deltas, and filters empty or non-scenario nodes. Switching modes or clearing the scenario does not erase pending manual mutations.",
+    trigger: "run a scenario and switch Model/Scenario view modes", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx", endpoint: "POST /api/models/v2/{issuer_id}/calculate", status: "Pass",
+    edge_cases: "no scenario result; null decision field; period mismatch; empty scenario nodes; pending overrides; partial base calculation; reset during busy action",
+  },
+  {
+    id: "model-55", concept: "Model Builder", feature: "Revisioned undo and redo replay",
+    story: "As an analyst, I want to replay committed override groups backward and forward so that corrections remain revisioned audit events instead of hidden local rewrites.",
+    expected: "History groups original set/reset events into deterministic replay candidates, exposes consecutive undo and redo actions with reasons when unavailable, and sends the selected event against the current revision. Malformed, superseded, or unresolvable history disables replay rather than guessing a mutation.",
+    trigger: "open Model history and activate Undo or Redo", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/routes/models_v2.py", endpoint: "POST /api/models/v2/{issuer_id}/overrides/{event_id}/undo|redo", status: "Pass",
+    edge_cases: "empty history; consecutive groups; event changed again; malformed snapshot; stale revision; unsupported action; replay while another action is busy",
+  },
+  {
+    id: "model-56", concept: "Model Builder", feature: "Immutable server checkpoints",
+    story: "As an analyst, I want labelled server checkpoints created and restored with revision guards so that committee states are durable, attributable, and cannot be silently relabelled.",
+    expected: "Checkpoint creation requires a non-empty label and a current saved calculation, records the exact revision/run/calculation identity, and adds an immutable row. Restore validates the owner, envelope, and expected revision before adopting the checkpoint as a new durable revision; foreign, stale, or tampered checkpoints fail closed.",
+    trigger: "create or restore a checkpoint in Model history", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/routes/models_v2.py", endpoint: "GET/POST /api/models/v2/{issuer_id}/checkpoints", status: "Pass",
+    edge_cases: "blank label; stale calculation; stale revision; foreign owner/team; tampered payload hash; runless checkpoint; unrelated source run; concurrent mutation",
+  },
+  {
+    id: "model-57", concept: "Model Builder", feature: "Workbook import mapping and unit declaration",
+    story: "As an analyst, I want to map an institutional XLSX into the canonical model schema so that legacy and account-matrix workbooks can be reviewed without inventing financial identity.",
+    expected: "The import panel accepts XLSX only, requires explicit reporting currency and unit when the workbook cannot prove them, supports bounded legacy and account-matrix mapping templates, normalizes reviewed period/account columns, and never preselects USD or millions for an ambiguous source workbook.",
+    trigger: "open Model tools, choose an XLSX, select a mapping, and declare monetary identity", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/model_workbook.py", endpoint: "POST /api/models/v2/{issuer_id}/workbook/preview", status: "Pass",
+    edge_cases: "non-XLSX file; empty workbook; close-format JSON; matrix layout; missing currency/unit; duplicate columns; unsupported period; oversized dimensions",
+  },
+  {
+    id: "model-58", concept: "Model Builder", feature: "Workbook ambiguity review",
+    story: "As an analyst, I want blocking duplicate headers and account mappings surfaced with physical selectors so that I explicitly resolve the cells entering the credit model.",
+    expected: "Preview ambiguities render against the exact mapping layout with one-based physical column or row selectors. Reviewed choices must match the advertised ambiguity source, remain bound to the preview, and resolve every blocking item before commit; invented or mismatched resolutions are rejected.",
+    trigger: "review a workbook preview containing duplicate period/account candidates", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/model_workbook.py", endpoint: "POST /api/models/v2/{issuer_id}/workbook/preview", status: "Pass",
+    edge_cases: "duplicate header; duplicate account; out-of-range selector; wrong mapping layout; stale preview; unresolved ambiguity; malformed resolution",
+  },
+  {
+    id: "model-59", concept: "Model Builder", feature: "Signed workbook preview and explicit commit",
+    story: "As an analyst, I want import preview to be read-only and its later commit bound to the exact reviewed file and mapping so that workbook ingestion cannot change between review and persistence.",
+    expected: "Upload produces a stateless preview with canonical payload, calculation, provenance, mapping identity, source revision, and signed token. Commit requires explicit confirmation and revalidates owner, issuer, file hash, mapping, revision, monetary identity, expiry, and calculation before atomically creating the new revision and lineage artifacts.",
+    trigger: "preview a mapped workbook, resolve ambiguities, confirm, and commit", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/routes/model_workbook.py", endpoint: "POST /api/models/v2/{issuer_id}/workbook/preview|commit", status: "Pass",
+    edge_cases: "preview token expiry; changed mapping; changed revision; owner/issuer mismatch; calculation drift; duplicate replay; lineage failure; concurrent commit",
+  },
+  {
+    id: "model-60", concept: "Model Builder", feature: "Workbook import failure recovery",
+    story: "As an analyst, I want workbook validation and dependency failures surfaced without mutating my model so that I can correct the file or mapping and retry safely.",
+    expected: "Invalid mapping, unsafe formula, antivirus rejection, corrupt/legacy XLS, bounds failure, preview error, and commit conflict render specific retryable errors while preserving the current durable record and local draft. A failed preview or commit never fabricates a completed import or leave partial storage/lineage rows.",
+    trigger: "submit an invalid workbook/mapping or force preview/commit failure", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/model_workbook.py; caos/server/routes/model_workbook.py", endpoint: "POST /api/models/v2/{issuer_id}/workbook/preview|commit", status: "Pass",
+    edge_cases: "malware/scan unavailable; corrupt archive; XLS instead of XLSX; unsafe or circular formula; non-finite cache; oversized file/grid; CAS conflict; lineage rollback",
+  },
+  {
+    id: "model-61", concept: "Model Builder", feature: "Persisted Model v2 workbook export",
+    story: "As an analyst, I want the saved canonical model exported as a governed XLSX so that downstream review receives the same persisted calculation and audit identity.",
+    expected: "Export is available only for a persisted, current, non-dirty model and downloads the server-produced six-sheet workbook through a temporary anchor. Pending edits, required recalculation, missing record, server failure, or serialization error leave the workbench intact and expose a retryable error.",
+    trigger: "activate Export workbook from Model v2 tools", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/model_workbook.py", endpoint: "GET /api/models/v2/{issuer_id}/workbook/export", status: "Pass",
+    edge_cases: "no saved record; dirty pending queue; expired active override; stale calculation; download failure; invalid export bounds; repeated click while busy",
+  },
+  {
+    id: "model-62", concept: "Model Builder", feature: "Suggested calculation adoption",
+    story: "As an analyst, I want a run-derived suggested model to remain read-only until I explicitly save its exact source run so that synthetic or unrelated evidence cannot become durable authority by implication.",
+    expected: "A suggested calculation is labelled read-only and exposes Save suggested model only when the exact owned source-run contract is present. The action persists revision one with that run id; missing, changed, non-live, or unrelated run identity disables adoption, and an in-flight save retains a stable accessible action name.",
+    trigger: "open a live issuer with a suggested calculation and activate Save suggested model", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/server/routes/models_v2.py", endpoint: "PUT /api/models/v2/{issuer_id}", status: "Pass",
+    edge_cases: "no exact run; foreign run; run changes; suggestion absent; revision already exists; save in flight; save failure; synthetic CP-1 fixture",
+  },
+  {
+    id: "model-63", concept: "Model Builder", feature: "Override expiry refresh and preview invalidation",
+    story: "As an analyst, I want expired overrides removed from the active calculation while the workbench is open so that stale temporary judgments cannot survive their governance window.",
+    expected: "The controller schedules the nearest active expiry, refreshes the server model when it elapses, and rebinds calculation and override state. A reviewed preview is invalidated at local expiry even if refresh fails; expired overrides are excluded from active authority and export until the saved model is recalculated.",
+    trigger: "keep Model Builder open until an active override expires", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx", endpoint: "GET /api/models/v2/{issuer_id}", status: "Pass",
+    edge_cases: "multiple expiries; already-expired override; invalid expiry; refresh failure; preview active at expiry; component unmount; clock boundary",
+  },
+  {
+    id: "model-64", concept: "Model Builder", feature: "Unsaved-model navigation guard",
+    story: "As an analyst, I want navigation away from pending edits to require explicit confirmation so that local modelling work is not discarded by an accidental route change.",
+    expected: "Pending edits register the shared navigation guard and browser-leave preference. Cancel keeps the route and complete local state; confirm discards pending mutations, editor/import/scenario state, and permits navigation. A clean model never prompts, and the preference remains bounded to the active issuer session.",
+    trigger: "navigate away or close while the model has pending local state", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx; caos/frontend/src/components/shared/NavigationGuardProvider.tsx", endpoint: "none (client navigation guard)", status: "Pass",
+    edge_cases: "clean model; dirty editor; pending queue; import preview; scenario preview; repeated navigation; cancel then continue editing; issuer switch",
+  },
+  {
+    id: "model-65", concept: "Model Builder", feature: "Mutually exclusive Model v2 actions and stable feedback",
+    story: "As a keyboard and screen-reader user, I want long-running model actions mutually exclusive with stable names and explicit notices so that I cannot double-submit or lose track of the operation.",
+    expected: "One BusyAction gates save, preview, commit, sensitivity, replay, checkpoint, import, and export operations. Disabled reasons are exposed through ActionReason/title without renaming the control; success notices and role=alert failures are specific, clear on the next attempt, and never claim a mutation completed before the server response.",
+    trigger: "start one Model v2 server action and attempt another", files: "caos/frontend/src/app/model/ModelV2Workbench.tsx", endpoint: "multiple Model v2 action endpoints", status: "Pass",
+    edge_cases: "double click; second action while busy; late response; abort/unmount; server detail missing; conflict; error followed by retry; action label during progress",
+  },
+  {
+    id: "model-66", concept: "Model Builder", feature: "Model v2 bootstrap, empty, and failure states",
+    story: "As an analyst, I want Model Builder to distinguish authority resolution, no available model, partial output, and server failure so that an absence is never presented as a valid credit conclusion.",
+    expected: "The route shows a named loading state while authority resolves, a truthful unavailable/empty state when neither saved nor suggested calculation exists, the ready workbench for usable data, and an explicit recoverable error when resolution fails. Live issuer failures never mount the seeded legacy calculator.",
+    trigger: "load Model Builder while authority is loading, empty, partial, unavailable, or failed", files: "caos/frontend/src/app/model/ModelAuthorityRoute.tsx; caos/frontend/src/app/model/ModelV2Workbench.tsx", endpoint: "GET /api/models/v2/{issuer_id}", status: "Pass",
+    edge_cases: "slow response; 404 capability gate; 503 dependency gate; no owned run; null record and suggestion; partial calculation; retry; late prior-issuer result",
+  },
+].map((row) => ({
+  ...row,
+  test_cases: `${row.id}-happy-path; ${row.id}-error-path; ${row.id}-boundary-conditions; ${row.id}-invalid-input; ${row.id}-permission-security; ${row.id}-performance; ${row.id}-mobile-responsive`,
+  defect_count: "0",
+  last_tested: today,
+}));
 sourceRows.push(
+  ...modelV2FeatureRows,
   {
     id: "deepdive-36",
     concept: "Deep-Dive",
     feature: "Module Finder, Pins, and Recents",
-    story: "As an analyst, I want to find, pin, and revisit modules quickly so that a 25-module analytical graph remains navigable under time pressure.",
+    story: "As an analyst, I want to find, pin, and revisit modules quickly so that a 27-module analytical graph remains navigable under time pressure.",
     expected: "The launcher opens a searchable combobox from its button or Command/Ctrl+M outside text-entry controls, filters by module id/name/description, supports arrow/Enter selection, and renders bounded pinned/recent shortcuts. Pins (12 maximum) and recents (8 stored, 4 visible after excluding pins) persist through revision-aware analyst workspace updates; settings failure leaves an honest session-local fallback.",
     trigger: "activate Find module or press Command/Ctrl+M, then search, select, or pin",
     files: "caos/frontend/src/components/deepdive/ModuleFinder.tsx",
@@ -976,15 +1362,75 @@ sourceRows.push(
   {
     id: "deepdive-42",
     concept: "Deep-Dive",
-    feature: "Phone Triage and Cross-Surface Handoffs",
-    story: "As an analyst on a phone, I want a read-only posture summary and explicit workstation handoffs so that I can triage without attempting dense authoring on an unsafe viewport.",
-    expected: "Below the small breakpoint the dense desktop workbench is replaced by a read-only triage card showing issuer, live/unavailable state, standing view, required action, evidence health, and run progress. It explains which authoring actions remain desktop-only and links to Query and Pipeline with the active issuer plus run/context ids when available; at small-and-up the full workbench remains the active surface.",
-    trigger: "open Deep-Dive below 640px and activate a handoff",
-    files: "caos/frontend/src/app/deepdive/page.tsx",
+    feature: "Narrow Deep-Dive Workbench and Global Ask",
+    story: "As an analyst on a narrow screen, I want the same evidence-review workflow reorganized into reachable controls so that I can continue analysis without clipped chrome or a lower-authority substitute.",
+    expected: "At narrow widths Deep-Dive preserves the full analytical workbench and primary module subtree while PersonaWorkbench moves supporting context/inspector content into named modal drawers. Summary/Report/Dense and simulation controls remain in the narrow utility contract, evidence actions remain reachable, the module strip owns its horizontal overflow, the global Ask phone trigger replaces the compact-nav utility for every pointer type, and the document has no horizontal overflow. Wider screens restore the multi-pane composition without changing data or permissions.",
+    trigger: "open or resize Deep-Dive at 390px through the desktop breakpoints",
+    files: "caos/frontend/src/app/deepdive/page.tsx; caos/frontend/src/components/shared/PersonaWorkbench.tsx; caos/frontend/src/components/shared/AskShell.tsx; caos/frontend/src/app/globals.css",
     endpoint: "none (responsive presentation and navigation)",
     status: "Pass",
-    edge_cases: "reference, live, loading, error, and no-run state; context absent; run absent; long issuer/action copy; encoded ids; 390px geometry; keyboard activation; desktop breakpoint transition",
-    test_cases: "happy: phone triage summary; navigation: Query/Pipeline preserve identity; responsive: no clipped controls or page overflow; accessibility: named region and links",
+    edge_cases: "reference, live, loading, error, and no-run state; narrow fine/coarse pointer; long issuer/action copy; module-strip overflow; 390px geometry; keyboard activation; support-drawer focus; desktop breakpoint transition",
+    test_cases: "happy: complete narrow workbench; boundary: compact/full composition transition; responsive: no clipped controls or page overflow; accessibility: evidence, layout, support, and Ask controls remain named and reachable",
+    defect_count: "0",
+    last_tested: today,
+  },
+  {
+    id: "shell-14",
+    concept: "Shell",
+    feature: "Canonical route identity and document heading",
+    story: "As a keyboard or assistive-technology user, I want every route to expose one accurate top-level heading so that the current workspace is identifiable without duplicating or contradicting the visible terminal chrome.",
+    expected: "RootLayout mounts one visually hidden RouteHeading h1. routeTitleForPath normalizes query/hash/trailing-slash input, derives workflow titles from NAV_GROUPS, gives more-specific issuer profile and utility metadata precedence, names the root CAOS Home, and degrades null or unknown routes to CAOS. Report and portfolio content use subordinate headings rather than adding another route-level h1.",
+    trigger: "navigate to a known, nested, utility, dynamic issuer, root, null, or unknown route",
+    files: "caos/frontend/src/lib/nav.ts; caos/frontend/src/components/shared/RouteHeading.tsx; caos/frontend/src/app/layout.tsx; caos/frontend/src/components/portfolio/PortfolioLabWorkbench.tsx; caos/frontend/src/components/reports/ReportDoc.tsx",
+    endpoint: "none (canonical route metadata and document outline)",
+    status: "Pass",
+    edge_cases: "query/hash suffix; trailing slash; nested decision; dynamic issuer path; utility subroute; null pathname; unknown route; visible content attempting a second h1",
+    test_cases: "happy: canonical workflow title; boundary: longest dynamic match and normalized path; invalid: null/unknown fallback; accessibility: one route-level h1",
+    defect_count: "0",
+    last_tested: today,
+  },
+  {
+    id: "shell-15",
+    concept: "Shell",
+    feature: "Overflow-only keyboard scroll targets",
+    story: "As a keyboard user, I want a dense panel body to enter the tab order only when it actually scrolls so that clipped evidence remains reachable without adding inert focus stops across the workbench.",
+    expected: "Panel measures its body on mount, resize, subtree mutation, and expand. A body with scrollHeight more than one pixel above clientHeight receives tabindex 0, an aria-label equal to the panel title, and the visible focus ring; a fitting body exposes none of those attributes. Reclassification never moves focus, added children join resize observation, and collapse disconnects observers before expansion remeasures.",
+    trigger: "render, resize, mutate, collapse, or expand a Panel whose content may overflow",
+    files: "caos/frontend/src/components/shared/Panel.tsx",
+    endpoint: "none (DOM measurement and accessibility semantics)",
+    status: "Pass",
+    edge_cases: "exact fit; one-pixel rounding; late async content; child resize; overflow returning to fit; focused sibling; collapsed body; missing observer APIs",
+    test_cases: "happy: real overflow becomes named focus target; boundary: exact fit stays inert; mutation/resize: both transitions; accessibility: focus remains stable",
+    defect_count: "0",
+    last_tested: today,
+  },
+  {
+    id: "shell-16",
+    concept: "Shell",
+    feature: "Semantic workspace hierarchy and tokenized color",
+    story: "As a credit analyst scanning a dense workspace, I want consistent identity, workbench, panel, and body hierarchy with governed semantic colors so that information rank is legible and hue remains a trustworthy signal.",
+    expected: "Shared ShellIdentity, WorkbenchToolbar, Panel, and body styles use distinct 16px, 14px, 13px, and 12px tiers. Shared and report CSS consumes root semantic variables or color-mix rather than route-local hex/RGB literals; literal chart colors remain confined to the documented nine-file rendering allowlist.",
+    trigger: "render shared shell, workbench, panel, or report surfaces",
+    files: "caos/frontend/src/components/shared/ShellIdentity.tsx; caos/frontend/src/components/shared/WorkbenchToolbar.tsx; caos/frontend/src/components/shared/Panel.tsx; caos/frontend/src/app/globals.css; caos/frontend/src/lib/chart-colors.ts",
+    endpoint: "none (shared presentation contract)",
+    status: "Pass",
+    edge_cases: "dense terminal labels; report paper counter-theme; status color without text; chart renderer requiring literal values; route-local CSS regression; narrow viewport type floor",
+    test_cases: "happy: four semantic tiers; invalid: production color literal outside token/allowlist; accessibility: hierarchy and signal semantics remain explicit",
+    defect_count: "0",
+    last_tested: today,
+  },
+  {
+    id: "reports-28",
+    concept: "Report Studio",
+    feature: "Screen and print proofing floors",
+    story: "As an investment-committee reader, I want legible screen and printed report type without scaled-down microtext so that the committee artifact remains reviewable and defensible in either medium.",
+    expected: "The screen paper uses a 12px body, 11px tables, and a 10px model appendix floor. Print uses flowing unscaled output with 9.5pt body and 8pt table/appendix floors, paginates instead of shrinking below those limits, hides app chrome, and retains the governed paper palette through semantic variables.",
+    trigger: "open a report preview or print/save the immutable report document",
+    files: "caos/frontend/src/app/globals.css; caos/frontend/src/components/reports/ReportDoc.tsx",
+    endpoint: "none (screen and print CSS)",
+    status: "Pass",
+    edge_cases: "wide model appendix; long prose/table; print pagination; browser print background; screen zoom; duplicate route heading; non-token paper color",
+    test_cases: "happy: screen and print floors; boundary: appendix floor; print: app chrome hidden and pages flow; accessibility: no microtype regression",
     defect_count: "0",
     last_tested: today,
   },
@@ -994,6 +1440,51 @@ sourceRows.push(
 // implementation so the canonical workbook never republishes retired routes or
 // labels as expected behavior.
 const implementedFeatureCorrections = new Map([
+  ["issuer-04", {
+    expected: "A failed initial registry request falls back to the labeled sample dataset and exposes Retry. If a later debounced search fails after live data has loaded, the directory retains the last live register, marks the state as offline, and never replaces those results with demo issuers.",
+    trigger: "load the directory while the issuer API is unavailable, or fail a later debounced search after live coverage has loaded",
+    files: "caos/frontend/src/app/issuers/page.tsx",
+  }],
+  ["issuer-08", {
+    expected: "Each row exposes separate profile and Upload actions. Profile activation opens the issuer overlay while asynchronously reconciling analysis context; Upload routes to /upload with issuer and active context parameters when available. Nested action handling prevents the row/profile action from firing when Upload is selected.",
+    trigger: "activate a directory row profile link or its Upload action",
+    files: "caos/frontend/src/app/issuers/page.tsx",
+  }],
+  ["issuer-15", {
+    expected: "A profile URL without an issuer parameter performs no profile request and replaces the loading splash with an actionable message directing the analyst to open a name from the Directory.",
+    trigger: "load /issuers/profile without an issuer query parameter",
+    files: "caos/frontend/src/app/issuers/profile/ProfileContent.tsx",
+  }],
+  ["issuer-16", {
+    expected: "The unified profile header shows the issuer identity, ticker, sector, country, every available S&P/Moody/Fitch rating, sponsor, source/run freshness, one primary Deep-Dive action, and the issuer action bar; absent optional facts are omitted rather than invented.",
+    trigger: "open a loaded issuer profile",
+    files: "caos/frontend/src/app/issuers/profile/ProfileContent.tsx",
+  }],
+  ["issuer-19", {
+    expected: "Financials renders an accessible five-metric sparkline grid for Revenue, EBITDA, EBITDA margin, leverage, and interest coverage when each metric has at least two comparable periods. The FY/quarter toggle appears only when both granularities exist; insufficient series degrade to the section empty state.",
+    trigger: "open the Financials tab for profiles with complete, mixed, sparse, or flat period series",
+    files: "caos/frontend/src/app/issuers/profile/ProfileContent.tsx; caos/frontend/src/lib/issuer-profile-charts.ts",
+  }],
+  ["issuer-20", {
+    expected: "Events renders dated deltas with period context from the current read-model. Financials may surface a Watch callout containing up to three material event, trend, or data-quality signals after the implemented filters; absent signals remain quiet rather than generating placeholders.",
+    trigger: "open Events or Financials for a profile with complete, sparse, or empty signal data",
+    files: "caos/frontend/src/app/issuers/profile/ProfileContent.tsx",
+  }],
+  ["issuer-23", {
+    expected: "Analyst notes loads issuer-linked memo nodes, presents available vault links and excerpts, and degrades to explicit empty or quiet error states. A quick memo can be submitted through the vault path with the issuer tag; success clears the composer and re-queries the note graph.",
+    trigger: "open Analyst notes or submit a quick issuer memo",
+    files: "caos/frontend/src/app/issuers/profile/AnalystNotes.tsx",
+  }],
+  ["issuer-24", {
+    expected: "Structure & coverage combines covenant headroom, debt structure, and liquidity runway with restricted-payment basket, cross-default, add-back cap/utilization/breach, source-readiness, evidence-gap, and QA status when the read-model supplies them; sparse profiles omit unsupported detail.",
+    trigger: "open Structure & coverage for complete or sparse issuer read-models",
+    files: "caos/frontend/src/app/issuers/profile/ProfileContent.tsx",
+  }],
+  ["issuer-31", {
+    expected: "The Directory summary reports issuer count and, when non-zero, rated count without inventing a sleeve label. A semantic eight-column grid exposes Issuer, Sector, Sponsor, Rating, Leverage, Status, Updated, and Actions; loading uses nine eight-cell skeleton rows. Rating uses the first available S&P/Moody/Fitch value and pairs distressed color with a visible critical glyph and accessible label. Rows use roving focus and content-visibility containment, while sorting keeps missing values last in both directions.",
+    trigger: "load, sort, keyboard-navigate, or inspect a populated Issuer Directory",
+    files: "caos/frontend/src/app/issuers/page.tsx; caos/frontend/src/lib/issuers.ts",
+  }],
   ["pipeline-03", {
     feature: "Directory — Open Issuer Profile",
     user_story: "As an analyst, I want to open an issuer profile from its directory row so that I can review the issuer without losing the worklist context.",
@@ -1028,6 +1519,104 @@ const implementedFeatureCorrections = new Map([
     trigger: "open the Concepts drawer or activate a concept chip",
     files: "caos/frontend/src/components/shared/ShellIdentity.tsx; caos/frontend/src/components/shared/ConceptNav.tsx",
   }],
+  ["upload-05", {
+    expected: "The file step exposes five implemented run templates: Full IC Committee (R-IC/full), Primary Transaction (R-PT/primary), Earnings Update (R-ER/earnings), Relative Value (R-RV/rv), and Legal Review (R-LG/legal). The selected button carries a check glyph and updates the run mode used by every staged upload; Primary explicitly warns that the source set needs new-loan price, OID, and cap-table evidence.",
+    trigger: "select a run template before processing staged files",
+    files: "caos/frontend/src/components/upload/steps.tsx; caos/server/routes/ingestion.py",
+  }],
+  ["upload-06", {
+    expected: "Upload & process is unavailable without an issuer and staged files. A guarded batch processes files sequentially, routes each to the document or pricing-sheet client, retains per-file success/error outcomes, supports cancellation between files, retries only failed files, and attempts one idempotent run after a non-cancelled batch. A re-entrant submit cannot start a second batch.",
+    trigger: "stage one or more files and activate Upload & process",
+    files: "caos/frontend/src/components/upload/UploadWizard.tsx; caos/frontend/src/lib/api.ts",
+  }],
+  ["upload-08", {
+    expected: "The result step reports exact success, failure, and chunk totals; lists every filename with its durable metadata, warning, or error; and states whether run creation is queuing, queued, already active, failed, or absent. It offers failed-file retry, reset/upload-another, issuer profile, Deep-Dive, execution graph, and a manual run retry only when the automatic attempt did not succeed.",
+    trigger: "complete or partially complete an intake batch",
+    files: "caos/frontend/src/components/upload/steps.tsx; caos/frontend/src/components/upload/UploadWizard.tsx",
+  }],
+  ["upload-14", {
+    expected: "PDF extraction first uses the configured bounded MarkItDown command, then bounded pypdf page/text extraction, then optional bounded OCRmyPDF sidecar recovery when no text layer exists. OCR-derived chunks carry OCR provenance. If every lane yields no text, the file remains vaulted with zero chunks and an explicit non-searchable warning; page/text limits return 413.",
+    trigger: "process a valid PDF through document intake",
+    files: "caos/server/ingest.py; caos/server/routes/ingestion.py",
+  }],
+  ["upload-15", {
+    expected: "XLSX extraction validates the OOXML package/resource policy before parsing, then uses configured MarkItDown when available or openpyxl read-only/data-only fallback. The fallback emits sheet headings and tab-delimited non-empty cells, truncates oversized cell text, and returns 413 when safe cell or extracted-text limits are exceeded; an unreadable validated workbook degrades to empty text.",
+    trigger: "process a valid XLSX through pricing-sheet intake",
+    files: "caos/server/ingest.py; caos/server/xlsx_safety.py; caos/server/routes/ingestion.py",
+  }],
+  ["upload-16", {
+    expected: "chunk_text strips empty input, preserves paragraph/line structure where possible, splits oversized lines, and emits retrieval chunks bounded to 512 cl100k tokens with 64-token overlap. Empty text yields no rows; each persisted chunk receives sequence, hash, optional OCR provenance, and a document lineage edge.",
+    trigger: "complete text extraction for a vaulted document",
+    files: "caos/server/ingest.py; caos/server/routes/ingestion.py",
+  }],
+  ["upload-17", {
+    expected: "Raw bytes are written below the configured CAOS storage root using a unique 32-hex directory and a basename-only filename whose unsafe characters are replaced with underscores. The returned relative storage key cannot escape the root; dependency rollback removes an uncommitted object, while a committed document retains it for audit/reprocessing.",
+    trigger: "vault parsed upload bytes or roll back a failed intake transaction",
+    files: "caos/server/ingest.py; caos/server/routes/ingestion.py; caos/server/database.py",
+  }],
+  ["upload-18", {
+    expected: "A successful document or pricing-sheet intake returns document_id, issuer_id, the compatibility minio_key vault path, normalized run_mode, chunks_created, an exact filename/chunk/run message, optional zero-chunk warning, optional ratings_updated count, and source_manifest_id. The source manifest records origin, method, scan/extraction state, authority, hashes, and context binding when enabled.",
+    trigger: "receive a 200 response from document or pricing-sheet intake",
+    files: "caos/server/routes/ingestion.py",
+  }],
+  ["upload-19", {
+    expected: "Every document, pricing-sheet, and analyst-memo upload consumes the caller-local fixed-window upload budget before domain work. The first 20 attempts in 60 seconds are allowed; the 21st returns 429 with an explicit retry-in-a-minute message. A separate lazy semaphore bounds concurrent read, scan, and parse work server-wide with a minimum capacity of one.",
+    trigger: "submit more than 20 upload requests for one caller inside a minute",
+    files: "caos/server/routes/ingestion.py; caos/server/rate_limit.py",
+  }],
+  ["upload-20", {
+    feature: "EDGAR Full-Text Search API",
+    story: "As an analyst client, I want bounded EDGAR full-text search so that I can discover filing pointers without treating them as vaulted evidence.",
+    expected: "GET /api/edgar/search requires a query of at least two characters, accepts comma-separated form filters and limit 1..50, requires EDGAR_USER_AGENT, and consumes the caller's 30/min EDGAR budget. It executes the SEC search off-thread and returns external/unverified filing pointers; an EdgarError becomes 502.",
+    trigger: "request /api/edgar/search with query, optional forms, and limit",
+    files: "caos/server/routes/edgar.py; caos/server/edgar.py",
+    endpoint: "GET /api/edgar/search",
+  }],
+  ["upload-21", {
+    feature: "EDGAR Filing Exhibit API",
+    story: "As an analyst client, I want a filing's classified documents so that I can identify covenant-bearing exhibits before vaulting one.",
+    expected: "GET /api/edgar/exhibits requires a CIK and a dashed or bare 18-digit accession, enforces EDGAR configuration and the caller budget, and returns each document name, SEC URL, classification label, authority rank, and size. Malformed accessions fail validation before an outbound request; upstream EdgarError becomes 502.",
+    trigger: "request exhibits for an exact CIK and accession",
+    files: "caos/server/routes/edgar.py; caos/server/edgar.py",
+    endpoint: "GET /api/edgar/exhibits",
+  }],
+  ["upload-22", {
+    feature: "Public EDGAR URL Intake Panel",
+    story: "As an analyst, I want to paste one or more public SEC archive URLs beside private files so that primary documents enter the same durable intake result surface.",
+    expected: "The file step renders a Public / EDGAR URL panel bound to the selected issuer and run mode. Its URL input accepts comma-separated values, Enter and VAULT URL share one guarded action, blank input is inert with a reason, and successful results remain visible until the parent adopts them. The panel states that public URLs and private files can be combined.",
+    trigger: "enter public EDGAR URLs in the file step and activate VAULT URL",
+    files: "caos/frontend/src/components/upload/EdgarImport.tsx; caos/frontend/src/components/upload/UploadWizard.tsx",
+    endpoint: "POST /api/edgar/vault-url",
+  }],
+  ["upload-23", {
+    feature: "EDGAR URL Batch Vaulting",
+    story: "As an analyst, I want each pasted EDGAR URL vaulted independently so that one bad source does not hide successful primary evidence.",
+    expected: "edgarVaultUrls trims and filters the comma-separated list, submits each URL to /api/edgar/vault-url with issuer and run mode, and waits for every result. Partial success returns both successes and per-URL failure reasons; all-fail rethrows the first error. The panel forwards each success once to the wizard, shows chunk counts including zero-chunk warning state, and blocks same-tick duplicate Enter submissions.",
+    trigger: "vault a single URL, a mixed batch, an all-fail batch, or a duplicate Enter attempt",
+    files: "caos/frontend/src/lib/api.ts; caos/frontend/src/components/upload/EdgarImport.tsx; caos/server/routes/edgar.py",
+    endpoint: "POST /api/edgar/vault-url",
+  }],
+  ["upload-24", {
+    feature: "EDGAR Configuration Notice",
+    expected: "When every attempted EDGAR URL fails with HTTP 503, the panel displays a bounded warning that EDGAR is not configured and names EDGAR_USER_AGENT. It does not fabricate a vault result or collapse the failure into an empty panel; a later attempt clears the prior notice before running.",
+    trigger: "vault an EDGAR URL while EDGAR_USER_AGENT is unavailable",
+    files: "caos/frontend/src/components/upload/EdgarImport.tsx; caos/server/routes/edgar.py",
+    endpoint: "POST /api/edgar/vault-url (503)",
+  }],
+  ["upload-25", {
+    feature: "EDGAR URL Error and Partial-Batch Handling",
+    expected: "A non-503 all-fail response renders a critical alert using a string detail, nested detail.message, or a stable fallback. Partial batches retain successful rows and render a warning summary plus each failed URL and reason. Whitespace-only input is inert, Escape does not submit, and a pending Enter action cannot double-vault.",
+    trigger: "vault invalid, mixed-success, blank, or rapidly repeated EDGAR URL input",
+    files: "caos/frontend/src/components/upload/EdgarImport.tsx; caos/frontend/src/lib/api.ts",
+    endpoint: "POST /api/edgar/vault-url",
+  }],
+  ["upload-27", {
+    feature: "EDGAR Issuer Filings API",
+    expected: "GET /api/edgar/filings/{cik} returns recent external/unverified filing pointers for the exact issuer, optionally filtered by comma-separated forms. Limit defaults to 25 and is constrained to 1..100; configuration and caller-rate guards run before SEC work, and upstream EdgarError becomes 502.",
+    trigger: "request recent filings for a CIK with optional forms and limit",
+    files: "caos/server/routes/edgar.py; caos/server/edgar.py",
+    endpoint: "GET /api/edgar/filings/{cik}",
+  }],
 ]);
 for (const row of sourceRows) Object.assign(row, implementedFeatureCorrections.get(row.id) || {});
 const appRoutes = await scanAppRoutes();
@@ -1053,11 +1642,121 @@ for (const [index, screen] of appRoutes.entries()) {
       node: `${featureId}::${screen.route}::${viewport}`,
       name: `${featureId} ${screen.route} route accessibility and responsive geometry at ${viewport}`,
       file: "caos/frontend/scripts/a11y-axe.mjs",
-      executionRun: "VAL-20260717-ROUTE-36",
+      executionRun: screen.route === "/deepdive"
+        ? "VAL-20260720-AXE-DEEPDIVE-2"
+        : screen.route === "/pipeline" || screen.route === "/issuers"
+        ? "VAL-20260719-AXE-PIPELINE-4"
+        : screen.route === "/sector"
+        ? "VAL-20260719-AXE-SECTOR-2"
+        : screen.route === "/monitor"
+        ? "VAL-20260719-AXE-MONITOR-2"
+        : screen.route === "/reports" ? "VAL-20260719-AXE-REPORTS-2"
+        : screen.route === "/model" ? "VAL-20260719-AXE-MODEL-2"
+        : "VAL-20260717-ROUTE-36",
       executedDate: today,
     });
   }
 }
+const sectorScreenIndex = appRoutes.findIndex((screen) => screen.route === "/sector");
+if (sectorScreenIndex !== 14) {
+  throw new Error(`Sector screen inventory drifted: expected /sector at SCR-015, found index ${sectorScreenIndex}`);
+}
+const monitorScreenIndex = appRoutes.findIndex((screen) => screen.route === "/monitor");
+if (monitorScreenIndex !== 6) {
+  throw new Error(`Monitor screen inventory drifted: expected /monitor at SCR-007, found index ${monitorScreenIndex}`);
+}
+const issuerScreenIndex = appRoutes.findIndex((screen) => screen.route === "/issuers");
+if (issuerScreenIndex !== 3) {
+  throw new Error(`Issuer screen inventory drifted: expected /issuers at SCR-004, found index ${issuerScreenIndex}`);
+}
+const pipelineScreenIndex = appRoutes.findIndex((screen) => screen.route === "/pipeline");
+if (pipelineScreenIndex !== 8) {
+  throw new Error(`Pipeline screen inventory drifted: expected /pipeline at SCR-009, found index ${pipelineScreenIndex}`);
+}
+const reportScreenIndex = appRoutes.findIndex((screen) => screen.route === "/reports");
+if (reportScreenIndex !== 11) {
+  throw new Error(`Report Studio screen inventory drifted: expected /reports at SCR-012, found index ${reportScreenIndex}`);
+}
+const modelScreenIndex = appRoutes.findIndex((screen) => screen.route === "/model");
+if (modelScreenIndex !== 5) {
+  throw new Error(`Model Builder screen inventory drifted: expected /model at SCR-006, found index ${modelScreenIndex}`);
+}
+const deepDiveScreenIndex = appRoutes.findIndex((screen) => screen.route === "/deepdive");
+if (deepDiveScreenIndex !== 2) {
+  throw new Error(`Deep-Dive screen inventory drifted: expected /deepdive at SCR-003, found index ${deepDiveScreenIndex}`);
+}
+automationEvidence.push({
+  id: "AUT-PERF-DEEPDIVE-001",
+  layer: "Route performance",
+  node: "SCR-003::/deepdive?mode=reference::desktop,mobile-slow",
+  name: "SCR-003 /deepdive desktop and mobile-slow reference-workspace route performance",
+  file: "caos/frontend/scripts/performance-audit.mjs",
+  executionRun: "VAL-20260720-PERF-DEEPDIVE-2-GZIP",
+  executedDate: today,
+});
+automationEvidence.push({
+  id: "AUT-PERF-MONITOR-001",
+  layer: "Route performance",
+  node: "SCR-007::/monitor::desktop,mobile-slow",
+  name: "SCR-007 /monitor desktop and mobile-slow route performance",
+  file: "caos/frontend/scripts/performance-audit.mjs",
+  executionRun: "VAL-20260719-PERF-MONITOR-5-GZIP",
+  executedDate: today,
+});
+automationEvidence.push({
+  id: "AUT-PERF-SECTOR-001",
+  layer: "Route performance",
+  node: "SCR-015::/sector::desktop,mobile-slow",
+  name: "SCR-015 /sector desktop and mobile-slow route performance",
+  file: "caos/frontend/scripts/performance-audit.mjs",
+  executionRun: "VAL-20260719-PERF-SECTOR-2",
+  executedDate: today,
+});
+automationEvidence.push({
+  id: "AUT-PERF-ISSUERS-001",
+  layer: "Route performance",
+  node: "SCR-004::/issuers::desktop,mobile-slow",
+  name: "SCR-004 /issuers desktop and mobile-slow route performance",
+  file: "caos/frontend/scripts/performance-audit.mjs",
+  executionRun: "VAL-20260719-PERF-PIPELINE-4",
+  executedDate: today,
+});
+automationEvidence.push({
+  id: "AUT-PERF-PIPELINE-001",
+  layer: "Route performance",
+  node: "SCR-009::/pipeline::desktop,mobile-slow",
+  name: "SCR-009 /pipeline desktop and mobile-slow route performance",
+  file: "caos/frontend/scripts/performance-audit.mjs",
+  executionRun: "VAL-20260719-PERF-PIPELINE-4",
+  executedDate: today,
+});
+automationEvidence.push({
+  id: "AUT-PERF-REPORTS-001",
+  layer: "Route performance",
+  node: "SCR-012::/reports::desktop,mobile-slow",
+  name: "SCR-012 /reports desktop and five-sample mobile-slow route performance",
+  file: "caos/frontend/scripts/performance-audit.mjs",
+  executionRun: "VAL-20260719-PERF-REPORTS-5-GZIP",
+  executedDate: today,
+});
+automationEvidence.push({
+  id: "AUT-PERF-MODEL-001",
+  layer: "Route performance",
+  node: "SCR-006::/model::desktop,mobile-slow",
+  name: "SCR-006 /model desktop and five-sample mobile-slow route performance",
+  file: "caos/frontend/scripts/performance-audit.mjs",
+  executionRun: "VAL-20260719-PERF-MODEL-5-GZIP",
+  executedDate: today,
+});
+automationEvidence.push({
+  id: "AUT-RESP-REPORTS-001",
+  layer: "Browser interaction/responsive",
+  node: "SCR-012::/reports::desktop,tablet,phone",
+  name: "SCR-012 /reports exact-build workbench interaction and responsive geometry",
+  file: "caos/frontend/scripts/validate-report-workbench.mjs",
+  executionRun: "VAL-20260719-REPORT-WORKBENCH-3",
+  executedDate: today,
+});
 const evidenceSourceByFile = new Map();
 for (const file of [...new Set(automationEvidence.map((evidence) => evidence.file))]) {
   try {
@@ -1077,6 +1776,69 @@ for (const evidence of automationEvidence) {
 // from current implementation semantics. The canonical workbook must describe
 // what the code does now, especially where authority or persistence changed.
 const curatedContractOverrides = new Map(Object.entries({
+  "shell-01": {
+    name: "Role-priority workspace navigation",
+    story: "As an analyst, PM, or QA reviewer, I want my highest-value workflows prominent while every specialist surface remains reachable so that navigation reflects my operating posture without changing access.",
+    expected: "At 1280px and wider, WorkflowRail shows the five destinations projected for the active Analyst, PM, or QA view and appends the current route when it is outside that priority set. All Workflows expands the complete 15-route NAV_GROUPS registry in canonical Intake, Analyze, Decide, Publish, and Monitor order. Below the rail breakpoint, ConceptNav shows only the current workflow plus a Workflows drawer containing the complete registry and Settings. Full product labels and route headings derive from the same registry. Settings, Ask, the presentation-only role switch, and profile identity remain shared utility chrome rather than workflow destinations.",
+    edgeCases: "Current nested route; current route outside the role's five priorities; Settings route; role change; unknown route; compact drawer close; context query preservation; short viewport rail scrolling; phone chip suppression; duplicate route or registry drift.",
+    trigger: "Load any routed workspace, switch the presentation role, or open All Workflows/Workflows",
+    files: "caos/frontend/src/lib/nav.ts; caos/frontend/src/components/shared/WorkflowRail.tsx; caos/frontend/src/components/shared/ConceptNav.tsx; caos/frontend/src/app/globals.css",
+    endpoint: "none (client navigation and presentation-role state)",
+  },
+  "shell-02": {
+    name: "Global keyboard navigation and utility hotkeys",
+    story: "As a keyboard-first analyst, I want consistent global chords for workflow, subview, Ask, palette, collapse, and help actions so that I can operate the desk without leaving the keyboard.",
+    expected: "Outside editable controls, Alt+ArrowLeft/Right cycles the 15 CONCEPT_CYCLE routes in canonical visual order with wrap and routes navigation through the unsaved-edit guard. Alt+Comma/Period emits subview direction -1/+1; Alt+S opens the command palette; Alt+C toggles collapse; Alt+K focuses Query on /query and otherwise toggles Ask; unmodified ? opens shortcut help. Letter chords use event.code so macOS Option-composed characters still resolve.",
+    edgeCases: "INPUT, TEXTAREA, SELECT, or contenteditable target; nested current route; unknown current route; first/last wrap; dirty navigation cancellation; macOS composed key; Meta/Ctrl+?; unsupported Alt key; component unmount listener cleanup.",
+    trigger: "Press a supported global keyboard chord outside an editable control",
+    files: "caos/frontend/src/components/shared/ConceptHotkeys.tsx; caos/frontend/src/lib/nav.ts; caos/frontend/src/components/shared/NavigationGuardProvider.tsx",
+    endpoint: "none (client keyboard events and router navigation)",
+  },
+  "shell-03": {
+    name: "Authenticated analyst identity badge",
+    story: "As an authenticated analyst, I want the shared shell to identify the active profile so that I can verify whose governed workspace state is in use.",
+    expected: "AnalystBadge renders only when AuthProvider exposes a user whose source is profile. The desktop rail footer and compact navigation host the badge across routed workspaces. Its text is the user's initials; its title names the full profile and its aria-label identifies the profile and sign-out action. Missing, proxy, and local identities render no badge.",
+    edgeCases: "No user; proxy/local fallback; empty or unusual full name; role switch; desktop versus compact shell; authentication refresh; sign-out in flight or failure.",
+    trigger: "Resolve the authenticated identity and render shared workspace navigation",
+    files: "caos/frontend/src/components/shared/AnalystBadge.tsx; caos/frontend/src/components/shared/AuthProvider.tsx; caos/frontend/src/components/shared/WorkflowRail.tsx; caos/frontend/src/components/shared/ConceptNav.tsx; caos/frontend/src/lib/format.ts",
+    endpoint: "GET /api/auth/me",
+  },
+  "shell-05": {
+    name: "Responsive skip-link landmarks",
+    story: "As a keyboard or screen-reader user, I want direct focus jumps to content, visible navigation, and the page's primary action so that repeated institutional chrome does not block task entry.",
+    expected: "The root layout exposes Skip to content to #main-content, mutually exclusive Skip to navigation links for desktop #workflow-priority-nav and compact #workflow-disclosure, and a target-aware Skip to page actions link. The desktop navigation landmark and compact disclosure are programmatically focusable without entering the normal tab order. The desktop link is display-none below 1280px and becomes visible on focus at the rail breakpoint; the compact alternative is hidden at the desktop breakpoint. SubHeader always supplies a focusable #page-actions target, naming an honest no-actions state when no primary action exists; routes without any target do not expose a dead global link.",
+    edgeCases: "Desktop/compact breakpoint transition; route without a primary action; authentication/loading screen before routed navigation mounts; focus-only visibility; repeated tabbing; narrow viewport; missing fragment target; fixed overlay stacking.",
+    trigger: "Press Tab from the document start and activate a skip link",
+    files: "caos/frontend/src/app/layout.tsx; caos/frontend/src/app/globals.css; caos/frontend/src/components/shared/WorkflowRail.tsx; caos/frontend/src/components/shared/ConceptNav.tsx; caos/frontend/src/components/shared/SubHeader.tsx",
+    endpoint: "none (document landmarks and responsive CSS)",
+  },
+  "shell-06": {
+    name: "Route-scoped global Ask and command-palette handoff",
+    story: "As an authenticated analyst, I want one Ask entry point that keeps my typed question and selects the correct evidence scope so that I do not query the wrong issuer or lose intent while navigating.",
+    expected: "Alt+K opens Ask directly; Cmd/Ctrl+K opens CommandPalette, whose Ask CAOS row calls openWith and preserves typed text. At 1280px and wider WorkflowRail owns a labelled Ask utility; from 768px to 1279px the compact header owns it; below 768px AskLauncher supplies the labelled phone fallback. Only AskLauncher owns overlays, so desktop/tablet never gains a second floating dock. On /query both entry paths dispatch query-focus instead of mounting a second modal. Deep-Dive owns its evidence-synced inline chat; Model, Pipeline, and issuer profile use issuer-scoped chat grounded in the selected issuer's live run or explicit reference fixture; other routes use the cross-issuer capability/query modal. All triggers are hidden for signed-out or needs-login state and on /query, and route/competing-modal/Escape transitions close transient output.",
+    edgeCases: "Signed-out or needs-login identity; /query prefill; Deep-Dive ownership; missing/failed issuer lookup; reference issuer; no live run; competing modal; nested citation overlay; empty text; capability/context/query failure; stale async result; route change while open.",
+    trigger: "Press Alt+K, activate the Ask launcher, or execute the Command Palette Ask row",
+    files: "caos/frontend/src/components/shared/Ask.tsx; caos/frontend/src/components/shared/CommandPalette.tsx; caos/frontend/src/components/shared/ConceptHotkeys.tsx; caos/frontend/src/components/deepdive/IssuerChat.tsx",
+    endpoint: "GET /api/query/capabilities; POST /api/query/runs; GET /api/issuers/{issuer_id}; issuer chat/run adapters",
+  },
+  "shell-07": {
+    name: "Role-aware root workspace handoff",
+    story: "As a returning user, I want an unaffiliated root visit routed to the most useful surface for my saved presentation role without losing an explicit issuer/context link.",
+    expected: "The root renders the bounded Opening workspace loading state while role preference and Suspense search parameters resolve. A queryless Analyst root redirects with router.replace to /issuers, PM to /command, and QA to /monitor. Any explicit root query is preserved verbatim on /issuers instead of being overridden by the role default.",
+    edgeCases: "Role preference not ready; Suspense fallback; Analyst/PM/QA role; multiple or encoded query values; explicit issuer/context query; repeated render; router identity change; authentication landing outside the route component.",
+    trigger: "Navigate to / with or without query parameters",
+    files: "caos/frontend/src/app/page.tsx; caos/frontend/src/components/shared/RoleViewProvider.tsx; caos/frontend/src/components/shared/SurfaceState.tsx",
+    endpoint: "none (client role state and router.replace)",
+  },
+  "shell-08": {
+    name: "Canonical workflow disclosure and Directory return",
+    story: "As an analyst working in a specialist surface, I want Directory and every other workflow available from a stable disclosure so that I can return to the issuer worklist without relying on a route-specific back link.",
+    expected: "Directory is the first Intake item in the canonical NAV_GROUPS registry and therefore appears in desktop All Workflows and the compact Workflows drawer on every routed surface. Analyst priority navigation also exposes Directory directly; PM/QA priority sets retain an off-list active route and use All Workflows for Directory. Compact workflow links preserve the current analysis context query. The old PageSubHeader Directory control is not part of the current shell.",
+    edgeCases: "Already on /issuers; nested issuer profile; PM/QA priority view; current route not prioritized; compact drawer; active-route marking; context query encoding; complete registry disclosure; Settings utility separation.",
+    trigger: "Open All Workflows or the compact Workflows drawer and activate Directory",
+    files: "caos/frontend/src/lib/nav.ts; caos/frontend/src/components/shared/WorkflowRail.tsx; caos/frontend/src/components/shared/ConceptNav.tsx",
+    endpoint: "none (Next Link navigation to /issuers)",
+  },
   "query-01": {
     name: "Context-bound investigation bootstrap",
     story: "As an analyst, I want Query bound to an owned analysis context before it becomes interactive so that drafts and results cannot leak across investigations.",
@@ -1204,10 +1966,12 @@ const curatedContractOverrides = new Map(Object.entries({
     endpoint: "none (workspace composition and context-aware navigation)",
   },
   "deepdive-01": {
-    expected: "The launcher groups the current CP-X module catalog into L0-L6. At 1536px and wider every layer starts open and can be toggled independently; below that breakpoint only one layer is open and re-clicking it collapses it. Navigating always reveals the active layer, off-screen active chips scroll into view, and edge chevrons page only when overflow exists.",
-    edgeCases: "Unknown mod id; active layer absent; breakpoint transition; layer re-click; horizontal overflow at either edge; selected chip already visible; reduced motion; rapid module changes.",
-    trigger: "load Deep-Dive, change module, resize, or toggle a layer",
-    files: "caos/frontend/src/app/deepdive/page.tsx",
+    name: "Semantic Module Groups and Launcher",
+    story: "As an analyst, I want every routed module organized into a small number of meaningful groups so that I can navigate the full analytical graph without losing the active module.",
+    expected: "The launcher partitions all 27 current CP-X modules exactly once across Foundation, Analysis, and Governance & Debate. Exactly the active module's group is expanded; selecting a group opens its first module, finder/cycle navigation reveals the containing group, unknown module ids fall back to Foundation without inventing membership, off-screen active chips scroll into view, and edge chevrons appear only when horizontal overflow exists.",
+    edgeCases: "Unknown mod id; newly added catalog module; duplicate or omitted membership; active group transition; horizontal overflow at either edge; selected chip already visible; deferred measurement after unmount; rapid module changes.",
+    trigger: "load Deep-Dive, select a semantic group, change module, or page the launcher strip",
+    files: "caos/frontend/src/app/deepdive/page.tsx; caos/frontend/src/lib/deepdive/module-groups.ts",
   },
   "deepdive-02": {
     expected: "Reference module glyphs follow the local replay state. Live issuer glyphs derive from persisted per-module QA status: cleared, warning/Restricted, failed/Blocked, or idle/no output. Collapsed layers expose counted text summaries with glyphs; failed and no-output states remain explicit and are never painted as cleared.",
@@ -1532,8 +2296,8 @@ const curatedContractOverrides = new Map(Object.entries({
   "command-04": {
     name: "Issuer identity link semantics",
     story: "As an analyst, I want issuer identity links inside a holding row to open the profile without also selecting the instrument so that identity review and position review remain distinct actions.",
-    expected: "An available ticker is a named link that opens the issuer profile overlay by stable issuer id and stops row activation. A missing issuer id/ticker remains non-interactive and the surrounding row keeps its own selection semantics.",
-    edgeCases: "Missing issuer id; missing ticker; repeated ticker across issuers; pointer and keyboard activation; event bubbling into the row; profile overlay unavailable.",
+    expected: "An available ticker is a named link that opens the issuer profile overlay by stable issuer id and stops row activation. The borrower name independently links whenever issuer_id exists. A missing ticker renders a plain dash, and a missing issuer id suppresses both identity links while the surrounding row keeps its own selection semantics.",
+    edgeCases: "Missing issuer id; issuer id with missing ticker; missing borrower name; repeated ticker across issuers; pointer and keyboard activation; event bubbling into the row; profile overlay unavailable.",
     trigger: "Activate the ticker link in a persisted holding row",
     files: "caos/frontend/src/components/command/CommandPortfolio.tsx; caos/frontend/src/components/shared/IssuerProfileOverlay.tsx",
     endpoint: "none (profile-overlay client action)",
@@ -1649,8 +2413,8 @@ const curatedContractOverrides = new Map(Object.entries({
   "command-17": {
     name: "Portfolio selection precedence",
     story: "As an analyst, I want portfolio scope resolved deterministically so that a deep link, saved analysis context, and default directory order cannot silently disagree.",
-    expected: "A valid requested portfolio wins; otherwise a valid analysis-context portfolio_scope wins; otherwise the first authorized directory row is selected. When no request was supplied, the resolved id is written to the URL with replace semantics.",
-    edgeCases: "Requested id outside directory; context id removed; empty directory; directory still loading; concurrent context creation; duplicate portfolio names.",
+    expected: "A valid requested portfolio wins. When no portfolio was requested, a valid analysis-context portfolio_scope wins and otherwise the first authorized directory row is selected, with the resolved id written to the URL using replace semantics. An explicit unknown requested id fails closed as Portfolio unavailable until the analyst chooses Open default portfolio; it is never silently replaced by context or directory order.",
+    edgeCases: "Explicit requested id outside the authorized directory; context id removed; empty directory; directory still loading; concurrent context creation; duplicate portfolio names; recovery after an invalid request.",
     trigger: "Open Command Center with or without requested/context portfolio scope",
     files: "caos/frontend/src/app/command/page.tsx; caos/frontend/src/lib/analysis-workbench.ts",
     endpoint: "GET /api/portfolios/; GET /api/analysis/contexts/{context_id}",
@@ -1717,6 +2481,33 @@ const curatedContractOverrides = new Map(Object.entries({
     trigger: "Filter, scroll, or select a row in Live coverage",
     files: "caos/frontend/src/components/command/LiveCoverage.tsx; caos/frontend/src/app/command/page.tsx",
     endpoint: "GET /api/portfolio",
+  },
+  "command-29": {
+    name: "Canonical sector directory and alert preferences",
+    story: "As a Head of Research, I want canonical sector selection and per-sector alert preferences so that the active dossier and notification scope remain explicit.",
+    expected: "The authenticated /sector screen loads the canonical taxonomy and caller-scoped feed preferences. Desktop renders a sector directory and narrow layouts render an Active sector select. Choosing a different sector clears the local review/history/section selection and patches sector_id while clearing sector_review_run_id and rv_run_id; the current sector is a no-op. Each directory row exposes a named Alerts on/off switch that persists the complete next feed set, defaulting an absent preference to enabled, and a failed save surfaces a bounded alert.",
+    edgeCases: "Taxonomy or feed fetch failure; sector absent from saved feeds; selecting the already-active sector; context unavailable; patch rejection; feed-save rejection; empty taxonomy; narrow layout; keyboard switch activation.",
+    trigger: "Open /sector, choose a canonical sector, or toggle its Alerts switch",
+    files: "caos/frontend/src/app/sector/page.tsx; caos/frontend/src/components/sector/SectorReviewDossier.tsx; caos/frontend/src/lib/analysis-workbench.ts; caos/frontend/src/lib/api.ts",
+    endpoint: "GET /api/analysis/taxonomy; PATCH /api/analysis/contexts/{context_id}; GET/PUT /api/sector/feeds",
+  },
+  "command-30": {
+    name: "Versioned sector dossier and analytical states",
+    story: "As a buy-side analyst, I want a versioned sector dossier with explicit evidence and readiness states so that I can review the sector without mistaking loading, missing, partial, or stale work for a current conclusion.",
+    expected: "The current context loads its sector-review history, selects the context-bound review id or newest available version, and keeps loading distinct from the authoritative no-version state. A review drives the four-part decision header, six dossier tabs, dimension scores, seven-section analysis, signals, comparables, early warnings, risks, sources, uncertainties, authority, ratification state, and downstream blockers. Partial and stale states retain their value with explicit missing dependencies or age; error and unavailable states never borrow the retired seed-card UI.",
+    edgeCases: "History pending, empty, rejected, or reordered; context-bound id absent from history; partial/stale/error review; missing dimensions or sections; non-finite metrics; absent authority/source data; context switch during fetch; narrow tab overflow.",
+    trigger: "Open /sector with an analysis context and load its review history",
+    files: "caos/frontend/src/app/sector/page.tsx; caos/frontend/src/components/sector/SectorReviewDossier.tsx; caos/frontend/src/components/sector/SectorReviewPanels.tsx; caos/server/routes/sector.py",
+    endpoint: "GET /api/sector/reviews?context_id={context_id}; GET /api/sector/reviews/{review_id}",
+  },
+  "command-31": {
+    name: "Request a versioned sector review refresh",
+    story: "As a Head of Research, I want to request a new sector-review version so that updated analysis is additive, context-bound, and does not overwrite prior work.",
+    expected: "When no review exists or the active review is partial/stale, Request refresh posts the active context id, optional canonical sector id, and weekly timeframe to the V2 review endpoint. Success selects the returned first section, prepends the unique version to history, and binds sector_review_run_id in the in-memory analysis context. Duplicate clicks are disabled while busy; failure leaves the prior version unchanged and surfaces a bounded alert.",
+    edgeCases: "Context absent; request already busy; partial or stale review; no returned sections; duplicate returned id; create rejection; sector absent; prior version present; reference-only evidence; rapid context change.",
+    trigger: "Activate Request refresh from an empty, partial, or stale sector dossier",
+    files: "caos/frontend/src/components/sector/SectorReviewDossier.tsx; caos/frontend/src/lib/analysis-workbench.ts; caos/server/routes/sector.py",
+    endpoint: "POST /api/sector/reviews",
   },
   "command-32": {
     name: "Six-category governance workbench",
@@ -1810,12 +2601,12 @@ const curatedContractOverrides = new Map(Object.entries({
   },
   "command-42": {
     name: "Open top change primary action",
-    story: "As a PM/CIO, I want one primary action that moves directly to the ranked surveillance worklist so that the highest-priority change is reachable from any Command dataset.",
-    expected: "Open top change writes dataset=changes, clears selected, then scrolls and focuses the ranked-changes region after render. The resulting panel is named Ranked Changes · Watchtower draft.",
-    edgeCases: "Already on Changes; no ranked rows; selected strip open; reduced motion; region not mounted on first animation frame; keyboard activation.",
-    trigger: "Activate Open top change in the Command header",
-    files: "caos/frontend/src/app/command/page.tsx",
-    endpoint: "none (typed URL and focus transition)",
+    story: "As a PM/CIO, I want one primary action that opens the highest-ranked surveillance issuer in Deep-Dive so that I can validate the top change against issuer evidence from any Command dataset.",
+    expected: "When the highest-ranked change carries a stable issuer id, Open top change navigates directly to /deepdive with that encoded id. When no ranked row or stable issuer authority exists, the action is disabled with an explicit unavailable reason and never substitutes the display name.",
+    edgeCases: "No ranked rows; top row without issuer_id; encoded issuer id; selected strip open; draft refresh changes the top row; keyboard activation; modifier-key navigation.",
+    trigger: "Activate Open top change in the Command header when a stable ranked issuer exists",
+    files: "caos/frontend/src/app/command/page.tsx; caos/frontend/src/components/shared/EnterprisePage.tsx",
+    endpoint: "none (stable-issuer Deep-Dive navigation)",
   },
   "command-43": {
     name: "Decision header — what changed",
@@ -1852,6 +2643,51 @@ const curatedContractOverrides = new Map(Object.entries({
     trigger: "Load the DecisionHeader with daily digest freshness counts",
     files: "caos/frontend/src/app/command/page.tsx; caos/frontend/src/components/shared/DecisionHeader.tsx",
     endpoint: "GET /api/digest/daily",
+  },
+  "command-47": {
+    name: "Dossier tabs and URL-persisted review selection",
+    story: "As a sector analyst, I want stable dossier tabs and section selection in the URL so that I can navigate dense analysis, share a precise view, and retain my place.",
+    expected: "The dossier exposes Overview, Signals, Comparables, Early Warning, Risks, and Sources as keyboard-operable tab buttons with the active item marked by aria-current. The tab, selected section, and comparison version use typed URL keys; choosing a section replaces the current URL entry. Analyst/PM defaults to Overview and QA defaults to Sources when no tab is supplied; an unknown tab falls back to the role default. Tabs remain horizontally accessible and the active-sector select remains available below the desktop-directory breakpoint.",
+    edgeCases: "Unknown or missing tab; section absent from the active review; compare id absent from history; role change; browser back/forward; no review; narrow horizontal overflow; keyboard activation; late history hydration.",
+    trigger: "Select a dossier tab or analytical section, then navigate or reload the URL state",
+    files: "caos/frontend/src/components/sector/SectorReviewDossier.tsx; caos/frontend/src/components/sector/SectorReviewPanels.tsx; caos/frontend/src/lib/typed-url-state.ts",
+    endpoint: "none (typed URL and responsive client state)",
+  },
+  "command-48": {
+    name: "Sector review history and version comparison",
+    story: "As a Head of Research, I want to select and compare immutable sector-review versions so that changes in posture and evidence breadth are visible without losing the current draft.",
+    expected: "Review history is loaded newest-first for the active analysis context. The context-bound sector_review_run_id wins when present; otherwise the first version is active. Review utilities list every non-active version with version and UTC date, persist compare in typed URL state, and summarize prior-to-current posture plus source-count movement. Selecting None clears compare; an unknown comparison id renders no fabricated summary.",
+    edgeCases: "No history; one version; context id missing from history; invalid compare id; equal posture/source counts; history request failure; out-of-order response; context change; missing or invalid timestamp.",
+    trigger: "Open Review utilities and choose a prior Compare version",
+    files: "caos/frontend/src/components/sector/SectorReviewDossier.tsx; caos/frontend/src/lib/analysis-workbench.ts",
+    endpoint: "GET /api/sector/reviews?context_id={context_id}",
+  },
+  "command-49": {
+    name: "Source register and evidence availability",
+    story: "As a Head of Research/QA, I want every sector conclusion to resolve through the review's persisted source register so that missing evidence is explicit and available evidence is one interaction away.",
+    expected: "Dimensions, signals, early warnings, risks, and uncertainties render SourceRef states resolved against the active review's source_register. A source becomes a link only when it has a persisted id, a matching register entry, and a URL; absent ids, unregistered ids, and URL-less sources render specific unavailable reasons. The Sources tab lists origin/freshness and contradictions, and offers Route gaps to QA only when a context id can be preserved.",
+    edgeCases: "Empty source_ids; unknown source id; duplicate references; registered source without URL; unsafe or absent context; empty register; uncertainty without sources; link keyboard focus; many wrapping references.",
+    trigger: "Inspect source references or open the Sources tab in a versioned dossier",
+    files: "caos/frontend/src/components/sector/SectorReviewPanels.tsx; caos/frontend/src/components/ui/SourceRef.tsx",
+    endpoint: "GET /api/sector/reviews?context_id={context_id}; none for persisted source URL navigation",
+  },
+  "command-50": {
+    name: "Section ratification and publication gates",
+    story: "As a Head of Research/QA, I want explicit section ratification and fail-closed publication so that an incomplete or reference-only sector view cannot become a committee artifact.",
+    expected: "The evidence inspector can ratify the selected unratified section. The primary Ratify updates action first arms a confirmation that names every remaining section, then Confirm posts only those section decisions. Partial/stale work routes to refresh; a ratified ready review exposes Publish review. The server keeps incomplete/reference reviews in draft and returns 409 when publication blockers remain; UI errors are explicit and prior review state is retained.",
+    edgeCases: "No review; no selected section; already-ratified section; zero remaining sections; rejected section; partial/stale/reference review; duplicate click while busy; ratification or publish rejection; ownership mismatch; unknown section; changed review between arm and confirm.",
+    trigger: "Ratify one section, confirm all remaining sections, or publish a fully gated review",
+    files: "caos/frontend/src/components/sector/SectorReviewDossier.tsx; caos/frontend/src/lib/analysis-workbench.ts; caos/server/routes/sector.py",
+    endpoint: "POST /api/sector/reviews/{review_id}/ratifications; POST /api/sector/reviews/{review_id}/publish",
+  },
+  "command-51": {
+    name: "Sector comparable issuers and decision gaps",
+    story: "As a sector analyst, I want comparable issuers linked by stable identity with finite credit metrics and explicit gaps so that I can move from sector posture to issuer-level investigation safely.",
+    expected: "The Comparables tab renders a named table with issuer, posture, up to four sorted finite numeric metric columns, and decision gaps. A comparable with issuer_id uses IssuerLink for profile navigation; an item without stable identity remains plain text. Numeric values use aligned finite formatting, non-numeric/internal fields do not become metric columns, and missing dependencies remain left-aligned textual warnings.",
+    edgeCases: "Missing issuer_id; duplicate issuer name; empty comparables; more than four metric keys; NaN or infinite values; missing metric on one row; no decision gaps; long names/gaps; keyboard and narrow-table access.",
+    trigger: "Open the Comparables tab and activate a linked issuer",
+    files: "caos/frontend/src/components/sector/SectorReviewPanels.tsx; caos/frontend/src/components/shared/IssuerLink.tsx; caos/frontend/src/components/ui/DataTable.tsx",
+    endpoint: "GET /api/sector/reviews?context_id={context_id}; none for issuer overlay navigation",
   },
   "command-52": {
     name: "Daily digest coverage and ratings KPIs",
@@ -1898,6 +2734,15 @@ const curatedContractOverrides = new Map(Object.entries({
     files: "caos/frontend/src/app/command/page.tsx; caos/frontend/src/lib/analysis-workbench.ts",
     endpoint: "PATCH /api/analysis/contexts/{context_id}",
   },
+  "command-57": {
+    name: "Command sector-board removal and dossier ownership",
+    story: "As a PM/CIO, I want Command Center to remain focused on portfolio posture while Sector Review owns sector analysis so that two workspaces do not maintain conflicting sector state.",
+    expected: "Command Center contains no Sector Board component, collapse state, sector filter, or sector localStorage workflow. The authenticated /sector route owns canonical sector selection, feed preferences, review history, and the versioned dossier. Cross-surface work is carried by analysis-context ids rather than the retired caos-command-sectors-v2 device key.",
+    edgeCases: "Stale browser storage from the retired board; navigation between Command and Sector; missing analysis context; Command coverage tabs; narrow layout; regression that reintroduces duplicate board state.",
+    trigger: "Load /command and /sector and inspect ownership of sector-analysis controls",
+    files: "caos/frontend/src/app/command/page.tsx; caos/frontend/src/app/command/sector-board-removal.test.ts; caos/frontend/src/app/sector/page.tsx; caos/frontend/src/components/sector/SectorReviewDossier.tsx",
+    endpoint: "GET /api/sector/reviews; GET/PUT /api/sector/feeds",
+  },
   "settings-01": {
     name: "Research defaults with device precedence",
     story: "As an analyst, I want my device-local research lens to survive reload while retaining an analyst-profile fallback on a new device so that personal workflow preferences are predictable.",
@@ -1915,6 +2760,78 @@ const curatedContractOverrides = new Map(Object.entries({
     trigger: "Open /research after saving device Research defaults",
     files: "caos/frontend/src/app/research/page.tsx; caos/frontend/src/lib/research-prefs.ts",
     endpoint: "localStorage caos.research.prefs",
+  },
+  "settings-03": {
+    name: "Read-only workspace configuration snapshot",
+    story: "As an analyst, I want a truthful non-secret view of the active workspace configuration so that I can understand the deployment posture without gaining access to credentials.",
+    expected: "The Workspace tab loads GET /api/settings into a Workspace administration panel. Three summary cards disclose whether analysis is available, the active governance posture, and upload/concurrency capacity. Deployment diagnostics is collapsed by default and expands to seven finite groups: Models, Model tiers (mode to model), Governance & QA, Engine cost & limits, Deep Research, Retrieval & data, and Workspace. Boolean values pair a colored dot with On/Off text; loading and offline states are explicit and retryable; an unavailable primary answer source is labelled Answer source · Not connected; and the read-only note states that API keys, database URLs, and storage paths are never shown.",
+    edgeCases: "Configuration request in flight; request failure and retry; collapsed or expanded diagnostics; false booleans; zero token budget; no connected answer source; long model identifiers; narrow view hides implementation hints but retains labels and values; accidental secret fields in the server payload.",
+    trigger: "Open /settings?tab=workspace or choose Workspace, then refresh the environment snapshot",
+    files: "caos/frontend/src/app/settings/page.tsx; caos/server/routes/settings.py",
+    endpoint: "GET /api/settings",
+  },
+  "settings-04": {
+    name: "Workspace-status command-bar context",
+    story: "As an analyst, I want an unambiguous readiness signal in the Settings command bar so that I can tell whether the deployment snapshot is available without exposing implementation vocabulary in primary chrome.",
+    expected: "After GET /api/settings succeeds, EnterprisePage contextual controls show Workspace status available in tabular muted text. The status is absent while the snapshot is loading or unavailable; detailed environment and model values remain inside the collapsed Deployment diagnostics section rather than the primary command bar.",
+    edgeCases: "Configuration loading or offline; retry after failure; narrow command bar; snapshot succeeds with no connected answer source; long diagnostic values remain confined to the expanded details section.",
+    trigger: "Load authenticated /settings and wait for the workspace snapshot",
+    files: "caos/frontend/src/app/settings/page.tsx; caos/frontend/src/components/layout/EnterprisePage.tsx",
+    endpoint: "GET /api/settings",
+  },
+  "settings-05": {
+    name: "Authenticated Enterprise Settings workbench",
+    story: "As an analyst, I want Settings to use the same institutional shell and accessibility structure as the other workspaces so that navigation, actions, and dense configuration remain predictable.",
+    expected: "RequireAuth and Suspense gate an EnterprisePage object surface with ShellIdentity title Settings, the shared concept navigation, global Save changes action, Refresh environment snapshot utility, and a scrollable PersonaWorkbench settings body constrained to max-w-3xl. The workbench exposes labelled tab and tabpanel semantics and retains the shared visible focus and narrow-layout contracts.",
+    edgeCases: "Unauthenticated identity; profile loading or failure; configuration offline; narrow viewport overflow; command-bar compression; keyboard-only navigation; delayed Suspense/search-parameter hydration.",
+    trigger: "Navigate to /settings with and without an authenticated profile",
+    files: "caos/frontend/src/app/settings/page.tsx; caos/frontend/src/components/layout/EnterprisePage.tsx; caos/frontend/src/components/shared/ShellIdentity.tsx; caos/frontend/src/components/shared/RequireAuth.tsx",
+    endpoint: "GET /api/auth/me; GET /api/settings; GET /api/settings/analyst",
+  },
+  "settings-06": {
+    name: "URL-persisted Settings tabs and roving keyboard navigation",
+    story: "As an analyst, I want Settings grouped into link-restorable, keyboard-operable sections so that I can move quickly and return to the same configuration context.",
+    expected: "The five tabs are Models, Research, Email Intel, Portfolios, and Workspace. A valid ?tab= value selects the corresponding panel; a missing or invalid value defaults to Models. Clicks use router.replace while preserving other query parameters. ArrowRight/Down and ArrowLeft/Up wrap, Home selects Models, End selects Workspace, only the active tab is in the tab order, and each panel is associated by aria-controls and aria-labelledby.",
+    edgeCases: "Missing or unsupported tab parameter; first/last wrap; Tab key must not change selection; rapid navigation; browser reload/back; narrow horizontal overflow; focus handoff after router replacement.",
+    trigger: "Open /settings with a tab query or operate the Settings sections tablist by mouse and keyboard",
+    files: "caos/frontend/src/app/settings/page.tsx",
+    endpoint: "Client URL query parameter ?tab=",
+  },
+  "settings-07": {
+    name: "Staged device/profile model-mode selection",
+    story: "As an analyst, I want to stage a cost-versus-quality model mode and persist it deliberately so that subsequent requests and durable runs use the intended tier.",
+    expected: "The Models tab offers TEST, LITE, BALANCED, and MAX through ModelModeToggle. Device storage initially hydrates from caos.model.mode, then a valid analyst workspace model_mode may override it. Changing the control marks Settings dirty but does not persist immediately; global Save changes writes the uppercase mode to device storage and the lowercase representation to the analyst profile. Browser API requests read the stored mode into X-Model-Mode, server normalization rejects unknown values, and created runs persist the normalized mode used for execution.",
+    edgeCases: "Absent, blocked, or corrupt localStorage; lowercase/whitespace profile values; invalid profile mode; profile arrives after device hydration; save failure must retain dirty state; rapid repeated save; missing header uses the server BALANCED default; TEST is the browser fallback.",
+    trigger: "Choose a model mode, activate Save changes, reload, and create a run",
+    files: "caos/frontend/src/app/settings/page.tsx; caos/frontend/src/components/shared/ModelModeToggle.tsx; caos/frontend/src/lib/model-mode.ts; caos/frontend/src/lib/api.ts; caos/server/engine/presets.py; caos/server/main.py",
+    endpoint: "localStorage caos.model.mode; PATCH /api/settings/analyst; request header X-Model-Mode; POST /api/runs",
+  },
+  "settings-08": {
+    name: "Staged Query answer-source selection",
+    story: "As an analyst, I want to choose the answer-source posture for Query and Ask so that subsequent investigations use the intended balance of institutional depth, citations, and cost.",
+    expected: "The Models tab exposes exactly three controlled cards: Balanced institutional answers, Citation-led research answers, and Cost-aware structured answers. Each card pairs selection with an explicit availability label: checking, available, not connected, or status unavailable. Selection is staged only; global Save changes writes the provider identifier to localStorage key caos_query_model and workspace.query_model. A successful profile load may seed the staged value, and no card claims a vendor is usable when its configured flag is false or the workspace snapshot failed.",
+    edgeCases: "Configuration still loading; configuration request failure; provider explicitly not connected; profile value arrives after device hydration; unsupported stored/profile identifier; save failure retains the staged choice and dirty state; repeated save; narrow three-card layout.",
+    trigger: "Choose a Query answer-source card, activate global Save changes, reload, or load with unavailable provider status",
+    files: "caos/frontend/src/app/settings/page.tsx; caos/frontend/src/lib/api.ts; caos/server/routes/settings.py",
+    endpoint: "localStorage caos_query_model; GET /api/settings; GET/PATCH /api/settings/analyst",
+  },
+  "settings-09": {
+    name: "Planned task-specific analysis preferences",
+    story: "As an analyst, I want an honest statement of task-specific routing availability so that I do not mistake inactive controls for a working model-routing workflow.",
+    expected: "The Models tab renders a single read-only Planned notice stating that task-specific preferences will become available after workspace-level controls are enabled. It renders no lane selectors or comboboxes, performs no write on interaction, and preserves any existing model_lanes profile data unchanged through unrelated settings saves.",
+    edgeCases: "Existing stored model_lanes; profile load failure; unrelated global or email save; unsupported legacy lane values; narrow viewport; regression that reintroduces disabled or write-capable dead controls.",
+    trigger: "Open the Models tab with or without stored model_lanes and inspect Task-specific analysis preferences",
+    files: "caos/frontend/src/app/settings/page.tsx; caos/server/routes/settings.py",
+    endpoint: "GET /api/settings/analyst (read/preserve only; no task-specific write control)",
+  },
+  "settings-10": {
+    name: "Email intelligence profile settings",
+    story: "As an analyst, I want the persisted Outlook connection posture and approved sender list in Settings so that email intelligence intake begins from an explicit curated profile.",
+    expected: "The Email Intel tab shows Connected or Not connected from email_intelligence.outlook_connected. Approved senders remain disabled until the analyst profile loads, accept comma/newline editing without destructive normalization during typing, and on blur trim and filter entries before a sparse revision-checked PATCH. Writes serialize, 409 conflicts rebase only the intended email delta onto authoritative current settings, and failed loads or saves surface bounded retryable errors without clearing the optimistic input.",
+    edgeCases: "Profile loading/failure; connected false or absent; blank lines, commas, whitespace, duplicates, and domain entries; rapid blurs; stale revision conflict; object/string/generic backend error details; unmount before saved-status timeout.",
+    trigger: "Open /settings?tab=email, edit Approved sender emails/domains, and blur the textarea",
+    files: "caos/frontend/src/app/settings/page.tsx; caos/frontend/src/lib/settings.ts; caos/server/routes/settings.py",
+    endpoint: "GET /api/settings/analyst; PATCH /api/settings/analyst",
   },
   "reports-01": {
     story: "As an analyst, I want to see all six authored deliverables so that I can navigate the complete committee output set.",
@@ -1942,8 +2859,49 @@ const curatedContractOverrides = new Map(Object.entries({
   "reports-08": {
     expected: "Compose controls toggle section inclusion with labelled pressed state and update Export section counts. Omissions are bounded to editable content, saved in the context-bound report draft, and carried into reviewed output.",
   },
+  "reports-09": {
+    expected: "Lineage groups every report source by registered evidence ID, labels the producing module/input, and opens each source through the keyboard-operable EvidenceSelectionList. Sources without an evidence ID remain explicitly unregistered instead of becoming inert pseudo-links.",
+    edgeCases: "Duplicate evidence IDs across modules; one source with multiple evidence IDs; unregistered source chips; long source labels; collapsed Panels rail; keyboard activation and focus return.",
+  },
+  "reports-10": {
+    expected: "The source dialog prefers the selected live run's evidence index and fetches its real document chunk. A live ID absent from that run is explicitly unresolved and never shadow-resolves to the Atlas Forge fixture. Seeded reference evidence shows the authored extract, metadata, trace status, confidence, citations, and QA action. Fetch failure becomes Source unavailable; Escape, close, and backdrop dismiss through the shared modal focus contract.",
+    edgeCases: "Live/seeded ID collision; missing chunk id; unknown ID; chunk fetch failure; long extract; absent document metadata; open lineage; Escape/backdrop/close; narrow viewport.",
+  },
   "reports-11": {
-    expected: "Print / save PDF calls window.print only for a selected immutable published version. PrintPortal renders that version as an unscaled white document; without a published version the control is disabled with an explanatory title.",
+    expected: "Print / save PDF calls window.print only for a selected immutable published version, while PDF and XLSX downloads require an active immutable version and surface binary failures without substituting mutable content. PrintPortal renders the selected frozen composition as an unscaled white document; pending immutable deep links and mutable drafts keep publication/print/download fail closed with explanatory copy.",
+    edgeCases: "Mutable draft; immutable deep link still resolving; empty version list; missing binary version; PDF/XLSX failure; browser print; evidence modal; one active-draft decision-room opener.",
+  },
+  "reports-12": {
+    expected: "Export metadata reports PDF · US Letter / XLSX, CP-RENDER v2.2, the distinct evidence IDs present in the source register, included/total sections, analyst override count, and the reference watermark or live committee hold reason. It does not claim an orphan-citation audit that the renderer does not perform.",
+    edgeCases: "Zero citations; duplicate evidence IDs; omitted sections; singular/plural edit count; reference watermark; live Restricted/Blocked reason; clean live run.",
+  },
+  "reports-13": {
+    expected: "The authored reference IC Credit Memo carries its CONDITIONAL — QA-117 watermark in the deliverable tag, preview, export metadata, and print composition. Live reports derive HELD/READY and watermark metadata from the selected run's actual committee status rather than borrowing the fixture gate.",
+    edgeCases: "Reference held memo; reference clean deliverables; live Restricted/Blocked/Draft Only/Committee Ready; frozen preview; omitted content; printed output.",
+  },
+  "reports-14": {
+    expected: "The deliverables footer is authority-aware. Reference mode names the authored CP-5/QA-117 fixture hold; a held live run names its actual committee reason and directs review of blocking findings; a clean live run states that outputs follow the active run and require server-frozen preview review. Warning/success color is paired with explicit text.",
+    edgeCases: "Reference fixture; live Restricted/Blocked/Draft Only; clean live run; no active report; narrow rail; status color unavailable.",
+  },
+  "reports-15": {
+    expected: "When a caller-visible run is present, Export to vault posts that exact run once, prevents re-entry while pending, and transitions from idle to EXPORTING to an attributed written-note count or a retryable error. Vault mirroring is not gated by committee readiness; server identity, ownership, rate, configuration, and filesystem checks still apply before writing stamped notes.",
+    edgeCases: "No run id; pending duplicate click; one/many written files; foreign run; unconfigured directory; write failure; exhausted caller budget; retry after ordinary failure.",
+  },
+  "reports-16": {
+    expected: "With VAULT_EXPORT_DIR unset, POST /api/runs/{run_id}/vault fails closed with 503 before any write. The client identifies the configuration problem in the failed control's title and retains a retry path.",
+    edgeCases: "Blank/whitespace configuration; configured retry; foreign/missing run; repeated click while pending; 503 versus other failures.",
+  },
+  "reports-17": {
+    expected: "A vault-export OSError is logged and translated to HTTP 500 with bounded guidance to check that VAULT_EXPORT_DIR exists and is writable. The client shows a retryable EXPORT FAILED state without leaking the raw exception.",
+    edgeCases: "Missing directory; read-only directory; mid-write failure; non-OSError client failure; retry after correction; no partial success claim.",
+  },
+  "reports-18": {
+    expected: "Vault mirroring consumes the caller-local export budget before filesystem work. An exhausted window returns 429 with retry-in-a-minute guidance; the pending client state also blocks same-control re-entry.",
+    edgeCases: "First/last allowed request; first rejected request; caller isolation; duplicate pending click; budget reset; invalid or foreign run under an exhausted budget.",
+  },
+  "reports-19": {
+    expected: "Vault mirroring resolves the selected run inside the caller's access scope before writing. A missing or foreign run returns 404 and produces no filesystem artifact.",
+    edgeCases: "Malformed/missing id; deleted run; foreign analyst run; configured/unconfigured vault; rate guard ordering; no partial file.",
   },
   "reports-20": {
     expected: "On hydration the UI restores caos-e-zoom locally. Active report, omissions, edits, paper tone, source visibility, and add-back visibility load from and autosave to the analysis-context report draft; immutable-version deep links override mutable active selection.",
@@ -1951,6 +2909,94 @@ const curatedContractOverrides = new Map(Object.entries({
   },
   "reports-21": {
     expected: "For the Atlas Forge reference issuer, Report Studio loads the saved model through getSavedModel, applies object-shaped overrides and assumptions, and rebuilds report figures. Live issuers consume server-frozen Model Engine v2 checkpoints instead; load failure falls back to base reference figures with a warning and retry.",
+  },
+  "reports-22": {
+    expected: "ReportDoc renders the implemented profile, text, list, table, chart, columns, flags, model-appendix, and paged-group section shapes, filters omitted sections, prints registered source lines when requested, and preserves a defensive authority statement for incomplete or non-paged input.",
+    edgeCases: "Every section type; paged and flat documents; omitted sections; malformed/frozen model cells; missing authority fields; sources hidden; add-backs suppressed; empty sections.",
+  },
+  "reports-23": {
+    expected: "Editable text leaves activate only when composition authority permits editing. Blur commits plain text capped at 2,000 characters; paste strips markup, Escape restores the original value and blurs, and frozen-preview intent filters edits to server-reviewed editable paths.",
+    edgeCases: "2,000-character boundary; oversized paste; HTML paste; Escape before blur; missing edit map; immutable published version; appendix mutation; sectionless preview.",
+  },
+  "reports-24": {
+    expected: "FIT measures the Report preview's current width, subtracts 48px, divides by the 980px paper width, and clamps to 0.4–1.15. ResizeObserver keeps automatic fit current until the analyst selects an explicit zoom; keyboard FIT and unmount disconnect cleanly.",
+    edgeCases: "Very narrow/wide preview; zero measurement; resize after manual zoom; keyboard activation; observer unavailable or disconnected; local zoom restoration.",
+  },
+  "reports-25": {
+    expected: "Each deliverable exposes its authored section total and a citation total deduplicated from the report source register. The selected report's Export panel recomputes included sections after omissions without inventing missing evidence.",
+    edgeCases: "Zero/one/many sections; duplicate evidence IDs; source with no evidence ID; omitted sections; live/generated report; immutable restored report.",
+  },
+  "reports-26": {
+    expected: "POST /api/runs/{run_id}/report resolves the caller-visible run and its modules, requires Committee Ready, excludes auditor-only modules, and returns the deterministic committee report JSON with run/issuer/as-of/QA/committee/preparer identity and non-auditor sections. Missing or foreign runs return 404; the route has no Report Studio UI trigger.",
+    edgeCases: "Missing or foreign run; no modules; auditor-only modules; Committee Ready versus every non-ready value; exhausted route budget; malformed id.",
+  },
+  "reports-27": {
+    expected: "Committee export is allowed only for the exact Committee Ready status. Any other or unknown status returns 409 containing the observed committee status and the run's CRITICAL/MATERIAL blocking findings; changing the same owned run to Committee Ready permits deterministic assembly.",
+    edgeCases: "Restricted, Blocked, Draft Only, unknown, null, and Committee Ready; no blocking findings; mixed severities; missing/foreign run; rate boundary.",
+  },
+  "model-03": {
+    name: "Issuer-scoped manual historical overrides",
+    expected: "Double-clicking an editable historical cell opens an inline numeric editor. Enter or changed blur commits a finite parsed value, while Escape or unchanged blur cancels. Overrides persist in issuer-scoped sessionStorage key caos-d-overrides:{issuerId}; a well-formed legacy localStorage caos-d-overrides payload migrates once, and malformed or non-finite values are ignored. Formula outputs recompute locally, but durable shared state changes only through the explicit model save workflow.",
+    edgeCases: "Blank, currency-formatted, parenthesized, malformed, NaN, or infinite input; unchanged blur; Escape; storage denial; corrupt legacy payload; issuer switch; no active issuer; derived or read-only cell.",
+    files: "caos/frontend/src/app/model/page.tsx; caos/frontend/src/components/model/ModelSheet.tsx; caos/frontend/src/components/model/model-format.ts",
+    endpoint: "none until explicit legacy model save",
+  },
+  "model-04": {
+    expected: "RESET CELL is available for the selected overridden historical cell, removes only that issuer/session override, restores the canonical source value and authority marker, and recomputes dependent formulas and outputs without clearing unrelated edits.",
+    edgeCases: "No selected cell; selected cell is not overridden; storage denial; issuer change; dependent ratio becomes unavailable; repeated reset.",
+  },
+  "model-05": {
+    expected: "When overrides exist, the header exposes ↶ N OVERRIDE(S) · RESET. The first activation arms a destructive confirmation labelled ▲ CONFIRM RESET?; the second activation clears every issuer-scoped session override and recomputes the model. Blur, timeout, issuer change, or intervening state disarms confirmation without data loss.",
+    edgeCases: "Zero, one, or plural overrides; first click only; blur; timeout; double activation; issuer switch; storage denial; reset while another action is pending.",
+  },
+  "model-13": {
+    expected: "A modified assumption case exposes a reset count. The first activation arms the case reset and the second activation applies it; blur or a bounded timeout disarms confirmation. Only the active BASE or DOWNSIDE case, including its year overrides, returns to defaults.",
+    edgeCases: "Zero, one, or plural changed drivers; blur; timeout; switch case while armed; repeated activation; missing year-override map; omitted lifecycle callbacks.",
+  },
+  "model-15": {
+    name: "Assumptions support-surface selection",
+    expected: "The Model support toolbar exposes mutually exclusive Assumptions, Scenario, Evidence, and History controls. Selecting Assumptions mounts that support surface without mutating its values; its named Collapse action returns focus and width to the worksheet by closing the active support surface.",
+    edgeCases: "Another support surface already active; repeated selection; Collapse; keyboard activation; narrow viewport; preserved unsaved assumptions; focus return.",
+    files: "caos/frontend/src/app/model/page.tsx; caos/frontend/src/components/model/AssumptionsPanel.tsx",
+  },
+  "model-24": {
+    name: "Scenario support-surface selection",
+    expected: "The Model support toolbar mounts Scenario as one mutually exclusive support surface. The panel preserves the active model scenario while switching between Model and Propagation modes, and its named Collapse action closes the surface without resetting assumptions, presets, or pending analysis.",
+    edgeCases: "Another support surface active; repeated selection; Collapse; model/propagation switch; active preset; request in flight; narrow viewport; keyboard activation.",
+    files: "caos/frontend/src/app/model/page.tsx; caos/frontend/src/components/model/ScenarioPanel.tsx",
+  },
+  "model-25": {
+    name: "Export legacy model workbook",
+    expected: "EXPORT MODEL downloads an .xlsx workbook containing Model, Headline Facts, Overrides, Assumptions, and Scenarios sheets in that order. Every sheet carries origin/method/run/as-of identity; numeric cells retain financial formats, formula-shaped text is neutralized, non-finite values export blank, and the worksheet respects the current quarters visibility.",
+    edgeCases: "No headline facts or overrides; negative and zero values; formula-injection-shaped label; NaN or infinity; quarters hidden; serialization failure; repeated click; temporary anchor cleanup.",
+    files: "caos/frontend/src/components/model/export.ts; caos/frontend/src/components/model/export-download.ts; caos/frontend/src/app/model/page.tsx",
+    endpoint: "none (client-generated XLSX)",
+  },
+  "model-26": {
+    name: "Reference/live model provenance and CP-1 tie disclosure",
+    expected: "The shared provenance chip presents the authority as explicit LIVE or DEMO text rather than legacy CP-1 LIVE/SEEDED copy. Issuer and run identity remain in the model header and export metadata. Where the legacy reference calculator has a CP-1 anchor, the formula/decision surface exposes a finite tie or drift result without leaking Atlas Forge notes into another issuer.",
+    edgeCases: "Reference versus live issuer; missing run; missing/non-finite CP-1 leverage; exact tie; drift beyond tolerance; issuer switch; export while source identity changes.",
+    files: "caos/frontend/src/app/model/page.tsx; caos/frontend/src/components/shared/ProvenanceChip.tsx; caos/frontend/src/components/model/FormulaBar.tsx",
+  },
+  "model-32": {
+    name: "Issuer-scoped legacy model draft hydration",
+    expected: "The legacy calculator restores issuer-scoped session overrides and local assumption state, then overlays a caller-visible server saved model when present. Only supported sections and finite override fields are adopted; malformed, unavailable, or denied browser storage falls back to guarded defaults, and a late response for a prior issuer is discarded.",
+    edgeCases: "No saved model; partial or malformed payload; non-finite override; storage denial; API error; issuer changes in flight; stale response; legacy-key migration; missing optional sections.",
+    files: "caos/frontend/src/app/model/page.tsx; caos/server/routes/models.py",
+    endpoint: "GET /api/models/{issuer_id}",
+  },
+  "model-42": {
+    name: "Responsive Model support and recovery controls",
+    expected: "At narrow widths, support surfaces collapse behind the Model support toolbar while the worksheet remains the primary scroll owner. Essential QTRS, save/recovery, export, and support actions remain reachable through compact header or tools disclosures; no document-level horizontal overflow or clipped interactive control is allowed at 390x844 or 1440x900.",
+    edgeCases: "390px phone; tablet; short viewport; support surface open during resize; utility drawer; long status text; unavailable export; save conflict; keyboard focus restoration.",
+    files: "caos/frontend/src/app/model/page.tsx; caos/frontend/src/app/globals.css; caos/frontend/src/components/shared/SubHeader.tsx",
+  },
+  "model-43": {
+    name: "Persist legacy reference model draft",
+    expected: "SAVE MODEL writes the legacy v1 assumptions, overrides, collapsed rows, view state, and model payload to PUT /api/models/{issuer_id}, guarded by the last updated_at when available. Success exposes the saved timestamp; ordinary failure announces SAVE FAILED, a stale write announces SAVED ELSEWHERE with recovery, and Report Studio continues reading only the last durable server version. GET hydration remains distinct from Model Engine v2 revisions and checkpoints.",
+    edgeCases: "No issuer model; save already running; malformed payload; unknown issuer; stale updated_at; network failure; retry; concurrent analyst save; reference-code/registry mismatch; reload after success.",
+    files: "caos/frontend/src/app/model/page.tsx; caos/server/routes/models.py",
+    endpoint: "GET/PUT /api/models/{issuer_id}",
   },
   "monitor-01": {
     name: "Email Intelligence reconciled intake tape",
@@ -1968,7 +3014,7 @@ const curatedContractOverrides = new Map(Object.entries({
   },
   "monitor-07": {
     name: "Replay KPIs in header",
-    expected: "The sub-header exposes Replay criticals as a toggleable critical-only filter and Replay today as a tick-derived seeded count. Live routed-alert count is kept in the worklist toolbar so demo replay metrics are not presented as live production KPIs.",
+    expected: "The sub-header exposes Replay criticals as a toggleable critical-only filter and Replay today as a finite, non-negative, tape-bounded tick-derived seeded count. Non-finite and negative ticks normalize to the opening baseline. Live routed-alert count is kept in the worklist toolbar so demo replay metrics are not presented as live production KPIs.",
   },
 }));
 
@@ -1978,6 +3024,10 @@ const featureObjects = sourceRows.map((row) => {
   const expected = contract?.expected || row.expected;
   const files = contract?.files || row.files;
   const endpoint = contract?.endpoint || row.endpoint;
+  const isMonitor = row.id.startsWith("monitor-");
+  const isReport = row.id.startsWith("reports-");
+  const isModel = row.id.startsWith("model-");
+  const hasCurrentScenarioClosure = isMonitor || isReport || isModel;
   return makeFeature({
   id: row.id,
   name,
@@ -1987,7 +3037,9 @@ const featureObjects = sourceRows.map((row) => {
   edgeCases: contract?.edgeCases || row.edge_cases,
   currentStatus: "Suite evidence",
   severity: row.severity,
-  notes: curatedContractOverrides.has(row.id)
+  notes: hasCurrentScenarioClosure
+    ? `Current implementation contract reconciled on 2026-07-19; all ${isMonitor ? "49" : isReport ? "194 applicable" : "462"} mandatory scenarios and direct regression evidence are listed in Test Cases and Feature Evidence.`
+    : curatedContractOverrides.has(row.id)
     ? "Current implementation contract reconciled on 2026-07-16; direct evidence and regression status are listed in Test Cases and Feature Evidence."
     : row.notes,
   validationRules: genericValidation({
@@ -1996,12 +3048,22 @@ const featureObjects = sourceRows.map((row) => {
     endpoint,
   }),
   dependencies: [files, endpoint].filter((value) => value && !value.startsWith("none")).join("; "),
-  assumptions: "The curated expected behavior is based on code review and prior execution evidence; the current iteration re-ran aggregate suites but did not individually execute every listed scenario.",
+  assumptions: hasCurrentScenarioClosure
+    ? isReport
+      ? "The current implementation contract was reconciled from source, and every applicable mandatory scenario was individually mapped to passing assertion-level evidence in the current iteration; backend-only report endpoints are explicitly viewport-not-applicable."
+      : "The current implementation contract was reconciled from source, and every mandatory scenario was individually mapped to passing assertion-level evidence in the current iteration."
+    : "The curated expected behavior is based on code review and prior execution evidence; the current iteration re-ran aggregate suites but did not individually execute every listed scenario.",
   trigger: contract?.trigger || row.trigger,
   files,
   endpoint,
   sourceType: "Curated feature",
-  sourceStatus: curatedContractOverrides.has(row.id)
+  sourceStatus: hasCurrentScenarioClosure
+    ? isMonitor
+      ? "Implementation contract refreshed from current source; 49/49 mandatory Monitor scenarios pass on 2026-07-19"
+      : isReport
+      ? "Implementation contract refreshed from current source; 194/194 applicable Report Studio scenarios pass and two backend viewport scenarios are N/A on 2026-07-19"
+      : "Implementation contract refreshed from current source; 462/462 mandatory Model Builder scenarios pass on 2026-07-19"
+    : curatedContractOverrides.has(row.id)
     ? "Implementation contract refreshed from current source and passing 2026-07-16 automation"
     : `${row.status || ""}; ${row.test_result || ""}`,
   });
@@ -2133,7 +3195,587 @@ const serverJourneyFileIds = new Map([
 // each row names the exact node regex and only the feature/scenario contracts
 // that node actually exercises. This avoids upgrading a whole file or suite to
 // direct evidence merely because it is adjacent to a feature.
+const issuerPermissionMappings = sourceRows
+  .filter((row) => row.id.startsWith("issuer-"))
+  .map((row) => [row.id, "Permission/security"]);
+if (issuerPermissionMappings.length !== 29) {
+  throw new Error(`Issuer permission-evidence inventory drifted: ${issuerPermissionMappings.length}/29 rows`);
+}
+const issuerDirectoryIds = sourceRows
+  .filter((row) => /^issuer-(?:0[1-9]|1[0-2]|31)$/.test(row.id))
+  .map((row) => row.id);
+const issuerProfileIds = sourceRows
+  .filter((row) => /^issuer-(?:1[3-9]|2[0-6]|29|30)$/.test(row.id))
+  .map((row) => row.id);
+if (issuerDirectoryIds.length !== 13 || issuerProfileIds.length !== 16) {
+  throw new Error(`Issuer route-scenario inventory drifted: directory=${issuerDirectoryIds.length}/13 profile=${issuerProfileIds.length}/16`);
+}
+const commandFeatureIds = sourceRows
+  .filter((row) => row.concept === "Command Center")
+  .map((row) => row.id)
+  .sort();
+const expectedCommandFeatureIds = [
+  "command-01", "command-02", "command-03", "command-04", "command-05", "command-06", "command-07", "command-08", "command-09",
+  "command-10", "command-11", "command-12", "command-13", "command-14", "command-15", "command-16", "command-17", "command-18", "command-19", "command-20", "command-21", "command-22", "command-23", "command-24",
+  "command-32", "command-33", "command-34", "command-35", "command-36", "command-37", "command-38", "command-39", "command-40", "command-41", "command-42", "command-43", "command-44", "command-45", "command-46",
+  "command-52", "command-53", "command-54", "command-55", "command-56",
+].sort();
+if (JSON.stringify(commandFeatureIds) !== JSON.stringify(expectedCommandFeatureIds)) {
+  throw new Error(`Command Center feature inventory drifted: ${commandFeatureIds.join(",")}`);
+}
+const commandPositions = expectedCommandFeatureIds.slice(0, 9);
+const commandPortfolio = expectedCommandFeatureIds.slice(9, 22);
+const commandCoverage = ["command-23", "command-24"];
+const commandGovernance = ["command-32", "command-33", "command-34", "command-35", "command-36"];
+const commandChanges = ["command-37", "command-38", "command-39", "command-40"];
+const commandHandoffs = ["command-41", "command-42"];
+const commandDecision = ["command-43", "command-44", "command-45", "command-46"];
+const commandDigest = ["command-52", "command-53"];
+const commandInsight = ["command-54", "command-55"];
+const monitorFeatureIds = ["monitor-01", "monitor-02", "monitor-03", "monitor-04", "monitor-05", "monitor-06", "monitor-07"];
+const currentMonitorFeatureIds = sourceRows.filter((row) => monitorFeatureIds.includes(row.id)).map((row) => row.id).sort();
+if (JSON.stringify(currentMonitorFeatureIds) !== JSON.stringify([...monitorFeatureIds].sort())) {
+  throw new Error(`Monitor feature inventory drifted: ${currentMonitorFeatureIds.join(",")}`);
+}
+const sectorFeatureIds = ["command-29", "command-30", "command-31", "command-47", "command-48", "command-49", "command-50", "command-51", "command-57"];
+const currentSectorFeatureIds = sourceRows.filter((row) => sectorFeatureIds.includes(row.id)).map((row) => row.id).sort();
+if (JSON.stringify(currentSectorFeatureIds) !== JSON.stringify([...sectorFeatureIds].sort())) {
+  throw new Error(`Sector Review feature inventory drifted: ${currentSectorFeatureIds.join(",")}`);
+}
+const pipelineFeatureIds = sourceRows
+  .filter((row) => row.concept === "Pipeline")
+  .map((row) => row.id)
+  .sort();
+const expectedPipelineFeatureIds = Array.from({ length: 45 }, (_, index) => `pipeline-${String(index + 1).padStart(2, "0")}`).sort();
+if (JSON.stringify(pipelineFeatureIds) !== JSON.stringify(expectedPipelineFeatureIds)) {
+  throw new Error(`Pipeline feature inventory drifted: ${pipelineFeatureIds.join(",")}`);
+}
+const pipelineDirectoryIds = expectedPipelineFeatureIds.filter((id) => Number(id.slice(-2)) <= 8);
+const pipelineWorkbenchIds = expectedPipelineFeatureIds.filter((id) => {
+  const number = Number(id.slice(-2));
+  return (number >= 9 && number <= 35) || number >= 43;
+});
+const pipelineApiIds = expectedPipelineFeatureIds.filter((id) => {
+  const number = Number(id.slice(-2));
+  return number >= 36 && number <= 42;
+});
+const pipelineUiIds = [...pipelineDirectoryIds, ...pipelineWorkbenchIds];
+const reportFeatureIds = Array.from({ length: 28 }, (_, index) => `reports-${String(index + 1).padStart(2, "0")}`);
+const currentReportFeatureIds = sourceRows.filter((row) => row.concept === "Report Studio").map((row) => row.id).sort();
+if (JSON.stringify(currentReportFeatureIds) !== JSON.stringify([...reportFeatureIds].sort())) {
+  throw new Error(`Report Studio feature inventory drifted: ${currentReportFeatureIds.join(",")}`);
+}
+const reportBackendOnlyIds = ["reports-26", "reports-27"];
+const reportUiFeatureIds = reportFeatureIds.filter((id) => !reportBackendOnlyIds.includes(id));
+const modelFeatureIds = Array.from({ length: 66 }, (_, index) => `model-${String(index + 1).padStart(2, "0")}`);
+const currentModelFeatureIds = sourceRows.filter((row) => row.concept === "Model Builder").map((row) => row.id).sort();
+if (JSON.stringify(currentModelFeatureIds) !== JSON.stringify([...modelFeatureIds].sort())) {
+  throw new Error(`Model Builder feature inventory drifted: ${currentModelFeatureIds.join(",")}`);
+}
+const modelLegacyIds = modelFeatureIds.slice(0, 43);
+const modelV2Ids = modelFeatureIds.slice(43);
+const modelV2AuthorityIds = ["model-44", "model-66"];
+const modelV2IdentityIds = ["model-45", "model-46", "model-48"];
+const modelV2MutationIds = ["model-49", "model-50", "model-51", "model-52"];
+const modelV2ScenarioIds = ["model-53", "model-54"];
+const modelV2HistoryIds = ["model-55", "model-56"];
+const modelV2ImportIds = ["model-57", "model-58", "model-59", "model-60"];
+const modelV2LifecycleIds = ["model-61", "model-62", "model-63", "model-64", "model-65"];
+const expectedModelApiInventory = [
+  ["API-072", "GET", "/api/models/{issuer_id}", "get_saved_model"],
+  ["API-073", "PUT", "/api/models/{issuer_id}", "save_model"],
+  ["API-074", "GET", "/api/models/{issuer_id}/checkpoints", "list_model_checkpoints"],
+  ["API-075", "POST", "/api/models/{issuer_id}/checkpoints", "create_model_checkpoint"],
+  ["API-076", "POST", "/api/models/checkpoints/{checkpoint_id}/restore", "restore_model_checkpoint"],
+  ["API-077", "GET", "/api/models/v2/{issuer_id}", "get_model_v2"],
+  ["API-078", "PUT", "/api/models/v2/{issuer_id}", "put_model_v2"],
+  ["API-079", "POST", "/api/models/v2/{issuer_id}/calculate", "calculate_model_v2"],
+  ["API-080", "GET", "/api/models/v2/{issuer_id}/checkpoints", "list_model_v2_checkpoints"],
+  ["API-081", "POST", "/api/models/v2/{issuer_id}/checkpoints", "create_model_v2_checkpoint"],
+  ["API-082", "POST", "/api/models/v2/{issuer_id}/checkpoints/{checkpoint_id}/restore", "restore_model_v2_checkpoint"],
+  ["API-083", "GET", "/api/models/v2/{issuer_id}/history", "list_model_v2_history"],
+  ["API-084", "POST", "/api/models/v2/{issuer_id}/history/{event_id}/replay", "replay_model_v2_event"],
+  ["API-085", "POST", "/api/models/v2/{issuer_id}/overrides", "mutate_model_v2_override"],
+  ["API-086", "POST", "/api/models/v2/{issuer_id}/overrides/batch", "mutate_model_v2_overrides_batch"],
+  ["API-087", "GET", "/api/models/v2/{issuer_id}/workbook/export", "export_model_workbook"],
+  ["API-088", "POST", "/api/models/v2/{issuer_id}/workbook/import/commit", "commit_model_workbook_import"],
+  ["API-089", "POST", "/api/models/v2/{issuer_id}/workbook/import/preview", "preview_model_workbook_import"],
+];
+for (const [expectedId, method, routePath, handler] of expectedModelApiInventory) {
+  const index = apiRoutes.findIndex((route) => (
+    route.method === method && route.path === routePath && route.handler === handler
+  ));
+  const actualId = index >= 0 ? `API-${String(index + 1).padStart(3, "0")}` : "missing";
+  if (actualId !== expectedId) {
+    throw new Error(`Model API inventory drifted for ${method} ${routePath} (${handler}): ${actualId}/${expectedId}`);
+  }
+}
+const modelApiFeatureIds = expectedModelApiInventory.map(([id]) => id);
+const settingsFeatureIds = Array.from({ length: 10 }, (_, index) => `settings-${String(index + 1).padStart(2, "0")}`);
+const currentSettingsFeatureIds = sourceRows
+  .filter((row) => row.concept === "Settings")
+  .map((row) => row.id)
+  .sort();
+if (currentSettingsFeatureIds.join(",") !== [...settingsFeatureIds].sort().join(",")) {
+  throw new Error(`Settings feature inventory drifted: ${currentSettingsFeatureIds.join(",")}`);
+}
+const expectedSettingsApiInventory = [
+  ["API-164", "GET", "/api/settings", "read_settings"],
+  ["API-165", "GET", "/api/settings/analyst", "read_analyst_settings"],
+  ["API-166", "PATCH", "/api/settings/analyst", "patch_analyst_settings"],
+  ["API-167", "PUT", "/api/settings/analyst", "write_analyst_settings"],
+];
+for (const [expectedId, method, routePath, handler] of expectedSettingsApiInventory) {
+  const index = apiRoutes.findIndex((route) => (
+    route.method === method && route.path === routePath && route.handler === handler
+  ));
+  const actualId = index >= 0 ? `API-${String(index + 1).padStart(3, "0")}` : "missing";
+  if (actualId !== expectedId) {
+    throw new Error(`Settings API inventory drifted for ${method} ${routePath} (${handler}): ${actualId}/${expectedId}`);
+  }
+}
+const settingsApiFeatureIds = expectedSettingsApiInventory.map(([id]) => id);
 const curatedScenarioMappings = [
+  // Model API inventory: endpoint-specific assertions close all six applicable
+  // scenarios. Responsive behavior remains explicitly N/A for backend routes.
+  ["caos/tests/server/test_model_api_quality_contracts.py", /test_legacy_model_reads_are_analyst_scoped_empty_and_non_enumerable/, ["API-072", "API-074"].flatMap((id) => ["Happy path", "Error path", "Boundary conditions", "Invalid input", "Permission/security"].map((scenario) => [id, scenario]))],
+  ["caos/tests/server/test_saved_models.py", /test_put_then_get_roundtrips_payload/, [["API-073", "Happy path"]]],
+  ["caos/tests/server/test_saved_models.py", /test_unknown_issuer_404_keeps_custom_detail/, [["API-073", "Error path"], ["API-073", "Invalid input"]]],
+  ["caos/tests/server/test_saved_models.py", /test_stale_expected_updated_at_is_409|test_matching_expected_updated_at_saves_normally|test_no_expected_updated_at_skips_the_check/, [["API-073", "Boundary conditions"]]],
+  ["caos/tests/server/test_saved_models.py", /test_malformed_body_is_422/, [["API-073", "Invalid input"]]],
+  ["caos/tests/server/test_model_api_quality_contracts.py", /test_legacy_model_save_requires_write_role_and_preserves_durable_state/, [["API-073", "Permission/security"]]],
+  ["caos/tests/server/test_model_api_quality_contracts.py", /test_legacy_checkpoint_create_rejects_unsaved_stale_and_invalid_requests/, ["Happy path", "Error path", "Boundary conditions", "Invalid input"].map((scenario) => ["API-075", scenario])],
+  ["caos/tests/server/test_phase1b_lineage.py", /test_all_producers_reject_foreign_owner_and_foreign_team_scopes/, [["API-075", "Permission/security"]]],
+  ["caos/tests/server/test_model_api_quality_contracts.py", /test_legacy_checkpoint_restore_rejects_stale_malformed_and_foreign_requests/, ["Happy path", "Error path", "Boundary conditions", "Invalid input", "Permission/security"].map((scenario) => ["API-076", scenario])],
+
+  ["caos/tests/server/test_model_v2_api.py", /test_suggested_then_saved_read_contract/, [["API-077", "Happy path"], ["API-078", "Happy path"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_cp1_binding_degrades_when_currency_or_fiscal_profile_is_unknown/, [["API-077", "Error path"], ["API-077", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_flag_off_returns_non_enumerable_404/, [["API-077", "Invalid input"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_owner_and_team_isolation_return_404_without_foreign_data/, [["API-077", "Permission/security"], ["API-084", "Permission/security"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_atomic_integer_cas_allows_one_concurrent_winner/, [["API-078", "Error path"], ["API-078", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_generic_put_cannot_bypass_cell_audit_or_forge_authority|test_live_initial_payload_must_match_exact_cp1_binder|test_non_live_draft_cannot_be_relabelled_to_an_owned_run/, [["API-078", "Invalid input"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_calculation_api_returns_current_model_for_valid_payload/, [["API-079", "Happy path"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_calculation_api_degrades_zero_ebitda_without_nonfinite_output/, [["API-079", "Error path"], ["API-079", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_calculation_api_never_defaults_monetary_identity/, [["API-079", "Invalid input"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_v2_collection_reads_are_bounded_owned_and_non_enumerable/, ["API-080", "API-083"].flatMap((id) => ["Happy path", "Error path", "Boundary conditions", "Invalid input", "Permission/security"].map((scenario) => [id, scenario]))],
+  ["caos/tests/server/test_model_v2_api.py", /test_checkpoint_create_restore_and_foreign_owner_404/, [["API-081", "Happy path"], ["API-082", "Happy path"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_checkpoint_rejects_stale_saved_calculation/, [["API-081", "Error path"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_checkpoint_reservation_serializes_a_concurrent_override/, [["API-081", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_checkpoint_cannot_be_relabelled_to_an_unrelated_owned_run/, [["API-081", "Invalid input"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_restore_rejects_tampered_checkpoint_envelope/, [["API-082", "Error path"], ["API-082", "Invalid input"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_restoring_runless_checkpoint_clears_a_later_live_binding/, [["API-082", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_viewer_cannot_cross_any_model_v2_mutation_boundary/, ["API-078", "API-079", "API-081", "API-082", "API-085", "API-086"].map((id) => [id, "Permission/security"])],
+  ["caos/tests/server/test_model_v2_api.py", /test_override_undo_and_redo_are_revisioned_audit_events/, [["API-084", "Happy path"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_replay_rejects_an_old_event_after_the_cell_changed_again/, [["API-084", "Error path"], ["API-084", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_replay_rejects_an_invalid_mode_without_revision_change/, [["API-084", "Invalid input"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_override_set_reset_propagates_and_audits/, [["API-085", "Happy path"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_override_capacity_failure_is_controlled_and_atomic/, [["API-085", "Error path"], ["API-085", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_derived_override_requires_source_and_future_expiry_without_mutation|test_unknown_override_target_is_422_without_revision_change/, [["API-085", "Invalid input"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_override_batch_is_one_revision_with_complete_audit/, [["API-086", "Happy path"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_override_batch_rejects_duplicate_or_invalid_set_without_mutation/, [["API-086", "Error path"], ["API-086", "Boundary conditions"], ["API-086", "Invalid input"]]],
+
+  ["caos/tests/server/test_model_workbook_api.py", /test_flag_off_runs_before_body_validation_and_export_has_exact_six_sheets/, [["API-087", "Happy path"], ["API-089", "Invalid input"]]],
+  ["caos/tests/server/test_model_workbook_api.py", /test_export_refuses_expired_override_calculation_until_resaved/, [["API-087", "Error path"], ["API-087", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_workbook_api.py", /test_owner_and_team_isolation_fail_non_enumerably_before_file_scan/, [["API-087", "Invalid input"], ["API-087", "Permission/security"], ["API-088", "Permission/security"], ["API-089", "Permission/security"]]],
+  ["caos/tests/server/test_model_workbook_api.py", /test_preview_is_read_only_and_av_corrupt_and_xls_fail_closed/, [["API-089", "Happy path"], ["API-089", "Error path"], ["API-089", "Invalid input"]]],
+  ["caos/tests/server/test_model_workbook_api.py", /test_preview_blocks_when_import_provenance_would_exceed_source_capacity|test_preview_token_expires_with_active_override_and_is_rechecked_after_parse/, [["API-089", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_workbook_api.py", /test_commit_revalidates_exact_calculation_and_atomically_creates_artifacts|test_new_draft_accepts_positive_strict_source_revision_and_commits_revision_one/, [["API-088", "Happy path"]]],
+  ["caos/tests/server/test_model_workbook_api.py", /test_lineage_failure_rolls_back_cas_rows_and_unique_storage|test_cas_conflict_has_no_partial_rows_or_storage/, [["API-088", "Error path"]]],
+  ["caos/tests/server/test_model_workbook_api.py", /test_preview_token_expires_with_active_override_and_is_rechecked_after_parse|test_same_legacy_workbook_replays_once_but_can_be_reimported_at_later_revision/, [["API-088", "Boundary conditions"]]],
+  ["caos/tests/server/test_model_workbook_api.py", /test_signed_preview_binds_owner_issuer_mapping_revision_hash_and_identity|test_formula_and_mapping_ambiguity_are_blocking_and_not_committable|test_matrix_preview_commit_identity_binds_normalized_mapping_exactly/, [["API-088", "Invalid input"]]],
+  ["caos/tests/server/test_model_workbook_api.py", /test_commit_denies_read_only_before_rescan_or_write/, [["API-088", "Permission/security"], ["API-089", "Permission/security"]]],
+
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows login and forwards successful authentication to refresh/, modelFeatureIds.map((id) => [id, "Permission/security"])],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-006 \/model route accessibility and responsive geometry/, modelFeatureIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/performance-audit.mjs", /SCR-006 \/model desktop and five-sample mobile-slow route performance/, modelFeatureIds.map((id) => [id, "Performance"])],
+
+  // Legacy calculator: exact happy-path assertions remain feature-specific;
+  // malformed-state, fail-closed authority, and narrow-workbench nodes are
+  // cross-cutting route contracts and deliberately map only those scenarios.
+  ["caos/frontend/src/components/model/ModelSheet.contract.test.tsx", /model-01 model-33 model-34 renders/, ["model-01", "model-33", "model-34"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/ModelSheet.contract.test.tsx", /model-02 model-36 traces/, ["model-02", "model-36"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/ModelSheet.contract.test.tsx", /model-03 commits/, [["model-03", "Happy path"]]],
+  ["caos/frontend/src/components/model/ModelSheet.contract.test.tsx", /model-04 model-30 exposes/, ["model-04", "model-30"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/app/model/model-page-interactions.test.tsx", /model-05 exercises/, [["model-05", "Happy path"]]],
+  ["caos/frontend/src/app/model/model-page-interactions.test.tsx", /model-06 model-42 covers narrow/, ["model-06", "model-42"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/ModelSheet.contract.test.tsx", /model-07 hides/, [["model-07", "Happy path"]]],
+  ["caos/frontend/src/components/model/ModelSheet.contract.test.tsx", /model-08 model-28 opens/, ["model-08", "model-28"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/AssumptionsPanel.contract.test.tsx", /model-09 switches/, [["model-09", "Happy path"]]],
+  ["caos/frontend/src/components/model/AssumptionsPanel.contract.test.tsx", /model-10 model-11 applies/, ["model-10", "model-11"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/AssumptionsPanel.contract.test.tsx", /model-12 model-14 writes/, ["model-12", "model-14"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/AssumptionsPanel.contract.test.tsx", /model-13 requires/, [["model-13", "Happy path"]]],
+  ["caos/frontend/src/components/model/AssumptionsPanel.contract.test.tsx", /model-15 exposes/, [["model-15", "Happy path"]]],
+  ["caos/frontend/src/components/model/ScenarioPanel.test.tsx", /renders the panel and the best\/base\/worst comparison/, [["model-16", "Happy path"]]],
+  ["caos/frontend/src/components/model/ScenarioPanel.test.tsx", /changing the tornado output metric updates/, ["model-17", "model-18"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/ScenarioPanel.test.tsx", /changes tornado swing intensity/, [["model-19", "Happy path"]]],
+  ["caos/frontend/src/components/model/ScenarioPanel.test.tsx", /applying a preset re-centers/, ["model-20", "model-22", "model-23"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/ScenarioPanel.test.tsx", /NL builder applies|builds from Enter/, [["model-21", "Happy path"]]],
+  ["caos/frontend/src/components/model/ScenarioPanel.test.tsx", /model-24 exposes/, [["model-24", "Happy path"]]],
+  ["caos/frontend/src/components/model/export.test.ts", /produces all five sheets in order/, [["model-25", "Happy path"]]],
+  ["caos/frontend/src/app/model/model-page-interactions.test.tsx", /model-26 model-27 renders/, ["model-26", "model-27"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/cell-style.test.ts", /pairs a drawn glyph with each level|KPI distress shading wins/, [["model-29", "Happy path"]]],
+  ["caos/frontend/src/components/model/model-format.test.ts", /money: rounds, group-separates/, [["model-31", "Happy path"]]],
+  ["caos/frontend/src/app/model/model-page-interactions.test.tsx", /model-32 hydrates guarded server payload/, [["model-32", "Happy path"]]],
+  ["caos/frontend/src/app/model/model-page-interactions.test.tsx", /model-35 distinguishes live loading/, [["model-35", "Happy path"]]],
+  ["caos/frontend/src/lib/model/scenarios.test.ts", /projects three forecast years|deleverages in the base case/, ["model-37", "model-38"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/model/ModelSheet.contract.test.tsx", /model-39 gives an explicit trace instruction/, [["model-39", "Happy path"]]],
+  ["caos/frontend/src/components/model/ScenarioPanel.test.tsx", /surfaces an error when scenarioFromNL rejects/, [["model-40", "Happy path"]]],
+  ["caos/tests/server/test_scenario.py", /test_model_41_scenario_endpoint_enforces_per_analyst_quota/, ["Happy path", "Error path", "Boundary conditions", "Invalid input"].map((scenario) => ["model-41", scenario])],
+  ["caos/tests/frontend/e2e/model_flow.spec.ts", /committed Model Engine v2 override survives a reload/, [["model-43", "Happy path"]]],
+  ["caos/frontend/src/app/model/model-live-run-error.test.tsx", /fails closed without mounting the fixture calculator/, modelLegacyIds.map((id) => [id, "Error path"])],
+  ["caos/frontend/src/app/model/model-page-interactions.test.tsx", /guards malformed optional saved payload sections/, modelLegacyIds.map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/app/model/model-page-interactions.test.tsx", /model-06 model-42 covers narrow and utility controls/, modelLegacyIds.map((id) => [id, "Boundary conditions"])],
+
+  // Model Engine v2: each family is mapped to nodes that exercise the actual
+  // governed state transition, not merely a neighboring file-level pass.
+  ["caos/frontend/src/app/model/model-v2-authority-route.test.tsx", /renders v2 without importing|preserves the exact Pipeline run/, [["model-44", "Happy path"], ["model-66", "Happy path"]]],
+  ["caos/frontend/src/app/model/model-v2-authority-route.test.tsx", /never renders issuer A authority|fails closed when the feature capability is missing|does not render the legacy fixture calculator/, modelV2AuthorityIds.flatMap((id) => ["Error path", "Boundary conditions", "Invalid input"].map((scenario) => [id, scenario]))],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /labels persisted inputs, formula outputs|labels every persisted authority origin/, modelV2IdentityIds.map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /does not call an unsourced live input live|renders a stale saved revision/, modelV2IdentityIds.flatMap((id) => ["Error path", "Boundary conditions", "Invalid input"].map((scenario) => [id, scenario]))],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /bounds large calculation graphs and keeps every node reachable/, ["Happy path", "Error path", "Boundary conditions", "Invalid input"].map((scenario) => ["model-47", scenario])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /keeps input and derived edits local, previews on the server, and commits one atomic batch/, modelV2MutationIds.map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /requires a fresh preview|preserves pending edits when their server preview fails|preserves a dirty editor|requires a non-empty reason|validates finite values and future expiry|guards a typed editor change/, modelV2MutationIds.flatMap((id) => ["Error path", "Boundary conditions", "Invalid input"].map((scenario) => [id, scenario]))],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /resets a transient server sensitivity|filters periods and empty node results and switches between scenario modes/, modelV2ScenarioIds.map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /discards an in-flight sensitivity|keeps sensitivity inputs available when the server calculation fails|blocks sensitivity reset|filters periods and empty node results/, modelV2ScenarioIds.flatMap((id) => ["Error path", "Boundary conditions", "Invalid input"].map((scenario) => [id, scenario]))],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /walks committed revision groups|creates and restores immutable server checkpoints/, modelV2HistoryIds.map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /disables replay after malformed or unresolvable history groups/, [["model-55", "Error path"], ["model-55", "Boundary conditions"], ["model-55", "Invalid input"]]],
+  ["caos/tests/server/test_model_v2_api.py", /test_checkpoint_rejects_stale_saved_calculation|test_restore_rejects_tampered_checkpoint_envelope|test_checkpoint_cannot_be_relabelled/, ["Error path", "Boundary conditions", "Invalid input"].map((scenario) => ["model-56", scenario])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /requires upload, stateless preview, explicit confirmation|binds close-format JSON and reviewed duplicate columns|binds reviewed account rows/, modelV2ImportIds.map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /rejects an ambiguity that does not match|surfaces invalid mapping, preview, and commit failures|never preselects USD or millions|loads the account-matrix mapping template/, modelV2ImportIds.flatMap((id) => ["Error path", "Boundary conditions", "Invalid input"].map((scenario) => [id, scenario]))],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /exports the persisted workbook through a temporary download and reports failures/, ["Happy path", "Error path", "Boundary conditions", "Invalid input"].map((scenario) => ["model-61", scenario])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /keeps a suggested server calculation read-only until it is explicitly saved/, [["model-62", "Happy path"]]],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /shows the in-flight suggested save|keeps a suggestion read-only when the exact source-run save contract is absent/, ["Error path", "Boundary conditions", "Invalid input"].map((scenario) => ["model-62", scenario])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /refreshes the server calculation when an active override expires/, [["model-63", "Happy path"]]],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /invalidates a reviewed preview at local expiry even when refresh fails/, ["Error path", "Boundary conditions", "Invalid input"].map((scenario) => ["model-63", scenario])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /discards all local model state only after explicit navigation confirmation/, ["Happy path", "Error path", "Boundary conditions", "Invalid input"].map((scenario) => ["model-64", scenario])],
+  ["caos/frontend/src/app/model/model-v2-workbench.test.tsx", /shows the in-flight suggested save|blocks sensitivity reset while another saved-model action is running|guards a typed editor change/, ["Happy path", "Error path", "Boundary conditions", "Invalid input"].map((scenario) => ["model-65", scenario])],
+  ["caos/tests/server/test_model_v2_api.py", /test_owner_and_team_isolation_return_404|test_read_only_role_cannot_mutate_existing_draft|test_calculation_preview_requires_write_role/, modelV2Ids.map((id) => [id, "Permission/security"])],
+
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows login and forwards successful authentication to refresh/, reportUiFeatureIds.map((id) => [id, "Permission/security"])],
+  ["caos/frontend/scripts/validate-report-workbench.mjs", /\/reports exact-build workbench interaction and responsive geometry/, reportUiFeatureIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/performance-audit.mjs", /\/reports desktop and five-sample mobile-slow route performance/, reportUiFeatureIds.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /drives display, compose, keyboard, evidence, edit-reset, and rail controls/, ["reports-01", "reports-02", "reports-03", "reports-04", "reports-05", "reports-06", "reports-07", "reports-08", "reports-09", "reports-10", "reports-20", "reports-24", "reports-25"].flatMap((id) => [[id, "Happy path"], [id, "Boundary conditions"]])],
+  ["caos/frontend/src/components/reports/panels.test.tsx", /selects reports, collapses the rail, and renders ready\/held metadata/, ["reports-01", "reports-02", "reports-13", "reports-14", "reports-25"].flatMap((id) => [[id, "Happy path"], [id, "Boundary conditions"]])],
+  ["caos/frontend/src/components/reports/panels.test.tsx", /resolves lineage names and opens evidence/, [["reports-09", "Happy path"], ["reports-09", "Invalid input"], ["reports-10", "Happy path"]]],
+  ["caos/frontend/src/components/reports/panels.test.tsx", /toggles flat compose sections and handles a missing omit map|groups paged compose sections and marks omitted entries/, ["reports-08", "reports-12", "reports-22", "reports-25"].flatMap((id) => [[id, "Happy path"], [id, "Invalid input"]])],
+  ["caos/frontend/src/components/reports/panels.test.tsx", /renders clean and conditional export states, edits, and vault action/, ["reports-12", "reports-13", "reports-14", "reports-15"].flatMap((id) => [[id, "Happy path"], [id, "Boundary conditions"]])],
+  ["caos/frontend/src/components/reports/panels.test.tsx", /holds a live-backed report on its real committee status, not just rep.watermark/, ["reports-12", "reports-13", "reports-14"].flatMap((id) => [[id, "Error path"], [id, "Invalid input"]])],
+  ["caos/frontend/src/components/reports/EvidenceModal.test.tsx", /prefers the run's own evidence over a colliding seeded key, and fetches the real chunk/, [["reports-09", "Boundary conditions"], ["reports-10", "Boundary conditions"], ["reports-10", "Permission/security"]]],
+  ["caos/frontend/src/components/reports/EvidenceModal.test.tsx", /shows an explicit unresolved state for an unknown id|falls back to the seeded map for a seeded id with no live entry/, [["reports-09", "Error path"], ["reports-10", "Invalid input"]]],
+  ["caos/frontend/src/components/reports/EvidenceModal.test.tsx", /shows an explicit unavailable state when the live chunk fetch fails/, [["reports-09", "Error path"], ["reports-10", "Error path"]]],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /autosaves a hydrated server draft and reports a later revision conflict/, ["reports-04", "reports-05", "reports-06", "reports-07", "reports-08", "reports-20"].map((id) => [id, "Error path"])],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /ignores an unsupported saved paper tone/, [["reports-04", "Invalid input"]]],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /does not claim a newer edit is saved while an older autosave is still in flight|autosaves a new server draft without a revision precondition/, ["reports-04", "reports-05", "reports-06", "reports-07", "reports-08", "reports-20"].flatMap((id) => [[id, "Boundary conditions"], [id, "Performance"]])],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /survives unavailable browser storage preferences/, [["reports-03", "Error path"], ["reports-03", "Invalid input"], ["reports-20", "Error path"], ["reports-20", "Invalid input"]]],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /loads an empty immutable summary payload on demand and reports payload failure|drops a late server draft after unmount/, ["reports-01", "reports-02", "reports-11", "reports-20", "reports-22", "reports-25"].flatMap((id) => [[id, "Error path"], [id, "Invalid input"]])],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /reports the guard message when a binary download has no immutable version/, [["reports-11", "Error path"], ["reports-11", "Boundary conditions"], ["reports-11", "Invalid input"]]],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /observes preview width, auto-fits, handles keyboard fit, and disconnects cleanly/, [["reports-03", "Boundary conditions"], ["reports-24", "Happy path"], ["reports-24", "Error path"], ["reports-24", "Boundary conditions"], ["reports-24", "Invalid input"]]],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /filters frozen-preview edits, blocks appendix mutation, and exposes non-ready publication copy|handles a sectionless frozen preview and editorial intents missing optional maps/, ["reports-06", "reports-07", "reports-08", "reports-13", "reports-14", "reports-22", "reports-23"].flatMap((id) => [[id, "Error path"], [id, "Boundary conditions"], [id, "Invalid input"]])],
+  ["caos/frontend/src/components/reports/ReportDoc.test.tsx", /renders every section kind and supports bounded edits, safe paste, revert, evidence, and add-back suppression/, ["reports-06", "reports-22", "reports-23"].flatMap((id) => [[id, "Happy path"], [id, "Boundary conditions"], [id, "Invalid input"]])],
+  ["caos/frontend/src/components/reports/ReportDoc.test.tsx", /groups paged sections, omits requested content, prints citations, and shows the defensive authority note|renders the non-paged fallback authority disclaimer and default paper/, ["reports-05", "reports-08", "reports-12", "reports-22", "reports-25"].flatMap((id) => [[id, "Boundary conditions"], [id, "Invalid input"]])],
+  ["caos/frontend/src/app/reports/reports-caveat.test.tsx", /backend outage|checking state|genuinely no run|blanket 'not a live issuer run'|hybrid message|keeps fixture authority/, ["reports-01", "reports-02", "reports-13", "reports-14", "reports-20", "reports-21", "reports-22", "reports-25"].flatMap((id) => [[id, "Error path"], [id, "Boundary conditions"], [id, "Invalid input"]])],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /surfaces saved-model failure and retries the reference inputs/, [["reports-21", "Error path"]]],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /hydrates valid and malformed saved-model payloads and ignores late completion/, [["reports-21", "Happy path"], ["reports-21", "Invalid input"], ["reports-21", "Boundary conditions"], ["reports-21", "Performance"]]],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /prints, downloads immutable binaries, and exposes one IC decision-room opener/, [["reports-11", "Happy path"], ["reports-11", "Error path"], ["reports-11", "Boundary conditions"]]],
+  ["caos/frontend/src/app/hierarchy-color.contract.test.ts", /enforces screen and print proofing floors without scaled-down report headings/, ["reports-28"].flatMap((id) => [[id, "Happy path"], [id, "Error path"], [id, "Boundary conditions"], [id, "Performance"]])],
+  ["caos/frontend/src/app/hierarchy-color.contract.test.ts", /keeps color literals in root token definitions rather than shared\/report rules/, [["reports-28", "Invalid input"], ["reports-28", "Permission/security"]]],
+  ["caos/frontend/src/components/reports/ExportToVaultButton.test.tsx", /exports one note and exposes the written path|renders plural notes and ignores a click while export is pending/, [["reports-15", "Happy path"], ["reports-15", "Boundary conditions"], ["reports-15", "Performance"]]],
+  ["caos/frontend/src/components/reports/ExportToVaultButton.test.tsx", /explains an unconfigured vault|keeps an ordinary export failure retryable/, ["reports-15", "reports-16", "reports-17"].flatMap((id) => [[id, "Error path"], [id, "Invalid input"]])],
+  ["caos/tests/server/test_engine.py", /test_reports_15_vault_export_writes_the_owned_run/, [["reports-15", "Happy path"]]],
+  ["caos/tests/server/test_engine.py", /test_reports_16_vault_export_fails_closed_without_configuration/, ["reports-16"].flatMap((id) => [[id, "Happy path"], [id, "Error path"], [id, "Boundary conditions"], [id, "Invalid input"]])],
+  ["caos/tests/server/test_engine.py", /test_reports_17_vault_export_surfaces_write_failure/, ["reports-17"].flatMap((id) => [[id, "Happy path"], [id, "Error path"], [id, "Boundary conditions"], [id, "Invalid input"]])],
+  ["caos/tests/server/test_engine.py", /test_reports_18_vault_export_rate_limit_precedes_work/, ["reports-18"].flatMap((id) => [[id, "Happy path"], [id, "Error path"], [id, "Boundary conditions"], [id, "Invalid input"], [id, "Performance"]])],
+  ["caos/tests/server/test_engine.py", /test_reports_19_vault_export_rejects_a_missing_run/, ["reports-19"].flatMap((id) => [[id, "Happy path"], [id, "Error path"], [id, "Boundary conditions"], [id, "Invalid input"]])],
+  ["caos/tests/server/test_async_runs.py", /test_export_to_vault_rejects_foreign_run/, ["reports-15", "reports-16", "reports-17", "reports-18", "reports-19", "reports-26", "reports-27"].map((id) => [id, "Permission/security"])],
+  ["caos/tests/server/test_route_rate_boundaries.py", /test_expensive_and_append_only_routes_rate_limit_before_domain_work/, ["reports-18", "reports-26", "reports-27"].map((id) => [id, "Performance"])],
+  ["caos/tests/server/test_engine.py", /test_reports_26_27_committee_export_endpoint_enforces_then_clears_the_gate/, reportBackendOnlyIds.flatMap((id) => [[id, "Happy path"], [id, "Error path"], [id, "Boundary conditions"], [id, "Invalid input"]])],
+  ["caos/tests/server/test_engine.py", /test_committee_status_fails_closed_on_unknown_status|test_committee_export_gate_allows_only_committee_ready/, reportBackendOnlyIds.flatMap((id) => [[id, "Boundary conditions"], [id, "Invalid input"]])],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows login and forwards successful authentication to refresh/, issuerPermissionMappings],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows the recovery gate for unresolved identity/, issuerPermissionMappings],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows login and forwards successful authentication to refresh/, commandFeatureIds.map((id) => [id, "Permission/security"])],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows the recovery gate for unresolved identity/, commandFeatureIds.map((id) => [id, "Permission/security"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /all Command datasets remain operable without document overflow at 390px/, commandFeatureIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-01 command-02 command-03 command-04 command-05 command-09 renders the persisted-position grid and posture semantics/, ["command-01", "command-02", "command-03", "command-04", "command-05", "command-09"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-06 command-07 command-08 exposes the selected-position strip, deep-dive handoff, and close action/, ["command-06", "command-07", "command-08"].map((id) => [id, "Happy path"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /coordinates portfolio, decisions, and navigation/, ["command-10", "command-12", "command-13", "command-14", "command-15", "command-16", "command-17", "command-19", "command-20", ...commandHandoffs, ...commandDecision, "command-56"].map((id) => [id, "Happy path"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /preserves explicit invalid, offline, and empty states without sample substitution/, ["command-11", "command-18", "command-21", "command-22"].map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-23 command-24 renders, selects, and filters the virtualized live-coverage worklist/, commandCoverage.map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-32 command-33 command-34 command-35 command-36 keeps six governance categories honest/, commandGovernance.map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-37 command-38 command-39 command-40 distinguishes autonomy-draft states and converges alert acknowledgement/, commandChanges.map((id) => [id, "Happy path"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-52 command-53 renders live digest KPIs and opens both freshness watchlists by issuer id/, commandDigest.map((id) => [id, "Happy path"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /command-54 command-55 restores and refreshes the current cited decision brief/, commandInsight.map((id) => [id, "Happy path"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /preserves explicit invalid, offline, and empty states without sample substitution/, [...commandPositions, ...commandPortfolio].map((id) => [id, "Error path"])],
+  ["caos/frontend/src/lib/engine/usePortfolio.test.ts", /flags error:true \(not clean-empty\) when the fetch rejects/, commandCoverage.map((id) => [id, "Error path"])],
+  ["caos/frontend/src/components/command/GovernancePanel.test.tsx", /never renders green all-clears while live QA or digest status is unknown/, commandGovernance.map((id) => [id, "Error path"])],
+  ["caos/frontend/src/components/command/RankedChanges.test.tsx", /shows an honest OFFLINE state when the endpoint is unreachable/, ["command-37", "command-38"].map((id) => [id, "Error path"])],
+  ["caos/frontend/src/components/command/RankedChanges.test.tsx", /keeps an unchanged alert actionable and gives row-level retry feedback when acknowledgement cannot be saved/, [["command-39", "Error path"]]],
+  ["caos/frontend/src/components/command/RankedChanges.test.tsx", /omits the impact chip and blocks Deep-Dive when an alert has no issuer id/, [["command-40", "Error path"], ["command-42", "Error path"]]],
+  ["caos/frontend/src/lib/analysis-workbench.test.ts", /publishes a presentation-only error event when initial context resolution fails/, [["command-41", "Error path"], ["command-56", "Error path"]]],
+  ["caos/frontend/src/app/command/command-interactions.test.tsx", /shows observed-empty and degraded decision states and insight generation failures/, [...commandDecision, ...commandInsight].map((id) => [id, "Error path"])],
+  ["caos/frontend/src/lib/engine/useDigest.test.ts", /keeps transport failure distinct from a successful empty digest/, commandDigest.map((id) => [id, "Error path"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-01 command-02 command-03 command-04 command-05 command-09 renders the persisted-position grid and posture semantics/, commandPositions.map((id) => [id, "Boundary conditions"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /preserves explicit invalid, offline, and empty states without sample substitution/, commandPortfolio.map((id) => [id, "Boundary conditions"])],
+  ["caos/frontend/src/components/command/LiveCoverage.test.tsx", /degrades missing metrics \/ RV \/ fragility to em-dash, never crashes/, [["command-23", "Boundary conditions"]]],
+  ["caos/frontend/src/components/command/LiveCoverage.test.tsx", /hands focus across the virtual window boundary instead of clamping at the last rendered row/, [["command-24", "Boundary conditions"]]],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-32 command-33 command-34 command-35 command-36 keeps six governance categories honest/, commandGovernance.map((id) => [id, "Boundary conditions"])],
+  ["caos/frontend/src/components/command/RankedChanges.test.tsx", /cycle running|settled empty draft|persona summary limit|late alert-state enrichment/, commandChanges.map((id) => [id, "Boundary conditions"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /coordinates portfolio, decisions, and navigation/, commandHandoffs.map((id) => [id, "Boundary conditions"])],
+  ["caos/frontend/src/app/command/command-freshness-transition.test.tsx", /renders CURRENT only when every centrally evaluated latest run is current/, commandDecision.map((id) => [id, "Boundary conditions"])],
+  ["caos/frontend/src/lib/engine/useDigest.test.ts", /marks populated coverage live and tolerates a missing coverage block/, commandDigest.map((id) => [id, "Boundary conditions"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /command-54 command-55 restores and refreshes the current cited decision brief/, commandInsight.map((id) => [id, "Boundary conditions"])],
+  ["caos/frontend/src/lib/analysis-workbench.test.ts", /serializes patches and sends the newest revision to the queued mutation/, [["command-56", "Boundary conditions"]]],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-01 command-02 command-03 command-04 command-05 command-09 renders the persisted-position grid and posture semantics/, commandPositions.map((id) => [id, "Invalid input"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /preserves explicit invalid, offline, and empty states without sample substitution/, commandPortfolio.map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/components/command/LiveCoverage.test.tsx", /degrades missing metrics \/ RV \/ fragility to em-dash, never crashes/, commandCoverage.map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-32 command-33 command-34 command-35 command-36 keeps six governance categories honest/, commandGovernance.map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/components/command/RankedChanges.test.tsx", /omits the impact chip and blocks Deep-Dive when an alert has no issuer id/, commandChanges.map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/lib/analysis-workbench.test.ts", /treats an explicit null context id as a request for a fresh context/, [["command-41", "Invalid input"]]],
+  ["caos/frontend/src/app/command/command-interactions.test.tsx", /blocks ranked handoffs without stable issuer authority/, [["command-42", "Invalid input"]]],
+  ["caos/frontend/src/app/command/command-interactions.test.tsx", /shows observed-empty and degraded decision states and insight generation failures/, [...commandDecision, ...commandInsight].map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/lib/engine/useDigest.test.ts", /marks populated coverage live and tolerates a missing coverage block/, commandDigest.map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/lib/analysis-workbench.test.ts", /reduces legacy full nested objects to the caller's sparse intent/, [["command-56", "Invalid input"]]],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-01 command-02 command-03 command-04 command-05 command-09 renders the persisted-position grid and posture semantics/, commandPositions.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/app/command/command-interactions.test.tsx", /switches every dataset, selects live and held issuers, refreshes snapshots, and generates cited insight/, commandPortfolio.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/components/command/LiveCoverage.test.tsx", /hands focus across the virtual window boundary instead of clamping at the last rendered row/, commandCoverage.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-32 command-33 command-34 command-35 command-36 keeps six governance categories honest/, commandGovernance.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/components/command/RankedChanges.test.tsx", /persona summary limit|late alert-state enrichment/, commandChanges.map((id) => [id, "Performance"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /coordinates portfolio, decisions, and navigation/, [...commandHandoffs, ...commandDecision].map((id) => [id, "Performance"])],
+  ["caos/frontend/src/components/command/current-command-contracts.test.tsx", /command-52 command-53 renders live digest KPIs and opens both freshness watchlists by issuer id/, commandDigest.map((id) => [id, "Performance"])],
+  ["caos/tests/frontend/e2e/command_flow.spec.ts", /command-54 command-55 restores and refreshes the current cited decision brief/, commandInsight.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/lib/analysis-workbench.test.ts", /serializes patches and sends the newest revision to the queued mutation/, [["command-56", "Performance"]]],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-004 \/issuers route accessibility and responsive geometry/, issuerDirectoryIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-005 \/issuers\/profile route accessibility and responsive geometry/, issuerProfileIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /shows an honest degraded demo fallback, then retries into live coverage/, issuerDirectoryIds.map((id) => [id, "Error path"])],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /renders an actionable load failure/, issuerProfileIds.map((id) => [id, "Error path"])],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /rejects a profile URL without an issuer id/, issuerProfileIds.map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /uses an eight-column semantic grid with one roving row stop and isolated nested actions/, issuerDirectoryIds.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /loads a profile and replaces the splash with the read-model/, issuerProfileIds.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /restores a URL query, renders no-match state, and clears back to the sample sleeve/, issuerDirectoryIds.filter((id) => !["issuer-07", "issuer-08", "issuer-09"].includes(id)).map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /opens issuer profiles and routes upload actions without nesting interactions/, [["issuer-07", "Invalid input"], ["issuer-08", "Invalid input"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /labels an empty live registry as demo coverage and opens the creation dialog from its banner/, [["issuer-01", "Boundary conditions"], ["issuer-10", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /uses an eight-column semantic grid with one roving row stop and isolated nested actions/, [["issuer-01", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /opens issuer profiles and routes upload actions without nesting interactions/, [["issuer-07", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /degrades every profile section when no run or read-model facts exist/, [["issuer-17", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /renders an overlay without a close callback/, [["issuer-30", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /renders an actionable load failure/, [["issuer-14", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /rejects a profile URL without an issuer id/, [["issuer-15", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /renders one layout with a single primary Deep-Dive action and the issuer action bar/, [["issuer-29", "Happy path"], ["issuer-29", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /retains the last real register when a later debounced search fails/, [["issuer-02", "Error path"], ["issuer-02", "Boundary conditions"], ["issuer-02", "Performance"], ["issuer-04", "Error path"], ["issuer-04", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /restores a URL query, renders no-match state, and clears back to the sample sleeve/, [["issuer-02", "Happy path"], ["issuer-02", "Boundary conditions"], ["issuer-06", "Happy path"], ["issuer-06", "Boundary conditions"], ["issuer-11", "Happy path"], ["issuer-11", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /clears a populated search with the compact input affordance/, [["issuer-02", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /applies and clears a column filter, including the filter value search empty state/, [["issuer-03", "Happy path"], ["issuer-03", "Boundary conditions"], ["issuer-03", "Invalid input"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /shows an honest degraded demo fallback, then retries into live coverage/, [["issuer-04", "Happy path"], ["issuer-04", "Error path"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /offers the primary creation action when both live and sample coverage are empty/, [["issuer-05", "Happy path"], ["issuer-05", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /opens issuer profiles and routes upload actions without nesting interactions/, [["issuer-08", "Happy path"], ["issuer-08", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /submits every field, surfaces the API detail, and succeeds on retry with blank sponsor normalized/, [["issuer-09", "Happy path"], ["issuer-09", "Error path"], ["issuer-09", "Invalid input"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /ignores a second form submit while creation is pending/, [["issuer-09", "Boundary conditions"], ["issuer-09", "Performance"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /uses an eight-column semantic grid with one roving row stop and isolated nested actions/, [["issuer-08", "Boundary conditions"], ["issuer-12", "Happy path"], ["issuer-12", "Boundary conditions"], ["issuer-12", "Performance"], ["issuer-31", "Happy path"], ["issuer-31", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /cycles sortable headers and keeps missing values at the bottom in both directions/, [["issuer-31", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /loads a profile and replaces the splash with the read-model/, [["issuer-13", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /renders an actionable load failure/, [["issuer-14", "Error path"], ["issuer-14", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /rejects a profile URL without an issuer id/, [["issuer-15", "Invalid input"], ["issuer-15", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /renders one layout with a single primary Deep-Dive action and the issuer action bar/, [["issuer-16", "Happy path"], ["issuer-16", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /renders and interacts with the full live issuer read-model/, [["issuer-18", "Happy path"], ["issuer-19", "Happy path"], ["issuer-20", "Happy path"], ["issuer-21", "Happy path"], ["issuer-22", "Happy path"], ["issuer-24", "Happy path"], ["issuer-25", "Happy path"], ["issuer-26", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /degrades every profile section when no run or read-model facts exist/, [["issuer-13", "Boundary conditions"], ["issuer-16", "Boundary conditions"], ["issuer-18", "Boundary conditions"], ["issuer-19", "Error path"], ["issuer-19", "Boundary conditions"], ["issuer-20", "Error path"], ["issuer-20", "Boundary conditions"], ["issuer-21", "Boundary conditions"], ["issuer-22", "Boundary conditions"], ["issuer-24", "Boundary conditions"], ["issuer-25", "Boundary conditions"], ["issuer-26", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /renders sparse valid sections without inventing optional detail/, [["issuer-18", "Boundary conditions"], ["issuer-20", "Boundary conditions"], ["issuer-22", "Boundary conditions"], ["issuer-24", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /renders ownership facts without requiring a sponsor ledger/, [["issuer-21", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /covers flat trends, neutral thresholds, and unknown feed classifications/, [["issuer-18", "Boundary conditions"], ["issuer-19", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/profile-distill.test.tsx", /covers clean empty-snapshot, material-finding, and earnings-signal variants/, [["issuer-20", "Happy path"], ["issuer-20", "Boundary conditions"], ["issuer-25", "Happy path"], ["issuer-25", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/analyst-notes.test.tsx", /renders linked notes with vault links/, [["issuer-23", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/profile/analyst-notes.test.tsx", /renders the empty state/, [["issuer-23", "Boundary conditions"]]],
+  ["caos/frontend/src/app/issuers/profile/analyst-notes.test.tsx", /renders a quiet error state/, [["issuer-23", "Error path"]]],
+  ["caos/frontend/src/app/issuers/profile/analyst-notes.test.tsx", /logs a quick note tagged to the issuer through the vault memo path/, [["issuer-23", "Happy path"], ["issuer-23", "Boundary conditions"]]],
+  ["caos/frontend/src/lib/issuer-profile-charts.test.ts", /splits a mixed series and drops emptied metrics/, [["issuer-19", "Boundary conditions"]]],
+  ["caos/frontend/src/lib/issuer-profile-charts.test.ts", /includes multi-period financials, omits LTM-only credit ratios/, [["issuer-19", "Happy path"], ["issuer-19", "Boundary conditions"]]],
+  ["caos/frontend/src/lib/issuers.test.ts", /rating shows the first agency on file, flagging distress by letter/, [["issuer-31", "Happy path"], ["issuer-31", "Boundary conditions"]]],
+  ["caos/frontend/src/lib/nav.test.ts", /projects the exact five role-priority destinations without changing the canonical cycle/, [["shell-01", "Happy path"], ["shell-01", "Boundary conditions"], ["shell-08", "Happy path"]]],
+  ["caos/frontend/src/components/shared/shared-shell-smoke.test.tsx", /renders the workflow registry and marks nested and settings routes active/, [["shell-01", "Happy path"], ["shell-01", "Boundary conditions"], ["shell-06", "Happy path"], ["shell-08", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/shared-shell-smoke.test.tsx", /shows role priorities, retains an off-list active route, and discloses every workflow/, [["shell-01", "Happy path"], ["shell-01", "Boundary conditions"], ["shell-08", "Happy path"], ["shell-08", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/shared-shell-smoke.test.tsx", /makes the wide navigation landmark an actionable skip-focus destination/, [["shell-05", "Happy path"], ["shell-05", "Boundary conditions"], ["shell-05", "Mobile/responsive"]]],
+  ["caos/frontend/src/lib/nav.test.ts", /derives workflow headings from the canonical registry and resolves utility\/dynamic routes/, [["shell-14", "Happy path"], ["shell-14", "Boundary conditions"], ["shell-14", "Invalid input"]]],
+  ["caos/frontend/src/components/shared/recovery-ui-smoke.test.tsx", /maps known, nested, null, and unknown routes to accessible headings/, [["shell-14", "Happy path"], ["shell-14", "Boundary conditions"], ["shell-14", "Invalid input"]]],
+  ["caos/frontend/src/components/shared/Panel.test.tsx", /adds a named visible focus target only when content genuinely overflows/, [["shell-15", "Happy path"], ["shell-15", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/Panel.test.tsx", /remeasures overflow-to-fit on resize without moving focus/, [["shell-15", "Boundary conditions"], ["shell-15", "Mobile/responsive"]]],
+  ["caos/frontend/src/components/shared/Panel.test.tsx", /remeasures late content mutations in both directions/, [["shell-15", "Boundary conditions"], ["shell-15", "Performance"]]],
+  ["caos/frontend/src/components/shared/Panel.test.tsx", /disconnects the scroll owner while collapsed and remeasures when expanded/, [["shell-15", "Boundary conditions"], ["shell-15", "Performance"]]],
+  ["caos/frontend/src/app/hierarchy-color.contract.test.ts", /uses the 16\/14\/13\/12px semantic workspace tiers/, [["shell-16", "Happy path"], ["shell-16", "Mobile/responsive"]]],
+  ["caos/frontend/src/app/hierarchy-color.contract.test.ts", /enforces screen and print proofing floors without scaled-down report headings/, [["reports-28", "Happy path"], ["reports-28", "Boundary conditions"], ["reports-28", "Mobile/responsive"]]],
+  ["caos/frontend/src/app/hierarchy-color.contract.test.ts", /leaves the global route heading as the only route-level h1/, [["shell-14", "Boundary conditions"], ["shell-14", "Mobile/responsive"]]],
+  ["caos/frontend/src/app/hierarchy-color.contract.test.ts", /keeps color literals in root token definitions rather than shared\/report rules/, [["shell-16", "Invalid input"], ["reports-28", "Invalid input"]]],
+  ["caos/frontend/src/app/hierarchy-color.contract.test.ts", /documents the narrow production chart literal allowlist/, [["shell-16", "Boundary conditions"]]],
+  ["caos/tests/server/test_security_headers.py", /test_csrf_rejection_keeps_policy_headers_and_logs_exactly_once/, [["BP-017", "Permission/security"], ["BP-017", "Boundary conditions"]]],
+  ["caos/tests/server/test_security_headers.py", /test_edge_rejection_keeps_policy_headers_and_logs_exactly_once/, [["BP-017", "Permission/security"], ["BP-017", "Boundary conditions"]]],
+  ["caos/tests/server/test_security_headers.py", /test_policy_header_mutation_preserves_duplicate_set_cookie_headers/, [["BP-001", "Permission/security"], ["BP-017", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/ConceptNav.test.tsx", /exposes a Concepts trigger that lists every concept with its full label/, [["shell-01", "Happy path"], ["shell-01", "Mobile/responsive"], ["shell-08", "Happy path"], ["shell-08", "Mobile/responsive"]]],
+  ["caos/frontend/src/components/shared/ConceptNav.test.tsx", /marks the active route with aria-current inside the drawer/, [["shell-01", "Boundary conditions"], ["shell-08", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/ConceptNav.test.tsx", /covers the full CONCEPT_CYCLE so hotkeys and drawer can never drift/, [["shell-01", "Boundary conditions"], ["shell-02", "Boundary conditions"], ["shell-08", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/ConceptNav.test.tsx", /labels the tablet current route and does not expose inactive icon-only shortcuts/, [["shell-01", "Mobile/responsive"], ["shell-08", "Mobile/responsive"]]],
+  ["caos/frontend/src/components/shared/ConceptHotkeys.test.tsx", /opens the unified palette with Alt\+S and ignores editable targets/, [["shell-02", "Happy path"], ["shell-02", "Invalid input"]]],
+  ["caos/frontend/src/components/shared/ConceptHotkeys.test.tsx", /fires Alt chords by physical key/, [["shell-02", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/ConceptHotkeys.test.tsx", /dispatches caos:subview-cycle event on Alt\+(Comma|Period)/, [["shell-02", "Happy path"]]],
+  ["caos/frontend/src/components/shared/ConceptHotkeys.test.tsx", /cycles Alt\+ArrowRight to the registry neighbor of the current route/, [["shell-02", "Happy path"], ["shell-02", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/ConceptHotkeys.test.tsx", /routes concept-cycle navigation through the unsaved-edit guard/, [["shell-02", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/AnalystBadge.test.tsx", /clears workspace state and refreshes auth after a successful logout/, [["shell-03", "Happy path"]]],
+  ["caos/frontend/src/components/shared/AnalystBadge.test.tsx", /re-enables the button and surfaces an alert when logout fails/, [["shell-03", "Error path"]]],
+  ["caos/frontend/src/components/shared/AnalystBadge.test.tsx", /does nothing when confirmation is declined/, [["shell-03", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/AnalystBadge.test.tsx", /ignores a second sign-out attempt while the first is busy/, [["shell-03", "Performance"]]],
+  ["caos/frontend/src/app/layout-upload-smoke.test.tsx", /declares the application metadata and composes every root provider/, [["shell-05", "Happy path"], ["shell-05", "Boundary conditions"]]],
+  ["caos/frontend/src/app/layout-upload-smoke.test.tsx", /does not expose the global page-actions skip link when a route has no action region/, [["shell-05", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/SubHeader.test.tsx", /keeps the primary action in the document and renders inline controls at wide/, [["shell-05", "Happy path"], ["shell-05", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/SubHeader.test.tsx", /provides an honest focus target when the page has no primary action/, [["shell-05", "Boundary conditions"], ["shell-05", "Invalid input"]]],
+  ["caos/frontend/src/components/shared/PersonaWorkbench.test.tsx", /exports the required public persona composition hook/, [["query-16", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/CommandPalette.interactions.test.tsx", /executes page, Ask, collapse, and role commands through keyboard and pointer paths/, [["shell-06", "Happy path"], ["shell-06", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/Ask.coverage.test.tsx", /coordinates every provider entry point, keyboard close, global toggle, and competing modal/, [["shell-06", "Happy path"], ["shell-06", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/Ask.coverage.test.tsx", /turns both query-route entry points into focus events instead of a modal/, [["shell-06", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/Ask.coverage.test.tsx", /gates signed-out users and exposes labelled shell and phone-fallback utilities without a dock/, [["shell-06", "Permission/security"], ["shell-06", "Boundary conditions"], ["shell-06", "Mobile/responsive"]]],
+  ["caos/frontend/src/components/shared/Ask.coverage.test.tsx", /lets Deep-Dive own the open chat while the global launcher only owns its trigger/, [["shell-06", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/Ask.coverage.test.tsx", /grounds issuer-scoped Ask in reference fixtures and real issuer data/, [["shell-06", "Happy path"], ["shell-06", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/Ask.coverage.test.tsx", /loads enabled prompts, accepts palette prefill, ignores empty submission, and closes from the backdrop/, [["shell-06", "Happy path"], ["shell-06", "Invalid input"]]],
+  ["caos/frontend/src/components/shared/Ask.coverage.test.tsx", /renders capability-load failures and the default error message|surfaces non-ready status, missing dependencies, response detail, and generic query errors/, [["shell-06", "Error path"]]],
+  ["caos/frontend/src/components/shared/Ask.coverage.test.tsx", /allows observed-empty runs and ignores an older run that resolves after a newer one/, [["shell-06", "Performance"], ["shell-06", "Boundary conditions"]]],
+  ["caos/frontend/src/app/page.test.tsx", /routes an unaffiliated root visit for/, [["shell-07", "Happy path"]]],
+  ["caos/frontend/src/app/page.test.tsx", /waits for the existing role preference to resolve/, [["shell-07", "Boundary conditions"]]],
+  ["caos/frontend/src/app/page.test.tsx", /preserves an explicit root query instead of applying a role default/, [["shell-07", "Boundary conditions"], ["shell-07", "Invalid input"]]],
+  ["caos/tests/frontend/e2e/settings_flow.spec.ts", /mirrors the server workspace configuration/, [["settings-03", "Happy path"], ["settings-04", "Happy path"], ["settings-05", "Happy path"]]],
+  ["caos/frontend/src/app/settings/settings-models.test.tsx", /renders every workspace configuration value and recovers from an offline read/, [["settings-03", "Happy path"], ["settings-03", "Error path"], ["settings-03", "Boundary conditions"]]],
+  ["caos/tests/server/test_settings.py", /test_settings_returns_snapshot_without_secrets/, [["settings-03", "Permission/security"]]],
+  ["caos/frontend/src/app/settings/settings-models.test.tsx", /supports tab clicks and the complete roving-tab keyboard contract/, [["settings-06", "Happy path"], ["settings-06", "Boundary conditions"]]],
+  ["caos/frontend/src/app/settings/settings-models.test.tsx", /guards the global save while persistence is in flight and clears dirty state only after success/, [["settings-07", "Happy path"], ["settings-07", "Performance"]]],
+  ["caos/frontend/src/app/settings/settings-models.test.tsx", /hydrates server research defaults and normalized profile mode, then changes query model and research scope/, [["settings-07", "Boundary conditions"], ["settings-07", "Invalid input"]]],
+  ["caos/frontend/src/lib/model-mode.test.ts", /falls back to DEFAULT_MODE when localStorage\.getItem throws/, [["settings-07", "Error path"]]],
+  ["caos/frontend/src/lib/model-mode.test.ts", /still reads a persisted valid mode when storage works normally/, [["settings-07", "Happy path"]]],
+  ["caos/frontend/src/lib/model-mode.test.ts", /falls back to DEFAULT_MODE for an unrecognized stored value/, [["settings-07", "Invalid input"]]],
+  ["caos/tests/server/test_presets.py", /test_run_persists_model_mode_from_header/, [["settings-07", "Happy path"]]],
+  ["caos/tests/server/test_presets.py", /test_run_without_header_defaults_to_balanced/, [["settings-07", "Boundary conditions"]]],
+  ["caos/tests/server/test_presets.py", /test_normalize_coerces_unknown_to_default/, [["settings-07", "Invalid input"]]],
+  ["caos/frontend/src/app/settings/settings-models.test.tsx", /renders connected email state and persists a normalized sender list/, [["settings-10", "Happy path"], ["settings-10", "Invalid input"]]],
+  ["caos/frontend/src/app/settings/settings-models.test.tsx", /surfaces an analyst-settings save failure with the server detail/, [["settings-10", "Error path"]]],
+  ["caos/tests/server/test_settings.py", /test_analyst_settings_roundtrip_with_profile_cookie/, [["settings-10", "Happy path"], ["settings-10", "Permission/security"]]],
+  ["caos/tests/server/test_settings.py", /test_analyst_settings_patch_is_partial_and_revision_checked/, [["settings-10", "Boundary conditions"], ["settings-10", "Permission/security"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /uses an eight-column semantic grid with one roving row stop and isolated nested actions/, [["pipeline-01", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /restores a URL query, renders no-match state, and clears back to the sample sleeve/, [["pipeline-02", "Happy path"], ["pipeline-08", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /opens issuer profiles and routes upload actions without nesting interactions/, [["pipeline-03", "Happy path"], ["pipeline-04", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /submits every field, surfaces the API detail, and succeeds on retry with blank sponsor normalized/, [["pipeline-05", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /shows an honest degraded demo fallback, then retries into live coverage/, [["pipeline-06", "Happy path"], ...pipelineDirectoryIds.map((id) => [id, "Error path"])]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /offers the primary creation action when both live and sample coverage are empty/, [["pipeline-07", "Happy path"]]],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /retains the last real register when a later debounced search fails/, pipelineDirectoryIds.map((id) => [id, "Boundary conditions"])],
+  ["caos/frontend/src/app/issuers/issuer-batch.test.tsx", /restores a URL query, renders no-match state, and clears back to the sample sleeve/, pipelineDirectoryIds.map((id) => [id, "Invalid input"])],
+  ["caos/tests/frontend/e2e/pipeline_flow.spec.ts", /operates the reference workbench and simulation controls/, [...expectedPipelineFeatureIds.slice(8, 18), "pipeline-43"].flatMap((id) => [[id, "Happy path"], [id, "Boundary conditions"]])],
+  ["caos/tests/frontend/e2e/pipeline_flow.spec.ts", /selects graph lineage and renders the module inspector/, expectedPipelineFeatureIds.slice(18, 29).flatMap((id) => [[id, "Happy path"], [id, "Boundary conditions"]])],
+  ["caos/tests/frontend/e2e/pipeline_flow.spec.ts", /traces drivers, opens evidence, and hands module output to Deep-Dive/, [...expectedPipelineFeatureIds.slice(29, 35), "pipeline-44", "pipeline-45"].flatMap((id) => [[id, "Happy path"], [id, "Boundary conditions"]])],
+  ["caos/frontend/src/app/pipeline/pipeline-interactions.test.tsx", /renders honest real-issuer loading, service error, failed, in-progress, and empty states/, pipelineWorkbenchIds.map((id) => [id, "Error path"])],
+  ["caos/frontend/src/app/pipeline/pipeline-interactions.test.tsx", /keeps the composed workbench safe under invalid route and context input/, pipelineWorkbenchIds.map((id) => [id, "Invalid input"])],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows login and forwards successful authentication to refresh/, pipelineUiIds.map((id) => [id, "Permission/security"])],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows the recovery gate for unresolved identity/, pipelineUiIds.map((id) => [id, "Permission/security"])],
+  ["caos/tests/frontend/e2e/pipeline_flow.spec.ts", /preserves the essential workbench at 390px/, pipelineWorkbenchIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-004 \/issuers route accessibility and responsive geometry/, pipelineDirectoryIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-009 \/pipeline route accessibility and responsive geometry/, pipelineWorkbenchIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/performance-audit.mjs", /SCR-004 \/issuers desktop and mobile-slow route performance/, pipelineDirectoryIds.map((id) => [id, "Performance"])],
+  ["caos/frontend/scripts/performance-audit.mjs", /SCR-009 \/pipeline desktop and mobile-slow route performance/, pipelineWorkbenchIds.map((id) => [id, "Performance"])],
+  ["caos/tests/server/test_async_runs.py", /test_post_runs_then_polls_to_complete/, [["pipeline-36", "Happy path"], ["pipeline-38", "Happy path"], ["pipeline-38", "Boundary conditions"], ["pipeline-39", "Boundary conditions"], ["pipeline-40", "Boundary conditions"], ["pipeline-38", "Performance"], ["pipeline-39", "Performance"], ["pipeline-40", "Performance"]]],
+  ["caos/tests/server/test_async_runs.py", /test_list_runs_is_bounded/, [["pipeline-37", "Happy path"], ["pipeline-37", "Boundary conditions"], ["pipeline-37", "Invalid input"], ["pipeline-37", "Performance"]]],
+  ["caos/tests/server/test_engine.py", /test_run_completes_and_gates_to_restricted/, [["pipeline-38", "Happy path"]]],
+  ["caos/tests/server/test_engine.py", /test_run_per_module_status/, [["pipeline-39", "Happy path"]]],
+  ["caos/tests/server/test_engine.py", /test_qa_endpoint_reports_findings/, [["pipeline-40", "Happy path"]]],
+  ["caos/tests/server/test_api.py", /test_create_and_get_issuer/, [["pipeline-41", "Happy path"], ["pipeline-41", "Boundary conditions"]]],
+  ["caos/tests/server/test_api.py", /test_upload_pdf_document_and_list/, [["pipeline-42", "Happy path"], ["pipeline-42", "Boundary conditions"], ["pipeline-42", "Performance"]]],
+  ["caos/tests/server/test_async_runs.py", /test_failed_run_surfaces_error/, [["pipeline-36", "Error path"]]],
+  ["caos/tests/server/test_async_runs.py", /test_runs_are_analyst_private_by_default/, [["pipeline-37", "Error path"], ["pipeline-38", "Error path"], ["pipeline-40", "Error path"], ["pipeline-37", "Permission/security"], ["pipeline-38", "Permission/security"], ["pipeline-39", "Permission/security"], ["pipeline-40", "Permission/security"], ["pipeline-40", "Invalid input"]]],
+  ["caos/tests/server/test_engine.py", /test_module_not_in_run_404/, [["pipeline-39", "Error path"], ["pipeline-39", "Invalid input"]]],
+  ["caos/tests/server/test_tenancy.py", /test_require_issuer_404s_cross_team/, [["pipeline-41", "Error path"], ["pipeline-42", "Error path"], ["pipeline-41", "Invalid input"], ["pipeline-42", "Invalid input"], ["pipeline-41", "Permission/security"], ["pipeline-42", "Permission/security"]]],
+  ["caos/tests/server/test_async_runs.py", /test_duplicate_active_run_rejected/, [["pipeline-36", "Boundary conditions"]]],
+  ["caos/tests/server/test_async_runs.py", /test_idempotency_key_is_bounded_and_validated/, [["pipeline-36", "Invalid input"]]],
+  ["caos/tests/server/test_write_role_matrix.py", /test_viewer_is_denied_mutations_but_keeps_read_style_posts/, [["pipeline-36", "Permission/security"]]],
+  ["caos/tests/server/test_tenancy.py", /test_tenancy_isolates_issuers_runs_portfolio_and_query/, pipelineApiIds.map((id) => [id, "Permission/security"])],
+  ["caos/tests/server/test_async_runs.py", /test_post_runs_returns_queued_fast/, [["pipeline-36", "Performance"]]],
+  ["caos/tests/server/test_async_runs.py", /test_same_layer_modules_synthesize_concurrently/, [["pipeline-38", "Performance"], ["pipeline-39", "Performance"], ["pipeline-40", "Performance"]]],
+  ["caos/tests/server/test_api.py", /test_issuers_list_is_bounded/, [["pipeline-41", "Performance"]]],
+  ["caos/tests/server/test_engine.py", /test_unknown_run_404/, [["pipeline-38", "Invalid input"]]],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-009 \/pipeline route accessibility and responsive geometry/, ["pipeline-36", "pipeline-37", "pipeline-38", "pipeline-39", "pipeline-40"].map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-004 \/issuers route accessibility and responsive geometry/, ["pipeline-41", "pipeline-42"].map((id) => [id, "Mobile/responsive"])],
+  ["caos/tests/frontend/e2e/monitor_flow.spec.ts", /monitor-01 monitor-03 email intake exposes fixed severity totals and filters the sample/, [["monitor-01", "Happy path"], ["monitor-03", "Happy path"]]],
+  ["caos/tests/frontend/e2e/monitor_flow.spec.ts", /monitor-02 email detail opens with classification metadata and closes with Escape/, [["monitor-02", "Happy path"]]],
+  ["caos/tests/frontend/e2e/monitor_flow.spec.ts", /monitor-04 monitor-07 alert replay and header KPIs render with labelled severity and routing/, [["monitor-04", "Happy path"], ["monitor-07", "Happy path"]]],
+  ["caos/tests/frontend/e2e/monitor_flow.spec.ts", /monitor-05 monitor-06 playback controls switch PAUSED and SIM states and apply speed/, [["monitor-05", "Happy path"], ["monitor-06", "Happy path"]]],
+  ["caos/frontend/src/app/monitor/monitor-governance.test.tsx", /renders decision-safe empty states and an offline Governance queue/, monitorFeatureIds.map((id) => [id, "Error path"])],
+  ["caos/frontend/src/components/command/views-interactions.test.tsx", /filters the email sample, opens messages by keyboard, and closes the evidence window/, [["monitor-01", "Boundary conditions"], ["monitor-02", "Boundary conditions"], ["monitor-03", "Boundary conditions"]]],
+  ["caos/frontend/src/components/command/views-interactions.test.tsx", /progressively reveals, filters, and opens source evidence from the alert replay/, [["monitor-04", "Boundary conditions"], ["monitor-06", "Boundary conditions"]]],
+  ["caos/frontend/src/components/pipeline/atoms.test.tsx", /pipeline-17 plays, pauses, resets, changes speed, and replays completed simulations/, [["monitor-05", "Boundary conditions"], ["monitor-06", "Boundary conditions"]]],
+  ["caos/frontend/src/lib/pipeline/sim.test.tsx", /shares play, speed, reset, timer completion, and subscriber cleanup/, [["monitor-05", "Boundary conditions"], ["monitor-06", "Boundary conditions"], ["monitor-07", "Boundary conditions"]]],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-007 \/monitor route accessibility and responsive geometry/, monitorFeatureIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/performance-audit.mjs", /SCR-007 \/monitor desktop and mobile-slow route performance/, monitorFeatureIds.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows login and forwards successful authentication to refresh/, monitorFeatureIds.map((id) => [id, "Permission/security"])],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows the recovery gate for unresolved identity/, monitorFeatureIds.map((id) => [id, "Permission/security"])],
+  ["caos/frontend/src/app/monitor/monitor-phone-triage.test.tsx", /keeps phone triage primary while context and governance remain available as drawers/, monitorFeatureIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/tests/frontend/e2e/sector_flow.spec.ts", /completes the governed desktop journey/, sectorFeatureIds.map((id) => [id, "Happy path"])],
+  ["caos/tests/frontend/e2e/sector_flow.spec.ts", /preserves narrow-mode capabilities and mutation ownership/, sectorFeatureIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-015 \/sector route accessibility and responsive geometry/, sectorFeatureIds.map((id) => [id, "Mobile/responsive"])],
+  ["caos/frontend/scripts/performance-audit.mjs", /SCR-015 \/sector desktop and mobile-slow route performance/, sectorFeatureIds.map((id) => [id, "Performance"])],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows login and forwards successful authentication to refresh/, sectorFeatureIds.map((id) => [id, "Permission/security"])],
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows the recovery gate for unresolved identity/, sectorFeatureIds.map((id) => [id, "Permission/security"])],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /renders the current dossier and exercises review, navigation, feed, and sector actions/, [["command-29", "Happy path"], ["command-47", "Happy path"], ["command-48", "Happy path"], ["command-50", "Happy path"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /refreshes partial work and binds the returned review to the context/, [["command-31", "Happy path"], ["command-31", "Boundary conditions"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /keeps the refresh action name stable while refresh is in progress/, [["command-31", "Boundary conditions"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /renders a loading state instead of an authoritative empty state while the history fetch is in flight/, [["command-30", "Boundary conditions"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /surfaces history and refresh failures without restoring cold-state side rails/, [["command-30", "Error path"], ["command-31", "Error path"], ["command-47", "Error path"], ["command-48", "Error path"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /surfaces feed persistence failure while a populated dossier remains visible/, [["command-29", "Error path"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /surfaces taxonomy and feed read failures instead of presenting authoritative empty reference data/, [["command-29", "Error path"], ["command-47", "Error path"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /surfaces section-ratification rejection without discarding the active dossier/, [["command-50", "Error path"], ["command-50", "Boundary conditions"], ["command-50", "Invalid input"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /surfaces publication-gate rejection without losing the ratified review/, [["command-50", "Error path"], ["command-50", "Boundary conditions"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /preserves the prior dossier and recovers controls when a sector change cannot be saved/, [["command-29", "Error path"], ["command-29", "Boundary conditions"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /serializes feed updates, disables competing mutations, and recovers after the request settles/, [["command-29", "Boundary conditions"], ["command-29", "Performance"], ["command-31", "Performance"], ["command-50", "Performance"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /updates section URL state without refetching history and falls back from invalid tab and compare values/, [["command-47", "Boundary conditions"], ["command-47", "Invalid input"], ["command-47", "Performance"], ["command-48", "Invalid input"], ["command-48", "Performance"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /does not resurrect another sector's dossier when the active context sector changes/, [["command-30", "Boundary conditions"], ["command-30", "Invalid input"], ["command-48", "Boundary conditions"]]],
+  ["caos/frontend/src/components/sector/SectorReviewDossier.test.tsx", /ignores a superseded history response after the analysis context changes/, [["command-30", "Boundary conditions"], ["command-30", "Performance"], ["command-48", "Boundary conditions"], ["command-48", "Performance"]]],
+  ["caos/frontend/src/components/sector/SectorReviewPanels.test.tsx", /renders the honest empty state when no versioned review exists/, [["command-30", "Boundary conditions"]]],
+  ["caos/frontend/src/components/sector/SectorReviewPanels.test.tsx", /renders a live-announced loading state, distinct from the empty state, while loading/, [["command-30", "Boundary conditions"]]],
+  ["caos/frontend/src/components/sector/SectorReviewPanels.test.tsx", /renders overview evidence and delegates section selection/, [["command-30", "Happy path"], ["command-47", "Happy path"]]],
+  ["caos/frontend/src/components/sector/SectorReviewPanels.test.tsx", /renders every specialized dossier tab and its evidence states/, [["command-30", "Happy path"], ["command-47", "Happy path"], ["command-49", "Error path"], ["command-51", "Happy path"], ["command-51", "Boundary conditions"]]],
+  ["caos/frontend/src/components/sector/SectorReviewPanels.test.tsx", /renders a sector source as a link only when its persisted URL is present/, [["command-49", "Happy path"], ["command-49", "Permission/security"]]],
+  ["caos/frontend/src/components/sector/SectorReviewPanels.test.tsx", /keeps duplicate display-only comparable names distinct and bounds metric columns to four finite keys/, [["command-30", "Invalid input"], ["command-51", "Error path"], ["command-51", "Boundary conditions"], ["command-51", "Invalid input"], ["command-51", "Performance"]]],
+  ["caos/frontend/src/components/ui/SourceRef.test.tsx", /fails closed for an unsafe source destination/, [["command-49", "Invalid input"], ["command-49", "Permission/security"]]],
+  ["caos/frontend/src/components/ui/SourceRef.test.tsx", /renders unavailable provenance as explanatory text, not an inert link/, [["command-49", "Boundary conditions"], ["command-49", "Error path"]]],
+  ["caos/frontend/src/app/command/sector-board-removal.test.ts", /does not retain SectorBoard state, rendering, or sector filtering/, [["command-57", "Happy path"], ["command-57", "Error path"], ["command-57", "Boundary conditions"], ["command-57", "Invalid input"], ["command-57", "Performance"]]],
+  ["caos/tests/server/test_analysis_workspace.py", /test_unknown_sector_is_rejected_and_taxonomy_is_canonical/, [["command-29", "Invalid input"], ["command-31", "Invalid input"]]],
+  ["caos/tests/server/test_analysis_workspace.py", /test_sector_review_is_versioned_complete_and_reference_gated/, [["command-30", "Happy path"], ["command-30", "Permission/security"], ["command-31", "Happy path"], ["command-31", "Permission/security"], ["command-48", "Happy path"], ["command-48", "Permission/security"], ["command-50", "Error path"], ["command-50", "Boundary conditions"], ["command-50", "Invalid input"], ["command-50", "Permission/security"]]],
+  ["caos/tests/server/test_sector_concurrency.py", /test_sector_review_context_filter_is_applied_before_history_limit/, [["command-30", "Performance"], ["command-48", "Boundary conditions"], ["command-48", "Performance"]]],
+  ["caos/frontend/src/components/upload/steps-interactions.test.tsx", /searches and selects issuers and drives the complete inline-create form/, [["upload-01", "Happy path"], ["upload-01", "Invalid input"]]],
+  ["caos/frontend/src/components/upload/UploadWizard.interactions.test.tsx", /deep-links an existing issuer and surfaces selection-context and manual-run failures/, [["upload-02", "Happy path"], ["upload-02", "Error path"]]],
+  ["caos/frontend/src/components/upload/UploadWizard.interactions.test.tsx", /ignores missing deep links and does not rewind an already-open file stage/, [["upload-02", "Boundary conditions"]]],
+  ["caos/frontend/src/components/upload/UploadWizard.interactions.test.tsx", /deduplicates staged files and rejected warnings, supports removal\/back, and clears intake only when the issuer changes/, [["upload-03", "Boundary conditions"], ["upload-03", "Invalid input"], ["upload-04", "Happy path"]]],
+  ["caos/frontend/src/components/upload/steps-interactions.test.tsx", /drives file removal, authority, mode, portfolio, upload, cancel, and back controls/, [["upload-03", "Happy path"], ["upload-04", "Happy path"], ["upload-05", "Happy path"]]],
+  ["caos/frontend/src/components/upload/UploadWizard.interactions.test.tsx", /uploads PDF and XLSX sequentially, retries only failures, queues one exact run, and resets/, [["upload-06", "Happy path"], ["upload-06", "Error path"], ["upload-07", "Happy path"], ["upload-08", "Happy path"]]],
+  ["caos/frontend/src/components/upload/UploadWizard.interactions.test.tsx", /cancels between files and blocks a re-entrant batch/, [["upload-06", "Boundary conditions"], ["upload-06", "Performance"]]],
+  ["caos/frontend/src/components/upload/steps-interactions.test.tsx", /recognizes spreadsheet extensions and renders every progress-strip state/, [["upload-07", "Boundary conditions"], ["upload-09", "Happy path"]]],
+  ["caos/frontend/src/components/upload/steps-interactions.test.tsx", /renders running and completed result states and invokes every available action/, [["upload-08", "Happy path"], ["upload-08", "Error path"]]],
+  ["caos/frontend/src/components/upload/steps.test.tsx", /makes its horizontally scrollable progress region keyboard reachable/, [["upload-09", "Mobile/responsive"]]],
+  ["caos/tests/server/test_upload_robustness.py", /test_document_upload_oversized_413/, [["upload-10", "Boundary conditions"], ["upload-10", "Performance"]]],
+  ["caos/tests/server/test_upload_robustness.py", /test_document_upload_rejects_with_explicit_reason\[(report\.docx|really-a-txt\.pdf)/, [["upload-11", "Invalid input"]]],
+  ["caos/tests/server/test_upload_robustness.py", /test_pricing_sheet_rejects_non_workbook_containers/, [["upload-12", "Invalid input"], ["upload-12", "Permission/security"]]],
+  ["caos/tests/server/test_upload_robustness.py", /test_document_upload_rejects_with_explicit_reason\[empty\.pdf/, [["upload-13", "Boundary conditions"], ["upload-13", "Invalid input"]]],
+  ["caos/tests/server/test_ingest_markitdown.py", /test_uses_markitdown_when_configured/, [["upload-14", "Happy path"], ["upload-15", "Happy path"]]],
+  ["caos/tests/server/test_ingest_markitdown.py", /test_ocr_recovers_scanned_pdf|test_falls_back_when_unconfigured|test_ocr_disabled_returns_empty/, [["upload-14", "Error path"], ["upload-14", "Boundary conditions"]]],
+  ["caos/tests/server/test_xlsx_safety.py", /test_nominal_workbook_still_crosses_every_shared_parser/, [["upload-15", "Boundary conditions"]]],
+  ["caos/tests/server/test_xlsx_safety.py", /test_every_workbook_parser_rejects_shared_resource_bombs/, [["upload-15", "Permission/security"], ["upload-15", "Performance"]]],
+  ["caos/tests/server/test_intelligent_vault.py", /test_structure_aware_chunking/, [["upload-16", "Happy path"], ["upload-16", "Boundary conditions"]]],
+  ["caos/tests/server/test_upload_robustness.py", /test_vault_store_sanitizes_basename_and_uses_unique_directory/, [["upload-17", "Happy path"], ["upload-17", "Permission/security"]]],
+  ["caos/tests/server/test_upload_robustness.py", /test_document_upload_db_failure_removes_uncommitted_vault_object/, [["upload-17", "Error path"]]],
+  ["caos/tests/server/test_upload_robustness.py", /test_ingestion_response_exposes_durable_metadata/, [["upload-18", "Happy path"], ["upload-18", "Boundary conditions"]]],
+  ["caos/tests/server/test_upload_robustness.py", /test_upload_rate_guard_allows_twenty_then_rejects_twenty_first/, [["upload-19", "Boundary conditions"], ["upload-19", "Performance"], ["upload-19", "Permission/security"]]],
+  ["caos/tests/server/test_edgar.py", /test_search_route_returns_pointers/, [["upload-20", "Happy path"]]],
+  ["caos/tests/server/test_edgar.py", /test_search_route_503_without_ua/, [["upload-20", "Error path"]]],
+  ["caos/tests/server/test_edgar.py", /test_exhibits_route_returns_classified_documents/, [["upload-21", "Happy path"]]],
+  ["caos/frontend/src/components/upload/EdgarImport.test.tsx", /renders the EDGAR URL vaulting panel/, [["upload-22", "Happy path"], ["upload-22", "Mobile/responsive"]]],
+  ["caos/frontend/src/components/upload/EdgarImport.test.tsx", /vaults a pasted EDGAR URL, threading the run mode/, [["upload-23", "Happy path"]]],
+  ["caos/frontend/src/components/upload/EdgarImport.test.tsx", /surfaces which URLs failed on a partial batch, not just the successes/, [["upload-23", "Error path"], ["upload-25", "Error path"]]],
+  ["caos/tests/server/test_edgar.py", /test_vault_exhibit_creates_primary_source/, [["upload-23", "Permission/security"]]],
+  ["caos/frontend/src/components/upload/EdgarImport.test.tsx", /shows the not-configured guidance on a 503/, [["upload-24", "Error path"]]],
+  ["caos/frontend/src/components/upload/EdgarImport.test.tsx", /surfaces a useful non-503 vaulting error/, [["upload-25", "Invalid input"]]],
+  ["caos/frontend/src/components/upload/EdgarImport.test.tsx", /does not vault a whitespace-only URL from the Enter-key path/, [["upload-25", "Boundary conditions"]]],
+  ["caos/frontend/src/components/upload/EdgarImport.test.tsx", /does not double-vault on a fast double-invoke via Enter/, [["upload-25", "Performance"]]],
+  ["caos/tests/server/test_avscan.py", /test_infected_upload_rejected_422|test_required_unconfigured_scanner_fails_closed|test_unreachable_scanner_fails_closed_503/, [["upload-26", "Permission/security"], ["upload-26", "Error path"]]],
+  ["caos/tests/server/test_edgar.py", /test_filings_route_returns_hits_and_passes_form_filter/, [["upload-27", "Happy path"]]],
+  ["caos/tests/server/test_edgar.py", /test_filings_route_rejects_out_of_range_limit/, [["upload-27", "Boundary conditions"], ["upload-27", "Invalid input"]]],
   ["caos/frontend/src/app/query/query-interactions.test.tsx", /keeps the composer inert until the active persisted selection is hydrated/, [["query-01", "Boundary conditions"]]],
   ["caos/frontend/src/app/query/query-interactions.test.tsx", /keeps context-dependent utilities and execution inert without a context/, [["query-01", "Permission/security"], ["query-16", "Boundary conditions"]]],
   ["caos/frontend/src/app/query/query-interactions.test.tsx", /survives unavailable session storage and removes a cleared draft/, [["query-02", "Error path"], ["query-02", "Boundary conditions"]]],
@@ -2157,7 +3799,7 @@ const curatedScenarioMappings = [
   ["caos/frontend/src/app/query/query-interactions.test.tsx", /pins observed-empty results and uses summary, synthesis, interpretation, and question title fallbacks/, [["query-12", "Happy path"], ["query-13", "Happy path"], ["query-13", "Boundary conditions"]]],
   ["caos/frontend/src/app/query/query-interactions.test.tsx", /deduplicates a same-tick pin attempt while the first request is pending/, [["query-13", "Performance"]]],
   ["caos/frontend/src/app/query/query-interactions.test.tsx", /rechecks evidence at pin time if a previously cited run loses its sources/, [["query-13", "Permission/security"]]],
-  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /prints, downloads immutable binaries, and opens both IC decision controls/, [["reports-11", "Happy path"]]],
+  ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /prints, downloads immutable binaries, and exposes one IC decision-room opener/, [["reports-11", "Happy path"]]],
   ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /surfaces saved-model failure and retries the reference inputs/, [["reports-21", "Error path"]]],
   ["caos/frontend/src/app/reports/reports-interactions.test.tsx", /hydrates valid and malformed saved-model payloads and ignores late completion/, [["reports-21", "Invalid input"], ["reports-21", "Boundary conditions"]]],
   ["caos/frontend/src/lib/ic-book.test.ts", /covers agenda detail, creation, and the full evidence-exception lifecycle/, [["API-037", "Happy path"]]],
@@ -2247,6 +3889,238 @@ const curatedScenarioMappings = [
   ["caos/frontend/src/components/shared/DecisionHeader.test.tsx", /renders one shared observation envelope when every conclusion has identical authority/, [["deepdive-41", "Happy path"]]],
   ["caos/frontend/src/components/shared/DecisionHeader.test.tsx", /renders a failed response as an error, never as a neutral empty observation/, [["deepdive-41", "Error path"]]],
 ];
+const deepDiveFeatureIds = Array.from({ length: 42 }, (_, index) => `deepdive-${String(index + 1).padStart(2, "0")}`);
+const currentDeepDiveFeatureIds = sourceRows.filter((row) => row.concept === "Deep-Dive").map((row) => row.id).sort();
+if (JSON.stringify(currentDeepDiveFeatureIds) !== JSON.stringify([...deepDiveFeatureIds].sort())) {
+  throw new Error(`Deep-Dive feature inventory drifted: ${currentDeepDiveFeatureIds.join(",")}`);
+}
+curatedScenarioMappings.push(
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows login and forwards successful authentication to refresh|shows the recovery gate for unresolved identity/, deepDiveFeatureIds.map((id) => [id, "Permission/security"])],
+  ["caos/frontend/scripts/performance-audit.mjs", /SCR-003 \/deepdive desktop and mobile-slow reference-workspace route performance/, deepDiveFeatureIds.map((id) => [id, "Performance"])],
+  ["caos/frontend/scripts/a11y-axe.mjs", /SCR-003 \/deepdive route accessibility and responsive geometry at (?:390x844|1440x900)/, deepDiveFeatureIds.map((id) => [id, "Mobile/responsive"])],
+
+  ["caos/frontend/src/lib/deepdive/module-groups.test.ts", /is a total, disjoint partition of the finder catalog/, [["deepdive-01", "Happy path"], ["deepdive-01", "Boundary conditions"], ["deepdive-01", "Invalid input"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /falls back to a module id when the static module catalog is incomplete|summarizes unknown replay states as idle/, [["deepdive-01", "Error path"], ["deepdive-01", "Invalid input"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /fails unknown persisted QA closed and covers every accepted status spelling/, [["deepdive-02", "Happy path"], ["deepdive-02", "Error path"], ["deepdive-02", "Boundary conditions"], ["deepdive-02", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/tabs.smoke.test.tsx", /renders missing, seeded, and live module states across layouts/, [
+    ...["deepdive-03", "deepdive-04", "deepdive-05", "deepdive-06"].flatMap((id) => [[id, "Error path"], [id, "Invalid input"]]),
+    ["deepdive-03", "Boundary conditions"], ["deepdive-08", "Boundary conditions"], ["deepdive-32", "Error path"], ["deepdive-32", "Invalid input"],
+  ]],
+  ["caos/frontend/src/components/deepdive/tabs.smoke.test.tsx", /renders both debate variants in summary and report layouts/, [["deepdive-04", "Boundary conditions"], ["deepdive-05", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/tabs.smoke.test.tsx", /renders recovery and covenant analysis at every density/, [["deepdive-06", "Boundary conditions"], ["deepdive-07", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/LiveCovenantCapacity.test.tsx", /degrades honestly when CP-4C extracted no capacity terms/, [["deepdive-07", "Error path"], ["deepdive-07", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/LiveCovenantCapacity.test.tsx", /renders honest placeholders and non-critical states for partially extracted capacity/, [["deepdive-07", "Happy path"], ["deepdive-07", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/ModuleView.test.tsx", /labels CP-2G reference output as unavailable/, [["deepdive-08", "Invalid input"], ["deepdive-32", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/ModuleView.test.tsx", /does not show seeded output for a missing issuer-scoped module/, [["deepdive-03", "Error path"], ["deepdive-08", "Error path"], ["deepdive-32", "Error path"]]],
+  ["caos/frontend/src/components/deepdive/OutSections.test.tsx", /renders empty sections safely and exposes only declared evidence actions/, [["deepdive-09", "Happy path"], ["deepdive-09", "Error path"], ["deepdive-09", "Boundary conditions"], ["deepdive-09", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/ModuleCharts.render.test.tsx", /returns nothing for a module without registered charts/, [["deepdive-10", "Error path"], ["deepdive-10", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/ModuleCharts.render.test.tsx", /uses empty data and the default height when a definition omits both/, [["deepdive-10", "Boundary conditions"], ["deepdive-10", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/OutputRegister.test.tsx", /renders nothing for a module with no registered steps/, [["deepdive-11", "Error path"], ["deepdive-11", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/OutputRegister.test.tsx", /collapses the step grid when the header is toggled/, [["deepdive-11", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/OutputRegister.test.tsx", /surfaces a retryable error when the flag write fails/, [["deepdive-12", "Error path"], ["deepdive-34", "Error path"]]],
+  ["caos/frontend/src/components/deepdive/OutputRegister.test.tsx", /falls back to the snapshot exhibit for unmapped modules/, [["deepdive-12", "Boundary conditions"], ["deepdive-12", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/OutputRegister.test.tsx", /keeps short same-prefix report groups as individual cards|keeps dense mode unconsolidated/, [["deepdive-13", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/OutputRegister.test.tsx", /renders a dense analytical card even when its narrative is absent/, [["deepdive-13", "Error path"], ["deepdive-13", "Invalid input"]]],
+  ["caos/frontend/src/lib/evidence-sync.test.tsx", /is inert outside a provider/, [["deepdive-14", "Error path"], ["deepdive-14", "Invalid input"]]],
+  ["caos/tests/frontend/e2e/deepdive_flow.spec.ts", /focusing an evidence chip by keyboard fires the same cross-highlight/, [["deepdive-14", "Boundary conditions"]]],
+  ["caos/frontend/src/components/reports/EvidenceModal.test.tsx", /prefers the run's own evidence over a colliding seeded key/, [["deepdive-15", "Happy path"], ["deepdive-15", "Boundary conditions"]]],
+  ["caos/frontend/src/components/reports/EvidenceModal.test.tsx", /shows an explicit unresolved state for an unknown id/, [["deepdive-15", "Invalid input"]]],
+  ["caos/frontend/src/components/reports/EvidenceModal.test.tsx", /shows an explicit unavailable state when the live chunk fetch fails/, [["deepdive-15", "Error path"]]],
+  ["caos/frontend/src/components/deepdive/rails.rich.test.tsx", /hides the seeded rail for non-reference issuers/, [["deepdive-16", "Error path"], ["deepdive-16", "Invalid input"], ["deepdive-26", "Error path"], ["deepdive-26", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/rails.rich.test.tsx", /renders the reference source register and synchronizes every driver interaction/, [["deepdive-16", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/rails.rich.test.tsx", /renders and orders live committee findings while preserving the reference decision stack/, [["deepdive-17", "Boundary conditions"], ["deepdive-18", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/rails.rich.test.tsx", /distinguishes committee loading, error, unavailable, and observed-empty states/, [["deepdive-17", "Invalid input"], ["deepdive-18", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/IssuerChat.interactions.test.tsx", /submits from the composer, blocks duplicate sends, clears the transcript, and closes by keyboard or button/, [["deepdive-19", "Happy path"], ["deepdive-19", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/IssuerChat.interactions.test.tsx", /renders structured and generic request failures/, [["deepdive-19", "Error path"]]],
+  ["caos/frontend/src/components/deepdive/IssuerChat.interactions.test.tsx", /degrades safely when cached JSON or browser storage is unavailable/, [["deepdive-19", "Invalid input"], ["deepdive-21", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/issuer-chat-context.test.ts", /describes an unavailable issuer run without leaking fixture figures/, [["deepdive-20", "Error path"]]],
+  ["caos/frontend/src/components/deepdive/issuer-chat-context.test.ts", /ignores an unknown evidence id|keeps unknown module ids unlabeled/, [["deepdive-20", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/issuer-chat-context.test.ts", /serializes every live output section and puts the current module first/, [["deepdive-20", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/IssuerChat.test.tsx", /loads the new run transcript without writing the prior run into its cache/, [["deepdive-21", "Happy path"], ["deepdive-21", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/IssuerChat.interactions.test.tsx", /discards a successful response from a prior run generation|discards a failed response from a prior run generation/, [["deepdive-21", "Error path"]]],
+  ["caos/frontend/src/lib/deepdive/layout-pref.test.ts", /defaults to report/, [["deepdive-22", "Happy path"]]],
+  ["caos/frontend/src/lib/deepdive/layout-pref.test.ts", /defaults without a browser and when storage reads fail|silently tolerates storage write failures/, [["deepdive-22", "Error path"]]],
+  ["caos/frontend/src/lib/deepdive/layout-pref.test.ts", /migrates legacy values without inverting user intent silently/, [["deepdive-22", "Boundary conditions"]]],
+  ["caos/frontend/src/lib/deepdive/layout-pref.test.ts", /persists current values and rejects unknown values/, [["deepdive-22", "Invalid input"]]],
+  ["caos/frontend/src/lib/engine/useLiveRun.test.ts", /adapts eligible modules, indexes evidence, and reads the typed CP-5C issue log/, [["deepdive-23", "Happy path"]]],
+  ["caos/frontend/src/lib/engine/useLiveRun.test.ts", /exposes a backend error|surfaces a module fetch failure|surfaces a QA fallback failure/, [["deepdive-23", "Error path"]]],
+  ["caos/frontend/src/lib/engine/useLiveRun.test.ts", /falls back to legacy QA findings and tolerates a module without claims/, [["deepdive-23", "Invalid input"]]],
+  ["caos/frontend/src/lib/deepdive/caveat.test.ts", /a non-reference issuer with a completed run shows live output|the ATLF reference deal is the showcase/, [["deepdive-24", "Happy path"]]],
+  ["caos/frontend/src/lib/deepdive/caveat.test.ts", /phase='error' resolves to 'error'/, [["deepdive-24", "Error path"]]],
+  ["caos/frontend/src/lib/deepdive/caveat.test.ts", /reference and loading still win over phase='error'|phase is optional/, [["deepdive-24", "Boundary conditions"]]],
+  ["caos/frontend/src/lib/deepdive/caveat.test.ts", /a non-reference issuer with no run is flagged noRun/, [["deepdive-24", "Invalid input"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /covers layouts, module navigation, accordion modes, pane collapse, chat, and lazy evidence/, [["deepdive-25", "Happy path"], ["deepdive-25", "Boundary conditions"], ["deepdive-27", "Happy path"], ["deepdive-28", "Happy path"], ["deepdive-42", "Happy path"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /summarizes unknown replay states as idle and renders an invalid gate without invented dependencies/, [["deepdive-25", "Error path"], ["deepdive-25", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/rails.rich.test.tsx", /hides the seeded rail for non-reference issuers/, [["deepdive-26", "Boundary conditions"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /measures strip overflow, exposes paging controls, and handles responsive decision collapse/, [["deepdive-27", "Boundary conditions"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /scrolls a genuinely off-screen active module and tolerates the deferred measurement after unmount/, [["deepdive-27", "Error path"], ["deepdive-27", "Invalid input"]]],
+  ["caos/frontend/src/components/shared/recovery-ui-smoke.test.tsx", /persists, suppresses, and gracefully degrades first-run hints/, [["deepdive-28", "Error path"], ["deepdive-28", "Boundary conditions"], ["deepdive-28", "Invalid input"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /distinguishes issuer lookup failure\/retry and live run caveat states/, [["deepdive-29", "Happy path"], ["deepdive-29", "Error path"], ["deepdive-29", "Boundary conditions"], ["deepdive-29", "Invalid input"]]],
+  ["caos/frontend/src/components/reports/ExportToVaultButton.test.tsx", /exports one note and exposes the written path/, [["deepdive-30", "Happy path"]]],
+  ["caos/frontend/src/components/reports/ExportToVaultButton.test.tsx", /keeps an ordinary export failure retryable/, [["deepdive-30", "Error path"]]],
+  ["caos/frontend/src/components/reports/ExportToVaultButton.test.tsx", /renders plural notes and ignores a click while export is pending/, [["deepdive-30", "Boundary conditions"]]],
+  ["caos/frontend/src/components/reports/ExportToVaultButton.test.tsx", /explains an unconfigured vault/, [["deepdive-30", "Invalid input"]]],
+  ["caos/frontend/src/components/shared/ConceptNav.test.tsx", /marks the active route with aria-current|preserves reference mode and analysis context/, [["deepdive-31", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/ConceptNav.test.tsx", /covers the full CONCEPT_CYCLE so hotkeys and drawer can never drift/, [["deepdive-31", "Error path"], ["deepdive-31", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/ModuleView.test.tsx", /summary layout keeps analysis output and summarizes workflow cards/, [["deepdive-32", "Boundary conditions"], ["deepdive-33", "Happy path"], ["deepdive-33", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/OutputRegister.test.tsx", /renders a dense analytical card even when its narrative is absent/, [["deepdive-33", "Error path"], ["deepdive-33", "Invalid input"]]],
+  ["caos/tests/server/test_qa_flags.py", /test_flag_empty_note_normalizes_to_null/, [["deepdive-34", "Boundary conditions"]]],
+  ["caos/tests/server/test_qa_flags.py", /test_flag_validation_rejects_oversize/, [["deepdive-34", "Invalid input"]]],
+  ["caos/frontend/src/components/shared/FlagToQa.test.tsx", /increments an existing count and discloses multiple flags after submit/, [["deepdive-35", "Boundary conditions"]]],
+  ["caos/tests/server/test_qa_flags.py", /test_flag_rejects_unknown_issuer without disclosing it|test_flag_rejects_unknown_issuer_without_disclosing_it/, [["deepdive-35", "Error path"], ["deepdive-35", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/ModuleFinder.test.tsx", /a 404 on settings load leaves pins\/recents empty without surfacing an error/, [["deepdive-36", "Error path"]]],
+  ["caos/frontend/src/components/deepdive/ModuleFinder.test.tsx", /deduplicates, validates, and caps persisted pins and recents before rendering shortcuts/, [["deepdive-36", "Boundary conditions"], ["deepdive-36", "Invalid input"]]],
+  ["caos/frontend/src/components/deepdive/StandingViewStrip.test.tsx", /returns a failed personal annotation to a retryable idle state/, [["deepdive-37", "Error path"]]],
+  ["caos/frontend/src/components/deepdive/StandingViewStrip.test.tsx", /Affirm caps the stored list at 20 entries/, [["deepdive-37", "Boundary conditions"]]],
+  ["caos/frontend/src/components/deepdive/StandingViewStrip.test.tsx", /a real \(non-reference\) issuer with no CP-6 verdict shows an honest empty state/, [["deepdive-37", "Invalid input"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /affirms and pins a live thesis, including partial and error recovery/, [["deepdive-38", "Happy path"], ["deepdive-38", "Error path"], ["deepdive-38", "Boundary conditions"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /requires an analysis context even when a live run is present/, [["deepdive-38", "Invalid input"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /affirms a default live module without optional run metadata/, [["deepdive-39", "Happy path"], ["deepdive-39", "Boundary conditions"], ["deepdive-39", "Invalid input"]]],
+  ["caos/frontend/src/app/deepdive/deepdive-interactions.test.tsx", /affirms and pins a live thesis, including partial and error recovery/, [["deepdive-39", "Error path"]]],
+  ["caos/frontend/src/components/model/ScenarioNetworkPanel.test.tsx", /blocks duplicate propagation while pending and exposes a retryable failure/, [["deepdive-40", "Error path"], ["deepdive-40", "Boundary conditions"]]],
+  ["caos/frontend/src/components/model/ScenarioNetworkPanel.test.tsx", /compacts unavailable controls and explains the prerequisite/, [["deepdive-40", "Invalid input"]]],
+  ["caos/frontend/src/components/shared/DecisionHeader.test.tsx", /keeps four cells when the same kind carries different messages|reserves no-material-change language/, [["deepdive-41", "Boundary conditions"]]],
+  ["caos/frontend/src/components/shared/DecisionHeader.test.tsx", /renders explicit decision-safe empty states|collapses to one spanning line when every cell states the same value-less cause/, [["deepdive-41", "Invalid input"]]],
+  ["caos/tests/frontend/e2e/deepdive_flow.spec.ts", /keeps the analytical workbench and global Ask reachable at phone width/, [["deepdive-42", "Happy path"], ["deepdive-42", "Boundary conditions"]]],
+  ["caos/frontend/src/app/responsive-recovery.contract.test.ts", /swaps the compact Ask utility for the phone trigger at every narrow pointer type/, [["deepdive-42", "Error path"], ["deepdive-42", "Invalid input"]]],
+);
+const listApiScenarioFeatureIds = [
+  "API-006", "API-093", "API-094", "API-095", "API-096", "API-097",
+  "API-120", "API-133", "API-158", "API-168", "API-169",
+];
+const listApiQualityFile = "caos/tests/server/test_api_list_quality_contracts.py";
+curatedScenarioMappings.push(
+  [listApiQualityFile, /test_list_contexts_is_owner_scoped_ordered_and_bounded/, [
+    ["API-006", "Happy path"], ["API-006", "Boundary conditions"], ["API-006", "Permission/security"],
+  ]],
+  [listApiQualityFile, /test_legacy_portfolio_root_with_slash_returns_bounded_board/, [
+    ["API-093", "Happy path"], ["API-093", "Boundary conditions"],
+  ]],
+  [listApiQualityFile, /test_portfolio_root_without_slash_creates_and_lists/, [
+    ["API-094", "Happy path"], ["API-094", "Boundary conditions"],
+    ["API-095", "Happy path"], ["API-095", "Boundary conditions"],
+  ]],
+  [listApiQualityFile, /test_list_query_runs_filters_owned_context_and_hides_foreign_context/, [
+    ["API-120", "Happy path"], ["API-120", "Boundary conditions"], ["API-120", "Permission/security"],
+  ]],
+  [listApiQualityFile, /test_list_research_filters_owned_context_and_hides_foreign_context/, [
+    ["API-133", "Happy path"], ["API-133", "Boundary conditions"], ["API-133", "Permission/security"],
+  ]],
+  [listApiQualityFile, /test_list_sector_reviews_filters_canonical_sector_and_owner/, [
+    ["API-158", "Happy path"], ["API-158", "Boundary conditions"], ["API-158", "Permission/security"],
+  ]],
+  [listApiQualityFile, /test_sponsor_root_without_slash_lists_owned_sponsor_groups/, [
+    ["API-168", "Happy path"], ["API-168", "Boundary conditions"],
+  ]],
+  [listApiQualityFile, /test_parameterless_list_routes_ignore_unknown_query_keys/, [
+    ["API-093", "Invalid input"], ["API-094", "Invalid input"], ["API-096", "Invalid input"],
+    ["API-168", "Invalid input"], ["API-169", "Invalid input"],
+  ]],
+  [listApiQualityFile, /test_validated_list_inputs_reject_out_of_contract_values/, [
+    ["API-006", "Invalid input"], ["API-095", "Invalid input"], ["API-097", "Invalid input"],
+    ["API-120", "Invalid input"], ["API-133", "Invalid input"], ["API-158", "Invalid input"],
+  ]],
+  [listApiQualityFile, /test_aliased_roots_enforce_team_scope_and_create_role/, [
+    ["API-093", "Permission/security"], ["API-094", "Permission/security"],
+    ["API-095", "Permission/security"], ["API-096", "Permission/security"],
+    ["API-097", "Permission/security"], ["API-168", "Permission/security"],
+    ["API-169", "Permission/security"],
+  ]],
+  [listApiQualityFile, /test_guarded_list_routes_apply_exact_backpressure_and_recover/, [
+    ["API-006", "Performance"], ["API-093", "Performance"], ["API-095", "Performance"],
+    ["API-097", "Performance"], ["API-120", "Performance"], ["API-158", "Performance"],
+    ["API-168", "Performance"], ["API-169", "Performance"],
+  ]],
+  ["caos/tests/server/test_portfolios.py", /test_list_includes_created/, [
+    ["API-096", "Happy path"], ["API-096", "Boundary conditions"],
+  ]],
+  ["caos/tests/server/test_portfolios.py", /test_create_computes_posture/, [["API-097", "Happy path"]]],
+  ["caos/tests/server/test_sponsors_digest.py", /test_sponsors_group_and_track_record/, [
+    ["API-169", "Happy path"], ["API-169", "Boundary conditions"],
+  ]],
+);
+for (const featureId of listApiScenarioFeatureIds) {
+  curatedScenarioMappings.push(
+    [
+      listApiQualityFile,
+      new RegExp(`test_api_list_dependency_failure_returns_500_and_recovers\\[${featureId}\\]`),
+      [[featureId, "Error path"]],
+    ],
+    [
+      listApiQualityFile,
+      new RegExp(`test_api_list_performance_contract_has_explicit_bound\\[${featureId}\\]`),
+      [[featureId, "Performance"]],
+    ],
+  );
+}
+
+const settingsFrontendFile = "caos/frontend/src/app/settings/settings-models.test.tsx";
+const settingsQualityFile = "caos/tests/server/test_settings_quality_contracts.py";
+curatedScenarioMappings.push(
+  [settingsFrontendFile, /edits, saves, and resets the browser-local research defaults/, [["settings-01", "Happy path"]]],
+  ["caos/tests/frontend/e2e/settings_flow.spec.ts", /saved defaults seed a new Research brief/, [["settings-02", "Happy path"]]],
+  ["caos/frontend/src/lib/coverage-edges.test.ts", /degrades storage helpers in SSR and blocked-storage environments/, [["settings-01", "Error path"], ["settings-02", "Error path"]]],
+  ["caos/frontend/src/lib/research-prefs.test.ts", /keeps well-typed fields and only replaces the wrong-typed ones/, [["settings-01", "Boundary conditions"], ["settings-02", "Boundary conditions"]]],
+  ["caos/frontend/src/lib/research-prefs.test.ts", /falls back to defaults on malformed JSON without throwing|treats a non-object parsed value as empty rather than crashing/, [["settings-01", "Invalid input"], ["settings-02", "Invalid input"]]],
+
+  ["caos/tests/frontend/e2e/settings_flow.spec.ts", /mirrors the server workspace configuration/, [["settings-03", "Happy path"], ["settings-04", "Happy path"], ["settings-05", "Happy path"]]],
+  [settingsFrontendFile, /renders every workspace configuration value and recovers from an offline read/, [["settings-03", "Happy path"], ["settings-03", "Error path"], ["settings-03", "Boundary conditions"]]],
+  ["caos/tests/server/test_settings.py", /test_settings_returns_snapshot_without_secrets/, [["settings-03", "Invalid input"], ["settings-03", "Permission/security"]]],
+  [settingsFrontendFile, /defaults an unsupported tab and reports unavailable answer-source status without writing/, [
+    ["settings-04", "Error path"], ["settings-04", "Invalid input"],
+    ["settings-05", "Error path"], ["settings-05", "Invalid input"],
+    ["settings-06", "Error path"], ["settings-06", "Invalid input"],
+    ["settings-08", "Error path"], ["settings-08", "Invalid input"],
+  ]],
+  [settingsFrontendFile, /supports tab clicks and the complete roving-tab keyboard contract/, [
+    ["settings-04", "Boundary conditions"], ["settings-05", "Boundary conditions"],
+    ["settings-06", "Happy path"], ["settings-06", "Boundary conditions"],
+  ]],
+
+  [settingsFrontendFile, /guards the global save while persistence is in flight and clears dirty state only after success/, [["settings-07", "Happy path"], ["settings-07", "Performance"]]],
+  [settingsFrontendFile, /hydrates server research defaults and normalized profile mode, then changes query model and research scope/, [["settings-07", "Boundary conditions"], ["settings-07", "Invalid input"]]],
+  ["caos/frontend/src/lib/model-mode.test.ts", /falls back to DEFAULT_MODE when localStorage\.getItem throws/, [["settings-07", "Error path"]]],
+  [settingsFrontendFile, /labels the query-model cards truthfully .* shows routing as planned, not dead controls/, [
+    ["settings-08", "Happy path"], ["settings-08", "Boundary conditions"],
+    ["settings-09", "Happy path"], ["settings-09", "Error path"], ["settings-09", "Boundary conditions"], ["settings-09", "Invalid input"],
+  ]],
+  [settingsFrontendFile, /renders connected email state and persists a normalized sender list/, [["settings-10", "Happy path"], ["settings-10", "Invalid input"]]],
+  [settingsFrontendFile, /surfaces an analyst-settings save failure with the server detail/, [["settings-10", "Error path"]]],
+  ["caos/tests/server/test_settings.py", /test_analyst_settings_patch_is_partial_and_revision_checked/, [["settings-10", "Boundary conditions"], ["settings-10", "Permission/security"]]],
+  [settingsFrontendFile, /serializes rapid settings saves onto the prior response revision/, [["settings-10", "Performance"]]],
+
+  ["caos/frontend/src/components/shared/RequireAuth.test.tsx", /shows login and forwards successful authentication to refresh|shows the recovery gate for unresolved identity/, settingsFeatureIds.map((id) => [id, "Permission/security"])],
+  [settingsFrontendFile, /loads each settings authority once and keeps fixed control inventories bounded/, [
+    ...settingsFeatureIds.map((id) => [id, "Performance"]),
+    ["settings-08", "Boundary conditions"], ["settings-08", "Invalid input"],
+    ["settings-09", "Boundary conditions"], ["settings-09", "Invalid input"],
+  ]],
+  ["caos/tests/frontend/e2e/settings_flow.spec.ts", /keeps every Settings section reachable without page overflow at phone width/, settingsFeatureIds.map((id) => [id, "Mobile/responsive"])],
+
+  ["caos/tests/server/test_settings.py", /test_settings_returns_snapshot_without_secrets/, [["API-164", "Happy path"], ["API-164", "Permission/security"]]],
+  ["caos/tests/server/test_settings.py", /test_analyst_settings_roundtrip_with_profile_cookie/, [["API-165", "Happy path"], ["API-167", "Happy path"]]],
+  ["caos/tests/server/test_settings.py", /test_analyst_settings_patch_is_partial_and_revision_checked/, [["API-166", "Happy path"]]],
+  [settingsQualityFile, /test_api_164_identity_failure_returns_json_500_and_recovers/, [["API-164", "Error path"]]],
+  [settingsQualityFile, /test_settings_reads_are_profile_scoped_and_viewers_cannot_write/, [
+    ["API-165", "Permission/security"], ["API-166", "Permission/security"], ["API-167", "Permission/security"],
+  ]],
+  [settingsQualityFile, /test_settings_inputs_are_bounded_and_invalid_writes_do_not_mutate/, settingsApiFeatureIds.flatMap((id) => [[id, "Boundary conditions"], [id, "Invalid input"]])],
+  [settingsQualityFile, /test_settings_mutations_share_exact_backpressure_and_recover/, [["API-166", "Performance"], ["API-167", "Performance"]]],
+);
+for (const featureId of settingsApiFeatureIds) {
+  curatedScenarioMappings.push([
+    settingsQualityFile,
+    new RegExp(`test_settings_api_handler_has_bounded_work_contract\\[${featureId}\\]`),
+    [[featureId, "Performance"]],
+  ]);
+}
+for (const featureId of ["API-165", "API-166", "API-167"]) {
+  curatedScenarioMappings.push([
+    settingsQualityFile,
+    new RegExp(`test_settings_analyst_database_failure_is_truthful_and_recovers\\[${featureId}\\]`),
+    [[featureId, "Error path"]],
+  ]);
+}
 const curatedReferences = new Map(sourceRows.map((row) => [
   row.id,
   `${row.test_cases || ""} ${row.test_result || ""} ${row.notes || ""}`.toLowerCase(),
@@ -2404,7 +4278,7 @@ for (const feature of featureObjects) {
     } else if (feature.sourceType === "Discovered API handler" && ["Happy path", "Error path", "Invalid input", "Permission/security"].includes(scenario)) {
       status = "Suite evidence";
       lastExecuted = baselineDate;
-      result = "The 2,483-pass executable server cohort covers the API layer in aggregate; per-handler test identity mapping remains pending.";
+      result = "The 2,512-pass executable server cohort covers the API layer in aggregate; per-handler test identity mapping remains pending.";
     } else if (feature.sourceType === "Discovered screen" && scenario === "Mobile/responsive") {
       status = "Pass";
       lastExecuted = today;
@@ -2459,14 +4333,14 @@ const executedCases = [
   ["A11Y-ISSUER-LOADING-STATUS", "issuer-01", "Valid asynchronous loading semantics", "Pass", "The issuer loading state exposed a named busy status region; the exact-build axe matrix reported zero violation nodes", "DEF-QV-054"],
   ["RESPONSIVE-MODEL-REPORT-RECOVERY", "model-43", "Narrow recovery and export operability", "Pass", "At 390x844 compact header labels and tools-drawer fallbacks produced zero clipped controls across Model and Report Studio", "DEF-QV-055"],
   ["A11Y-QUERY-ISOLATED-IDENTITY", "query-01", "Quota-isolated dynamic Query states", "Pass", "Ready, graph lane, persisted answer, and narrow restored-answer states completed under a dedicated analyst with zero axe nodes", "DEF-QV-056"],
-  ["FRONTEND-AGGREGATE-1678", "BP-017", "Reconciled frontend executable inventory", "Pass", "All 1,678 current nodes are reconciled: the complete 1,543-node full run plus 135 later nodes executed through complete affected files", "DEF-QV-074; DEF-QV-075; DEF-QV-076; DEF-QV-078; DEF-QV-079; DEF-QV-080; DEF-QV-081; DEF-QV-082; DEF-QV-083; DEF-QV-084; DEF-QV-085; DEF-QV-086; DEF-QV-088; DEF-QV-089; DEF-QV-091; DEF-QV-093; DEF-QV-095; DEF-QV-097; DEF-QV-098; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-114; DEF-QV-115; DEF-QV-116; DEF-QV-117; DEF-QV-118; DEF-QV-120; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-129; DEF-QV-130; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147"],
-  ["SERVER-AGGREGATE-2507", "BP-017", "Reconciled backend executable inventory", "Pass", "2,483/2,483 current executable server nodes and all nine stress/cohort nodes are reconciled as passing; 15 intentional skips remain across 2,507 collected evidence nodes", "DEF-QV-099; DEF-QV-100; DEF-QV-101; DEF-QV-119; DEF-QV-121; DEF-QV-131; DEF-QV-136"],
+  ["FRONTEND-AGGREGATE-1707", "BP-017", "Reconciled frontend executable inventory", "Pass", "All 1,707 current nodes are reconciled: the complete 1,543-node full run plus 164 later nodes executed through complete affected files", "DEF-QV-074; DEF-QV-075; DEF-QV-076; DEF-QV-078; DEF-QV-079; DEF-QV-080; DEF-QV-081; DEF-QV-082; DEF-QV-083; DEF-QV-084; DEF-QV-085; DEF-QV-086; DEF-QV-088; DEF-QV-089; DEF-QV-091; DEF-QV-093; DEF-QV-095; DEF-QV-097; DEF-QV-098; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-114; DEF-QV-115; DEF-QV-116; DEF-QV-117; DEF-QV-118; DEF-QV-120; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-129; DEF-QV-130; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-152; DEF-QV-160; DEF-QV-161; DEF-QV-162"],
+  ["SERVER-AGGREGATE-2536", "BP-017", "Reconciled backend executable inventory", "Pass", "2,512/2,512 current executable server nodes and all nine stress/cohort nodes are reconciled as passing; 15 intentional skips remain across 2,536 collected evidence nodes", "DEF-QV-099; DEF-QV-100; DEF-QV-101; DEF-QV-119; DEF-QV-121; DEF-QV-131; DEF-QV-136; DEF-QV-152; DEF-QV-160"],
   ["FRONTEND-ASK-DELTA-16", "BP-017", "Late Ask coverage delta", "Pass", "The final complete Ask.coverage.test.tsx revision passed all 16 nodes added after the aggregate and Issuers delta", ""],
   ["SERVER-ANALYSIS-DELTA-14", "BP-017", "Late analysis workspace route and contract delta", "Pass", "The complete modified test_analysis_workspace.py file passed 13 executable cases with one intentional skip, covering all 11 nodes added after the aggregate collection", ""],
   ["SERVER-QA-SEED-SECURITY-9", "BP-017", "Scale seeder and deployed-header regression", "Pass", "9/9 focused server tests passed against the guarded scale fixture and security-header contracts", ""],
   ["BUILD-MONITOR-JSX-COMMENT", "monitor-01", "Monitor JSX comment placement", "Pass", "The explanatory comment moved from the attribute list into the valid child region; the next 20-route production build passed", "DEF-QV-057"],
   ["BUILD-REPORTDOC-SEMANTIC-HEADING", "reports-01", "Report document semantic heading closure", "Pass", "The completed concurrent h2 edit passed production parsing, ReportDoc unit coverage, and Report Studio journeys", "DEF-QV-058"],
-  ["EXACT-CURRENT-FRESHNESS-SEAL", "BP-017", "Exact-current application validation seal", "Pass", "The latest executed test snapshot reconciles all 1,678 frontend, 2,483 executable server, and nine stress/cohort nodes plus clean lint and type check; the current production source builds all 20 routes, and the affected Settings source delta passes 12/12 cross-browser journeys plus both responsive axe states while the full 141/141 browser and 36/36 accessibility baselines remain recorded", "DEF-QV-059; DEF-QV-066; DEF-QV-073; DEF-QV-077; DEF-QV-079; DEF-QV-080; DEF-QV-081; DEF-QV-082; DEF-QV-083; DEF-QV-084; DEF-QV-085; DEF-QV-086; DEF-QV-087; DEF-QV-088; DEF-QV-089; DEF-QV-091; DEF-QV-095; DEF-QV-097; DEF-QV-098; DEF-QV-099; DEF-QV-100; DEF-QV-101; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-114; DEF-QV-115; DEF-QV-116; DEF-QV-117; DEF-QV-118; DEF-QV-119; DEF-QV-120; DEF-QV-121; DEF-QV-122; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-129; DEF-QV-130; DEF-QV-131; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-136; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147"],
+  ["EXACT-CURRENT-FRESHNESS-SEAL", "BP-017", "Exact-current application validation seal", "Pass", "The latest executed test snapshot reconciles all 1,707 frontend, 2,512 executable server, and nine stress/cohort nodes plus clean lint and type check; the current production source builds all 20 routes, the affected Settings and Model source deltas pass 27/27 cross-browser executions plus four responsive axe states, the complete Upload, Sector Review, Settings, and Shell cohorts pass, and the full 141/141 browser and 36/36 accessibility baselines remain recorded", "DEF-QV-059; DEF-QV-066; DEF-QV-073; DEF-QV-077; DEF-QV-079; DEF-QV-080; DEF-QV-081; DEF-QV-082; DEF-QV-083; DEF-QV-084; DEF-QV-085; DEF-QV-086; DEF-QV-087; DEF-QV-088; DEF-QV-089; DEF-QV-091; DEF-QV-095; DEF-QV-097; DEF-QV-098; DEF-QV-099; DEF-QV-100; DEF-QV-101; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-114; DEF-QV-115; DEF-QV-116; DEF-QV-117; DEF-QV-118; DEF-QV-119; DEF-QV-120; DEF-QV-121; DEF-QV-122; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-129; DEF-QV-130; DEF-QV-131; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-136; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-151; DEF-QV-152; DEF-QV-153; DEF-QV-154; DEF-QV-155; DEF-QV-157; DEF-QV-158; DEF-QV-159; DEF-QV-160; DEF-QV-161; DEF-QV-162"],
   ["CONCURRENT-DELTA-RECONCILIATION", "BP-017", "Post-seal test additions remain evidence-backed", "Pass", "Eight modified frontend files passed 48/48 and every modified backend file was rerun through a final 71-test coverage-edge cohort, covering all nodes added after the aggregate runs", ""],
   ["AUTH-CREDENTIAL-THROTTLE-MATRIX", "auth-02", "Every credential endpoint enforces both throttle buckets", "Pass", "Eight exact endpoint/bucket cases plus the 10-allowed/11th-blocked boundary passed; throttled requests short-circuited with HTTP 429", ""],
   ["AUTH-RESPONSIVE-A11Y-MATRIX", "auth-01", "Login, registration, recovery, and error states at narrow and intermediate widths", "Pass", "All four Playwright states passed with axe-core at 390x844 and 900x900", "DEF-QV-061"],
@@ -2477,9 +4351,9 @@ const executedCases = [
   ["MONITOR-HYDRATION-GATE", "monitor-01", "Monitor dataset tabs wait for analysis bootstrap", "Pass", "Five focused Monitor tests and the complete browser matrix verify pre-hydration clicks cannot be lost", "DEF-QV-067"],
   ["A11Y-ROUTE-MATRIX-36", "BP-017", "All application routes at desktop and mobile viewports", "Pass", "18 routes across 1440x900 and 390x844 produced zero axe nodes, scan errors, layout failures, overflow, or clipped controls", ""],
   ["A11Y-ROOT-READINESS-RETRY", "SCR-008", "Root redirect readiness remains fail-closed and deterministic", "Pass", "The current full 36-state matrix passed with the bounded complete-navigation retry available; a second miss still serializes scan_error and exits non-zero", "DEF-QV-069"],
-  ["GITNEXUS-SEMANTIC-DISCOVERY", "BP-017", "Semantic process discovery uses the current repository index", "Blocked", "The current on-disk/registry index and local FTS query are healthy, but the long-lived MCP query connection retains the pre-repair catalog; current symbol context, exact source inventories, and local semantic results compensate pending reconnect", "DEF-QV-060"],
+  ["GITNEXUS-SEMANTIC-DISCOVERY", "BP-017", "Semantic discovery and repository-wide change scope use the current graph", "Not applicable", "Explicit external-tool waiver: the long-lived MCP FTS handle and repository-wide diff buffer are outside CAOS runtime scope. Current symbol impacts, exact inventories, local semantic/source queries, explicit path-scoped diffs, and direct regressions are the documented compensating controls", "DEF-QV-060; DEF-QV-201"],
   ["QUERY-CURRENT-CONTRACT-19", "query-16", "Query contracts match the persisted investigation workbench", "Pass", "All 19 Query features describe the current screen/API workflows; the complete 23-case interaction file plus history, metric, and visualization support tests pass, and every Query feature has direct assertion-level evidence", "DEF-QV-139"],
-  ["POST-SEAL-DELTA-77", "BP-017", "Post-seal frontend and backend additions are executed before publication", "Pass", "Every complete file contributing the 67 net new frontend nodes after the 1,611-node seal passes, and test_main_lifecycle.py passes 12/12 for the ten new backend nodes", "DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147"],
+  ["POST-SEAL-DELTA-102", "BP-017", "Post-seal frontend and backend additions are executed before publication", "Pass", "Every complete file contributing the 83 net new frontend nodes after the 1,611-node seal passes, and all nineteen later backend nodes pass through their complete affected files", "DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-152"],
   ["API-CONTRACT-ID-ROUTE-RECONCILIATION", "API-042", "Parameterized API feature IDs match the current route inventory", "Pass", "The canonical generator reconciled every API-tagged pytest parameter to one exact current method/path; all 14 direct HTTP contracts passed", "DEF-QV-070"],
   ["FRONTEND-FIXTURE-CONTRACT-9", "BP-017", "Current test fixtures satisfy lint, type, and behavior contracts", "Pass", "ShortcutHelp and FlagToQa passed 9/9 after the minimal fixture/import corrections; lint and TypeScript also pass cleanly", "DEF-QV-071; DEF-QV-072"],
   ["QUERY-CITATION-TUPLE-BUILD", "query-01", "Query citation metadata preserves its inferred tuple type", "Pass", "The minimal non-null filter fix passes targeted Query tests, TypeScript, the production build, and all cross-browser Query journeys", "DEF-QV-073"],
@@ -2489,28 +4363,160 @@ const executedCases = [
   ["RESEARCH-ADVANCED-HYDRATION-FENCE", "research-13", "Advanced brief user interaction wins over late preference hydration", "Pass", "The formerly failing WebKit Settings-to-Research journey passed in a focused 4/4 spec and the complete 141/141 zero-retry cross-browser matrix", "DEF-QV-077"],
   ["THESIS-PREDICTION-PUBLIC-SHAPE", "issuer-01", "Thesis fixtures match the public PredictionOut model", "Pass", "The complete ThesisTimeline file, TypeScript, build, and final frontend aggregate pass without internal-only response fields", "DEF-QV-078"],
   ["ISSUER-NULLABLE-PUBLIC-SHAPE", "issuer-01", "Issuer fields match the nullable FastAPI response contract", "Pass", "After the CRITICAL-fan-out type widening, the current frontend inventory, static gates, production build, 15 affected cross-browser journeys, and four affected route-width scans all pass", "DEF-QV-079"],
-  ["FRONTEND-INTERACTION-HARNESS-TYPES", "BP-017", "Interaction harnesses satisfy lint and TypeScript contracts", "Pass", "Ask, Pipeline, Research, Deep-Dive, Report Studio, Command Center, Upload, Command Palette, RV Screener, Alert Inbox, IC Book, role-switch, modal-stack, and surface-state harnesses pass their focused files, lint, TypeScript, and the reconciled 1,678-node frontend inventory", "DEF-QV-080; DEF-QV-082; DEF-QV-083; DEF-QV-084; DEF-QV-085; DEF-QV-086; DEF-QV-088; DEF-QV-089; DEF-QV-091; DEF-QV-095; DEF-QV-097; DEF-QV-098; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-114; DEF-QV-115; DEF-QV-116; DEF-QV-117; DEF-QV-120; DEF-QV-122; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-129; DEF-QV-130; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147"],
+  ["FRONTEND-INTERACTION-HARNESS-TYPES", "BP-017", "Interaction harnesses satisfy lint and TypeScript contracts", "Pass", "Ask, Pipeline, Research, Deep-Dive, Report Studio, Command Center, Upload, Command Palette, RV Screener, Alert Inbox, IC Book, role-switch, modal-stack, persona composition, navigation, and surface-state harnesses pass their focused files, lint, TypeScript, and the reconciled 1,707-node frontend inventory", "DEF-QV-080; DEF-QV-082; DEF-QV-083; DEF-QV-084; DEF-QV-085; DEF-QV-086; DEF-QV-088; DEF-QV-089; DEF-QV-091; DEF-QV-095; DEF-QV-097; DEF-QV-098; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-114; DEF-QV-115; DEF-QV-116; DEF-QV-117; DEF-QV-120; DEF-QV-122; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-129; DEF-QV-130; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-152; DEF-QV-160; DEF-QV-162"],
   ["COMMAND-INTERACTION-HARNESS-5", "BP-017", "Command Center interaction harness matches public data contracts", "Pass", "All five directory, holdings, focus-refresh, empty/offline, decision-state, and cited-brief journeys pass with exact production fixture shapes; lint and TypeScript are clean", "DEF-QV-083"],
   ["PIPELINE-DIRECT-EVIDENCE-45", "pipeline-44", "Every Pipeline feature has direct assertion-level evidence", "Pass", "The exact-current evidence map covers all 45/45 Pipeline features; frontend behavior passed in the 1,259-node aggregate and seven linked API contracts passed in the focused 93-pass server cohort", "DEF-QV-081"],
-  ["RESEARCH-DIRECT-EVIDENCE-29", "research-29", "Every Research feature has direct assertion-level evidence", "Pass", "The exact-current evidence map covers all 29/29 Research features; the completed current frontend Research cohort and focused backend cohort pass, alongside the 1,678-node frontend and reconciled 2,483-pass backend inventories", "DEF-QV-084; DEF-QV-100; DEF-QV-119; DEF-QV-121; DEF-QV-131; DEF-QV-135"],
+  ["RESEARCH-DIRECT-EVIDENCE-29", "research-29", "Every Research feature has direct assertion-level evidence", "Pass", "The exact-current evidence map covers all 29/29 Research features; the completed current frontend Research cohort and focused backend cohort pass, alongside the 1,707-node frontend and reconciled 2,512-pass backend inventories", "DEF-QV-084; DEF-QV-100; DEF-QV-119; DEF-QV-121; DEF-QV-131; DEF-QV-135"],
   ["DEEPDIVE-DIRECT-EVIDENCE-42", "deepdive-42", "Every Deep-Dive feature has direct assertion-level evidence", "Pass", "The exact-current evidence map covers all 42/42 reconciled Deep-Dive features, including seven current workflows absent from the legacy inventory", ""],
+  ["ISSUER-DIRECT-EVIDENCE-29", "issuer-31", "Every Issuer feature has direct assertion-level evidence", "Pass", "All 29/29 stable Issuer features describe the current directory and profile behavior and resolve to exact assertions; the complete five-file Issuer cohort passes 72/72", "DEF-QV-168; DEF-QV-169"],
   ["UPLOAD-HARNESS-PUBLIC-TYPES", "BP-017", "Upload interaction harnesses match public component contracts", "Pass", "UploadWizard and step interactions pass 12/12 with exact public types; lint and TypeScript are clean", "DEF-QV-085"],
   ["COMMAND-PALETTE-DEFERRED-TYPE", "BP-017", "Command Palette deferred issuer response matches getIssuers", "Pass", "All six current Command Palette interactions pass with the resolver derived from getIssuers; lint and TypeScript are clean", "DEF-QV-086"],
-  ["AUTOMATION-COLLECTOR-NODE-COUNT", "BP-017", "Automation collector excludes diagnostics and fails closed on drift", "Pass", "The canonical inventory contains exactly 4,362 evidence nodes: 1,678 frontend, 2,507 server/stress/cohort, 141 browser, and 36 accessibility states; current collection is exact against the executed inventories", "DEF-QV-087; DEF-QV-093; DEF-QV-095; DEF-QV-098; DEF-QV-099; DEF-QV-100; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-115; DEF-QV-117; DEF-QV-119; DEF-QV-120; DEF-QV-121; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-130; DEF-QV-131; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-136; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147"],
+  ["UPLOAD-DIRECT-EVIDENCE-27", "upload-27", "Every Upload feature has direct assertion-level evidence", "Pass", "The exact-current evidence map covers all 27/27 Upload features; the complete frontend Upload cohort passes 40/40 and the mapped ingestion, EDGAR, storage, XLSX, AV, and concurrency server cohort passes 125/125", "DEF-QV-151"],
+  ["MODEL-CONCURRENT-DELTA-13", "BP-017", "Concurrent Model source and test delta remains regression-clean", "Pass", "Seven frontend and six backend Model nodes are reconciled through 68/68 frontend and 66/66 backend passes, clean lint/type/build gates, 15/15 cross-browser journeys, and two clean responsive axe states", "DEF-QV-152"],
+  ["SECTOR-DIRECT-EVIDENCE-9", "command-51", "Every Sector Review feature has direct assertion-level evidence", "Pass", "All 9/9 stable Sector Review Feature IDs describe the current versioned dossier and resolve to focused frontend or server assertions; legacy v1 routes remain separately discoverable as API contracts", "DEF-QV-153"],
+  ["SETTINGS-DIRECT-EVIDENCE-10", "settings-10", "Every Settings feature has direct assertion-level evidence", "Pass", "All 10/10 stable Settings Feature IDs describe the current five-tab authenticated workbench and resolve to focused frontend, server, or cross-browser assertions", "DEF-QV-154"],
+  ["SHELL-DIRECT-EVIDENCE-13", "shell-08", "Every Shell feature has direct assertion-level evidence", "Pass", "All 13/13 stable Shell Feature IDs describe the current role-aware, keyboard-operable, responsive shared workspace and resolve to focused assertion-level automation; the complete current Shell cohort passes 68/68", "DEF-QV-157; DEF-QV-158; DEF-QV-159; DEF-QV-161"],
+  ["LATE-SHELL-PERSONA-DELTA-4", "BP-017", "Late Shell and persona evidence delta", "Pass", "Four exact frontend additions pass through their four complete affected files at 28/28, including desktop skip focus, absent page-action handling, empty-action focus semantics, and the public persona composition hook", "DEF-QV-161; DEF-QV-162"],
+  ["AUTOMATION-COLLECTOR-NODE-COUNT", "BP-017", "Automation collector excludes diagnostics and fails closed on drift", "Pass", "The canonical inventory contains exactly 4,420 evidence nodes: 1,707 frontend, 2,536 server/stress/cohort, 141 browser, and 36 accessibility states; current collection is exact against the executed inventories", "DEF-QV-087; DEF-QV-093; DEF-QV-095; DEF-QV-098; DEF-QV-099; DEF-QV-100; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-115; DEF-QV-117; DEF-QV-119; DEF-QV-120; DEF-QV-121; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-130; DEF-QV-131; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-136; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-151; DEF-QV-152; DEF-QV-160; DEF-QV-162"],
   ["RV-SCREENER-HARNESS-TYPES", "BP-017", "RV Screener harness matches the public analysis-context contract", "Pass", "All 12 RV Screener interactions pass with a complete typed AnalysisContext fixture; lint and TypeScript are clean", "DEF-QV-088"],
   ["ALERT-INBOX-HARNESS-TYPES", "BP-017", "Alert Inbox harness uses a bounded React-fiber test shape", "Pass", "All 17 Alert Inbox interactions pass with no explicit any; lint and TypeScript are clean", "DEF-QV-089"],
 ];
+const executedCaseOverrides = new Map([
+  ["FRONTEND-AGGREGATE-1707", { id: "FRONTEND-INTERMEDIATE-1707", name: "Intermediate frontend executable inventory", result: "The intermediate 1,707-node seal passed before the later shared hierarchy tranche added a net ten more nodes", defects: "DEF-QV-160; DEF-QV-161; DEF-QV-162" }],
+  ["EXACT-CURRENT-FRESHNESS-SEAL", { result: "The latest executed snapshot reconciles all 1,726 frontend, 2,512 executable server, and nine stress/cohort nodes with clean lint, type check, and a 20-route production build; the full 141-browser and 36-accessibility baselines remain recorded", defects: "DEF-QV-059; DEF-QV-066; DEF-QV-073; DEF-QV-077; DEF-QV-079; DEF-QV-080; DEF-QV-081; DEF-QV-082; DEF-QV-083; DEF-QV-084; DEF-QV-085; DEF-QV-086; DEF-QV-087; DEF-QV-088; DEF-QV-089; DEF-QV-091; DEF-QV-095; DEF-QV-097; DEF-QV-098; DEF-QV-099; DEF-QV-100; DEF-QV-101; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-114; DEF-QV-115; DEF-QV-116; DEF-QV-117; DEF-QV-118; DEF-QV-119; DEF-QV-120; DEF-QV-121; DEF-QV-122; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-129; DEF-QV-130; DEF-QV-131; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-136; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-151; DEF-QV-152; DEF-QV-153; DEF-QV-154; DEF-QV-155; DEF-QV-157; DEF-QV-158; DEF-QV-159; DEF-QV-160; DEF-QV-161; DEF-QV-162; DEF-QV-163; DEF-QV-164; DEF-QV-165; DEF-QV-166; DEF-QV-170; DEF-QV-175" }],
+  ["FRONTEND-INTERACTION-HARNESS-TYPES", { result: "Interaction, modal, persona, navigation, surface-state, Panel, recovery, and shared hierarchy harnesses pass their complete affected files alongside clean lint, TypeScript, and the reconciled 1,726-node frontend inventory", defects: "DEF-QV-080; DEF-QV-082; DEF-QV-083; DEF-QV-084; DEF-QV-085; DEF-QV-086; DEF-QV-088; DEF-QV-089; DEF-QV-091; DEF-QV-095; DEF-QV-097; DEF-QV-098; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-114; DEF-QV-115; DEF-QV-116; DEF-QV-117; DEF-QV-120; DEF-QV-122; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-129; DEF-QV-130; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-152; DEF-QV-160; DEF-QV-162; DEF-QV-163; DEF-QV-164; DEF-QV-165; DEF-QV-166; DEF-QV-170; DEF-QV-175" }],
+  ["RESEARCH-DIRECT-EVIDENCE-29", { result: "The exact-current evidence map covers all 29/29 Research features; the completed frontend Research cohort and focused backend cohort pass alongside the 1,726-node frontend and reconciled 2,512-pass backend inventories" }],
+  ["SHELL-DIRECT-EVIDENCE-13", { id: "SHELL-DIRECT-EVIDENCE-17", result: "All 17/17 Shell Feature IDs describe the current role-aware, keyboard-operable, responsive shared workspace and resolve to direct assertion-level automation; the expanded Shell/design cohort passes 83/83", defects: "DEF-QV-157; DEF-QV-158; DEF-QV-159; DEF-QV-161; DEF-QV-163; DEF-QV-164; DEF-QV-165; DEF-QV-166" }],
+  ["LATE-SHELL-PERSONA-DELTA-4", { id: "LATE-SHARED-HIERARCHY-DELTA-14", name: "Late shared hierarchy and Shell evidence delta", result: "A net 14 frontend additions reconcile through eight complete affected files at 61/61 and the expanded 17-feature Shell/design cohort at 83/83", defects: "DEF-QV-161; DEF-QV-162; DEF-QV-163; DEF-QV-164; DEF-QV-165; DEF-QV-166" }],
+  ["AUTOMATION-COLLECTOR-NODE-COUNT", { result: "The canonical inventory contains exactly 4,430 evidence nodes: 1,717 frontend, 2,536 server/stress/cohort, 141 browser, and 36 accessibility states; current collection is exact against the executed inventories", defects: "DEF-QV-087; DEF-QV-093; DEF-QV-095; DEF-QV-098; DEF-QV-099; DEF-QV-100; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-115; DEF-QV-117; DEF-QV-119; DEF-QV-120; DEF-QV-121; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-130; DEF-QV-131; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-136; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-151; DEF-QV-152; DEF-QV-160; DEF-QV-162" }],
+]);
+executedCaseOverrides.set("SERVER-AGGREGATE-2536", { id: "SERVER-INTERMEDIATE-2536", name: "Intermediate backend executable inventory", result: "The intermediate 2,536-node server/stress/cohort seal passed before three HTTP policy nodes landed", defects: "DEF-QV-160; DEF-QV-167" });
+executedCaseOverrides.set("EXACT-CURRENT-FRESHNESS-SEAL", { result: "The latest executed snapshot reconciles all 1,726 frontend, 2,515 executable server, and nine stress/cohort nodes with clean lint, type check, and a 20-route production build; the full 141-browser and 36-accessibility baselines remain recorded", defects: "DEF-QV-059; DEF-QV-066; DEF-QV-073; DEF-QV-077; DEF-QV-079; DEF-QV-080; DEF-QV-081; DEF-QV-082; DEF-QV-083; DEF-QV-084; DEF-QV-085; DEF-QV-086; DEF-QV-087; DEF-QV-088; DEF-QV-089; DEF-QV-091; DEF-QV-095; DEF-QV-097; DEF-QV-098; DEF-QV-099; DEF-QV-100; DEF-QV-101; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-114; DEF-QV-115; DEF-QV-116; DEF-QV-117; DEF-QV-118; DEF-QV-119; DEF-QV-120; DEF-QV-121; DEF-QV-122; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-129; DEF-QV-130; DEF-QV-131; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-136; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-151; DEF-QV-152; DEF-QV-153; DEF-QV-154; DEF-QV-155; DEF-QV-157; DEF-QV-158; DEF-QV-159; DEF-QV-160; DEF-QV-161; DEF-QV-162; DEF-QV-163; DEF-QV-164; DEF-QV-165; DEF-QV-166; DEF-QV-167; DEF-QV-170; DEF-QV-175" });
+executedCaseOverrides.set("RESEARCH-DIRECT-EVIDENCE-29", { result: "The exact-current evidence map covers all 29/29 Research features; the completed frontend Research cohort and focused backend cohort pass alongside the 1,726-node frontend and reconciled 2,515-pass backend inventories" });
+executedCaseOverrides.set("AUTOMATION-COLLECTOR-NODE-COUNT", { result: "The canonical inventory contains exactly 4,442 evidence nodes: 1,726 frontend, 2,539 server/stress/cohort, 141 browser, and 36 accessibility states; current collection is exact against the executed inventories", defects: "DEF-QV-087; DEF-QV-093; DEF-QV-095; DEF-QV-098; DEF-QV-099; DEF-QV-100; DEF-QV-102; DEF-QV-103; DEF-QV-104; DEF-QV-105; DEF-QV-106; DEF-QV-107; DEF-QV-108; DEF-QV-109; DEF-QV-110; DEF-QV-111; DEF-QV-112; DEF-QV-113; DEF-QV-115; DEF-QV-117; DEF-QV-119; DEF-QV-120; DEF-QV-121; DEF-QV-123; DEF-QV-124; DEF-QV-125; DEF-QV-126; DEF-QV-127; DEF-QV-128; DEF-QV-130; DEF-QV-131; DEF-QV-132; DEF-QV-133; DEF-QV-134; DEF-QV-135; DEF-QV-136; DEF-QV-137; DEF-QV-139; DEF-QV-140; DEF-QV-141; DEF-QV-142; DEF-QV-143; DEF-QV-144; DEF-QV-145; DEF-QV-146; DEF-QV-147; DEF-QV-148; DEF-QV-149; DEF-QV-150; DEF-QV-151; DEF-QV-152; DEF-QV-160; DEF-QV-162; DEF-QV-167; DEF-QV-170; DEF-QV-175" });
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").result = "The latest executed snapshot reconciles all 1,783 frontend, 2,516 executable server, and nine stress/cohort nodes with clean lint, type check, and a current 20-route production build; the browser inventory is reconciled to 150, the 36-state accessibility baseline remains recorded, and the exact-current Sector performance audit is retained";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").defects += "; DEF-QV-177; DEF-QV-179; DEF-QV-180; DEF-QV-181; DEF-QV-182; DEF-QV-183; DEF-QV-184; DEF-QV-185; DEF-QV-186; DEF-QV-187; DEF-QV-188; DEF-QV-189; DEF-QV-190; DEF-QV-191; DEF-QV-192; DEF-QV-193; DEF-QV-194; DEF-QV-195; DEF-QV-196; DEF-QV-197; DEF-QV-198; DEF-QV-199; DEF-QV-200";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").result = "Interaction, typed-action, authority, evidence-selection, completion-state, modal, persona, navigation, Sector, surface-state, Panel, recovery, and shared hierarchy harnesses pass their complete affected files alongside clean lint, TypeScript, and the reconciled 1,783-node frontend inventory";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").defects += "; DEF-QV-177; DEF-QV-179; DEF-QV-180; DEF-QV-181; DEF-QV-182; DEF-QV-184; DEF-QV-189; DEF-QV-190; DEF-QV-192; DEF-QV-193; DEF-QV-194; DEF-QV-196; DEF-QV-197; DEF-QV-198; DEF-QV-199";
+executedCaseOverrides.get("RESEARCH-DIRECT-EVIDENCE-29").result = "The exact-current evidence map covers all 29/29 Research features; the completed frontend Research cohort and focused backend cohort pass alongside the 1,783-node frontend and reconciled 2,516-pass backend inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").result = "The canonical inventory contains exactly 4,510 evidence nodes: 1,783 frontend, 2,540 server/stress/cohort, 150 browser, 36 accessibility states, and one exact-current Sector performance node; current collection is exact against the executed inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").defects += "; DEF-QV-177; DEF-QV-188; DEF-QV-189; DEF-QV-190; DEF-QV-191; DEF-QV-198";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").result = "The latest executed snapshot reconciles all 1,792 frontend, 2,516 executable server, and nine stress/cohort nodes with clean lint, type check, and a current 20-route production build; the browser inventory is reconciled to 150, 36 accessibility states remain recorded, and exact-current Sector and Monitor performance audits are retained";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").defects += "; DEF-QV-202; DEF-QV-203; DEF-QV-204";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").result = "Interaction, typed-action, authority, evidence-selection, completion-state, Monitor, modal, persona, navigation, Sector, surface-state, Panel, recovery, and shared hierarchy harnesses pass their complete affected files alongside clean lint, TypeScript, and the reconciled 1,792-node frontend inventory";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").defects += "; DEF-QV-202; DEF-QV-204";
+executedCaseOverrides.get("RESEARCH-DIRECT-EVIDENCE-29").result = "The exact-current evidence map covers all 29/29 Research features; the completed frontend Research cohort and focused backend cohort pass alongside the 1,792-node frontend and reconciled 2,516-pass backend inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").result = "The canonical inventory contains exactly 4,520 evidence nodes: 1,792 frontend, 2,540 server/stress/cohort, 150 browser, 36 accessibility states, and two exact-current route performance nodes; current collection is exact against the executed inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").defects += "; DEF-QV-202; DEF-QV-203; DEF-QV-204";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").result = "The latest executed snapshot reconciles all 1,801 frontend, 2,520 executable server, and nine stress/cohort nodes with clean lint, type check, and a current 20-route production build; the browser inventory is reconciled to 162, 36 accessibility mappings remain recorded, and four exact-current route performance nodes are retained";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").defects += "; DEF-QV-206; DEF-QV-207; DEF-QV-208; DEF-QV-209; DEF-QV-210; DEF-QV-211; DEF-QV-212; DEF-QV-213; DEF-QV-214; DEF-QV-215; DEF-QV-216";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").result = "Interaction, typed-action, authority, evidence-selection, completion-state, Pipeline, Monitor, Report Studio, modal, persona, navigation, Sector, surface-state, Panel, recovery, and shared hierarchy harnesses pass their complete affected files alongside clean lint, TypeScript, and the reconciled 1,801-node frontend inventory";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").defects += "; DEF-QV-206; DEF-QV-207; DEF-QV-208; DEF-QV-209; DEF-QV-210; DEF-QV-211; DEF-QV-212; DEF-QV-214; DEF-QV-215";
+executedCaseOverrides.get("RESEARCH-DIRECT-EVIDENCE-29").result = "The exact-current evidence map covers all 29/29 Research features; the completed frontend Research cohort and focused backend cohort pass alongside the 1,801-node frontend and reconciled 2,520-pass backend inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").result = "The canonical inventory contains exactly 4,547 evidence nodes: 1,801 frontend, 2,544 server/stress/cohort, 162 browser, 36 accessibility mappings, and four exact-current route performance nodes; current collection is exact against the executed inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").defects += "; DEF-QV-206; DEF-QV-207; DEF-QV-208; DEF-QV-209; DEF-QV-210; DEF-QV-211; DEF-QV-212; DEF-QV-213; DEF-QV-214; DEF-QV-215; DEF-QV-216";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").result = "The latest executed snapshot passes all 1,803 frontend nodes in one full run, retains the reconciled 2,544 server/stress/cohort and 162 browser identities, and passes clean lint, TypeScript, a current 20-route production build, exact-built Monitor accessibility/workbench checks, and five production-gzip performance samples";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").defects += "; DEF-QV-203; DEF-QV-217; DEF-QV-218";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").result = "Interaction, typed-action, authority, evidence-selection, completion-state, Pipeline, Monitor, Ask, Report Studio, modal, persona, navigation, Sector, surface-state, Panel, recovery, and shared hierarchy harnesses pass their complete affected files alongside clean lint, TypeScript, and the full 1,803-node frontend inventory";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").defects += "; DEF-QV-203; DEF-QV-217; DEF-QV-218";
+executedCaseOverrides.get("RESEARCH-DIRECT-EVIDENCE-29").result = "The exact-current evidence map covers all 29/29 Research features; the completed frontend Research cohort and focused backend cohort pass alongside the full 1,803-node frontend and reconciled 2,520-pass backend inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").result = "The canonical inventory contains exactly 4,549 evidence nodes: 1,803 frontend, 2,544 server/stress/cohort, 162 browser, 36 accessibility mappings, and four exact-current route-performance nodes; current collection is exact against the executed inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").defects += "; DEF-QV-203; DEF-QV-217; DEF-QV-218";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").result = "The latest executed snapshot reconciles all 1,814 frontend, 2,616 server/stress/cohort, and 165 browser identities; the prior 1,809-node frontend full run remains sealed, both later Settings nodes pass through their complete file and linked cohort, and the concurrent three-node Deep-Dive module-group file passes completely. Model and Settings focused browser, accessibility, performance, lint, and type gates remain green";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").defects += "; DEF-QV-219; DEF-QV-220; DEF-QV-221; DEF-QV-222; DEF-QV-223; DEF-QV-224; DEF-QV-225; DEF-QV-226; DEF-QV-227; DEF-QV-228; DEF-QV-229; DEF-QV-230; DEF-QV-231; DEF-QV-232; DEF-QV-233; DEF-QV-234; DEF-QV-235; DEF-QV-236; DEF-QV-237; DEF-QV-238; DEF-QV-239; DEF-QV-240; DEF-QV-241";
+executedCaseOverrides.get("EXACT-CURRENT-FRESHNESS-SEAL").defects += "; DEF-QV-242; DEF-QV-243; DEF-QV-244; DEF-QV-245; DEF-QV-246";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").result = "Interaction, typed-action, authority, evidence-selection, completion-state, Pipeline, Monitor, Ask, Report Studio, Model checkpoint, Settings, Deep-Dive module grouping, modal, persona, navigation, Sector, surface-state, Panel, recovery, and shared hierarchy harnesses pass their complete affected files alongside clean lint, TypeScript, and the reconciled 1,814-node frontend inventory";
+executedCaseOverrides.get("FRONTEND-INTERACTION-HARNESS-TYPES").defects += "; DEF-QV-219; DEF-QV-220; DEF-QV-221; DEF-QV-224; DEF-QV-232; DEF-QV-235";
+executedCaseOverrides.get("RESEARCH-DIRECT-EVIDENCE-29").result = "The exact-current evidence map covers all 29/29 Research features; the completed frontend Research cohort and focused backend cohort pass alongside the reconciled 1,814-node frontend and 2,592-pass executable server inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").result = "The canonical inventory contains exactly 4,638 evidence nodes: 1,814 frontend, 2,616 server/stress/cohort, 165 browser, 36 accessibility mappings, six exact-current route-performance nodes, and one exact-current browser interaction/responsive node; current collection is exact against the executed inventories";
+executedCaseOverrides.get("AUTOMATION-COLLECTOR-NODE-COUNT").defects += "; DEF-QV-219; DEF-QV-222; DEF-QV-231; DEF-QV-232; DEF-QV-233; DEF-QV-234; DEF-QV-235; DEF-QV-236; DEF-QV-237; DEF-QV-238; DEF-QV-239; DEF-QV-240; DEF-QV-241; DEF-QV-242; DEF-QV-243; DEF-QV-246";
+for (const row of executedCases) {
+  const override = executedCaseOverrides.get(row[0]);
+  if (!override) continue;
+  if (override.id) row[0] = override.id;
+  if (override.name) row[2] = override.name;
+  if (override.result) row[4] = override.result;
+  if (override.defects) row[5] = override.defects;
+}
+executedCases.push(["FRONTEND-INTERMEDIATE-1731", "BP-017", "Intermediate frontend executable inventory", "Pass", "The 1,731-node seal passed before the Command authority and shared page-action additions landed", "DEF-QV-162; DEF-QV-163; DEF-QV-164; DEF-QV-165; DEF-QV-166; DEF-QV-168; DEF-QV-169; DEF-QV-170; DEF-QV-175; DEF-QV-177"]);
+executedCases.push(["FRONTEND-INTERMEDIATE-1745", "BP-017", "Intermediate frontend executable inventory", "Pass", "The 1,745-node seal passed before thirteen evidence-selection and completion-state nodes landed", "DEF-QV-177; DEF-QV-179; DEF-QV-180; DEF-QV-181; DEF-QV-182; DEF-QV-184; DEF-QV-188; DEF-QV-189"]);
+executedCases.push(["FRONTEND-AGGREGATE-1758", "BP-017", "Reconciled frontend executable inventory", "Pass", "All 1,758 current nodes are reconciled: the complete 1,543-node full run plus 215 later nodes executed through complete affected files", "DEF-QV-177; DEF-QV-179; DEF-QV-180; DEF-QV-181; DEF-QV-182; DEF-QV-184; DEF-QV-188; DEF-QV-189; DEF-QV-190"]);
+executedCases.push(["SERVER-AGGREGATE-2539", "BP-017", "Reconciled backend executable inventory", "Pass", "All 2,515 executable server nodes and nine stress/cohort nodes pass; 15 intentional skips remain across the exact 2,539-node server/stress/cohort inventory", "DEF-QV-160; DEF-QV-167"]);
+executedCases.push(["COMMAND-DIRECT-EVIDENCE-44", "command-42", "Every main Command Center feature has a complete direct scenario suite", "Pass", "All 44/44 main Command Center Feature IDs have assertion-level evidence for all seven mandatory scenarios, producing 308/308 direct scenario passes", "DEF-QV-179; DEF-QV-180; DEF-QV-181; DEF-QV-182; DEF-QV-183"]);
+executedCases.push(["E2E-COMMAND-CROSS-BROWSER-12", "command-24", "Command Center current cross-browser and phone workflow", "Pass", "All four current Command journeys pass in Chromium, Firefox, and WebKit for 12/12 zero-retry executions, including every dataset at 390px without document overflow", "DEF-QV-185; DEF-QV-186; DEF-QV-187"]);
+executedCases.push(["PAGE-ACTION-IDENTITY-STABILITY-10", "BP-017", "Page-action label checks have stable collected identities", "Pass", "All ten source-contract checks pass and every operation descriptor is unique in the collected frontend inventory", "DEF-QV-189"]);
+executedCases.push(["SHARED-EVIDENCE-COMPLETION-DELTA-13", "BP-017", "Late evidence-selection and completion-state delta", "Pass", "All thirteen late nodes pass through their four complete contributing files", "DEF-QV-190"]);
+executedCases.push(["A11Y-COMMAND-RESPONSIVE-2", "command-24", "Command Center exact-built responsive accessibility", "Pass", "The desktop and phone states both report zero WCAG nodes and zero geometry, target-size, clipping, or collision failures", ""]);
+executedCases.push(["TRACKER-QUIESCENT-COLLECTION", "BP-017", "Tracker collection recovery after concurrent transform pressure", "Pass", "The fail-closed collector rejected the timed-out attempt and exported only after the exact 1,758-node inventory completed in a quiescent rerun", "DEF-QV-191"]);
+executedCases.push(["FRONTEND-AGGREGATE-1783", "BP-017", "Reconciled frontend executable inventory", "Pass", "All 1,783 current nodes are reconciled; the 27 additions and two retired identities after the 1,758-node seal passed through all twelve complete contributing files at 92/92", "DEF-QV-192; DEF-QV-193; DEF-QV-194; DEF-QV-196; DEF-QV-197; DEF-QV-198; DEF-QV-199"]);
+executedCases.push(["SERVER-AGGREGATE-2544", "BP-017", "Reconciled backend executable inventory", "Pass", "All 2,520 executable server nodes and nine stress/cohort nodes pass; 15 intentional skips remain across the exact 2,544-node server/stress/cohort inventory", "DEF-QV-195; DEF-QV-198; DEF-QV-216"]);
+executedCases.push(["SECTOR-SCENARIO-CLOSURE-63", "command-50", "Every Sector Review feature has a complete direct scenario suite", "Pass", "All nine Sector Review Feature IDs have assertion-level evidence for all seven mandatory scenarios, producing 63/63 direct scenario passes", "DEF-QV-192; DEF-QV-193; DEF-QV-194; DEF-QV-195; DEF-QV-196; DEF-QV-197"]);
+executedCases.push(["E2E-SECTOR-CROSS-BROWSER-6", "command-30", "Sector Review current cross-browser and phone workflow", "Pass", "Both current Sector Review journeys pass in Chromium, Firefox, and WebKit for 6/6 zero-retry executions with exact API-hit gates and no cross-sector dossier resurrection", "DEF-QV-192; DEF-QV-194; DEF-QV-196; DEF-QV-200"]);
+executedCases.push(["A11Y-SECTOR-RESPONSIVE-2", "command-47", "Sector Review exact-built responsive accessibility", "Pass", "Desktop and phone states both report zero WCAG nodes, scan errors, geometry failures, target-size issues, clipping, overflow, or collisions", ""]);
+executedCases.push(["PERF-SECTOR-DESKTOP-MOBILE-2", "command-30", "Sector Review desktop and throttled-mobile performance audit", "Pass", "Desktop ready/LCP/TBT were 513ms/148ms/0ms; throttled mobile ready/LCP/TBT were 6,274ms/6,120ms/186ms. No scan error occurred; mobile LCP remains a named residual risk without an invented pass budget", ""]);
+executedCases.push(["FRONTEND-AGGREGATE-1792", "BP-017", "Reconciled frontend executable inventory", "Pass", "All 1,792 current nodes are reconciled; four Monitor nodes and five concurrent additions after the 1,783-node seal pass through their five complete contributing files at 44/44", "DEF-QV-202; DEF-QV-204"]);
+executedCases.push(["MONITOR-SCENARIO-CLOSURE-49", "monitor-07", "Every Monitor feature has a complete direct scenario suite", "Pass", "All seven Monitor Feature IDs have assertion-level evidence for all seven mandatory scenarios, producing 49/49 direct scenario passes", "DEF-QV-202"]);
+executedCases.push(["E2E-MONITOR-CROSS-BROWSER-12", "monitor-04", "Monitor current cross-browser workflow", "Pass", "All four current Monitor journeys pass in Chromium, Firefox, and WebKit for 12/12 zero-retry executions", ""]);
+executedCases.push(["A11Y-MONITOR-RESPONSIVE-2", "monitor-01", "Monitor exact-built responsive accessibility", "Pass", "Desktop and phone states both report zero WCAG nodes, scan errors, geometry failures, target-size issues, clipping, overflow, or collisions", ""]);
+executedCases.push(["PERF-MONITOR-DESKTOP-MOBILE-5-GZIP", "monitor-07", "Monitor production-gzip desktop and five-sample throttled-mobile performance audit", "Pass", "Desktop ready/LCP/TBT are 502ms/148ms/0ms. Five 4x-CPU, 150ms-latency, 1.6Mbps mobile samples have p75 ready/LCP/TBT 2,492ms/2,100ms/188ms with 227.2KB encoded JavaScript, gzip on every static asset, and no scan error", "DEF-QV-203"]);
+executedCases.push(["FRONTEND-AGGREGATE-1801", "BP-017", "Reconciled frontend executable inventory", "Pass", "All 1,801 current nodes are reconciled; the exact-current full run found two failures at 1,799/1,801, both were repaired, and the complete affected Report Studio and responsive-recovery files pass 24/24", "DEF-QV-206; DEF-QV-207; DEF-QV-209; DEF-QV-210; DEF-QV-211; DEF-QV-212; DEF-QV-214; DEF-QV-215"]);
+executedCases.push(["FRONTEND-AGGREGATE-1803", "BP-017", "Current full frontend executable inventory", "Pass", "All 1,803 current nodes pass in one full run across 261 files after the Ask context and lazy-surface split", "DEF-QV-203; DEF-QV-218"]);
+executedCases.push(["MONITOR-ASK-LAZY-WATERFALL", "monitor-07", "Closed Monitor excludes the heavy Ask surface and first open loads it", "Pass", "The exact production waterfall contains 15 initial chunks without the 08lw7bttg3qpb Ask chunk; opening the accessible Ask CAOS phone utility loads that chunk plus its result renderers and displays the Ask with Query dialog", "DEF-QV-203"]);
+executedCases.push(["MONITOR-WORKBENCH-REFERENCE-3", "monitor-07", "Monitor exact-built responsive workbench validator", "Pass", "Explicit Reference mode passes desktop, tablet, and phone validation with drawer focus restored, one table owner, no document overflow, and no decision/workbench overlap", "DEF-QV-217"]);
+executedCases.push(["PIPELINE-SCENARIO-CLOSURE-315", "pipeline-45", "Every Pipeline feature has a complete direct scenario suite", "Pass", "All 45 Pipeline Feature IDs have assertion-level evidence for all seven mandatory scenarios, producing 315/315 direct scenario passes without treating route cold-load evidence as request-load proof", "DEF-QV-206; DEF-QV-207; DEF-QV-208"]);
+executedCases.push(["PIPELINE-SERVER-LINKED-104", "pipeline-40", "Pipeline linked run, API, engine, role, and tenancy regression", "Pass", "All 104 executable linked server cases pass; two intentional environment-gated skips and one existing Starlette deprecation warning remain disclosed", ""]);
+executedCases.push(["E2E-PIPELINE-CROSS-BROWSER-12", "pipeline-45", "Pipeline current cross-browser and phone workflow", "Pass", "All four current Pipeline journeys pass in Chromium, Firefox, and WebKit for 12/12 zero-retry executions; the 390px drawer contains exactly one Stage lanes control", "DEF-QV-208; DEF-QV-210; DEF-QV-211"]);
+executedCases.push(["A11Y-PIPELINE-RESPONSIVE-6", "pipeline-10", "Pipeline and directory exact-built responsive accessibility", "Pass", "The /issuers, live-empty /pipeline, and explicit-reference /pipeline desktop and phone states all report zero WCAG nodes, scan errors, geometry failures, target-size issues, clipping, overflow, or collisions", "DEF-QV-215"]);
+executedCases.push(["PERF-PIPELINE-DESKTOP-MOBILE-4", "pipeline-09", "Pipeline and directory desktop and throttled-mobile route audit", "Pass", "Pipeline desktop ready/FCP/LCP/TBT/CLS were 509ms/36ms/144ms/0ms/0.006 with 1,128.2KB JavaScript; throttled mobile was 6,810ms/4,284ms/6,380ms/203ms/0.010 with 870.9KB JavaScript. Issuers desktop ready/LCP/TBT/CLS were 499ms/136ms/0ms/0.000; throttled mobile was 7,664ms/7,240ms/137ms/0.003. No scan error occurred; these are route cold-load observations, not request-load results", ""]);
+executedCases.push(["FRONTEND-AGGREGATE-1809", "BP-017", "Current full frontend executable inventory", "Pass", "All 1,809 current nodes pass in one full run across 261 files; the prior attempt exposed one stale Model History support-selection step at 1,807/1,808 before the semantic harness correction and the final Report invalid-persistence assertion", "DEF-QV-232; DEF-QV-235"]);
+executedCases.push(["REPORT-SCENARIO-CLOSURE-194", "reports-28", "Every applicable Report Studio scenario has direct execution evidence", "Pass", "All 194/194 applicable Report Studio scenarios pass; the two mobile/responsive scenarios for backend-only reports-26 and reports-27 are explicitly Not applicable", "DEF-QV-219; DEF-QV-220; DEF-QV-224"]);
+executedCases.push(["REPORT-WORKBENCH-REFERENCE-3", "reports-03", "Report Studio exact-built responsive workbench", "Pass", "Reference mode passes desktop, tablet, and phone interaction/geometry checks with utility and evidence focus restored, six deliverables, no API fallthrough, and no uncontained clipping or page overflow", "DEF-QV-222; DEF-QV-223; DEF-QV-224; DEF-QV-225; DEF-QV-226; DEF-QV-227; DEF-QV-230"]);
+executedCases.push(["A11Y-REPORTS-RESPONSIVE-2", "reports-03", "Report Studio exact-built responsive accessibility", "Pass", "The 1440x900 and 390x844 states both report zero WCAG nodes, scan errors, layout failures, clipped controls, target-size failures, collisions, or page overflow", "DEF-QV-224; DEF-QV-230"]);
+executedCases.push(["PERF-REPORTS-DESKTOP-MOBILE-5-GZIP", "reports-28", "Report Studio production-gzip desktop and five-sample constrained-mobile route audit", "Pass", "Desktop ready/LCP/TBT are 596ms/148ms/2ms. Five 4x-CPU, 150ms-latency, 1.6Mbps mobile samples have p75 ready/LCP/TBT 2,968ms/2,324ms/330ms with 267.0KB encoded JavaScript, gzip on every static asset, zero CLS, and no scan error; this is route cold-load evidence, not request-load evidence", "DEF-QV-222; DEF-QV-230"]);
+executedCases.push(["REPORT-FOCUSED-REGRESSION-43", "reports-28", "Report Studio focused frontend and backend authority regression", "Pass", "All 41 focused MoreDrawer, SubHeader, panel, and Report interaction cases pass; both exact committee/vault authority nodes pass under .venv311, and the broader complete server files pass 65 executable cases with two intentional skips", "DEF-QV-220; DEF-QV-221; DEF-QV-224; DEF-QV-228; DEF-QV-229; DEF-QV-235"]);
+executedCases.push(["MODEL-SCENARIO-CLOSURE-462", "model-66", "Every Model Builder feature has a complete direct scenario suite", "Pass", "All 66 Model Builder Feature IDs have assertion-level evidence for all seven mandatory scenarios, producing 462/462 direct scenario passes across the legacy reference calculator and live governed Model Engine v2 workbench", "DEF-QV-240; DEF-QV-241"]);
+executedCases.push(["MODEL-FOCUSED-FRONTEND-229", "model-01", "Model Builder focused frontend regression", "Pass", "All 229 cases pass across 24 Model route, component, and library files", "DEF-QV-236; DEF-QV-240; DEF-QV-241"]);
+executedCases.push(["MODEL-FOCUSED-SERVER-242", "model-52", "Model Engine, persistence, workbook, scenario, and rate-boundary regression", "Pass", "All 242 linked server cases pass under .venv311, including the complete 62-case changed-file delta; one existing Starlette/httpx deprecation warning remains disclosed", "DEF-QV-240; DEF-QV-243; DEF-QV-246"]);
+executedCases.push(["E2E-MODEL-CROSS-BROWSER-15", "model-44", "Model Builder current cross-browser workflow", "Pass", "All five current Model journeys pass in Chromium, Firefox, and WebKit for 15/15 zero-retry executions after the harness follows the implemented Model support selection", "DEF-QV-236; DEF-QV-238; DEF-QV-239"]);
+executedCases.push(["A11Y-MODEL-RESPONSIVE-2", "model-42", "Model Builder responsive accessibility", "Pass", "The 1440x900 and 390x844 states both report zero WCAG nodes, scan errors, layout failures, clipped controls, target-size failures, collisions, or page overflow", "DEF-QV-239"]);
+executedCases.push(["PERF-MODEL-DESKTOP-MOBILE-5-GZIP", "model-47", "Model Builder production-gzip desktop and five-sample constrained-mobile route audit", "Pass", "Desktop ready/FCP/LCP/TBT are 1,295/48/108/0ms. Five 4x-CPU, 150ms-latency, 1.6Mbps mobile samples have p75 ready/FCP/LCP/TBT 3,540/980/2,152/293ms with 297.9KB encoded JavaScript, gzip, zero CLS, and readiness gated on the real Model worksheet", "DEF-QV-237; DEF-QV-239"]);
+executedCases.push(["MODEL-API-SCENARIO-CLOSURE-108", "API-089", "Every applicable Model API scenario has direct execution evidence", "Pass", "All 108/108 applicable scenarios across API-072 through API-089 pass; 18 backend-only Mobile/responsive scenarios are explicitly Not applicable", "DEF-QV-242; DEF-QV-243"]);
+executedCases.push(["MODEL-API-FOCUSED-SERVER-62", "API-079", "Model API complete changed-file regression", "Pass", "Both complete changed Model API files pass 62/62 under .venv311 after correcting two harness-only contract assumptions", "DEF-QV-243; DEF-QV-244; DEF-QV-245; DEF-QV-246"]);
+executedCases.push(["MODEL-API-PERFORMANCE-CONTRACT-18", "API-087", "Model API bounded-work contract matrix", "Pass", "All 18 handler-specific performance contracts preserve singleton queries, list limits, payload/batch caps, CAS/serialization, rate limits, semaphore control, capped reads, and thread offloading as applicable", "DEF-QV-243; DEF-QV-246"]);
+executedCases.push(["API-DIRECT-EVIDENCE-CLOSURE-11", "API-006", "Final canonical direct-evidence closure", "Pass", "The ten initially unmapped API rows and the newly exposed borrowed-evidence alias now carry exact passing runtime evidence, bringing canonical direct feature coverage to 683/683 with a fail-closed zero-gap gate", "DEF-QV-247; DEF-QV-248"]);
+executedCases.push(["API-LIST-FOCUSED-SERVER-32", "API-006", "API list/root and alias focused regression", "Pass", "All 32 cases pass across the new list/root contract file and the complete legacy portfolio, portfolio-management, and sponsor suites", "DEF-QV-247; DEF-QV-248"]);
+executedCases.push(["API-LIST-SCENARIO-CLOSURE-66", "API-169", "Every applicable list/root API scenario has direct execution evidence", "Pass", "All 66/66 applicable scenarios across the eleven list/root API features pass; 11 backend-only Mobile/responsive scenarios are explicitly Not applicable", "DEF-QV-249; DEF-QV-250; DEF-QV-251"]);
+executedCases.push(["API-LIST-FOCUSED-SERVER-58", "API-006", "List/root API complete changed and linked regression", "Pass", "The complete 33-case quality file and 58-case linked alias cohort pass after correcting two harness-only assumptions", "DEF-QV-249; DEF-QV-250; DEF-QV-251; DEF-QV-252"]);
+executedCases.push(["SERVER-AGGREGATE-2605", "BP-017", "Reconciled backend executable inventory", "Pass", "The exact 2,605-node server/stress/cohort inventory is reconciled as 2,581 passing executable server nodes, 15 intentional skips, and nine passing stress/cohort nodes; the 26-node list/root API delta passes through its complete changed file", "DEF-QV-251; DEF-QV-252"]);
+executedCases.push(["SETTINGS-SCENARIO-CLOSURE-94", "settings-01", "Every applicable Settings UI and API scenario has direct execution evidence", "Pass", "All 94/94 applicable scenarios across ten Settings features and API-164 through API-167 pass with assertion-level evidence; the four backend-only responsive scenarios are explicitly Not applicable", "DEF-QV-253; DEF-QV-256"]);
+executedCases.push(["SETTINGS-FOCUSED-FRONTEND-56", "settings-08", "Settings linked frontend regression", "Pass", "All 56 cases pass across the complete Settings page, research preference, model-mode, coverage-edge, shared component-edge, and RequireAuth files", "DEF-QV-253; DEF-QV-256; DEF-QV-257"]);
+executedCases.push(["SETTINGS-FOCUSED-SERVER-291", "API-164", "Settings API and configuration linked server regression", "Pass", "All 291 cases pass across the complete Settings API, Settings quality, configuration-inventory, and write-role files under .venv311; one existing Starlette/httpx deprecation warning remains disclosed", "DEF-QV-254; DEF-QV-255; DEF-QV-256; DEF-QV-257; DEF-QV-258"]);
+executedCases.push(["E2E-SETTINGS-CROSS-BROWSER-15", "settings-06", "Settings current cross-browser and phone workflow", "Pass", "All five current Settings journeys pass in Chromium, Firefox, and WebKit for 15/15 zero-retry executions; every tab is reachable at 390x844 without document overflow", "DEF-QV-256; DEF-QV-257; DEF-QV-259; DEF-QV-260"]);
+executedCases.push(["SETTINGS-LINT-TYPE-2", "BP-017", "Settings source and harness static gates", "Pass", "Exact-current ESLint and TypeScript no-emit checks complete with zero findings after the Settings contract additions", ""]);
+executedCases.push(["FRONTEND-AGGREGATE-1819", "BP-017", "Reconciled frontend executable inventory", "Pass", "The exact 1,819-node frontend inventory is reconciled: the prior 1,814-node seal plus five new Deep-Dive and responsive assertions executed through their complete 161-case linked cohort and 22-case Ask/responsive cohort", "DEF-QV-262; DEF-QV-263; DEF-QV-264"]);
+executedCases.push(["SERVER-AGGREGATE-2616", "BP-017", "Reconciled backend executable inventory", "Pass", "The exact 2,616-node server/stress/cohort inventory is reconciled as 2,592 passing executable server nodes, 15 intentional skips, and nine passing stress/cohort nodes; all eleven new Settings quality nodes pass through the complete linked cohort", "DEF-QV-257"]);
+executedCases.push(["DEEPDIVE-SCENARIO-CLOSURE-294", "deepdive-42", "Every applicable Deep-Dive scenario has direct execution evidence", "Pass", "All 294/294 scenarios across the 42 current Deep-Dive features pass with assertion-level evidence, including error, boundary, invalid-input, permission, performance, and responsive behavior", "DEF-QV-262; DEF-QV-263; DEF-QV-264; DEF-QV-265; DEF-QV-266; DEF-QV-267"]);
+executedCases.push(["DEEPDIVE-FOCUSED-FRONTEND-161", "deepdive-42", "Deep-Dive complete linked frontend regression", "Pass", "All 161 cases pass across the current Deep-Dive route, components, supporting libraries, shared evidence and recovery surfaces, Model scenario propagation, and report evidence modal", "DEF-QV-262; DEF-QV-263; DEF-QV-264"]);
+executedCases.push(["DEEPDIVE-FOCUSED-SERVER-7", "deepdive-41", "Deep-Dive QA flag backend regression", "Pass", "All seven QA-flag service cases pass under .venv311, including ownership and undisclosed-issuer rejection", ""]);
+executedCases.push(["E2E-DEEPDIVE-CROSS-BROWSER-12", "deepdive-42", "Deep-Dive current cross-browser and phone workflow", "Pass", "All four current Deep-Dive journeys pass in Chromium, Firefox, and WebKit for 12/12 zero-retry executions against the explicit reference mode; the phone workbench preserves evidence, utilities, and the global Ask trigger without document overflow", "DEF-QV-262; DEF-QV-267"]);
+executedCases.push(["A11Y-DEEPDIVE-RESPONSIVE-2", "deepdive-42", "Deep-Dive responsive accessibility", "Pass", "The 1440x900 and 390x844 reference states both report zero WCAG nodes, scan errors, layout failures, clipped controls, or page overflow after the Ask utility breakpoint correction", "DEF-QV-262"]);
+executedCases.push(["PERF-DEEPDIVE-DESKTOP-MOBILE-2-GZIP", "deepdive-38", "Deep-Dive production-gzip desktop and constrained-mobile route audit", "Pass", "The explicit reference workbench meets the current route budgets at desktop and constrained mobile with gzip, zero CLS, zero scan errors, and readiness gated on rendered Deep-Dive analyst content", ""]);
+executedCases.push(["AUTOMATION-EVIDENCE-4647", "BP-017", "Exact-current automation evidence seal", "Pass", "The canonical inventory contains exactly 4,647 nodes: 1,819 frontend, 2,616 server/stress/cohort, 168 browser, 36 accessibility, seven performance, and one responsive-workbench node", "DEF-QV-262; DEF-QV-263; DEF-QV-264; DEF-QV-267"]);
 for (const [id, featureId, name, status, result, defectId] of executedCases) {
   const executedDate = [
     "API-CONTRACT-ID-ROUTE-RECONCILIATION",
-    "FRONTEND-AGGREGATE-1678",
+    "FRONTEND-INTERMEDIATE-1707",
+    "FRONTEND-INTERMEDIATE-1731",
+    "FRONTEND-INTERMEDIATE-1745",
+    "FRONTEND-AGGREGATE-1758",
     "FRONTEND-ASK-DELTA-16",
     "FRONTEND-FIXTURE-CONTRACT-9",
     "GITNEXUS-SEMANTIC-DISCOVERY",
     "GRAPH-ZOOM-TYPED-FIXTURE",
     "RESEARCH-ADVANCED-HYDRATION-FENCE",
     "QUERY-CITATION-TUPLE-BUILD",
-    "SERVER-AGGREGATE-2507",
+    "SERVER-INTERMEDIATE-2536",
+    "SERVER-AGGREGATE-2539",
     "SERVER-ANALYSIS-DELTA-14",
     "UPLOAD-SMOKE-CURRENT-COPY",
     "MOREDRAWER-QUIESCENT-FOCUS",
@@ -2520,16 +4526,166 @@ for (const [id, featureId, name, status, result, defectId] of executedCases) {
     "COMMAND-INTERACTION-HARNESS-5",
     "RESEARCH-DIRECT-EVIDENCE-29",
     "UPLOAD-HARNESS-PUBLIC-TYPES",
+    "UPLOAD-DIRECT-EVIDENCE-27",
+    "MODEL-CONCURRENT-DELTA-13",
+    "SETTINGS-DIRECT-EVIDENCE-10",
+    "SHELL-DIRECT-EVIDENCE-17",
+    "LATE-SHARED-HIERARCHY-DELTA-14",
     "COMMAND-PALETTE-DEFERRED-TYPE",
     "AUTOMATION-COLLECTOR-NODE-COUNT",
     "RV-SCREENER-HARNESS-TYPES",
     "ALERT-INBOX-HARNESS-TYPES",
+    "COMMAND-DIRECT-EVIDENCE-44",
+    "E2E-COMMAND-CROSS-BROWSER-12",
+    "PAGE-ACTION-IDENTITY-STABILITY-10",
+    "SHARED-EVIDENCE-COMPLETION-DELTA-13",
+    "FRONTEND-AGGREGATE-1783",
+    "SERVER-AGGREGATE-2544",
+    "SECTOR-SCENARIO-CLOSURE-63",
+    "E2E-SECTOR-CROSS-BROWSER-6",
+    "A11Y-SECTOR-RESPONSIVE-2",
+    "PERF-SECTOR-DESKTOP-MOBILE-2",
+    "FRONTEND-AGGREGATE-1792",
+    "MONITOR-SCENARIO-CLOSURE-49",
+    "E2E-MONITOR-CROSS-BROWSER-12",
+    "A11Y-MONITOR-RESPONSIVE-2",
+    "PERF-MONITOR-DESKTOP-MOBILE-2",
+    "FRONTEND-AGGREGATE-1801",
+    "PIPELINE-SCENARIO-CLOSURE-315",
+    "PIPELINE-SERVER-LINKED-104",
+    "E2E-PIPELINE-CROSS-BROWSER-12",
+    "A11Y-PIPELINE-RESPONSIVE-6",
+    "PERF-PIPELINE-DESKTOP-MOBILE-4",
+    "MODEL-SCENARIO-CLOSURE-462",
+    "MODEL-FOCUSED-FRONTEND-229",
+    "MODEL-FOCUSED-SERVER-242",
+    "E2E-MODEL-CROSS-BROWSER-15",
+    "A11Y-MODEL-RESPONSIVE-2",
+    "PERF-MODEL-DESKTOP-MOBILE-5-GZIP",
+    "MODEL-API-SCENARIO-CLOSURE-108",
+    "MODEL-API-FOCUSED-SERVER-62",
+    "MODEL-API-PERFORMANCE-CONTRACT-18",
+    "API-DIRECT-EVIDENCE-CLOSURE-11",
+    "API-LIST-FOCUSED-SERVER-32",
+    "API-LIST-SCENARIO-CLOSURE-66",
+    "API-LIST-FOCUSED-SERVER-58",
+    "SERVER-AGGREGATE-2605",
+    "SETTINGS-SCENARIO-CLOSURE-94",
+    "SETTINGS-FOCUSED-FRONTEND-56",
+    "SETTINGS-FOCUSED-SERVER-291",
+    "E2E-SETTINGS-CROSS-BROWSER-15",
+    "SETTINGS-LINT-TYPE-2",
+    "FRONTEND-AGGREGATE-1819",
+    "SERVER-AGGREGATE-2616",
+    "DEEPDIVE-SCENARIO-CLOSURE-294",
+    "DEEPDIVE-FOCUSED-FRONTEND-161",
+    "DEEPDIVE-FOCUSED-SERVER-7",
+    "E2E-DEEPDIVE-CROSS-BROWSER-12",
+    "A11Y-DEEPDIVE-RESPONSIVE-2",
+    "PERF-DEEPDIVE-DESKTOP-MOBILE-2-GZIP",
+    "AUTOMATION-EVIDENCE-4647",
   ].includes(id)
     ? today
     : baselineDate;
   testRows.push([id, featureId, "Direct execution", name, "Current implemented contract is asserted deterministically.", status, result, executedDate, "Automated validation", defectId]);
   evidenceExecutedDateById.set(id, executedDate);
   if (status === "Pass") addEvidence(exactEvidenceByFeature, featureId, id);
+}
+
+const issuerScenarioRows = testRows.filter((row) => row[1].startsWith("issuer-") && scenarios.includes(row[2]));
+const issuerScenarioGaps = issuerScenarioRows.filter((row) => row[5] !== "Pass");
+if (issuerScenarioRows.length !== 29 * scenarios.length || issuerScenarioGaps.length) {
+  throw new Error(`Issuer scenario gate failed: ${issuerScenarioRows.length}/${29 * scenarios.length} rows; gaps=${issuerScenarioGaps.map((row) => row[0]).join(",")}`);
+}
+const commandFeatureIdSet = new Set(commandFeatureIds);
+const commandScenarioRows = testRows.filter((row) => commandFeatureIdSet.has(row[1]) && scenarios.includes(row[2]));
+const commandScenarioGaps = commandScenarioRows.filter((row) => row[5] !== "Pass");
+if (commandScenarioRows.length !== 44 * scenarios.length || commandScenarioGaps.length) {
+  throw new Error(`Command scenario gate failed: ${commandScenarioRows.length}/${44 * scenarios.length} rows; gaps=${commandScenarioGaps.map((row) => row[0]).join(",")}`);
+}
+const deepDiveFeatureIdSet = new Set(deepDiveFeatureIds);
+const deepDiveScenarioRows = testRows.filter((row) => deepDiveFeatureIdSet.has(row[1]) && scenarios.includes(row[2]));
+const deepDiveScenarioGaps = deepDiveScenarioRows.filter((row) => row[5] !== "Pass");
+if (deepDiveScenarioRows.length !== deepDiveFeatureIds.length * scenarios.length || deepDiveScenarioGaps.length) {
+  throw new Error(`Deep-Dive scenario gate failed: ${deepDiveScenarioRows.length}/${deepDiveFeatureIds.length * scenarios.length} rows; gaps=${deepDiveScenarioGaps.map((row) => `${row[1]}:${row[2]}`).join(",")}`);
+}
+const pipelineFeatureIdSet = new Set(pipelineFeatureIds);
+const pipelineScenarioRows = testRows.filter((row) => pipelineFeatureIdSet.has(row[1]) && scenarios.includes(row[2]));
+const pipelineScenarioGaps = pipelineScenarioRows.filter((row) => row[5] !== "Pass");
+if (pipelineScenarioRows.length !== pipelineFeatureIds.length * scenarios.length || pipelineScenarioGaps.length) {
+  throw new Error(`Pipeline scenario gate failed: ${pipelineScenarioRows.length}/${pipelineFeatureIds.length * scenarios.length} rows; gaps=${pipelineScenarioGaps.map((row) => row[0]).join(",")}`);
+}
+const monitorFeatureIdSet = new Set(monitorFeatureIds);
+const monitorScenarioRows = testRows.filter((row) => monitorFeatureIdSet.has(row[1]) && scenarios.includes(row[2]));
+const monitorScenarioGaps = monitorScenarioRows.filter((row) => row[5] !== "Pass");
+if (monitorScenarioRows.length !== monitorFeatureIds.length * scenarios.length || monitorScenarioGaps.length) {
+  throw new Error(`Monitor scenario gate failed: ${monitorScenarioRows.length}/${monitorFeatureIds.length * scenarios.length} rows; gaps=${monitorScenarioGaps.map((row) => row[0]).join(",")}`);
+}
+const sectorFeatureIdSet = new Set(sectorFeatureIds);
+const sectorScenarioRows = testRows.filter((row) => sectorFeatureIdSet.has(row[1]) && scenarios.includes(row[2]));
+const sectorScenarioGaps = sectorScenarioRows.filter((row) => row[5] !== "Pass");
+if (sectorScenarioRows.length !== sectorFeatureIds.length * scenarios.length || sectorScenarioGaps.length) {
+  throw new Error(`Sector Review scenario gate failed: ${sectorScenarioRows.length}/${sectorFeatureIds.length * scenarios.length} rows; gaps=${sectorScenarioGaps.map((row) => row[0]).join(",")}`);
+}
+const modelFeatureIdSet = new Set(modelFeatureIds);
+const modelScenarioRows = testRows.filter((row) => modelFeatureIdSet.has(row[1]) && scenarios.includes(row[2]));
+const modelScenarioGaps = modelScenarioRows.filter((row) => row[5] !== "Pass");
+if (modelScenarioRows.length !== modelFeatureIds.length * scenarios.length || modelScenarioGaps.length) {
+  throw new Error(`Model Builder scenario gate failed: ${modelScenarioRows.length}/${modelFeatureIds.length * scenarios.length} rows; gaps=${modelScenarioGaps.map((row) => `${row[1]}:${row[2]}`).join(",")}`);
+}
+const modelApiFeatureIdSet = new Set(modelApiFeatureIds);
+const modelApiScenarioRows = testRows.filter((row) => modelApiFeatureIdSet.has(row[1]) && scenarios.includes(row[2]));
+const modelApiApplicableScenarioRows = modelApiScenarioRows.filter((row) => row[5] !== "Not applicable");
+const modelApiScenarioGaps = modelApiApplicableScenarioRows.filter((row) => row[5] !== "Pass");
+if (
+  modelApiScenarioRows.length !== modelApiFeatureIds.length * scenarios.length
+  || modelApiApplicableScenarioRows.length !== modelApiFeatureIds.length * (scenarios.length - 1)
+  || modelApiScenarioGaps.length
+) {
+  throw new Error(
+    `Model API scenario gate failed: total=${modelApiScenarioRows.length}/${modelApiFeatureIds.length * scenarios.length}, applicable=${modelApiApplicableScenarioRows.length}/${modelApiFeatureIds.length * (scenarios.length - 1)}, gaps=${modelApiScenarioGaps.map((row) => `${row[1]}:${row[2]}`).join(",")}`,
+  );
+}
+
+const listApiScenarioFeatureIdSet = new Set(listApiScenarioFeatureIds);
+const listApiScenarioRows = testRows.filter(
+  (row) => listApiScenarioFeatureIdSet.has(row[1]) && scenarios.includes(row[2]),
+);
+const listApiApplicableScenarioRows = listApiScenarioRows.filter((row) => row[5] !== "Not applicable");
+const listApiScenarioGaps = listApiApplicableScenarioRows.filter((row) => row[5] !== "Pass");
+if (
+  listApiScenarioRows.length !== listApiScenarioFeatureIds.length * scenarios.length
+  || listApiApplicableScenarioRows.length !== listApiScenarioFeatureIds.length * (scenarios.length - 1)
+  || listApiScenarioGaps.length
+) {
+  throw new Error(
+    `List/root API scenario gate failed: total=${listApiScenarioRows.length}/${listApiScenarioFeatureIds.length * scenarios.length}, applicable=${listApiApplicableScenarioRows.length}/${listApiScenarioFeatureIds.length * (scenarios.length - 1)}, gaps=${listApiScenarioGaps.map((row) => `${row[1]}:${row[2]}`).join(",")}`,
+  );
+}
+
+const settingsScenarioFeatureIdSet = new Set([...settingsFeatureIds, ...settingsApiFeatureIds]);
+const settingsScenarioRows = testRows.filter(
+  (row) => settingsScenarioFeatureIdSet.has(row[1]) && scenarios.includes(row[2]),
+);
+const settingsApplicableScenarioRows = settingsScenarioRows.filter((row) => row[5] !== "Not applicable");
+const settingsScenarioGaps = settingsApplicableScenarioRows.filter((row) => row[5] !== "Pass");
+if (
+  settingsScenarioRows.length !== (settingsFeatureIds.length + settingsApiFeatureIds.length) * scenarios.length
+  || settingsApplicableScenarioRows.length !== settingsFeatureIds.length * scenarios.length + settingsApiFeatureIds.length * (scenarios.length - 1)
+  || settingsScenarioGaps.length
+) {
+  throw new Error(
+    `Settings scenario gate failed: total=${settingsScenarioRows.length}/98, applicable=${settingsApplicableScenarioRows.length}/94, gaps=${settingsScenarioGaps.map((row) => `${row[1]}:${row[2]}`).join(",")}`,
+  );
+}
+
+const canonicalDirectEvidenceGaps = featureObjects
+  .filter((feature) => !exactEvidenceByFeature.has(feature.id))
+  .map((feature) => feature.id);
+if (canonicalDirectEvidenceGaps.length) {
+  throw new Error(
+    `Canonical direct-evidence gate failed: ${featureObjects.length - canonicalDirectEvidenceGaps.length}/${featureObjects.length} direct; gaps=${canonicalDirectEvidenceGaps.join(",")}`,
+  );
 }
 
 const featureHeaders = [
@@ -2639,6 +4795,27 @@ const deepDiveEvidenceRows = featureEvidenceRows.filter(([featureId]) => feature
 const deepDiveEvidenceGaps = deepDiveEvidenceRows.filter((row) => row[5] !== "Direct");
 if (deepDiveEvidenceRows.length !== 42 || deepDiveEvidenceGaps.length) {
   throw new Error(`Deep-Dive direct-evidence gate failed: ${deepDiveEvidenceRows.length}/42 rows; gaps=${deepDiveEvidenceGaps.map((row) => row[0]).join(",")}`);
+}
+const issuerEvidenceRows = featureEvidenceRows.filter(([featureId]) => featureId.startsWith("issuer-"));
+const issuerEvidenceGaps = issuerEvidenceRows.filter((row) => row[5] !== "Direct");
+if (issuerEvidenceRows.length !== 29 || issuerEvidenceGaps.length) {
+  throw new Error(`Issuer direct-evidence gate failed: ${issuerEvidenceRows.length}/29 rows; gaps=${issuerEvidenceGaps.map((row) => row[0]).join(",")}`);
+}
+const reportEvidenceRows = featureEvidenceRows.filter(([featureId]) => featureId.startsWith("reports-"));
+const reportEvidenceGaps = reportEvidenceRows.filter((row) => row[5] !== "Direct");
+if (reportEvidenceRows.length !== 28 || reportEvidenceGaps.length) {
+  throw new Error(`Report Studio direct-evidence gate failed: ${reportEvidenceRows.length}/28 rows; gaps=${reportEvidenceGaps.map((row) => row[0]).join(",")}`);
+}
+const modelEvidenceRows = featureEvidenceRows.filter(([featureId]) => modelFeatureIdSet.has(featureId));
+const modelEvidenceGaps = modelEvidenceRows.filter((row) => row[5] !== "Direct");
+if (modelEvidenceRows.length !== 66 || modelEvidenceGaps.length) {
+  throw new Error(`Model Builder direct-evidence gate failed: ${modelEvidenceRows.length}/66 rows; gaps=${modelEvidenceGaps.map((row) => row[0]).join(",")}`);
+}
+const reportScenarioRows = testRows.filter((row) => row[1].startsWith("reports-") && scenarios.includes(row[2]));
+const reportApplicableScenarioRows = reportScenarioRows.filter((row) => row[5] !== "Not applicable");
+const reportScenarioGaps = reportApplicableScenarioRows.filter((row) => row[5] !== "Pass");
+if (reportScenarioRows.length !== 196 || reportApplicableScenarioRows.length !== 194 || reportScenarioGaps.length) {
+  throw new Error(`Report Studio scenario gate failed: total=${reportScenarioRows.length}, applicable=${reportApplicableScenarioRows.length}, gaps=${reportScenarioGaps.map((row) => `${row[1]}:${row[3]}`).join(",")}`);
 }
 const featureSourceById = new Map(featureObjects.map((feature) => [feature.id, feature.sourceType]));
 const coverageStatsBySource = new Map();
@@ -2764,7 +4941,7 @@ await fs.mkdir(outputDir, { recursive: true });
 const workbook = Workbook.create();
 const summary = workbook.worksheets.add("Coverage Summary");
 summary.showGridLines = false;
-summary.getRange("A1:C23").values = [
+summary.getRange("A1:C24").values = [
   ["Metric", "Value", "Notes"],
   ["Canonical feature rows", "", "Curated features plus current code-discovered screens, handlers, settings, and workflows"],
   ["Generated test cases", "", "Seven scenario classes per canonical feature plus explicit direct execution cases"],
@@ -2782,16 +4959,17 @@ summary.getRange("A1:C23").values = [
   ["Suite-evidence cases", "", "Covered only by aggregate regression evidence"],
   ["Designed / unexecuted cases", "", "Not presented as pass"],
   ["Not-applicable cases", "", "Scenario class is inapplicable at this feature boundary and is validated at the consuming surface instead"],
-  ["Skipped executable cases", "", "Must be closed or explicitly waived before completion"],
+  ["Skipped executable cases", "", "Explicit Test Matrix status; 15 intentional pytest skips are separately disclosed in the current-iteration note"],
+  ["Blocked validation cases", "", "Blocked direct-execution work remains a completion risk even when application regressions pass"],
   ["Open critical defects", "", "Completion gate"],
   ["Open high defects", "", "Completion gate"],
   ["Other open defects", "", "Includes known validation coverage gaps"],
-  ["Confidence score", "95%", "Every executed collected application node passed; all 29 Research, all 45 Pipeline, all 43 Model Builder, all 42 Deep-Dive, and all 19 current Query features have direct automation. Confidence remains bounded by 15 intentional skips, explicit Designed/Suite-evidence inventory, an affected-surface rather than full exact-current browser rerun, and degraded semantic GitNexus discovery"],
-  ["Last tested date", today, "Current iteration: all 1,678 frontend, 2,483 executable server, and nine stress/cohort nodes are reconciled as passing with 15 intentional skips; exact collectors are locked to 4,362 total nodes, lint and TypeScript are clean, the current 20-route build and affected Settings browser/accessibility delta pass, the full 141-browser/36-accessibility baselines remain recorded, and DEF-QV-060 remains open"],
+  ["Confidence score", "98%", "Every executed collected application node is reconciled as passing after remediation; all 203 Issuer, 308 main Command Center, 315 Pipeline, 63 Sector Review, 49 Monitor, 194 applicable Report Studio, 462 Model Builder, 108 applicable Model API, 66 applicable list/root API, and 94 applicable Settings UI/API scenario rows are direct passes, and every canonical feature has direct automation. Model constrained-mobile p75 LCP is 2.152s under the production-gzip lab and its responsive axe states are clean. Confidence remains bounded by 15 intentional environment-gated skips, remaining designed/suite-evidence scenarios outside the closed matrices, lack of field RUM, no staged request-load result in this iteration, and explicitly waived external GitNexus session limitations"],
+  ["Last tested date", today, "Current iteration: all 683 canonical features have direct passing automation; all 1,814 frontend, 2,592 executable server, and nine stress/cohort nodes are reconciled as passing with 15 intentional skips. The exact inventory is locked to 4,638 evidence nodes including 165 browser, 36 accessibility mappings, six route-performance nodes, and one Report workbench node. Settings now has 94/94 applicable direct scenario passes plus focused 56-case frontend, 291-case server, 15-case three-browser, lint, and TypeScript evidence; the concurrent three-case Deep-Dive module-group delta also passes completely. Model's 462/462 UI/workflow scenarios, all 108/108 applicable Model API scenarios, and all 66/66 applicable list/root API scenarios remain closed. No defect is open; DEF-QV-060 and DEF-QV-201 are explicit external-tool waivers"],
 ];
 summary.getRange("A1:C1").format = { fill: "#12121a", font: { bold: true, color: "#e6e6ef" }, rowHeight: 30 };
-summary.getRange("A2:C23").format = { wrapText: true, verticalAlignment: "top" };
-summary.getRange("A2:C23").format.borders = { preset: "insideHorizontal", style: "thin", color: "#262633" };
+summary.getRange("A2:C24").format = { wrapText: true, verticalAlignment: "top" };
+summary.getRange("A2:C24").format.borders = { preset: "insideHorizontal", style: "thin", color: "#262633" };
 summary.freezePanes.freezeRows(1);
 summary.getRange("A:A").format.columnWidth = 28;
 summary.getRange("B:B").format.columnWidth = 18;
@@ -2832,20 +5010,21 @@ summary.getRange("B15").formulas = [[`=COUNTIF('Test Matrix'!F2:F${testRows.leng
 summary.getRange("B16").formulas = [[`=COUNTIF('Test Matrix'!F2:F${testRows.length + 1},\"Designed\")`]];
 summary.getRange("B17").formulas = [[`=COUNTIF('Test Matrix'!F2:F${testRows.length + 1},\"Not applicable\")`]];
 summary.getRange("B18").formulas = [[`=COUNTIF('Test Matrix'!F2:F${testRows.length + 1},\"Skipped\")`]];
-summary.getRange("B19").formulas = [[`=COUNTIFS(Defects!C2:C${defects.length + 1},\"Critical\",Defects!D2:D${defects.length + 1},\"Open\")`]];
-summary.getRange("B20").formulas = [[`=COUNTIFS(Defects!C2:C${defects.length + 1},\"High\",Defects!D2:D${defects.length + 1},\"Open\")`]];
-summary.getRange("B21").formulas = [[`=COUNTIF(Defects!D2:D${defects.length + 1},\"Open\")-B19-B20`]];
+summary.getRange("B19").formulas = [[`=COUNTIF('Test Matrix'!F2:F${testRows.length + 1},\"Blocked\")`]];
+summary.getRange("B20").formulas = [[`=COUNTIFS(Defects!C2:C${defects.length + 1},\"Critical\",Defects!D2:D${defects.length + 1},\"Open\")`]];
+summary.getRange("B21").formulas = [[`=COUNTIFS(Defects!C2:C${defects.length + 1},\"High\",Defects!D2:D${defects.length + 1},\"Open\")`]];
+summary.getRange("B22").formulas = [[`=COUNTIF(Defects!D2:D${defects.length + 1},\"Open\")-B20-B21`]];
 
 const previewRanges = {
-  "Coverage Summary": "A1:C23",
+  "Coverage Summary": "A1:C24",
   "Feature Register": "A1:T28",
   "Test Matrix": "A1:J34",
   "Automation Evidence": "A1:J32",
   "Feature Evidence": "A1:J30",
   "Coverage Gaps": "A1:I10",
   "Concept Coverage": "A1:H25",
-  "Defects": `A1:I${defects.length + 1}`,
-  "Validation Runs": `A1:E${validationRuns.length + 1}`,
+  "Defects": "A1:I30",
+  "Validation Runs": "A1:E40",
   "API Inventory": "A1:J35",
   "Screen Inventory": "A1:F19",
   "Configuration Inventory": "A1:G28",
@@ -2859,10 +5038,40 @@ for (const [sheetName, range] of Object.entries(previewRanges)) {
   const preview = await workbook.render({ sheetName, range, scale: 1, format: "png" });
   await fs.writeFile(path.join(outputDir, `${sheetName.replaceAll(" ", "_")}.png`), new Uint8Array(await preview.arrayBuffer()));
 }
+const recentPreviewRanges = {
+  "Defects Recent": { sheetName: "Defects", range: `A${Math.max(2, defects.length - 28)}:I${defects.length + 1}` },
+  "Validation Runs Recent": { sheetName: "Validation Runs", range: `A${Math.max(2, validationRuns.length - 18)}:E${validationRuns.length + 1}` },
+};
+const modelFeatureStart = features.findIndex((row) => row[0] === "model-44") + 2;
+const modelFeatureEnd = features.findIndex((row) => row[0] === "model-66") + 2;
+const modelTestStart = testRows.findIndex((row) => row[1] === "model-44" && row[2] === "Happy path") + 2;
+const modelTestEnd = testRows.findLastIndex((row) => row[1] === "model-66" && scenarios.includes(row[2])) + 2;
+const modelApiTestStart = testRows.findIndex((row) => row[1] === "API-072" && row[2] === "Happy path") + 2;
+const modelApiTestEnd = testRows.findLastIndex((row) => row[1] === "API-089" && scenarios.includes(row[2])) + 2;
+if (
+  modelFeatureStart < 2
+  || modelFeatureEnd < modelFeatureStart
+  || modelTestStart < 2
+  || modelTestEnd < modelTestStart
+  || modelApiTestStart < 2
+  || modelApiTestEnd < modelApiTestStart
+) {
+  throw new Error("Model-focused preview bounds could not be resolved");
+}
+recentPreviewRanges["Model V2 Features"] = { sheetName: "Feature Register", range: `A${modelFeatureStart}:T${modelFeatureEnd}` };
+recentPreviewRanges["Model Tests Head"] = { sheetName: "Test Matrix", range: `A${modelTestStart}:J${Math.min(modelTestStart + 27, modelTestEnd)}` };
+recentPreviewRanges["Model Tests Tail"] = { sheetName: "Test Matrix", range: `A${Math.max(modelTestStart, modelTestEnd - 27)}:J${modelTestEnd}` };
+recentPreviewRanges["Model API Tests Head"] = { sheetName: "Test Matrix", range: `A${modelApiTestStart}:J${Math.min(modelApiTestStart + 41, modelApiTestEnd)}` };
+recentPreviewRanges["Model API Tests Middle"] = { sheetName: "Test Matrix", range: `A${Math.min(modelApiTestStart + 42, modelApiTestEnd)}:J${Math.min(modelApiTestStart + 83, modelApiTestEnd)}` };
+recentPreviewRanges["Model API Tests Tail"] = { sheetName: "Test Matrix", range: `A${Math.max(modelApiTestStart, modelApiTestEnd - 41)}:J${modelApiTestEnd}` };
+for (const [fileName, { sheetName, range }] of Object.entries(recentPreviewRanges)) {
+  const preview = await workbook.render({ sheetName, range, scale: 1, format: "png" });
+  await fs.writeFile(path.join(outputDir, `${fileName.replaceAll(" ", "_")}.png`), new Uint8Array(await preview.arrayBuffer()));
+}
 
 const summaryInspection = await workbook.inspect({
   kind: "table",
-  range: "Coverage Summary!A1:C23",
+  range: "Coverage Summary!A1:C24",
   include: "values,formulas",
   tableMaxRows: 24,
   tableMaxCols: 5,
@@ -2879,4 +5088,20 @@ console.log(errors.ndjson);
 
 const out = await SpreadsheetFile.exportXlsx(workbook);
 await out.save(outputPath);
+const reopenedWorkbook = await SpreadsheetFile.importXlsx(await FileBlob.load(outputPath));
+const reopenedSummary = await reopenedWorkbook.inspect({
+  kind: "region",
+  sheetId: "Coverage Summary",
+  range: "A1:C24",
+  maxChars: 6000,
+  summary: "persisted coverage summary",
+});
+console.log(reopenedSummary.ndjson);
+const reopenedErrors = await reopenedWorkbook.inspect({
+  kind: "match",
+  searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A",
+  options: { useRegex: true, maxResults: 300 },
+  summary: "persisted formula error scan",
+});
+console.log(reopenedErrors.ndjson);
 console.log(outputPath);

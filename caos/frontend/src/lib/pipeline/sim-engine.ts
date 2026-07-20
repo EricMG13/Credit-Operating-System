@@ -4,7 +4,8 @@
 // timer. Kept separate so the scheduling logic is unit-testable and so type /
 // clock consumers don't depend on the React hook.
 
-import { MODULES, type PlanStep } from "./data";
+import type { PlanStep } from "./data";
+import { MODULES } from "./topology";
 import { isCleared } from "./sev";
 
 export type SimState = "idle" | "running" | "pass" | "warning" | "held" | "blocked";
@@ -23,7 +24,8 @@ export interface Sim {
 }
 
 export function simClock(tick: number): string {
-  const s = 9 * 3600 + 30 * 60 + tick * 7; // 7 sim-seconds per tick
+  const safeTick = Number.isFinite(tick) ? Math.max(0, Math.floor(tick)) : 0;
+  const s = 9 * 3600 + 30 * 60 + safeTick * 7; // 7 sim-seconds per tick
   const hh = String(Math.floor(s / 3600)).padStart(2, "0");
   const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
   const ss = String(s % 60).padStart(2, "0");

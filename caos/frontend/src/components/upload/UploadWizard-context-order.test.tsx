@@ -165,7 +165,7 @@ describe("UploadWizard manual run context ordering", () => {
     fireEvent.click(screen.getByRole("button", { name: /UPLOAD 1 FILE & PROCESS/i }));
 
     const manualRun = await screen.findByRole("button", {
-      name: /START FULL CP-X RUN/i,
+      name: /START FULL ANALYSIS RUN/i,
     });
     expect(harness.createRun).toHaveBeenCalledTimes(1);
     harness.createRun.mockClear();

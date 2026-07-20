@@ -64,10 +64,17 @@ const state = vi.hoisted(() => ({
   } as ResearchPrefsMock,
 }));
 
+type TestPageAction = { label: string; href?: string; onAction?: () => void; unavailableReason?: string | null };
+function renderPageAction(action?: TestPageAction) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href}>{action.label}</a>;
+  return <button type="button" aria-disabled={action.unavailableReason ? "true" : undefined} title={action.unavailableReason ?? undefined} onClick={action.unavailableReason ? undefined : action.onAction}>{action.label}</button>;
+}
+
 vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: { children?: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/shared/AuthProvider", () => ({ useAuth: () => ({ user: state.userId ? { id: state.userId } : null }) }));
 vi.mock("@/components/shared/EnterprisePage", () => ({
-  EnterprisePage: ({ identity, primaryAction, contextualControls, children }: { identity?: React.ReactNode; primaryAction?: React.ReactNode; contextualControls?: React.ReactNode; children?: React.ReactNode }) => <main>{identity}<div data-testid="header-action">{primaryAction}</div><div data-testid="contextual">{contextualControls}</div>{children}</main>,
+  EnterprisePage: ({ identity, primaryAction, contextualControls, children }: { identity?: React.ReactNode; primaryAction?: TestPageAction; contextualControls?: React.ReactNode; children?: React.ReactNode }) => <main>{identity}<div data-testid="header-action">{renderPageAction(primaryAction)}</div><div data-testid="contextual">{contextualControls}</div>{children}</main>,
 }));
 vi.mock("@/components/shared/PersonaWorkbench", () => ({ PersonaWorkbench: ({ context, primary }: { context?: React.ReactNode; primary: React.ReactNode }) => <div>{context}{primary}</div> }));
 vi.mock("@/components/shared/ShellIdentity", () => ({ ShellIdentity: ({ title }: { title: React.ReactNode }) => <h1>{title}</h1> }));
@@ -125,7 +132,7 @@ vi.mock("@/lib/api", () => ({
   isResearchGone: (error: unknown) => error instanceof Error && error.message === "gone",
   toErrorMessage: (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback,
 }));
-vi.mock("next/link", () => ({ default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => <a href={href} {...props}>{children}</a> }));
+vi.mock("next/link", () => ({ default: ({ href, children, onClick, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => <a href={href} onClick={(event) => { onClick?.(event); if (!event.defaultPrevented) { event.preventDefault(); window.history.pushState({}, "", href); } }} {...props}>{children}</a> }));
 
 import ResearchPage from "./page";
 
@@ -144,6 +151,7 @@ function result(report: string) {
 }
 
 beforeEach(() => {
+  window.history.replaceState({}, "", "/research");
   state.userId = "analyst-research";
   state.settings = { llm_configured: true };
   state.settingsError = null;
@@ -195,11 +203,15 @@ describe("Deep Research durable job interactions", () => {
     fireEvent.change(within(brief).getByPlaceholderText(/topics to avoid/i), { target: { value: "Equities" } });
     fireEvent.change(within(brief).getByLabelText("Investigation criteria — one per line"), { target: { value: "Leverage\n\nLiquidity\nCovenants" } });
     fireEvent.click(within(brief).getByRole("button", { name: "AI mode standard" }));
-    fireEvent.click(within(brief).getByRole("button", { name: "Run deep research" }));
+    expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Run deep research" }));
 
     expect(sessionStorage.getItem("caos.research.job.analyst-research.research-context")).toBe("job-new");
     expect(screen.getByText(/pane running true/)).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: "Researching…" })[0]);
+    const runningAction = screen.getByRole("button", { name: "Run deep research" });
+    expect(runningAction.getAttribute("aria-disabled")).toBe("true");
+    expect(runningAction.getAttribute("title")).toBe("Research in progress");
+    fireEvent.click(runningAction);
     expect(state.deepCalls).toHaveLength(1);
     act(() => { state.progress?.({ phase: "searching" }); vi.advanceTimersByTime(2000); });
     expect(screen.getByText(/progress searching/)).toBeTruthy();
@@ -222,14 +234,14 @@ describe("Deep Research durable job interactions", () => {
     const first = deferred<ResearchResultMock>();
     state.deepPromise = first.promise;
     render(<ResearchPage />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1));
     fireEvent.change(screen.getByPlaceholderText(/enterprise software/i), { target: { value: "Chemicals" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[0]);
     await act(async () => { first.resolve(result("Original chemicals report")); await first.promise; });
 
     const rerun = deferred<ResearchResultMock>();
     state.deepPromise = rerun.promise;
-    fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Run deep research" }));
     expect(screen.getByText("previous Original chemicals report")).toBeTruthy();
     await act(async () => { rerun.reject(new Error("research backend failed")); try { await rerun.promise; } catch {} });
     expect(screen.getByText("error research backend failed")).toBeTruthy();
@@ -245,7 +257,7 @@ describe("Deep Research durable job interactions", () => {
     const job = deferred<ResearchResultMock>();
     state.deepPromise = job.promise;
     render(<ResearchPage />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1));
     fireEvent.change(screen.getByPlaceholderText(/enterprise software/i), { target: { value: "Media" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Detach" }));
@@ -258,7 +270,7 @@ describe("Deep Research durable job interactions", () => {
     const gone = deferred<ResearchResultMock>();
     state.deepPromise = gone.promise;
     render(<ResearchPage />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1));
     fireEvent.change(screen.getByPlaceholderText(/enterprise software/i), { target: { value: "Retail" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[0]);
     await act(async () => { gone.reject(new Error("gone")); try { await gone.promise; } catch {} });
@@ -266,9 +278,9 @@ describe("Deep Research durable job interactions", () => {
     expect(screen.getByText("error none")).toBeTruthy();
   });
 
-  it("restores context state, demo configuration, advanced persistence, and a completed durable job", async () => {
+  it("restores context state, unavailable configuration, advanced persistence, and a completed durable job", async () => {
     // research-01 research-07 research-10 research-17 research-29
-    // Restored scope/query, honest demo provenance, completed-job hydration, and
+    // Restored scope/query, honest configuration state, completed-job hydration, and
     // persisted disclosure state are asserted together at the page boundary.
     state.settings = { llm_configured: false };
     state.context = context({ surface_state: { research: { query: "Saved issuer", view: "issuer" } } });
@@ -278,13 +290,64 @@ describe("Deep Research durable job interactions", () => {
     render(<ResearchPage />);
 
     expect(await screen.findByText("Recovered durable report", { exact: false })).toBeTruthy();
-    expect(screen.getByText("Demo mode")).toBeTruthy();
+    expect(screen.queryByText("Demo mode")).toBeNull();
+    expect(screen.getByRole("link", { name: "Configure live research" }).getAttribute("href"))
+      .toBe("/settings?tab=research");
+    expect(screen.getByRole("link", { name: "Open reference example" }).getAttribute("href"))
+      .toContain("mode=reference");
     expect((screen.getByPlaceholderText(/Atlas Forge/i) as HTMLInputElement).value).toBe("Saved issuer");
     const advanced = screen.getByRole("button", { name: "Advanced brief" });
     fireEvent.click(advanced);
     expect(localStorage.getItem("caos.research.adv")).toBe("1");
     fireEvent.click(advanced);
     expect(localStorage.getItem("caos.research.adv")).toBe("0");
+  });
+
+  it("evaluates and renders the seeded report only in explicit reference mode", async () => {
+    state.settings = { llm_configured: false };
+    window.history.replaceState({}, "", "/research?context=research-context&mode=reference");
+    render(<ResearchPage />);
+
+    expect(await screen.findByText(/Atlas Forge reference credit research/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Return to live research" }).getAttribute("href"))
+      .toBe("/research?context=research-context");
+    expect(state.deepCalls).toHaveLength(0);
+  });
+
+  it("keeps the reference fixture isolated when a live poll resolves after the mode transition", async () => {
+    const pending = deferred<ResearchResultMock>();
+    state.deepPromise = pending.promise;
+    render(<ResearchPage />);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1));
+    fireEvent.change(screen.getByPlaceholderText(/enterprise software/i), { target: { value: "Transition risk" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[0]);
+    expect(sessionStorage.getItem("caos.research.job.analyst-research.research-context")).toBe("job-new");
+
+    act(() => window.history.pushState({}, "", "/research?mode=reference"));
+    await waitFor(() => expect(state.lastSignal?.aborted).toBe(true));
+    expect(await screen.findByText(/Atlas Forge reference credit research/i)).toBeTruthy();
+
+    await act(async () => { pending.resolve(result("Late live completion")); await pending.promise; });
+    expect(screen.queryByText("result Late live completion")).toBeNull();
+    expect(screen.getByText(/Atlas Forge reference credit research/i)).toBeTruthy();
+    expect(state.patch).not.toHaveBeenCalled();
+    expect(state.finding).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("caos.research.job.analyst-research.research-context")).toBe("job-new");
+  });
+
+  it("quarantines a fresh demo terminal returned to live mode", async () => {
+    const pending = deferred<ResearchResultMock>();
+    state.deepPromise = pending.promise;
+    render(<ResearchPage />);
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1));
+    fireEvent.change(screen.getByPlaceholderText(/enterprise software/i), { target: { value: "Demo boundary" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[0]);
+
+    await act(async () => { pending.resolve({ ...result("Fresh canned response"), demo: true }); await pending.promise; });
+    expect(screen.queryByText("result Fresh canned response")).toBeNull();
+    expect(state.patch).not.toHaveBeenCalled();
+    expect(state.finding).not.toHaveBeenCalled();
+    expect(screen.getByText(/reference-only output/i)).toBeTruthy();
   });
 
   it("resumes a running durable job and reports a context-link save failure without losing the report", async () => {
@@ -315,7 +378,7 @@ describe("Deep Research durable job interactions", () => {
     });
 
     render(<ResearchPage />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1));
     expect(screen.getByRole("button", { name: "Advanced brief" }).getAttribute("aria-expanded")).toBe("false");
     getItem.mockRestore();
 
@@ -371,7 +434,7 @@ describe("Deep Research durable job interactions", () => {
     const job = deferred<ResearchResultMock>();
     state.deepPromise = job.promise;
     const view = render(<ResearchPage />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1));
     fireEvent.click(screen.getByRole("button", { name: "Issuer" }));
     expect(screen.getAllByRole("button", { name: "Run deep research" })[0].title).toContain("issuer");
     fireEvent.change(screen.getByPlaceholderText(/Atlas Forge/i), { target: { value: "No context issuer" } });
@@ -389,7 +452,7 @@ describe("Deep Research durable job interactions", () => {
     const job = deferred<ResearchResultMock>();
     state.deepPromise = job.promise;
     render(<ResearchPage />);
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1));
     fireEvent.click(screen.getByRole("button", { name: "Issuer" }));
     fireEvent.change(screen.getByPlaceholderText(/Atlas Forge/i), { target: { value: "Issuer edge" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Run deep research" })[0]);
@@ -433,7 +496,7 @@ describe("Deep Research durable job interactions", () => {
     state.userId = "";
     render(<ResearchPage />);
 
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Run deep research" })).toHaveLength(1));
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });

@@ -18,6 +18,7 @@
     "audit:web-guidelines": "node scripts/web-guidelines-static-audit.mjs",
     "capture:analysis": "node scripts/capture-analysis-redesign.mjs",
     "capture:surfaces": "node scripts/capture-enterprise-surfaces.mjs",
+    "serve:performance": "node scripts/serve-performance-build.mjs out 4175",
     "audit:performance": "node scripts/performance-audit.mjs",
     "verify:ic-book": "node scripts/validate-ic-book-workflow.mjs",
     "verify:monitor": "node scripts/validate-monitor-workbench.mjs",

@@ -11,7 +11,7 @@
 // replacement.
 
 import { useEffect, useMemo, useState } from "react";
-import { MODULES } from "@/lib/pipeline/data";
+import { DEEP_DIVE_MODULES as MODULES } from "@/lib/deepdive/module-groups";
 import { getAnalystSettings, updateAnalystWorkspace } from "@/lib/api";
 import { ModalBackdrop } from "@/components/shared/ModalBackdrop";
 import { useModalA11y } from "@/lib/use-modal-a11y";
@@ -19,6 +19,7 @@ import { useModalListFocus } from "@/lib/use-modal-list-focus";
 
 const MAX_PINS = 12;
 const MAX_RECENTS = 8;
+const KNOWN_MODULE_IDS = new Set(MODULES.map((module) => module.id));
 
 type FinderKeyAction = "next" | "previous" | "select";
 
@@ -58,9 +59,12 @@ function ModuleShortcut({ module, active, pinned, onSelect }: {
   );
 }
 
-function readList(ws: Record<string, unknown> | undefined, key: string): string[] {
+function readList(ws: Record<string, unknown> | undefined, key: string, maximum: number): string[] {
   const v = ws?.[key];
-  return Array.isArray(v) ? (v.filter((x): x is string => typeof x === "string")) : [];
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.filter(
+    (value): value is string => typeof value === "string" && KNOWN_MODULE_IDS.has(value),
+  ))].slice(0, maximum);
 }
 
 export function ModuleFinder({
@@ -79,8 +83,8 @@ export function ModuleFinder({
     getAnalystSettings()
       .then((s) => {
         if (!alive) return;
-        setPins(readList(s.workspace, "deepdive_pins"));
-        setRecents(readList(s.workspace, "deepdive_recents"));
+        setPins(readList(s.workspace, "deepdive_pins", MAX_PINS));
+        setRecents(readList(s.workspace, "deepdive_recents", MAX_RECENTS));
       })
       .catch(() => {
         // No profile row (local-dev bypass) — pins/recents stay empty/local

@@ -1,0 +1,1685 @@
+{
+  "base": "http://127.0.0.1:4175",
+  "tags": [
+    "wcag2a",
+    "wcag2aa",
+    "wcag21a",
+    "wcag21aa",
+    "wcag22aa",
+    "best-practice"
+  ],
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 900
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "total_nodes": 2,
+  "scan_errors": 0,
+  "layout_failures": 2,
+  "byImpact": {
+    "serious": 2
+  },
+  "routes": {
+    "/@1440x900": {
+      "url": "/issuers",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/command@1440x900": {
+      "url": "/command",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 234,
+            "right": 1422,
+            "width": 1187,
+            "client_width": 1187,
+            "scroll_width": 1187,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 234,
+            "right": 941,
+            "width": 707,
+            "client_width": 707,
+            "scroll_width": 707,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/decisions@1440x900": {
+      "url": "/decisions",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 224,
+            "right": 1432,
+            "width": 1208,
+            "client_width": 1208,
+            "scroll_width": 1208,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 224,
+            "right": 1145,
+            "width": 921,
+            "client_width": 921,
+            "scroll_width": 921,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/deepdive@1440x900": {
+      "url": "/deepdive",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/issuers@1440x900": {
+      "url": "/issuers",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/issuers/profile?id=iss-1@1440x900": {
+      "url": "/issuers/profile",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 228,
+            "right": 1428,
+            "width": 1200,
+            "client_width": 1200,
+            "scroll_width": 1200,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 228,
+            "right": 1143,
+            "width": 915,
+            "client_width": 915,
+            "scroll_width": 915,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/model@1440x900": {
+      "url": "/model",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/monitor@1440x900": {
+      "url": "/monitor",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 949,
+            "width": 723,
+            "client_width": 723,
+            "scroll_width": 723,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/pipeline@1440x900": {
+      "url": "/pipeline",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/portfolios@1440x900": {
+      "url": "/portfolios",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 216,
+            "right": 957,
+            "width": 741,
+            "client_width": 741,
+            "scroll_width": 741,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/query@1440x900": {
+      "url": "/query",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 949,
+            "width": 723,
+            "client_width": 723,
+            "scroll_width": 723,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/reports@1440x900": {
+      "url": "/reports",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/research@1440x900": {
+      "url": "/research",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1144,
+            "width": 918,
+            "client_width": 918,
+            "scroll_width": 918,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/sector@1440x900": {
+      "url": "/sector",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/sector-rv@1440x900": {
+      "url": "/sector-rv",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/settings@1440x900": {
+      "url": "/settings",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/sponsors@1440x900": {
+      "url": "/sponsors",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/upload@1440x900": {
+      "url": "/upload",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 216,
+            "right": 1440,
+            "width": 1224,
+            "client_width": 1224,
+            "scroll_width": 1224,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 226,
+            "right": 1430,
+            "width": 1203,
+            "client_width": 1203,
+            "scroll_width": 1203,
+            "overflow_x": "auto"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/@390x844": {
+      "url": "/issuers",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/command@390x844": {
+      "url": "/command",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 16,
+            "right": 374,
+            "width": 358,
+            "client_width": 358,
+            "scroll_width": 358,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 16,
+            "right": 698,
+            "width": 682,
+            "client_width": 682,
+            "scroll_width": 682,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [
+          {
+            "tag": "button",
+            "label": "Governance",
+            "left": 316,
+            "right": 410
+          },
+          {
+            "tag": "button",
+            "label": "Filter IntCov",
+            "left": 381,
+            "right": 405
+          },
+          {
+            "tag": "button",
+            "label": "Sort RV posture ascending",
+            "left": 413,
+            "right": 472
+          },
+          {
+            "tag": "button",
+            "label": "Filter RV posture",
+            "left": 478,
+            "right": 502
+          },
+          {
+            "tag": "button",
+            "label": "Sort Fragility ascending",
+            "left": 510,
+            "right": 559
+          },
+          {
+            "tag": "button",
+            "label": "Filter Fragility",
+            "left": 565,
+            "right": 589
+          },
+          {
+            "tag": "button",
+            "label": "Sort QA ascending",
+            "left": 597,
+            "right": 613
+          },
+          {
+            "tag": "button",
+            "label": "Filter QA",
+            "left": 619,
+            "right": 643
+          },
+          {
+            "tag": "div",
+            "label": "VMO2 VMO2 details",
+            "left": 17,
+            "right": 697
+          }
+        ],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/decisions@390x844": {
+      "url": "/decisions",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": [
+        {
+          "id": "target-size",
+          "impact": "serious",
+          "help": "All touch targets must be 24px large, or leave sufficient space",
+          "wcag": [
+            "wcag22aa",
+            "wcag258"
+          ],
+          "n": 1,
+          "nodes": [
+            {
+              "target": [
+                ".text-caos-sm"
+              ],
+              "html": "<a title=\"IC Book — Decide\" aria-label=\"IC Book\" aria-current=\"page\" class=\"no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 min-h-8 rounded border transition-caos whitespace-nowrap focus-ring bg-caos-elevated text-caos-accent border-caos-accent font-semibold\" ...>",
+              "summary": "Fix any of the following:\n  Target has insufficient size because it is partially obscured (smallest space is 20px by 44px, should be at least 24px by 24px)\n  Target has insufficient space to its closest neighbors. Safe clickable space has a diameter of 6px instead of at least 24px."
+            }
+          ]
+        }
+      ]
+    },
+    "/deepdive@390x844": {
+      "url": "/deepdive",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/issuers@390x844": {
+      "url": "/issuers",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/issuers/profile?id=iss-1@390x844": {
+      "url": "/issuers/profile",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 10,
+            "right": 380,
+            "width": 370,
+            "client_width": 370,
+            "scroll_width": 370,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 10,
+            "right": 380,
+            "width": 370,
+            "client_width": 370,
+            "scroll_width": 370,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/model@390x844": {
+      "url": "/model",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/monitor@390x844": {
+      "url": "/monitor",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 410,
+            "width": 402,
+            "client_width": 402,
+            "scroll_width": 402,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [
+          {
+            "tag": "button",
+            "label": "Resolve",
+            "left": 213,
+            "right": 397
+          },
+          {
+            "tag": "a",
+            "label": "Continue on desktop — open VMO2 in Deep-Dive →",
+            "left": 21,
+            "right": 397
+          }
+        ],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/pipeline@390x844": {
+      "url": "/pipeline",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/portfolios@390x844": {
+      "url": "/portfolios",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/query@390x844": {
+      "url": "/query",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/reports@390x844": {
+      "url": "/reports",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/research@390x844": {
+      "url": "/research",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/sector@390x844": {
+      "url": "/sector",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/sector-rv@390x844": {
+      "url": "/sector-rv",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/settings@390x844": {
+      "url": "/settings",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": [
+        {
+          "id": "target-size",
+          "impact": "serious",
+          "help": "All touch targets must be 24px large, or leave sufficient space",
+          "wcag": [
+            "wcag22aa",
+            "wcag258"
+          ],
+          "n": 1,
+          "nodes": [
+            {
+              "target": [
+                "a[aria-label=\"Settings\"]"
+              ],
+              "html": "<a title=\"Settings\" aria-label=\"Settings\" aria-current=\"page\" class=\"no-underline flex items-center gap-1.5 tabular text-caos-sm px-2 py-1 min-h-8 rounded border transition-caos whitespace-nowrap focus-ring bg-caos-elevated text-caos-accent border-caos-accent font-semibold\" href=\"/settings\">",
+              "summary": "Fix any of the following:\n  Target has insufficient size because it is partially obscured (smallest space is 19.5px by 44px, should be at least 24px by 24px)\n  Target has insufficient space to its closest neighbors. Safe clickable space has a diameter of 6px instead of at least 24px."
+            }
+          ]
+        }
+      ]
+    },
+    "/sponsors@390x844": {
+      "url": "/sponsors",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    },
+    "/upload@390x844": {
+      "url": "/upload",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "layout": {
+        "page_overflow_px": 0,
+        "unexpected_horizontal_offsets": [],
+        "diagnostic_regions": [
+          {
+            "selector": ".caos-enterprise-page",
+            "left": 0,
+            "right": 390,
+            "width": 390,
+            "client_width": 390,
+            "scroll_width": 390,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": "[data-testid=\"persona-workbench\"]",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "visible"
+          },
+          {
+            "selector": ".persona-workbench__slot--primary",
+            "left": 8,
+            "right": 382,
+            "width": 374,
+            "client_width": 374,
+            "scroll_width": 374,
+            "overflow_x": "hidden"
+          }
+        ],
+        "clipped_controls": [],
+        "target_size_failures": [],
+        "overlay_collisions": []
+      },
+      "violations": []
+    }
+  }
+}

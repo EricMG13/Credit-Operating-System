@@ -12,6 +12,7 @@ import { EvChip } from "@/components/reports/EvChip";
 import { ROWS, SRC } from "./rows";
 import { buildPastePatch, CW, fmt, GROUPS_META, isEditable, LBL, ovField, type PasteResult } from "./model-format";
 import { cellBackground, cellBoxShadow, cellTextColor, kpiDistressLevel, KPI_DISTRESS_GLYPH } from "./cell-style";
+import { useScrollOwner } from "@/lib/use-scroll-owner";
 
 export interface CellRef {
   row: string;
@@ -256,7 +257,7 @@ function PeriodHeader({ columns }: { columns: ColDef[] }) {
     <div role="row" className="flex sticky z-30 border-b border-caos-border" style={{ top: 24, background: "var(--caos-bg)" }}>
       <div role="presentation" className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none" style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }} />
       <div role="columnheader" className="sticky z-10 shrink-0 flex items-end justify-end pr-1.5 pb-0.5" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
-        {columns.some((column) => column.ctx.derived) ? <span className="tabular text-[9px] leading-[10px] whitespace-nowrap select-none" style={{ color: "var(--caos-warning)" }}>* derived period</span> : null}
+        {columns.some((column) => column.ctx.derived) ? <span className="tabular text-caos-2xs leading-[11px] whitespace-nowrap select-none" style={{ color: "var(--caos-warning)" }}>* derived period</span> : null}
       </div>
       {columns.map((column, index) => (
         <div key={column.key} role="columnheader" className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" data-period-group-start={column.gap ? column.group : undefined} style={{ width: column.w, marginLeft: column.gap ? GROUP_GUTTER : 0, borderRight: "1px solid var(--caos-border)" }}>
@@ -367,9 +368,10 @@ export function FormulaBar({
    *  case notes + the netlev compliance-cert tail are suppressed. Default false. */
   isReference?: boolean;
 }) {
+  const formulaScroll = useScrollOwner<HTMLDivElement>();
   if (!sel) {
     return (
-      <div className="h-8 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2">
+      <div ref={formulaScroll.ref} tabIndex={formulaScroll.scrollable ? 0 : undefined} role={formulaScroll.scrollable ? "region" : undefined} aria-label={formulaScroll.scrollable ? "Model formula and source lineage" : undefined} className={`h-8 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto${formulaScroll.scrollable ? " focus-ring" : ""}`}>
         <span className="tabular text-caos-xl text-caos-muted">ƒ</span>
         <span className="tabular text-caos-sm text-caos-muted">select any cell to trace its formula and source lineage · double-click historical cells to override</span>
       </div>
@@ -430,7 +432,7 @@ export function FormulaBar({
   const cellCoord = colLetter && visibleRowIndex !== -1 ? `${colLetter}${visibleRowIndex}` : "";
 
   return (
-    <div className="h-8 shrink-0 rounded border border-caos-accent/40 bg-caos-panel/60 px-3 flex items-center gap-2.5 overflow-x-auto overflow-y-hidden">
+    <div ref={formulaScroll.ref} tabIndex={formulaScroll.scrollable ? 0 : undefined} role={formulaScroll.scrollable ? "region" : undefined} aria-label={formulaScroll.scrollable ? "Model formula and source lineage" : undefined} className={`h-8 shrink-0 rounded border border-caos-accent/40 bg-caos-panel/60 px-3 flex items-center gap-2.5 overflow-x-auto overflow-y-hidden${formulaScroll.scrollable ? " focus-ring" : ""}`}>
       <span className="tabular text-caos-xl text-caos-accent">ƒ</span>
       {cellCoord ? (
         <span className="tabular text-caos-xs px-1.5 py-0.5 rounded bg-caos-elevated border border-caos-accent/40 text-caos-accent font-semibold select-none">
@@ -480,13 +482,14 @@ export function FormulaBar({
 
 /* ---------- build manifest strip ---------- */
 export function Manifest({ hl, setHl, isReference = false }: { hl: string | null; setHl: (k: string | null) => void; isReference?: boolean }) {
+  const manifestScroll = useScrollOwner<HTMLDivElement>();
   // The SRC registry is the seeded Atlas Forge module output set. Presenting it
   // as a live issuer's sources would fabricate lineage, so for live issuers the
   // ATLF manifest strip renders nothing (a followup can add real per-issuer
   // sources). Reference issuer keeps the full traceable chip strip.
   if (!isReference) return null;
   return (
-    <div className="h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto">
+    <div ref={manifestScroll.ref} tabIndex={manifestScroll.scrollable ? 0 : undefined} role={manifestScroll.scrollable ? "region" : undefined} aria-label={manifestScroll.scrollable ? "Model source manifest" : undefined} className={`h-9 shrink-0 rounded border border-caos-border bg-caos-panel/60 px-3 flex items-center gap-2 overflow-x-auto${manifestScroll.scrollable ? " focus-ring" : ""}`}>
       <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap" title="Click a module chip to trace which model rows it feeds">Built from</span>
       {Object.entries(SRC).map(([k, s]) => (
         <button

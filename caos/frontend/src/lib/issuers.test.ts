@@ -11,6 +11,7 @@ describe("issuer helpers", () => {
 
   it("builds profile and directory-search links", () => {
     expect(issuerProfileHref({ id: "iss-1" } as Issuer)).toBe("/issuers/profile?id=iss-1");
+    expect(issuerProfileHref({ id: "issuer / one" } as Issuer)).toBe("/issuers/profile?id=issuer%20%2F%20one");
     expect(issuerSearchHref("Atlas Forge")).toBe("/issuers?q=Atlas%20Forge");
   });
 

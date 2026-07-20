@@ -141,7 +141,7 @@ describe("RankedChanges", () => {
     expect(screen.getByText("resolved")).toBeTruthy(); // owner slot, not "unassigned"
   });
 
-  it("omits the impact chip and falls back to the issuer name when an alert has no issuer id", async () => {
+  it("omits the impact chip and blocks Deep-Dive when an alert has no issuer id", async () => {
     getAlertStates.mockResolvedValue([]);
     render(<RankedChangesView state={{
       draft: {
@@ -165,8 +165,72 @@ describe("RankedChanges", () => {
 
     expect(await screen.findByText("unquantified-change")).toBeTruthy();
     expect(screen.queryByText(/σ$/)).toBeNull();
-    expect(screen.getByTitle("Open Name Only Co in Deep-Dive").getAttribute("href"))
-      .toContain("Name%20Only%20Co");
+    expect(screen.queryByTitle("Open Name Only Co in Deep-Dive")).toBeNull();
+    expect(screen.getByText("Issuer authority unavailable")).toBeTruthy();
+  });
+
+  it("honors a persona summary limit while disclosing that additional live rows remain", async () => {
+    getAlertStates.mockResolvedValue([]);
+    const sections = Array.from({ length: 6 }, (_, index) => ({
+      issuer_id: `ISS${index + 1}`,
+      issuer_name: `Issuer ${index + 1}`,
+      max_severity: 1 - index / 10,
+      claims: [{
+        text: `Change ${index + 1}`,
+        claim_type: "anomaly",
+        anomaly_kind: "peer-outlier",
+        anomaly_severity: 1 - index / 10,
+        chunk_ids: [],
+        fact_ids: [],
+        model: "claude-opus-4-8",
+      }],
+      deterministic_bullets: [],
+      exhibit: [],
+    }));
+
+    render(<RankedChangesView state={{
+      draft: { ...EMPTY_DRAFT, generated_at: "2026-07-19T09:00:00Z", sections },
+      loading: false,
+      offline: false,
+    } as never} limit={4} />);
+
+    expect(await screen.findByText("Change 4")).toBeTruthy();
+    expect(screen.queryByText("Change 5")).toBeNull();
+    expect(screen.getByText("Showing 4 of 6 ranked changes")).toBeTruthy();
+  });
+
+  it("renders the PM delta, impact, owner, and action column contract as a real table", async () => {
+    getAlertStates.mockResolvedValue([]);
+    render(<RankedChangesView state={{
+      draft: {
+        ...EMPTY_DRAFT,
+        generated_at: "2026-07-19T09:00:00Z",
+        sections: [{
+          issuer_id: "ATLF",
+          issuer_name: "Atlas Forge",
+          max_severity: 0.9,
+          claims: [{
+            text: "Margin moved below the peer range",
+            claim_type: "anomaly",
+            anomaly_kind: "peer-outlier",
+            anomaly_severity: 0.9,
+            chunk_ids: [],
+            fact_ids: [],
+            model: "claude-opus-4-8",
+          }],
+          deterministic_bullets: [],
+          exhibit: [],
+        }],
+      },
+      loading: false,
+      offline: false,
+    } as never} limit={4} tableColumnPreset="pm-delta" />);
+
+    expect(await screen.findByRole("columnheader", { name: "Change" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Portfolio impact" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Required action" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Owner" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeTruthy();
   });
 
   it("ignores a late alert-state enrichment after unmount", async () => {

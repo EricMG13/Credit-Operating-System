@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React, { Component, useEffect, useState, type ReactNode } from "react";
+import React, { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { readFileSync } from "node:fs";
 import { createPortal } from "react-dom";
 import { hydrateRoot, type Root } from "react-dom/client";
@@ -7,7 +7,7 @@ import { renderToString } from "react-dom/server";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { DominantTableRegion } from "./DominantTableRegion";
-import { PersonaWorkbench } from "./PersonaWorkbench";
+import { PersonaWorkbench, usePersonaComposition, useWorkbenchComposition } from "./PersonaWorkbench";
 
 afterEach(() => {
   cleanup();
@@ -48,6 +48,99 @@ function setNarrow(matches: boolean) {
 }
 
 describe("PersonaWorkbench", () => {
+  it("exports the required public persona composition hook", () => {
+    setNarrow(false);
+    function Probe() {
+      const composition = usePersonaComposition("command", "pm");
+      return <output>{composition.persona}|{composition.leadingDataset}</output>;
+    }
+    render(<Probe />);
+    expect(screen.getByText("pm|changes")).toBeTruthy();
+  });
+
+  it("applies real role emphasis and exposes the resolved composition to descendants", async () => {
+    setNarrow(false);
+    function CompositionConsumer() {
+      const composition = useWorkbenchComposition();
+      return (
+        <output data-testid="composition-consumer">
+          {composition.summaryLimit ?? "all"}|{composition.tableColumnPreset}|{composition.leadingDataset}
+        </output>
+      );
+    }
+    const { rerender } = render(
+      <PersonaWorkbench
+        surface="command"
+        persona="analyst"
+        decision={<div>Decision posture</div>}
+        primary={<CompositionConsumer />}
+        context={<div>Analytical context</div>}
+        inspector={<div>Evidence inspector</div>}
+      />,
+    );
+    const primaryNode = screen.getByTestId("composition-consumer");
+    const analystWorkbench = screen.getByTestId("persona-workbench");
+    expect(primaryNode.textContent).toBe("all||coverage");
+    expect(analystWorkbench.classList).toContain("persona-workbench--density-detailed");
+    expect(analystWorkbench.querySelector("[data-slot='primary']")?.getAttribute("data-emphasized")).toBe("true");
+
+    rerender(
+      <PersonaWorkbench
+        surface="command"
+        persona="pm"
+        decision={<div>Decision posture</div>}
+        primary={<CompositionConsumer />}
+        context={<div>Analytical context</div>}
+        inspector={<div>Evidence inspector</div>}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("composition-consumer").textContent).toBe("4|pm-delta|changes"));
+    const pmWorkbench = screen.getByTestId("persona-workbench");
+    expect(screen.getByTestId("composition-consumer")).toBe(primaryNode);
+    expect(pmWorkbench.classList).toContain("persona-workbench--density-compact");
+    expect(pmWorkbench.querySelector("[data-slot='decision']")?.getAttribute("data-emphasized")).toBe("true");
+    expect(pmWorkbench.querySelector("[data-slot='primary']")?.getAttribute("data-emphasized")).toBe("false");
+  });
+
+  it("puts Monitor QA governance controls first and keeps its evidence inspector open", () => {
+    setNarrow(false);
+    render(
+      <PersonaWorkbench
+        surface="monitor"
+        persona="qa"
+        decision={<div>Decision state</div>}
+        primary={<div>Governance dataset</div>}
+        context={<div>Alert context</div>}
+        inspector={<div>Control plane inspector</div>}
+      />,
+    );
+    const workbench = screen.getByTestId("persona-workbench");
+    const slots = Array.from(workbench.querySelectorAll<HTMLElement>("[data-slot]"));
+    expect(slots.map((slot) => slot.dataset.slot)).toEqual(["inspector", "decision", "primary"]);
+    expect(slots[0].getAttribute("data-emphasized")).toBe("true");
+    expect(screen.getByText("Control plane inspector")).toBeTruthy();
+    expect(screen.queryByText("Alert context")).toBeNull();
+  });
+
+  it("keeps the opted-in QA governance inspector visibly first in narrow desktop/tablet composition", async () => {
+    setNarrow(true);
+    render(
+      <PersonaWorkbench
+        surface="monitor"
+        persona="qa"
+        retainEmphasizedSupportOnNarrow
+        decision={<div>Decision state</div>}
+        primary={<div>Governance dataset</div>}
+        context={<div>Alert context</div>}
+        inspector={<div>Control plane inspector</div>}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("Control plane inspector")).toBeTruthy());
+    const slots = Array.from(screen.getByTestId("persona-workbench").querySelectorAll<HTMLElement>("[data-slot]"));
+    expect(slots.map((slot) => slot.dataset.slot)).toEqual(["inspector", "decision", "primary"]);
+    expect(screen.queryByRole("button", { name: "Open evidence inspector drawer" })).toBeNull();
+  });
+
   it("hydrates narrow layouts from the same desktop snapshot and preserves the primary node", async () => {
     setNarrow(true);
     let primaryMounts = 0;
@@ -155,7 +248,18 @@ describe("PersonaWorkbench", () => {
 
   it("applies persona panel defaults while preserving toggles, evidence access, and primary identity", async () => {
     setNarrow(false);
-    const primary = <div data-testid="default-primary">Primary dossier</div>;
+    const firstPmPaint: boolean[] = [];
+    function Primary() {
+      const composition = useWorkbenchComposition();
+      const recordedPm = useRef(false);
+      useLayoutEffect(() => {
+        if (composition.persona !== "pm" || recordedPm.current) return;
+        recordedPm.current = true;
+        firstPmPaint.push(Boolean(document.querySelector("[data-testid='default-context']")));
+      }, [composition.persona]);
+      return <div data-testid="default-primary">Primary dossier</div>;
+    }
+    const primary = <Primary />;
     const props = {
       surface: "deep-dive" as const,
       primary,
@@ -172,12 +276,17 @@ describe("PersonaWorkbench", () => {
 
     rerender(<PersonaWorkbench {...props} persona="pm" />);
     await waitFor(() => expect(screen.queryByTestId("default-context")).toBeNull());
+    expect(firstPmPaint).toEqual([false]);
     expect(screen.queryByTestId("default-inspector")).toBeNull();
     expect(screen.getByTestId("default-primary")).toBe(primaryNode);
     fireEvent.click(screen.getByRole("button", { name: "Open evidence inspector panel" }));
     expect(screen.getByTestId("default-inspector")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open context panel" }));
     expect(screen.getByTestId("default-context")).toBeTruthy();
+    rerender(<PersonaWorkbench {...props} persona="pm" />);
+    expect(screen.getByTestId("default-context")).toBeTruthy();
+    expect(screen.getByTestId("default-inspector")).toBeTruthy();
+    expect(screen.getByTestId("default-primary")).toBe(primaryNode);
   });
 
   it("reclaims support columns for zero, one, and two visible desktop panels", () => {

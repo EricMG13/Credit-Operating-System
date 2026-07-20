@@ -51,10 +51,8 @@ const GROUPS: { title: string; items: DriverSpec[] }[] = [
     { key: "mDiss", label: "Debt issue/(repay)", min: 0.5, max: 5, step: 0.05, scale: 1, dp: 2, unit: "×" },
     { key: "divDelta", label: "Dividends", min: -150, max: 0, step: 5, scale: 1, dp: 0, unit: "$" },
   ] },
-  { title: "Base rates", items: [
-    { key: "sofrRate", label: "SOFR", min: 0, max: 0.12, step: 0.0005, scale: 100, dp: 2, unit: "%" },
-    { key: "euriborRate", label: "EURIBOR", min: 0, max: 0.12, step: 0.0005, scale: 100, dp: 2, unit: "%" },
-    { key: "soniaRate", label: "SONIA", min: 0, max: 0.12, step: 0.0005, scale: 100, dp: 2, unit: "%" },
+  { title: "Rate sensitivity", items: [
+    { key: "sofrDelta", label: "SOFR Δ", min: -0.05, max: 0.10, step: 0.0005, scale: 100, dp: 2, unit: "pp" },
   ] },
   { title: "Add-backs (× agent register · 1 = accept)", items: ADDBACKS.map(
     (a): DriverSpec => ({ key: a.key, label: a.label, min: 0, max: 1.5, step: 0.05, scale: 1, dp: 2, unit: "×" }),

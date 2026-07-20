@@ -20,6 +20,9 @@ export default function ReportBody({ report }: { report: string }) {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
+        // The application shell owns the route-level h1. Model-authored report
+        // titles remain visible, but sit beneath it in the heading hierarchy.
+        h1: ({ children }) => <h2>{children}</h2>,
         a: ({ href, children }) => (
           <a href={href} target="_blank" rel="noreferrer">{children}</a>
         ),

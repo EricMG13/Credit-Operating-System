@@ -19,10 +19,10 @@ import { ActionReason } from "@/components/shared/ActionReason";
 import { useAutonomyDraft, type AutonomyDraftState } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows, formatImpact, requiredActionFor, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
 import { getAlertStates, setAlertState, toErrorMessage, type AlertStateDTO } from "@/lib/api";
+import { useScrollOwner } from "@/lib/use-scroll-owner";
 
-function issuerHref(row: AlertRow): string {
-  const q = row.issuerId ?? row.issuerName;
-  return `/deepdive?issuer=${encodeURIComponent(q)}`;
+function issuerHref(row: AlertRow): string | null {
+  return row.issuerId ? `/deepdive?issuer=${encodeURIComponent(row.issuerId)}` : null;
 }
 
 const acknowledgementPresentation = (
@@ -53,6 +53,7 @@ function RankedChangeRow({
   const resolved = state?.state === "resolved";
   const impact = formatImpact(row);
   const acknowledgement = acknowledgementPresentation(acknowledging, resolved, acknowledged);
+  const deepDiveHref = issuerHref(row);
   return (
     <div className="px-3 py-[6px] border-b border-caos-border/50">
       <div className="flex items-center gap-2">
@@ -80,13 +81,15 @@ function RankedChangeRow({
       <div className="text-caos-md text-caos-text leading-snug mt-1">{row.event}</div>
       <div className="flex items-center gap-2 mt-1">
         <span className="tabular text-caos-xs text-caos-muted">{requiredActionFor(row)}</span>
-        <Link
-          href={issuerHref(row)}
-          title={`Open ${row.issuerName} in Deep-Dive`}
-          className="no-underline tabular text-caos-xs text-caos-accent hover:text-caos-text border border-caos-border/70 hover:border-caos-accent/60 rounded px-1.5 min-h-8 flex items-center transition-caos focus-ring outline-none caos-target"
-        >
-          Open →
-        </Link>
+        {deepDiveHref ? (
+          <Link
+            href={deepDiveHref}
+            title={`Open ${row.issuerName} in Deep-Dive`}
+            className="no-underline tabular text-caos-xs text-caos-accent hover:text-caos-text border border-caos-border/70 hover:border-caos-accent/60 rounded px-1.5 min-h-8 flex items-center transition-caos focus-ring outline-none caos-target"
+          >
+            Open →
+          </Link>
+        ) : <span className="tabular text-caos-xs text-caos-muted">Issuer authority unavailable</span>}
         <ActionReason
           type="button"
           reason={acknowledgement.reason}
@@ -109,13 +112,86 @@ export function RankedChanges() {
   return <RankedChangesView state={useAutonomyDraft()} />;
 }
 
-export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
+function RankedChangeTableRow({
+  row,
+  state,
+  ackError,
+  acknowledging,
+  onAck,
+}: {
+  row: AlertRow;
+  state?: AlertStateDTO;
+  ackError?: string;
+  acknowledging: boolean;
+  onAck: (key: string) => void;
+}) {
+  const acknowledged = state?.state === "ack";
+  const resolved = state?.state === "resolved";
+  const acknowledgement = acknowledgementPresentation(acknowledging, resolved, acknowledged);
+  const deepDiveHref = issuerHref(row);
+  return (
+    <tr>
+      <th scope="row" className="text-left">
+        <IssuerLink
+          query={row.issuerName}
+          title={`Open ${row.issuerName} profile`}
+          className="tabular text-caos-sm text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none"
+        >
+          {row.issuerName}
+        </IssuerLink>
+      </th>
+      <td>
+        <div className="flex items-start gap-2">
+          <ConclusionAuthority prov={rowProvenance(row)} />
+          <span>{row.event}</span>
+        </div>
+      </td>
+      <td className="text-right tabular">{formatImpact(row) || "—"}</td>
+      <td>{requiredActionFor(row)}</td>
+      <td className="tabular">{resolved ? "resolved" : state?.assignee || "unassigned"}</td>
+      <td>
+        <div className="flex items-center justify-end gap-1.5">
+          {deepDiveHref ? (
+            <Link
+              href={deepDiveHref}
+              title={`Open ${row.issuerName} in Deep-Dive`}
+              className="caos-action-secondary no-underline focus-ring whitespace-nowrap"
+            >
+              Open
+            </Link>
+          ) : <span className="text-caos-xs text-caos-muted">Issuer authority unavailable</span>}
+          <ActionReason
+            type="button"
+            reason={acknowledgement.reason}
+            onClick={() => onAck(row.key)}
+            className="caos-action-secondary focus-ring whitespace-nowrap aria-disabled:opacity-50"
+          >
+            {acknowledgement.label}
+          </ActionReason>
+        </div>
+        {ackError ? <p className="mt-1 text-caos-2xs text-caos-critical" role="alert">{ackError} Retry acknowledgement for this unchanged alert.</p> : null}
+      </td>
+    </tr>
+  );
+}
+
+export function RankedChangesView({
+  state,
+  limit = null,
+  tableColumnPreset,
+}: {
+  state: AutonomyDraftState;
+  limit?: number | null;
+  tableColumnPreset?: string;
+}) {
   const { draft, loading, offline } = state;
   const [states, setStates] = useState<Map<string, AlertStateDTO>>(new Map());
   const [ackPending, setAckPending] = useState<string | null>(null);
   const [ackErrors, setAckErrors] = useState<Map<string, string>>(new Map());
+  const tableScroll = useScrollOwner<HTMLDivElement>();
 
-  const rows = draft ? draftToAlertRows(draft) : [];
+  const allRows = draft ? draftToAlertRows(draft) : [];
+  const rows = limit && limit > 0 ? allRows.slice(0, limit) : allRows;
 
   useEffect(() => {
     if (rows.length === 0) return;
@@ -189,16 +265,48 @@ export function RankedChangesView({ state }: { state: AutonomyDraftState }) {
         </span>
         <span className="tabular text-caos-2xs text-caos-muted ml-auto">{draft?.marking}</span>
       </div>
-      {rows.map((row) => (
-        <RankedChangeRow
-          key={row.key}
-          row={row}
-          state={states.get(row.key)}
-          ackError={ackErrors.get(row.key)}
-          acknowledging={ackPending === row.key}
-          onAck={ack}
-        />
-      ))}
+      {rows.length < allRows.length ? (
+        <p className="px-3 py-1.5 border-b border-caos-border/50 tabular text-caos-2xs text-caos-muted">
+          Showing {rows.length} of {allRows.length} ranked changes
+        </p>
+      ) : null}
+      {tableColumnPreset === "pm-delta" ? (
+        <div ref={tableScroll.ref} className={`overflow-x-auto${tableScroll.scrollable ? " focus-ring" : ""}`} tabIndex={tableScroll.scrollable ? 0 : undefined} role={tableScroll.scrollable ? "region" : undefined} aria-label={tableScroll.scrollable ? "PM ranked-change worklist columns" : undefined}>
+          <table className="caos-table min-w-[900px] w-full">
+            <thead>
+              <tr>
+                <th scope="col">Issuer</th>
+                <th scope="col">Change</th>
+                <th scope="col" className="text-right">Portfolio impact</th>
+                <th scope="col">Required action</th>
+                <th scope="col">Owner</th>
+                <th scope="col" className="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <RankedChangeTableRow
+                  key={row.key}
+                  row={row}
+                  state={states.get(row.key)}
+                  ackError={ackErrors.get(row.key)}
+                  acknowledging={ackPending === row.key}
+                  onAck={ack}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : rows.map((row) => (
+          <RankedChangeRow
+            key={row.key}
+            row={row}
+            state={states.get(row.key)}
+            ackError={ackErrors.get(row.key)}
+            acknowledging={ackPending === row.key}
+            onAck={ack}
+          />
+        ))}
     </div>
   );
 }

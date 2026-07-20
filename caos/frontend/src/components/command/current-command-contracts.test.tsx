@@ -104,18 +104,21 @@ describe("Current Command Center component contracts", () => {
     expect(screen.getByText(/completed runs explicitly bound to this portfolio/i)).toBeTruthy();
     posture.unmount();
 
-    render(<CommandPortfolioTable positions={[position]} selected={null} onSelect={onSelect} />);
+    const missingTicker = { ...position, id: "position-2", borrower_name: "No Ticker Corp", ticker: null };
+    render(<CommandPortfolioTable positions={[position, missingTicker]} selected={null} onSelect={onSelect} />);
     const grid = screen.getByRole("grid", { name: "Persisted portfolio positions" });
     expect(within(grid).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
       "Ticker", "Company", "Instrument", "Size", "Price", "Margin", "Maturity", "Ratings", "Posture", "QA",
     ]);
-    expect(within(grid).getByText("$100M")).toBeTruthy();
-    expect(within(grid).getByText("475bp")).toBeTruthy();
-    expect(within(grid).getByText("B2 / B")).toBeTruthy();
-    expect(within(grid).getByText("OVERWEIGHT")).toBeTruthy();
-    expect(within(grid).getByText("Passed")).toBeTruthy();
-
     const row = within(grid).getByRole("row", { name: /Atlas Forge position details/i });
+    expect(row.className).toContain("[content-visibility:auto]");
+    expect(row.className).toContain("[contain-intrinsic-size:auto_36px]");
+    expect(within(row).getByText("$100M")).toBeTruthy();
+    expect(within(row).getByText("475bp")).toBeTruthy();
+    expect(within(row).getByText("B2 / B")).toBeTruthy();
+    expect(within(row).getByText("OVERWEIGHT")).toBeTruthy();
+    expect(within(row).getByText("Passed")).toBeTruthy();
+
     fireEvent.click(row);
     fireEvent.keyDown(row, { key: "Enter" });
     expect(onSelect).toHaveBeenCalledTimes(2);
@@ -125,17 +128,24 @@ describe("Current Command Center component contracts", () => {
     fireEvent.click(within(grid).getByRole("link", { name: "ATLF" }));
     expect(mocks.openProfile).toHaveBeenCalledWith("issuer-1");
     expect(onSelect).not.toHaveBeenCalled();
+
+    const missingTickerRow = within(grid).getByRole("row", { name: /No Ticker Corp position details/i });
+    expect(within(missingTickerRow).queryByRole("link", { name: "—" })).toBeNull();
+    expect(within(missingTickerRow).getByRole("link", { name: "No Ticker Corp" })).toBeTruthy();
   });
 
   it("command-06 command-07 command-08 exposes the selected-position strip, deep-dive handoff, and close action", () => {
     const onClose = vi.fn();
-    render(<CommandPositionStrip position={position} onClose={onClose} />);
+    const strip = render(<CommandPositionStrip position={position} onClose={onClose} />);
 
     expect(screen.getByText("First Lien Term Loan B 2031")).toBeTruthy();
     expect(screen.getByText("$100M")).toBeTruthy();
     expect(screen.getByText("98.5")).toBeTruthy();
     expect(screen.getByText("475bp")).toBeTruthy();
+    expect(screen.getByText("2031-06-30")).toBeTruthy();
+    expect(screen.getByText("B2 / B")).toBeTruthy();
     expect(screen.getByText("OVERWEIGHT")).toBeTruthy();
+    expect(screen.getByText("Passed · Committee Ready")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Open Deep-Dive" }).getAttribute("href"))
       .toBe("/deepdive?issuer=issuer-1&run=run-1");
 
@@ -143,6 +153,14 @@ describe("Current Command Center component contracts", () => {
     expect(close.getAttribute("title")).toBe("Close (Esc)");
     fireEvent.click(close);
     expect(onClose).toHaveBeenCalledTimes(1);
+
+    strip.rerender(<CommandPositionStrip position={{ ...position, run_id: null }} onClose={onClose} />);
+    expect(screen.queryByRole("link", { name: "Open Deep-Dive" })).toBeNull();
+    expect(screen.getByText("Deep-Dive authority unavailable")).toBeTruthy();
+
+    strip.rerender(<CommandPositionStrip position={{ ...position, issuer_id: "issuer / one", run_id: "run ? one" }} onClose={onClose} />);
+    expect(screen.getByRole("link", { name: "Open Deep-Dive" }).getAttribute("href"))
+      .toBe("/deepdive?issuer=issuer%20%2F%20one&run=run%20%3F%20one");
   });
 
   it("command-23 command-24 renders, selects, and filters the virtualized live-coverage worklist", async () => {

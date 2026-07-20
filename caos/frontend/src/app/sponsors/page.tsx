@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
-import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { EnterprisePage, type PageAction } from "@/components/shared/EnterprisePage";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { StatusGlyph } from "@/components/shared/StatusGlyph";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
@@ -18,7 +18,6 @@ import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
-import { ActionReason } from "@/components/shared/ActionReason";
 import { useIssuerProfileOverlay } from "@/components/shared/IssuerProfileOverlay";
 import {
   getSponsors, getSponsorTrackRecord,
@@ -145,13 +144,6 @@ function useSponsorsController() {
 
 type SponsorsController = ReturnType<typeof useSponsorsController>;
 
-function sponsorReviewReason(controller: SponsorsController) {
-  if (controller.selected) return null;
-  if (controller.sponsors === null) return "The sponsor register is still loading.";
-  if (controller.sponsorsError) return "The sponsor register is unavailable.";
-  return "Select a sponsor row first.";
-}
-
 function sponsorRegisterStatus(controller: SponsorsController) {
   if (controller.sponsors === null) return "Loading register";
   if (controller.sponsorsError) return "Register unavailable";
@@ -164,11 +156,12 @@ function sponsorToolbarCount(controller: SponsorsController) {
   return `${controller.sponsors.length} sponsors`;
 }
 
-function SponsorsPrimaryAction({ controller }: { controller: SponsorsController }) {
-  const reviewSelected = () => {
-    if (controller.selected) document.getElementById("sponsor-record")?.focus();
+function SponsorsPrimaryAction({ controller }: { controller: SponsorsController }): PageAction | undefined {
+  if (!controller.selected) return undefined;
+  return {
+    label: "Review selected sponsor",
+    onAction: () => document.getElementById("sponsor-record")?.focus(),
   };
-  return <ActionReason className="caos-action-primary focus-ring" reason={sponsorReviewReason(controller)} onClick={reviewSelected}>Review selected sponsor</ActionReason>;
 }
 
 function SponsorRegisterRow({ controller, sponsor }: { controller: SponsorsController; sponsor: SponsorSummary }) {
@@ -243,6 +236,31 @@ function SponsorRecord({ controller }: { controller: SponsorsController }) {
 }
 
 function SponsorsWorkbench({ controller }: { controller: SponsorsController }) {
+  if (controller.sponsors === null) {
+    return <div className="caos-persona-route sponsors-workbench flex-1 min-h-0 p-2"><PersonaWorkbench surface="sponsors" primary={<SurfaceState kind="loading" title="Loading sponsor register" headingLevel={2} compact className="max-w-xl" />} /></div>;
+  }
+  if (controller.sponsorsError) {
+    return <div className="caos-persona-route sponsors-workbench flex-1 min-h-0 p-2"><PersonaWorkbench surface="sponsors" primary={<SurfaceState
+      kind="offline"
+      title="Sponsor register unavailable"
+      headingLevel={2}
+      detail="The service could not be reached. No sponsor record has been inferred from the missing response."
+      className="max-w-xl"
+      primaryAction={<button type="button" onClick={controller.loadSponsors} className="caos-action-primary focus-ring">Retry</button>}
+    />} /></div>;
+  }
+  if (controller.sponsors !== null && !controller.sponsorsError && controller.sponsors.length === 0) {
+    return <div className="caos-persona-route sponsors-workbench flex-1 min-h-0 p-2">
+      <PersonaWorkbench surface="sponsors" primary={<SurfaceState
+        kind="empty"
+        title="No sponsors on file"
+        headingLevel={2}
+        detail="Set Sponsor / PE owner on an issuer. Track records aggregate observed CP-2D reviews across that sponsor’s covered names."
+        className="max-w-xl"
+        primaryAction={<Link href={controller.analysis.context ? contextHref("/issuers", controller.analysis.context.id) : "/issuers"} className="caos-secondary-action focus-ring no-underline">Open issuer directory</Link>}
+      />} />
+    </div>;
+  }
   return <div className="caos-persona-route sponsors-workbench flex-1 min-h-0 p-2">
     <PersonaWorkbench surface="sponsors" primary={<div className="h-full min-h-0 flex flex-col">
       <WorkbenchToolbar
@@ -266,7 +284,7 @@ function SponsorsView() {
   return (
     <EnterprisePage kind="worklist"
       identity={<ShellIdentity tag="CP-2D" title="Sponsor Track Records" />}
-      primaryAction={<SponsorsPrimaryAction controller={controller} />}
+      primaryAction={SponsorsPrimaryAction({ controller })}
       status={<AnalysisContextSaveState analysis={controller.analysis} />}
       contextualControls={<span className="tabular text-caos-sm text-caos-muted whitespace-nowrap">{sponsorRegisterStatus(controller)}</span>}
       narrowContract={{ essentialControls: null }}

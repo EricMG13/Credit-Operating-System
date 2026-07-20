@@ -26,7 +26,7 @@ it("captures the thesis in an immutable decision snapshot", async () => {
   fireEvent.change(screen.getByLabelText("THESIS SNAPSHOT"), { target: { value: "  Defensible.  " } });
   fireEvent.change(screen.getByLabelText("CONDITIONS · ONE PER LINE"), { target: { value: " First lien only \n\n  Monthly reporting " } });
   fireEvent.change(screen.getByLabelText("EXPIRY"), { target: { value: "2026-12-31" } });
-  fireEvent.click(screen.getByText("CAPTURE DECISION"));
+  fireEvent.click(screen.getByRole("button", { name: "Record IC decision" }));
   await waitFor(() => expect(createDecision).toHaveBeenCalledWith(expect.objectContaining({
     issuer_id: "i", run_id: "run-12345678", action: "revisit",
     conditions: ["First lien only", "Monthly reporting"], expiry: "2026-12-31",
@@ -85,6 +85,6 @@ it.each([
   vi.mocked(createDecision).mockRejectedValue(failure);
   render(<DecisionRoomDrawer issuerId="i" runId="run-12345678" onClose={() => undefined} />);
   fireEvent.change(screen.getByLabelText("THESIS SNAPSHOT"), { target: { value: "Thesis" } });
-  fireEvent.click(screen.getByRole("button", { name: "CAPTURE DECISION" }));
+  fireEvent.click(screen.getByRole("button", { name: "Record IC decision" }));
   expect((await screen.findByRole("alert")).textContent).toBe(message);
 });

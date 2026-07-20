@@ -54,6 +54,15 @@ describe("Model Builder assumption feature contracts", () => {
     expect(props.onScrubEnd).toHaveBeenCalledTimes(1);
   });
 
+  it("exposes the ATLF SOFR delta driver without inert EURIBOR or SONIA controls", () => {
+    const props = renderPanel();
+    expect(screen.queryByRole("spinbutton", { name: /EURIBOR/i })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: /SONIA/i })).toBeNull();
+    const sofr = screen.getByRole("spinbutton", { name: "SOFR Δ — all years" });
+    fireEvent.change(sofr, { target: { value: "1.25" } });
+    expect(props.onChange).toHaveBeenCalledWith("base", "sofrDelta", 0.0125);
+  });
+
   it("model-12 model-14 writes a single-year override and exposes its keyboard-operable clear action", () => {
     const assumptions: Assumptions = {
       ...DEFAULT_ASSUMPTIONS,

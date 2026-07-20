@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 
@@ -192,6 +193,68 @@ def test_ingest_storage_settings_are_resolved_per_operation(tmp_path, monkeypatc
 
     assert (first / first_key).read_bytes() == b"first"
     assert (second / second_key).read_bytes() == b"second"
+
+
+def test_vault_store_sanitizes_basename_and_uses_unique_directory(tmp_path, monkeypatch):
+    """upload-17: raw evidence stays under a unique, basename-only vault key."""
+    import ingest
+
+    monkeypatch.setattr(
+        ingest,
+        "get_settings",
+        lambda: SimpleNamespace(caos_storage_dir=str(tmp_path)),
+    )
+
+    first_key = ingest.store(b"first", "../unsafe name?.pdf")
+    second_key = ingest.store(b"second", "../unsafe name?.pdf")
+
+    first_parts = Path(first_key).parts
+    second_parts = Path(second_key).parts
+    assert len(first_parts) == len(second_parts) == 2
+    assert first_parts[0] != second_parts[0]
+    assert len(first_parts[0]) == len(second_parts[0]) == 32
+    assert all(char in "0123456789abcdef" for char in first_parts[0] + second_parts[0])
+    assert first_parts[1] == second_parts[1] == "unsafe_name_.pdf"
+    assert (tmp_path / first_key).read_bytes() == b"first"
+    assert (tmp_path / second_key).read_bytes() == b"second"
+
+
+def test_ingestion_response_exposes_durable_metadata(rob_client):
+    """upload-18: a successful intake returns every implemented tracking field."""
+    response = _upload_document(rob_client, "metadata.pdf", _tiny_pdf())
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["document_id"]
+    assert body["issuer_id"]
+    assert body["minio_key"].endswith("/metadata.pdf")
+    assert body["run_mode"] == "earnings"
+    assert body["chunks_created"] > 0
+    assert body["message"] == (
+        f"metadata.pdf vaulted and chunked ({body['chunks_created']} chunks) — earnings run."
+    )
+    assert body["warning"] is None
+    assert body["ratings_updated"] is None
+    assert body["source_manifest_id"]
+
+
+def test_upload_rate_guard_allows_twenty_then_rejects_twenty_first(monkeypatch):
+    """upload-19: the caller-local fixed window enforces its exact boundary."""
+    import rate_limit
+    from routes import ingestion
+
+    caller = SimpleNamespace(id="upload-rate-boundary")
+    rate_limit.reset()
+    try:
+        for _ in range(ingestion._UPLOAD_MAX_PER_MINUTE):
+            ingestion._upload_rate_guard(caller)
+
+        with pytest.raises(HTTPException) as caught:
+            ingestion._upload_rate_guard(caller)
+        assert caught.value.status_code == 429
+        assert caught.value.detail == "Upload rate limit reached — try again in a minute."
+    finally:
+        rate_limit.reset()
 
 
 @pytest.mark.asyncio

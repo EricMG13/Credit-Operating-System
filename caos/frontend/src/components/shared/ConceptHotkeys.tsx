@@ -8,6 +8,7 @@ import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { CONCEPT_CYCLE } from "@/lib/nav";
 import { useNavigationAttempt } from "./NavigationGuardProvider";
+import { preserveDataModeInHref } from "@/lib/data-mode";
 
 // Alt+←/→ stops come from the shared nav registry — cycle order is the visual
 // nav order by construction (this file used to keep its own diverging list).
@@ -95,7 +96,7 @@ export function ConceptHotkeys() {
       // Match letter chords on e.code: macOS Option resolves e.key to composed
       // characters (Alt+S → "ß", Alt+K → "˚", Alt+C → "ç").
       handleHotkey(e, pathRef.current, (destination) => {
-        attemptNavigation(() => router.push(destination));
+        attemptNavigation(() => router.push(preserveDataModeInHref(destination, window.location.search)));
       });
     };
     window.addEventListener("keydown", down);

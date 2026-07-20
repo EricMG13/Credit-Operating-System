@@ -23,7 +23,7 @@ const POSTURE_COLOR: Record<CommandPosture, string> = {
   OVERWEIGHT: "var(--caos-success)",
   NEUTRAL: "var(--caos-muted)",
   UNDERWEIGHT: "var(--caos-critical)",
-  UNKNOWN: "var(--caos-idle)",
+  UNKNOWN: "var(--caos-muted)",
 };
 
 const fmtMoney = (value: number | null) =>
@@ -174,10 +174,10 @@ export function CommandPortfolioTable({
               onKeyDown={(event) => {
                 handleRovingActionRowKeyDown(event, position.id, actionRowId, setActionRowId, focusProps.onKeyDown, activate);
               }}
-              className={`${COLS} cursor-pointer border-b border-caos-border/50 px-3 py-1.5 outline-none transition-caos focus-ring ${isSelected ? "bg-caos-accent/10" : "hover:bg-caos-elevated/50"}`}
+              className={`${COLS} cursor-pointer border-b border-caos-border/50 px-3 py-1.5 outline-none transition-caos focus-ring [content-visibility:auto] [contain-intrinsic-size:auto_36px] ${isSelected ? "bg-caos-accent/10" : "hover:bg-caos-elevated/50"}`}
             >
               <span role="gridcell" className="tabular text-caos-accent">
-                {issuer ? <IssuerLink issuer={issuer}>{position.ticker || "—"}</IssuerLink> : position.ticker || "—"}
+                {issuer && position.ticker ? <IssuerLink issuer={issuer}>{position.ticker}</IssuerLink> : position.ticker || "—"}
               </span>
               <span role="rowheader" className="min-w-0 break-words leading-snug text-caos-text">
                 {issuer ? <IssuerLink issuer={issuer}>{position.borrower_name}</IssuerLink> : position.borrower_name}
@@ -211,6 +211,8 @@ export function CommandPositionStrip({
   onClose: () => void;
 }) {
   const issuer = position.issuer_id ? { id: position.issuer_id } : null;
+  const rating = [position.rating_moody, position.rating_sp].filter(Boolean).join(" / ") || "—";
+  const governance = [position.qa_status || "UNRATED", position.committee_status].filter(Boolean).join(" · ");
   const stat = (label: string, value: string) => (
     <span key={label} className="flex flex-col items-start">
       <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{label}</span>
@@ -233,13 +235,16 @@ export function CommandPositionStrip({
       {stat("Size", fmtMoney(position.par_usd))}
       {stat("Price", fmtNumber(position.price))}
       {stat("Margin", fmtNumber(position.margin_bps, "bp"))}
+      {stat("Maturity", position.maturity || "—")}
+      {stat("Ratings", rating)}
       {stat("Posture", position.posture)}
+      {stat("QA", governance)}
       <span className="flex-1" />
-      {position.issuer_id ? (
-        <Link href={`/deepdive?issuer=${encodeURIComponent(position.issuer_id)}${position.run_id ? `&run=${encodeURIComponent(position.run_id)}` : ""}`} className="caos-action-secondary no-underline focus-ring">
+      {position.issuer_id && position.run_id ? (
+        <Link href={`/deepdive?issuer=${encodeURIComponent(position.issuer_id)}&run=${encodeURIComponent(position.run_id)}`} className="caos-action-secondary no-underline focus-ring">
           Open Deep-Dive
         </Link>
-      ) : <span className="text-caos-xs text-caos-muted">Issuer link unavailable</span>}
+      ) : <span className="text-caos-xs text-caos-muted">Deep-Dive authority unavailable</span>}
       <CloseButton onClick={onClose} title="Close (Esc)" />
     </div>
   );

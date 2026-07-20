@@ -41,6 +41,7 @@ async def _insert_terminal_notification(
         "title": title,
         "body": body,
         "href": f"/pipeline?{query}",
+        "action_label": "Open dependency map",
         "idempotency_key": f"run:{run.id}:{status}",
         "seen_at": None,
         "created_at": datetime.now(timezone.utc),

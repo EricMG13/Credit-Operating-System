@@ -15,6 +15,8 @@ interface ActionReasonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick" | "title" | "aria-disabled" | "aria-describedby"> {
   /** Non-empty → the action is inert and this explains why. Null/undefined → live. */
   reason?: string | null;
+  /** Pointer explanation for a live action. An inert reason always takes precedence. */
+  actionTitle?: string;
   /** "inline" renders the visible reason line; "hidden" keeps it sr-only for
    * tight toolbars where title + screen-reader coverage must suffice. */
   reasonDisplay?: "inline" | "hidden";
@@ -78,6 +80,7 @@ function ActionReasonMessage({
 
 export function ActionReason({
   reason,
+  actionTitle,
   reasonDisplay = "inline",
   onClick,
   children,
@@ -99,7 +102,7 @@ export function ActionReason({
         ref={buttonRef}
         type={type}
         aria-disabled={inert || undefined}
-        title={reason || undefined}
+        title={reason || actionTitle || undefined}
         aria-describedby={inert ? reasonId : undefined}
         onClick={handleClick}
         {...rest}

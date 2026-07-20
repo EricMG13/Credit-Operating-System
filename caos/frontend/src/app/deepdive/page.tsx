@@ -7,7 +7,7 @@
 // CP-6E sizing and armed monitoring triggers. Loads complete; reset replays
 // the run and outputs unlock as their producing modules clear.
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
@@ -15,7 +15,13 @@ import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ExportToVaultButton } from "@/components/reports/ExportToVaultButton";
 import type { Report } from "@/lib/reports/builders";
 import { DEAL } from "@/lib/reports/deal";
-import { MODULES, SIM_PLAN } from "@/lib/pipeline/data";
+import { SIM_PLAN } from "@/lib/pipeline/data";
+import {
+  DEEP_DIVE_MODULE_GROUPS as GROUPS,
+  DEEP_DIVE_MODULES as MODULES,
+  deepDiveActiveGroup,
+  isDeepDiveGroupExpanded,
+} from "@/lib/deepdive/module-groups";
 import { fmtUtcDateTime } from "@/lib/format-date";
 import { useSimRun } from "@/lib/pipeline/sim";
 import { isCleared } from "@/lib/pipeline/sev";
@@ -34,11 +40,15 @@ import { deepDiveCaveatKind } from "@/lib/deepdive/caveat";
 import { fromReportCaveat } from "@/lib/provenance";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
-import { useAsk } from "@/components/shared/Ask";
+import { useAsk } from "@/components/shared/AskContext";
 import { createThesisVersion, getIssuerProfile, updateAnalystWorkspace } from "@/lib/api";
 import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
+import { OpenReferenceExample } from "@/components/shared/DataMode";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import type { DecisionContextState } from "@/lib/decision-state";
 import { analysisApi, useAnalysisContext } from "@/lib/analysis-workbench";
+import { dataModeFromSearch } from "@/lib/data-mode";
+import { useScrollOwner } from "@/lib/use-scroll-owner";
 
 // Code-split the heavy, on-demand surfaces out of the initial /deepdive bundle:
 // the tab renderers (tabs.tsx + its fixture/chart tree) load when a module tab is
@@ -103,16 +113,6 @@ function worstLiveQaState(statuses: Array<string | undefined>): LiveQaState {
 // Modules with a bespoke ATLF showcase renderer (debate / recovery / covenants).
 // For a real issuer with live output they fall through to the generic ModuleView.
 const BESPOKE_TABS = new Set(["CP-6A", "CP-6E", "CP-3B", "CP-4"]);
-const GROUPS: readonly { label: string; mods: readonly string[] }[] = [
-  { label: "L0 · ORCH", mods: ["CP-0", "CP-X"] },
-  { label: "L1 BASE", mods: ["CP-1", "CP-1A", "CP-1B", "CP-1C"] },
-  { label: "L2 SYNTHESIS", mods: ["CP-2", "CP-2B", "CP-2C", "CP-2D", "CP-2E", "CP-2F", "CP-2G"] },
-  { label: "L3 REL VALUE", mods: ["CP-3", "CP-3B", "CP-3C", "CP-3D"] },
-  { label: "L4 LEGAL", mods: ["CP-4", "CP-4D"] },
-  { label: "L5 GOV", mods: ["CP-5B", "CP-5"] },
-  { label: "L6 DEBATE", mods: ["CP-6A", "CP-6E"] },
-];
-
 type LayerSummaryPart = { key: string; n: number; dot: React.ReactNode; word: string };
 
 const layerSummaryParts = (
@@ -169,13 +169,16 @@ function DeepDive() {
   const modParam = searchParams.get("mod");
   const evidenceParam = searchParams.get("evidence");
   const exactRunId = searchParams.get("run");
-  // Issuer opened from the directory (?issuer=). Absent → the ATLF reference deal
-  // (the bespoke showcase). The live engine overlay is keyed off this id; the
-  // bespoke debate/recovery/covenant tabs and DEAL narrative are ATLF fixtures,
-  // so for a non-reference issuer we land on a live module and mark them as the
-  // reference template rather than implying they are that issuer's own analysis.
-  const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
-  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
+  const dataMode = dataModeFromSearch(searchParams);
+  const requestedIssuerId = searchParams.get("issuer");
+  const isReference = dataMode === "reference";
+  const missingIssuer = !isReference && !requestedIssuerId;
+  const currentDeepDiveHref = searchParams.toString()
+    ? `/deepdive?${searchParams.toString()}`
+    : "/deepdive";
+  // ATLF is an explicit reference fixture. Live mode never silently selects it
+  // when the issuer query parameter is missing.
+  const issuerId = isReference ? ATLF_REFERENCE_ISSUER_ID : requestedIssuerId ?? "";
   const [issuerMeta, setIssuerMeta] = useState<{
     name: string;
     ticker?: string | null;
@@ -186,16 +189,16 @@ function DeepDive() {
   const [issuerErr, setIssuerErr] = useState(false);
   const [issuerAttempt, setIssuerAttempt] = useState(0);
   useEffect(() => {
-    if (isReference) { setIssuerMeta(null); return; }
+    if (isReference || missingIssuer) { setIssuerMeta(null); return; }
     let stale = false;
     setIssuerErr(false);
     getIssuerProfile(issuerId)
       .then((d) => { if (!stale) setIssuerMeta({ name: d.issuer.name, ticker: d.issuer.ticker, signals: d.signals }); })
       .catch(() => { if (!stale) { setIssuerMeta(null); setIssuerErr(true); } });
     return () => { stale = true; };
-  }, [issuerId, isReference, issuerAttempt]);
-  const code = isReference ? DEAL.code : (issuerMeta?.ticker || "—");
-  const dealLabel = isReference ? DEAL.deal : (issuerMeta?.name ?? (issuerErr ? "Issuer unavailable" : "Loading issuer…"));
+  }, [issuerId, isReference, issuerAttempt, missingIssuer]);
+  const code = isReference ? DEAL.code : missingIssuer ? "—" : (issuerMeta?.ticker || "—");
+  const dealLabel = isReference ? DEAL.deal : missingIssuer ? "Issuer selection required" : (issuerMeta?.name ?? (issuerErr ? "Issuer unavailable" : "Loading issuer…"));
   const analysis = useAnalysisContext({ name: `${dealLabel} credit view` });
   const [affirmState, setAffirmState] = useState<"idle" | "saving" | "saved" | "partial" | "error">("idle");
   const [affirmNotice, setAffirmNotice] = useState<string | null>(null);
@@ -226,76 +229,51 @@ function DeepDive() {
   useEffect(() => setLayout(loadLayout()), []);
   const pickLayout = (l: DeepDiveLayout) => { setLayout(l); saveLayout(l); };
 
-  // Module-launcher accordion. Wide screens (≥2xl) open every layer at once —
-  // there is room for the whole tree. Below 2xl the accordion is EXCLUSIVE: one
-  // layer open at a time (opening a layer closes the others), so the strip never
-  // accumulates open layers and grows past the viewport into a scroll-hunt.
-  // (critique: launcher overflow) The active tab's layer is always the open one
-  // after a navigation.
-  const activeLayer = GROUPS.find((g) => g.mods.includes(tab))?.label ?? null;
-  const [wide, setWide] = useState(false);
-  const [openLayers, setOpenLayers] = useState<Set<string>>(() => new Set(activeLayer ? [activeLayer] : []));
-  // Track the 2xl breakpoint so the accordion knows whether to be all-open or
-  // exclusive; matchMedia so it flips exactly at the layout boundary.
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1536px)");
-    const apply = () => setWide(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
-  // Reset to the mode default when the breakpoint flips: all-open when wide,
-  // just the active layer when narrow (collapses everything else).
-  useEffect(() => {
-    setOpenLayers(wide ? new Set(GROUPS.map((g) => g.label)) : new Set(activeLayer ? [activeLayer] : []));
-    // Only re-seed on a breakpoint flip; navigations are handled below so a
-    // user's opened layer isn't wiped on every resize tick.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wide]);
-  // Keep the active layer visible on tab navigation — exclusive when narrow.
-  useEffect(() => {
-    if (!activeLayer) return;
-    setOpenLayers((prev) => (wide ? new Set(prev).add(activeLayer) : new Set([activeLayer])));
-  }, [activeLayer, wide]);
-  const toggleLayer = (l: string) => setOpenLayers((prev) => {
-    if (wide) { const n = new Set(prev); if (n.has(l)) n.delete(l); else n.add(l); return n; }
-    // Narrow: exclusive. Re-clicking the only open layer collapses it.
-    return prev.has(l) && prev.size === 1 ? new Set() : new Set([l]);
-  });
+  // The selected module owns the open group at every supported width. Opening a
+  // different group selects its first module; this keeps all 27 modules one
+  // disclosure away without allowing the launcher to accumulate open regions.
+  const activeGroup = deepDiveActiveGroup(tab);
+  const openGroup = (group: (typeof GROUPS)[number]) => {
+    if (group.label !== activeGroup.label) setTab(group.mods[0]);
+  };
 
   // Launcher strip horizontal-scroll affordance: edge fades + chevrons that
   // appear only when there's more off-screen, and the active chip is scrolled
   // into view on navigation so it's never stranded past the fold. (critique:
   // active chip can sit outside the viewport / only affordance is a 7px bar)
-  const stripRef = useRef<HTMLDivElement>(null);
+  const { ref: moduleStripScrollRef, scrollable: moduleStripScrollable } = useScrollOwner<HTMLDivElement>();
+  const [stripElement, setStripElementState] = useState<HTMLDivElement | null>(null);
+  const setStripElement = useCallback((element: HTMLDivElement | null) => {
+    setStripElementState(element);
+    moduleStripScrollRef(element);
+  }, [moduleStripScrollRef]);
   const [edges, setEdges] = useState({ left: false, right: false });
   const syncEdges = useCallback(() => {
-    const el = stripRef.current;
+    const el = stripElement;
     if (!el) return;
     setEdges({
       left: el.scrollLeft > 4,
       right: el.scrollLeft + el.clientWidth < el.scrollWidth - 4,
     });
-  }, []);
+  }, [stripElement]);
   const nudgeStrip = (dir: number) => {
-    const el = stripRef.current;
+    const el = stripElement;
     // Instant paging, not smooth: this is a flow-state terminal control, and an
     // instant jump is also the correct reduced-motion behaviour.
     if (el) el.scrollBy({ left: dir * el.clientWidth * 0.7 });
   };
-  // Re-measure the fades whenever the content width can change (layer open/close,
-  // breakpoint flip) and on window resize.
+  // Re-measure the fades whenever the active group changes and on window resize.
   useEffect(() => {
     syncEdges();
     window.addEventListener("resize", syncEdges);
     return () => window.removeEventListener("resize", syncEdges);
-  }, [syncEdges, openLayers, wide]);
+  }, [syncEdges, activeGroup.label]);
   // Bring the selected module chip into view after a navigation (click, ?mod=,
   // or Alt+,/. cycle) or when its layer (re)opens — but ONLY when it's actually
   // off-screen. Scrolling an already-visible chip on first paint slices the
   // left group label ("‹ …OUTPUTS"); leave the strip at its start instead.
   useEffect(() => {
-    const strip = stripRef.current;
+    const strip = stripElement;
     const chip = strip?.querySelector<HTMLElement>('[data-active-chip="true"]');
     if (!strip || !chip) return;
     const chipLeft = chip.offsetLeft;
@@ -310,7 +288,7 @@ function DeepDive() {
       strip.scrollTo?.({ left, behavior: "auto" });
       requestAnimationFrame(syncEdges);
     }
-  }, [tab, openLayers, syncEdges]);
+  }, [tab, activeGroup.label, syncEdges, stripElement]);
   // Evidence/source rail starts collapsed: traceability is on-demand (the E-xx
   // citation chips open the source directly), so it shouldn't hold prime
   // analytical real estate by default. The analyst expands it when they want it.
@@ -384,7 +362,7 @@ function DeepDive() {
   // when it goes through the generic ModuleView with this run's own module output
   // (not a bespoke ATLF showcase, and the module was actually produced this run).
   // Drives a per-module ● LIVE / ◦ REFERENCE badge instead of a run-scoped one. (#5)
-  const moduleIsLive = !useBespoke && !!live.liveOuts[tab];
+  const moduleIsLive = !isReference && !useBespoke && !!live.liveOuts[tab];
   const moduleQaState = !isReference ? modState(tab) : null;
   const moduleOwnQaState = !isReference ? liveQaState(live.liveStatus[tab]) : null;
   // A real issuer's open module that hit the engine's failure gate (qa_status
@@ -402,26 +380,36 @@ function DeepDive() {
   // Use the bespoke title only when the bespoke tab is actually rendered; a live
   // generic render shows the module's own name, not the showcase label.
   const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
-  const decisionAsOf = live.asOf ? fmtUtcDateTime(live.asOf) : (isReference ? "2026-05-31 · reference fixture" : null);
-  const decisionProvenance = fromReportCaveat(caveatKind, caveatKind === "reference" && !!live.runId);
+  const referenceDecisionAsOf = "2026-05-31 · reference fixture";
+  const decisionAsOf = isReference
+    ? referenceDecisionAsOf
+    : live.asOf ? fmtUtcDateTime(live.asOf) : null;
+  const decisionProvenance = fromReportCaveat(caveatKind, !isReference && !!live.runId);
   const deepAuthority = decisionAsOf && decisionProvenance ? {
     provenance: { ...decisionProvenance, asOf: decisionAsOf },
-    approval: live.committeeStatus === "Approved" ? "RATIFIED" as const : "UNRATIFIED" as const,
+    approval: isReference ? "UNRATIFIED" as const : live.committeeStatus === "Approved" ? "RATIFIED" as const : "UNRATIFIED" as const,
   } : undefined;
   const unavailableDeepState = live.loading
     ? { kind: "loading" as const, message: "Checking latest completed run…" }
     : live.phase === "error"
       ? { kind: "error" as const, message: "Latest run could not be loaded" }
       : { kind: "unavailable" as const, message: live.phase === "in_flight" ? "Latest run is still in flight" : "No completed run available" };
-  const deepDecision: DecisionContextState = decisionAsOf && (caveatKind === "reference" || caveatKind === "live")
+  const deepDecision: DecisionContextState = isReference
     ? {
-        whatChanged: { kind: "ready", value: caveatKind === "reference" ? `${run.completed}/${run.total} modules cleared` : `${Object.keys(live.liveOuts).length} module${Object.keys(live.liveOuts).length === 1 ? "" : "s"} with live output`, asOf: decisionAsOf, authority: deepAuthority },
+        whatChanged: { kind: "ready", value: `${run.completed}/${run.total} reference modules cleared`, asOf: referenceDecisionAsOf, authority: deepAuthority },
+        whyItMatters: { kind: "ready", value: "Illustrative decision workflow only — not issuer data", asOf: referenceDecisionAsOf, authority: deepAuthority },
+        requiredAction: { kind: "ready", value: "Review CP-6A reference debate structure", asOf: referenceDecisionAsOf, authority: deepAuthority },
+        evidenceHealth: { kind: "ready", value: decisionProvenance?.detail ?? "Reference evidence lineage", asOf: referenceDecisionAsOf, authority: deepAuthority },
+      }
+    : decisionAsOf && caveatKind === "live"
+    ? {
+        whatChanged: { kind: "ready", value: `${Object.keys(live.liveOuts).length} module${Object.keys(live.liveOuts).length === 1 ? "" : "s"} with live output`, asOf: decisionAsOf, authority: deepAuthority },
         whyItMatters: live.council[0]
           ? { kind: "ready", value: `${live.council[0].finding_id} — ${live.council[0].severity}${live.council.length > 1 ? ` (+${live.council.length - 1} more)` : ""}`, asOf: decisionAsOf, authority: deepAuthority }
           : live.committeeStatus
             ? { kind: "ready", value: `Committee status: ${live.committeeStatus}`, asOf: decisionAsOf, authority: deepAuthority }
             : { kind: "observed-empty", message: "No committee finding observed", asOf: decisionAsOf, authority: deepAuthority },
-        requiredAction: { kind: "ready", value: live.council[0]?.required_remediation ?? (caveatKind === "reference" ? "Review CP-6A debate before committee" : "Review live module outputs"), asOf: decisionAsOf, authority: deepAuthority },
+        requiredAction: { kind: "ready", value: live.council[0]?.required_remediation ?? "Review live module outputs", asOf: decisionAsOf, authority: deepAuthority },
         evidenceHealth: { kind: "ready", value: decisionProvenance?.detail ?? "Evidence lineage available", asOf: decisionAsOf, authority: deepAuthority },
       }
     : { whatChanged: unavailableDeepState, whyItMatters: unavailableDeepState, requiredAction: unavailableDeepState, evidenceHealth: unavailableDeepState };
@@ -429,6 +417,7 @@ function DeepDive() {
   const syncContext = analysis.context;
   const patchContext = analysis.patch;
   useEffect(() => {
+    if (isReference || missingIssuer) return;
     const active = syncContext;
     if (!active) return;
     const issuerIds = active.issuer_ids.includes(issuerId)
@@ -440,7 +429,7 @@ function DeepDive() {
       issuer_ids: issuerIds,
       artifacts: { issuer_run_id: runId },
     }).catch(() => setAffirmNotice("Analysis context could not be updated."));
-  }, [issuerId, live.runId, patchContext, syncContext]);
+  }, [isReference, issuerId, live.runId, missingIssuer, patchContext, syncContext]);
 
   const affirmView = async () => {
     const context = analysis.context;
@@ -523,6 +512,27 @@ function DeepDive() {
     ),
   };
 
+  if (missingIssuer) {
+    return (
+      <EnterprisePage
+        kind="object"
+        identity={<ShellIdentity tag="DEEP-DIVE" title="Issuer selection required" />}
+        primaryAction={{ label: "Select issuer", href: "/issuers" }}
+        narrowContract={{ essentialControls: null }}
+      >
+        <div className="p-3">
+          <SurfaceState
+            kind="not-run"
+            title="Select an issuer to begin Deep-Dive"
+            headingLevel={2}
+            detail="Live Deep-Dive requires an issuer context. No seeded analysis has been substituted. Use the page action to select an issuer."
+            secondaryAction={<OpenReferenceExample href={currentDeepDiveHref} />}
+          />
+        </div>
+      </EnterprisePage>
+    );
+  }
+
   return (
     <EvidenceSyncProvider initialActive={evidenceParam}>
     <EnterprisePage kind="object"
@@ -540,7 +550,7 @@ function DeepDive() {
           {caveatKind === "reference" ? (
             <span
               className="tabular text-caos-sm text-caos-muted whitespace-nowrap hidden xl:inline"
-              title="Seeded ATLF reference showcase — illustrative run #2641, not a database run. Genuinely live engine output is marked ● LIVE per module."
+              title="Seeded ATLF reference showcase — illustrative run #2641, not a persisted issuer run. No live engine output is merged into Reference mode."
             >
               SEEDED RUN #2641 · {run.completed}/{run.total} modules
             </span>
@@ -561,22 +571,20 @@ function DeepDive() {
           )}
         </ShellIdentity>
       }
-      primaryAction={
-        <button
-          onClick={() => { if (!analysis.loading && affirmState !== "saving") void affirmView(); }}
-          aria-disabled={(isReference || !live.runId || analysis.loading || affirmState === "saving") || undefined}
-          title={isReference
-            ? "Reference output cannot be ratified"
-            : !live.runId
+      primaryAction={{
+        label: "Affirm thesis",
+        onAction: () => { void affirmView(); },
+        unavailableReason: isReference
+          ? "Reference output cannot be ratified"
+          : !live.runId
             ? "Run analysis first — there is no live view to affirm"
             : analysis.loading
-            ? "Preparing analysis workspace…"
-            : "Append an immutable thesis version and pin the affirmed view"}
-          className="caos-action-primary focus-ring"
-        >
-          {affirmState === "saving" ? "Affirming…" : affirmState === "saved" ? "Thesis affirmed" : "Affirm thesis"}
-        </button>
-      }
+              ? "Preparing analysis workspace…"
+              : affirmState === "saving"
+                ? "Affirmation is being saved…"
+                : null,
+        title: "Append an immutable thesis version and pin the affirmed view",
+      }}
       status={
         <span className="flex items-center gap-2">
           {decisionAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Observed {decisionAsOf}</span> : null}
@@ -598,7 +606,7 @@ function DeepDive() {
           <div className="flex items-center gap-1 shrink-0" role="group" aria-label="Deep-Dive layout">
             <DeepDiveLayoutPicker layout={layout} onPick={pickLayout} labelClassName="hidden xl:inline" />
           </div>
-          {live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
+          {!isReference && live.runId ? <ExportToVaultButton runId={live.runId} /> : null}
           <SimControls run={run} />
         </>
       }
@@ -615,30 +623,34 @@ function DeepDive() {
           data this page already fetched (the sim clock, live module count,
           CP-5C council). Loading/error/no-run all honestly read "— no data"
           rather than a guessed decision. */}
-      <div className="px-2.5 py-2 bg-caos-panel border-b border-caos-border">
+      {!isReference ? <div className="px-2.5 py-2 bg-caos-panel border-b border-caos-border">
         <ScenarioNetworkPanel issuerId={issuerId} runId={live.runId} />
-      </div>
+      </div> : null}
       {/* module launcher strip — each layer collapses to its name + status dots;
           click a layer to reveal its modules (named; short label on smaller panes).
           Wrapped so edge fades + chevrons sit above the scroller and signal
           off-screen layers (the native bar is hidden — redundant noise). */}
       <div className="relative shrink-0 border-b border-caos-border">
       <div
-        ref={stripRef}
+        ref={setStripElement}
         onScroll={syncEdges}
-        className="h-9 bg-caos-panel/40 flex items-center px-4 gap-2 overflow-x-auto caos-no-scrollbar"
+        tabIndex={moduleStripScrollable ? 0 : undefined}
+        role={moduleStripScrollable ? "region" : undefined}
+        aria-label={moduleStripScrollable ? "Deep-Dive module groups" : undefined}
+        className={`h-9 bg-caos-panel/40 flex items-center px-4 gap-2 overflow-x-auto caos-no-scrollbar${moduleStripScrollable ? " focus-ring" : ""}`}
       >
         <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap hidden lg:inline" title="Alt + , / .  cycles the open module">Module outputs</span>
         <ModuleFinder onSelect={setTab} activeId={tab} />
         {/* fallow-ignore-next-line complexity -- Static module-group projection keeps navigation semantics local. */}
         {GROUPS.map((g) => {
-          const open = openLayers.has(g.label);
+          const open = isDeepDiveGroupExpanded(g, tab);
           return (
             <div key={g.label} className="flex items-center gap-1.5 pl-2.5 border-l border-caos-border shrink-0">
               <button
-                onClick={() => toggleLayer(g.label)}
+                onClick={() => openGroup(g)}
                 aria-expanded={open}
-                title={(open ? "Collapse " : "Expand ") + g.label}
+                aria-current={open ? "true" : undefined}
+                title={(open ? "Current group: " : "Open group: ") + g.label}
                 className="flex min-h-6 items-center gap-1.5 rounded px-1 py-0.5 hover:bg-caos-elevated/50 transition-caos focus-ring"
               >
                 <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted whitespace-nowrap">{g.label}</span>
@@ -728,7 +740,7 @@ function DeepDive() {
       <StandingViewStrip
         isReference={isReference}
         issuerId={issuerId}
-        runId={live.runId}
+        runId={isReference ? null : live.runId}
         onRevise={(id) => setTab(id)}
       />
 
@@ -804,13 +816,10 @@ function DeepDive() {
               // narrative, the domino section is real, run-sourced data (honestly
               // empty when this issuer_id has no completed run, which is the ATLF
               // reference's usual state).
-              <>
-                <CovenantsTab onOpenEvidence={setEvModal} layout={layout} />
-                <CrossDefaultDominoes issuerId={issuerId} hasRun={!!live.runId} />
-              </>
+              <CovenantsTab onOpenEvidence={setEvModal} layout={layout} />
             ) : (
               <>
-                <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={live.liveOuts[tab]} allowSeededFallback={isReference} layout={layout} />
+                <ModuleView id={tab} sim={run.sim} onOpenEvidence={setEvModal} liveOut={isReference ? undefined : live.liveOuts[tab]} allowSeededFallback={isReference} layout={layout} />
                 {tab === "CP-4" ? <LiveCovenantCapacity signals={issuerMeta?.signals ?? {}} /> : null}
                 {/* Same live domino map for a real issuer's CP-4 tab — the map
                     the spec calls out as needing to "appear for live issuers too". */}
@@ -840,14 +849,14 @@ function DeepDive() {
         <DecisionRail
           open={decisionOpen}
           onToggle={() => setDecisionOpen(!decisionOpen)}
-          council={live.council}
+          council={isReference ? [] : live.council}
           councilState={isReference ? "ready" : live.loading ? "loading" : live.phase === "error" ? "error" : live.runId ? "ready" : "unavailable"}
           isReference={isReference}
           issuerCode={code}
         />
       </div>
 
-      {evModal && reports ? <EvidenceModal id={evModal} reports={reports} live={live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
+      {evModal && reports ? <EvidenceModal id={evModal} reports={reports} live={isReference ? {} : live.liveEvidence} isLiveRun={!isReference && !!live.runId} onClose={() => setEvModal(null)} /> : null}
       {chatOpen ? (
         // Live-ground the chat for a real issuer run; the reference deal keeps its
         // rich seeded showcase context (consistent with the bespoke tabs).

@@ -23,6 +23,25 @@ describe("persisted assumptions validation", () => {
     expect(parsed?.baseYears).toEqual({ 0: { mInt: 2 } });
   });
 
+  it("migrates legacy absolute SOFR settings to curve-relative deltas and drops unused currencies", () => {
+    const parsed = parseAssumptions(JSON.stringify({
+      base: { ...DEFAULT_CASE, sofrDelta: undefined, sofrRate: 0.05, euriborRate: 0.08, soniaRate: 0.09 },
+      down: { ...DEFAULT_CASE, sofrDelta: undefined, sofrRate: 0.043 },
+      baseYears: { 1: { sofrRate: 0.06, euriborRate: 0.07 } },
+    }));
+
+    expect(parsed?.base.sofrDelta).toBe(0);
+    expect(parsed?.base).not.toHaveProperty("sofrRate");
+    expect(parsed?.base).not.toHaveProperty("euriborRate");
+    expect(parsed?.base).not.toHaveProperty("soniaRate");
+    expect(parsed?.baseYears).toEqual({
+      0: { sofrDelta: 0.012 },
+      1: { sofrDelta: 0.025 },
+      2: { sofrDelta: 0.017 },
+    });
+    expect(parsed?.downYears).toEqual({});
+  });
+
   it("rejects non-finite values on load and save", () => {
     const parsed = parseAssumptions('{"base":{"mInt":1e999},"down":{"mInt":1}}');
     expect(parsed?.base.mInt).toBe(DEFAULT_CASE.mInt);

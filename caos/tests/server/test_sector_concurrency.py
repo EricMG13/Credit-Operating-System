@@ -3,9 +3,108 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import delete, select
+
+
+@pytest.mark.asyncio
+async def test_sector_review_context_filter_is_applied_before_history_limit(seeded_db):
+    from database import AnalysisContextRecord, AsyncSessionLocal, SectorReviewRun
+    from identity import CallerIdentity
+    from routes.sector import _build_review_payload, list_sector_reviews
+
+    caller = CallerIdentity(
+        id="sector-history-limit-analyst",
+        email="sector-history-limit@example.test",
+        full_name="Sector History Limit",
+    )
+    now = datetime.now(timezone.utc)
+
+    async with AsyncSessionLocal() as session:
+        target_context = AnalysisContextRecord(
+            analyst_id=caller.id,
+            name="Target sector history",
+            sector_id="industrials",
+        )
+        distractor_context = AnalysisContextRecord(
+            analyst_id=caller.id,
+            name="Distractor sector history",
+            sector_id="software",
+        )
+        session.add_all([target_context, distractor_context])
+        await session.flush()
+
+        target_review = _build_review_payload(
+            review_id="history-target-review",
+            context_id=target_context.id,
+            sector_id="industrials",
+            timeframe="weekly",
+            version=1,
+            now=now - timedelta(days=200),
+            signals=[],
+        )
+        rows = [SectorReviewRun(
+            id=target_review.id,
+            sector="industrials",
+            version=1,
+            timeframe="weekly",
+            as_of=now - timedelta(days=200),
+            posture=target_review.posture,
+            confidence={"overall": target_review.authority.confidence},
+            payload=target_review.model_dump(mode="json"),
+            input_signal_ids=[],
+            analyst_id=caller.id,
+            refresh_trigger="scheduled",
+            status="partial",
+            provenance="reference",
+            created_at=now - timedelta(days=200),
+        )]
+        for version in range(1, 102):
+            created_at = now - timedelta(minutes=version)
+            review = _build_review_payload(
+                review_id=f"history-distractor-{version}",
+                context_id=distractor_context.id,
+                sector_id="software",
+                timeframe="weekly",
+                version=version,
+                now=created_at,
+                signals=[],
+            )
+            rows.append(SectorReviewRun(
+                id=review.id,
+                sector="software",
+                version=version,
+                timeframe="weekly",
+                as_of=created_at,
+                posture=review.posture,
+                confidence={"overall": review.authority.confidence},
+                payload=review.model_dump(mode="json"),
+                input_signal_ids=[],
+                analyst_id=caller.id,
+                refresh_trigger="scheduled",
+                status="partial",
+                provenance="reference",
+                created_at=created_at,
+            ))
+        session.add_all(rows)
+        await session.commit()
+
+        reviews = await list_sector_reviews(
+            context_id=target_context.id,
+            db=session,
+            caller=caller,
+        )
+        assert [review.id for review in reviews] == [target_review.id]
+
+        await session.execute(delete(SectorReviewRun).where(
+            SectorReviewRun.analyst_id == caller.id
+        ))
+        await session.execute(delete(AnalysisContextRecord).where(
+            AnalysisContextRecord.analyst_id == caller.id
+        ))
+        await session.commit()
 
 
 @pytest.mark.asyncio

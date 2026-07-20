@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
-import { OutputRegister, StepOutputGrid, StepOutputModal } from "./OutputRegister";
+import { LiveOutputRegister, OutputRegister, StepOutputGrid, StepOutputModal } from "./OutputRegister";
 import { MODULE_STEPS, type StepRow } from "@/lib/deepdive/module-steps";
 import { STEP_OUTPUTS } from "@/lib/deepdive/step-outputs";
 import { STEP_NOTES } from "@/lib/deepdive/step-notes";
@@ -62,6 +62,39 @@ describe("OutputRegister", () => {
     const buttons = screen.getAllByRole("button");
     fireEvent.click(buttons[1]); // buttons[0] is the header; [1] is the first step
     expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.click(screen.getByText("✕"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("falls back to the requested open state when local storage is unavailable", () => {
+    const storageRead = vi.spyOn(Storage.prototype, "getItem").mockImplementationOnce(() => {
+      throw new DOMException("storage denied", "SecurityError");
+    });
+    render(<OutputRegister id={SAMPLE_ID} defaultOpen={false} onOpenEvidence={() => {}} />);
+    expect(screen.getByRole("button", { name: /required outputs/i }).getAttribute("aria-expanded")).toBe("false");
+    storageRead.mockRestore();
+  });
+});
+
+describe("LiveOutputRegister", () => {
+  it("explains an empty persisted section set and toggles the live register", () => {
+    render(<LiveOutputRegister id="CP-LIVE" output={{ kpis: [], sections: [] }} onOpenEvidence={() => {}} />);
+    expect(screen.getByRole("note").textContent).toContain("headline fields only");
+    const toggle = screen.getByRole("button", { name: /runtime output register/i });
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("note")).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("note")).toBeTruthy();
+  });
+
+  it("renders a singular structured section", () => {
+    render(<LiveOutputRegister
+      id="CP-LIVE"
+      output={{ kpis: [], sections: [{ type: "text", title: "Runtime conclusion", body: "Persisted output" }] }}
+      onOpenEvidence={() => {}}
+    />);
+    expect(screen.getByText(/1 emitted section$/)).toBeTruthy();
+    expect(screen.getByText("Persisted output")).toBeTruthy();
   });
 });
 
@@ -83,6 +116,15 @@ describe("StepOutputGrid", () => {
 
     expect(screen.getByText("5 steps consolidated")).toBeTruthy();
     expect(screen.getByText("Coverage")).toBeTruthy();
+  });
+
+  it("keeps short same-prefix report groups as individual cards", () => {
+    seedConsolidationFixture(2);
+    render(<StepOutputGrid id={CONSOLIDATED_ID} mode="report" onOpenEvidence={() => {}} />);
+
+    expect(screen.queryByText(/steps consolidated/)).toBeNull();
+    expect(screen.getByText("Coverage step 1")).toBeTruthy();
+    expect(screen.getByText("Coverage step 2")).toBeTruthy();
   });
 
   it("summary mode shows narrative summaries without full step output", () => {
@@ -112,6 +154,15 @@ describe("StepOutputGrid", () => {
 
     expect(screen.queryByText(/steps consolidated/)).toBeNull();
     expect(screen.getByText("Coverage step 1")).toBeTruthy();
+  });
+
+  it("renders a dense analytical card even when its narrative is absent", () => {
+    seedConsolidationFixture(1);
+    delete STEP_NOTES[CONSOLIDATED_ID + ":Coverage step 1"];
+    render(<StepOutputGrid id={CONSOLIDATED_ID} mode="dense" onOpenEvidence={() => {}} />);
+
+    expect(screen.getByText("Fixture body 1")).toBeTruthy();
+    expect(screen.queryByText("Narrative 1")).toBeNull();
   });
 });
 

@@ -145,8 +145,9 @@ describe("Report Studio freshness lifecycle", () => {
     render(<ReportsPage />);
 
     await screen.findByRole("button", { name: /First memo/ });
-    const publish = screen.getByRole("button", { name: /Review frozen preview/i });
-    expect((publish as HTMLButtonElement).disabled).toBe(true);
-    expect(publish.getAttribute("title")).toContain("already an immutable published version");
+    const publish = screen.getByRole("button", { name: /Review frozen preview/i }) as HTMLButtonElement;
+    expect(publish.disabled).toBe(false);
+    expect(publish.getAttribute("aria-disabled")).toBe("true");
+    await waitFor(() => expect(publish.getAttribute("title")).toContain("already an immutable published version"));
   });
 });

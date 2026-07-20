@@ -48,7 +48,18 @@ describe("SubHeader — slots", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "Save" }).closest("[data-page-primary-action]")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save" }).closest("#page-actions")).toBeTruthy();
     expect(screen.getByText("Filters")).toBeTruthy();
+  });
+
+  it("provides an honest focus target when the page has no primary action", () => {
+    const { container } = render(<SubHeader identity={<span>Identity</span>} />);
+    const actions = container.querySelector<HTMLElement>("#page-actions");
+    expect(actions).toBeTruthy();
+    expect(actions?.getAttribute("tabindex")).toBe("-1");
+    expect(actions?.textContent).toContain("No page actions available");
+    actions?.focus();
+    expect(document.activeElement).toBe(actions);
   });
 
   it("ignores a resize callback after the header unmounts", () => {

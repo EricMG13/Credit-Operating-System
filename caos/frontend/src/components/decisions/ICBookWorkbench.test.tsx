@@ -91,6 +91,7 @@ afterEach(cleanup);
 
 beforeEach(() => {
   window.history.replaceState({}, "", "/decisions?dataset=agenda&context=ctx-1");
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
   Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({
     matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn(),
   })) });
@@ -168,15 +169,40 @@ describe("IC Book workbench", () => {
     expect(window.location.search).toBe(before);
   });
 
+  it("stages agenda creation with validation, focus movement, and one forward action", async () => {
+    render(<ICBookWorkbench />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add agenda item" }));
+    const form = await screen.findByRole("form", { name: "Add agenda item" });
+    expect(within(form).getByRole("list", { name: "Agenda item steps" })).toBeTruthy();
+    expect(within(form).getByLabelText("Issuer")).toBeTruthy();
+    expect(within(form).queryByLabelText("Meeting time")).toBeNull();
+    expect(within(form).getAllByRole("button")).toHaveLength(1);
+
+    fireEvent.click(within(form).getByRole("button", { name: "Continue to Decision" }));
+    const meeting = await within(form).findByLabelText("Meeting time");
+    expect(document.activeElement).toBe(meeting);
+    fireEvent.click(within(form).getByRole("button", { name: "Continue to Thesis & review" }));
+    expect(within(form).getByRole("alert").textContent).toContain("Meeting time is required");
+    fireEvent.change(meeting, { target: { value: "2026-07-21T10:00" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Continue to Thesis & review" }));
+    expect(await within(form).findByLabelText("Thesis")).toBe(document.activeElement);
+    expect(within(form).queryByLabelText("Meeting time")).toBeNull();
+    fireEvent.click(within(form).getByRole("button", { name: "Back" }));
+    expect(await within(form).findByLabelText("Meeting time")).toBe(document.activeElement);
+  });
+
   it("prefills the exact context run and report instead of choosing an arbitrary run", async () => {
     mocks.createAgenda.mockResolvedValueOnce({ ...agenda, id: "agenda-2", status: "draft" });
     render(<ICBookWorkbench />);
     await screen.findByRole("table", { name: "Committee agenda" });
-    const form = screen.getByRole("form", { name: "Add agenda item" });
+    fireEvent.click(screen.getByRole("button", { name: "Add agenda item" }));
+    const form = await screen.findByRole("form", { name: "Add agenda item" });
     expect(form).toBeTruthy();
+    fireEvent.click(within(form).getByRole("button", { name: "Continue to Decision" }));
     fireEvent.change(within(form!).getByLabelText("Meeting time"), { target: { value: "2026-07-21T10:00" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Continue to Thesis & review" }));
     fireEvent.change(within(form!).getByLabelText("Thesis"), { target: { value: "Committee thesis" } });
-    fireEvent.click(within(form!).getByRole("button", { name: "Add agenda item" }));
+    fireEvent.click(within(form!).getByRole("button", { name: "Save agenda item" }));
     await waitFor(() => expect(mocks.createAgenda).toHaveBeenCalledWith(expect.objectContaining({
       run_id: "run-1",
       report_version_id: "report-1",
@@ -194,15 +220,18 @@ describe("IC Book workbench", () => {
       : [{ id: "run-2", committee_status: "Committee Ready" }]);
     mocks.createAgenda.mockResolvedValueOnce({ ...agenda, id: "agenda-2", issuer_id: "issuer-2", status: "draft" });
     render(<ICBookWorkbench />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add agenda item" }));
     const form = await screen.findByRole("form", { name: "Add agenda item" });
     await waitFor(() => expect((within(form).getByLabelText("Run") as HTMLSelectElement).value).toBe("run-1"));
     fireEvent.change(within(form).getByLabelText("Issuer"), { target: { value: "issuer-2" } });
     await waitFor(() => expect((within(form).getByLabelText("Run") as HTMLSelectElement).value).toBe(""));
     expect((within(form).getByLabelText("Report version") as HTMLInputElement).value).toBe("");
     expect(within(form).queryByText(/Linked context/)).toBeNull();
+    fireEvent.click(within(form).getByRole("button", { name: "Continue to Decision" }));
     fireEvent.change(within(form).getByLabelText("Meeting time"), { target: { value: "2026-07-21T10:00" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Continue to Thesis & review" }));
     fireEvent.change(within(form).getByLabelText("Thesis"), { target: { value: "Independent committee thesis" } });
-    fireEvent.click(within(form).getByRole("button", { name: "Add agenda item" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Save agenda item" }));
     await waitFor(() => expect(mocks.createAgenda).toHaveBeenCalledWith(expect.objectContaining({
       issuer_id: "issuer-2",
       report_version_id: null,
@@ -216,6 +245,7 @@ describe("IC Book workbench", () => {
       { id: "portfolio-2", name: "Credit Fund II" },
     ]);
     render(<ICBookWorkbench />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add agenda item" }));
     const form = await screen.findByRole("form", { name: "Add agenda item" });
     await waitFor(() => expect((within(form).getByLabelText("Run") as HTMLSelectElement).value).toBe("run-1"));
     fireEvent.change(within(form).getByLabelText("Portfolio"), { target: { value: "portfolio-2" } });
@@ -476,7 +506,11 @@ describe("IC Book workbench", () => {
 
     window.history.replaceState({}, "", "/decisions?dataset=agenda&context=ctx-1");
     render(<ICBookWorkbench />);
-    fireEvent.click((await screen.findAllByRole("button", { name: "Add agenda item" }))[0]);
+    const addActions = await screen.findAllByRole("button", { name: "Add agenda item" });
+    expect(addActions).toHaveLength(1);
+    expect(addActions[0].closest("#page-actions")).toBeTruthy();
+    expect(screen.getByText("Use Add agenda item in the page header to begin the book.")).toBeTruthy();
+    fireEvent.click(addActions[0]);
     expect((document.getElementById("ic-book-create") as HTMLDetailsElement).open).toBe(true);
   });
 
@@ -500,7 +534,7 @@ describe("IC Book workbench", () => {
     render(<ICBookWorkbench />);
     expect(await screen.findByText("IC Book unavailable")).toBeTruthy();
     expect(screen.getAllByText("register offline").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "Open Utilities" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add agenda item" }));
     expect(await screen.findByText("issuer catalog offline")).toBeTruthy();
     expect(screen.getByText("runs offline")).toBeTruthy();
     expect(mocks.listOpinions).toHaveBeenCalledWith("issuer-1");
@@ -510,18 +544,21 @@ describe("IC Book workbench", () => {
     mocks.listOpinions.mockResolvedValue({ current: null, items: [{ id: "opinion-create", issuer_id: "issuer-1", stance: "neutral", version: 2, evidence_state: "partial" }] });
     mocks.createAgenda.mockResolvedValue({ ...agenda, id: "agenda-created", status: "draft" });
     render(<ICBookWorkbench />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add agenda item" }));
     const form = await screen.findByRole("form", { name: "Add agenda item" });
     await waitFor(() => expect(within(form).getByRole("option", { name: /neutral · v2/ })).toBeTruthy());
     fireEvent.change(within(form).getByLabelText("Analyst view"), { target: { value: "opinion-create" } });
     fireEvent.change(within(form).getByLabelText("Run"), { target: { value: "" } });
     fireEvent.change(within(form).getByLabelText("Run"), { target: { value: "run-1" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Continue to Decision" }));
     fireEvent.change(within(form).getByLabelText("Meeting time"), { target: { value: "2026-07-25T09:15" } });
     fireEvent.change(within(form).getByLabelText("Decision expiry"), { target: { value: "2027-02-28" } });
     fireEvent.change(within(form).getByLabelText("Recommendation"), { target: { value: "decline" } });
     fireEvent.change(within(form).getByLabelText("Conviction · 0–100%"), { target: { value: "81" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Continue to Thesis & review" }));
     fireEvent.change(within(form).getByLabelText("Thesis"), { target: { value: "Downside is not compensated." } });
     fireEvent.change(within(form).getByLabelText("Conditions · one per line"), { target: { value: "Deleveraging milestone\nSponsor support" } });
-    fireEvent.click(within(form).getByRole("button", { name: "Add agenda item" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Save agenda item" }));
     await waitFor(() => expect(mocks.createAgenda).toHaveBeenCalledWith(expect.objectContaining({
       analyst_opinion_version_id: "opinion-create", run_id: "run-1", expiry: "2027-02-28",
       recommendation: "decline", conviction: 81, conditions: ["Deleveraging milestone", "Sponsor support"],

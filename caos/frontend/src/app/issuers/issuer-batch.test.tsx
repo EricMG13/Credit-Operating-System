@@ -124,6 +124,8 @@ describe("Issuers directory — batch selection", () => {
     render(<IssuersPage />);
     await screen.findByText("Atlas Forge Industrials");
     expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
+    expect(document.querySelector("[data-issuer-logo-placeholder]")).toBeNull();
+    expect(document.querySelector(".issuer-register-panel")?.className).not.toContain("h-full");
   });
 
   it("selecting rows exposes exactly the three real actions — never delete/refresh/assign", async () => {
@@ -214,6 +216,8 @@ describe("Issuers directory — loading, search, sort, and filters", () => {
     expect(screen.getAllByText("Demo coverage").length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole("button", { name: "+ NEW ISSUER" }).at(-1)!);
     expect(screen.getByRole("dialog", { name: "New issuer" })).toBeTruthy();
+    expect(screen.getByText("Creates the issuer and opens its profile")).toBeTruthy();
+    expect(screen.queryByText(/module route/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "CANCEL" }));
     expect(screen.queryByRole("dialog", { name: "New issuer" })).toBeNull();
   });
@@ -313,12 +317,13 @@ describe("Issuers directory — loading, search, sort, and filters", () => {
   });
 
   it("pipeline-03 pipeline-04 opens issuer profiles and routes upload actions without nesting interactions", async () => {
-    getIssuers.mockResolvedValue(ISSUERS);
+    getIssuers.mockResolvedValue([{ ...ISSUERS[0], id: "issuer / one" }, ISSUERS[1]]);
     render(<IssuersPage />);
     const profile = await screen.findByRole("link", { name: "Open profile for Atlas Forge Industrials" });
+    expect(profile.getAttribute("href")).toBe("/issuers/profile?id=issuer%20%2F%20one");
     fireEvent.click(profile);
     fireEvent.click(screen.getByRole("button", { name: "Upload documents for Atlas Forge Industrials" }));
-    expect(routerPush).toHaveBeenCalledWith("/upload?issuer=iss-1");
+    expect(routerPush).toHaveBeenCalledWith("/upload?issuer=issuer%20%2F%20one");
   });
 
   it("uses an eight-column semantic grid with one roving row stop and isolated nested actions", async () => {
@@ -327,11 +332,21 @@ describe("Issuers directory — loading, search, sort, and filters", () => {
     await screen.findByText("Atlas Forge Industrials");
 
     const grid = screen.getByRole("grid", { name: "Issuer coverage register" });
+    expect(screen.getAllByText("2 issuers · 2 rated")).toHaveLength(2);
     expect(grid.getAttribute("aria-rowcount")).toBe("3");
-    expect(within(grid).getAllByRole("columnheader")).toHaveLength(8);
+    const headers = within(grid).getAllByRole("columnheader");
+    expect(headers).toHaveLength(8);
+    expect(headers.map((header) => header.textContent?.replace(/[▲▼]/g, "").trim())).toEqual([
+      "", "Ticker", "Issuer", "Rating", "Sector", "Sub-sector", "Country", "Document intake",
+    ]);
+    expect(within(grid).queryByText("FIGI")).toBeNull();
     const rows = within(grid).getAllByRole("row", { name: /issuer details/ });
     expect(within(rows[0]).getAllByRole("gridcell")).toHaveLength(7);
     expect(within(rows[0]).getByRole("rowheader")).toBeTruthy();
+    expect(rows[0].className).toContain("[content-visibility:auto]");
+    expect(rows[0].className).toContain("[contain-intrinsic-size:auto_32px]");
+    const distressedRating = within(rows[1]).getByRole("gridcell", { name: "Distressed rating: CCC+" });
+    expect(distressedRating.querySelector("svg")).toBeTruthy();
     expect(rows.filter((row) => row.tabIndex === 0)).toHaveLength(1);
     const firstCheckbox = within(rows[0]).getByRole("checkbox");
     const firstUpload = within(rows[0]).getByRole("button", { name: /Upload documents/ });

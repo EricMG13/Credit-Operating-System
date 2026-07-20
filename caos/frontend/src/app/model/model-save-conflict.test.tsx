@@ -10,7 +10,7 @@ import ModelPage from "./page";
 vi.mock("next/navigation", () => ({
   usePathname: () => "/model",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(), // no ?issuer → ATLF reference page
+  useSearchParams: () => new URLSearchParams({ mode: "reference" }),
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -35,6 +35,7 @@ afterEach(() => {
 
 describe("Model Builder · save conflict (409)", () => {
   it("shows a role=alert SAVED ELSEWHERE state, not the generic SAVE FAILED", async () => {
+    window.history.replaceState({}, "", "/model?mode=reference");
     render(<ModelPage />);
     const save = await screen.findByRole("button", { name: /SAVE MODEL/i });
     await waitFor(() => expect(save.getAttribute("aria-disabled")).toBeNull()); // the ready action omits its disabled state

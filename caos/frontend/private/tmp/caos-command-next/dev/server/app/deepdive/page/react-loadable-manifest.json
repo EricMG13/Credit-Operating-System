@@ -1,0 +1,45 @@
+{
+  "[project]/src/app/issuers/profile/ProfileContent.tsx [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/app/issuers/profile/ProfileContent.tsx [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_0_tqe3r._.js",
+      "static/chunks/src_app_issuers_profile_ProfileContent_tsx_0w2r5y6._.js"
+    ]
+  },
+  "[project]/src/components/deepdive/tabs.tsx [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/deepdive/tabs.tsx [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/node_modules_@antv_g2_esm_index_1vf34ex.js",
+      "static/chunks/src_1hu0vl8._.js",
+      "static/chunks/src_components_deepdive_tabs_tsx_0u65syx._.js"
+    ]
+  },
+  "[project]/src/components/deepdive/LiveCovenantCapacity.tsx [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/deepdive/LiveCovenantCapacity.tsx [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_components_04ppche._.js",
+      "static/chunks/src_components_deepdive_LiveCovenantCapacity_tsx_0u65syx._.js"
+    ]
+  },
+  "[project]/src/components/model/ScenarioNetworkPanel.tsx [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/model/ScenarioNetworkPanel.tsx [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_components_model_ScenarioNetworkPanel_tsx_0s1p992._.js",
+      "static/chunks/src_components_model_ScenarioNetworkPanel_tsx_0u65syx._.js"
+    ]
+  },
+  "[project]/src/components/deepdive/IssuerChat.tsx [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/deepdive/IssuerChat.tsx [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_components_deepdive_IssuerChat_tsx_0aoe7tj._.js",
+      "static/chunks/src_components_deepdive_IssuerChat_tsx_0u65syx._.js"
+    ]
+  },
+  "[project]/src/components/reports/EvidenceModal.tsx [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/src/components/reports/EvidenceModal.tsx [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/src_components_1imlh81._.js",
+      "static/chunks/src_components_reports_EvidenceModal_tsx_1e_swkc._.js"
+    ]
+  }
+}

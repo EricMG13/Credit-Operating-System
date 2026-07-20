@@ -7,7 +7,7 @@ import { AnalysisStateBadge, AuthorityLine, FindingsTray } from "@/components/sh
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
-import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { EnterprisePage, type PageAction } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { SurfaceState } from "@/components/shared/SurfaceState";
 import { SemanticVisualization, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
@@ -34,6 +34,18 @@ type View = "table" | "distribution" | "compare";
 const RV_URL_KEYS = ["view", "selected"] as const;
 const ROW_HEIGHT = 46;
 const WINDOW_ROWS = 22;
+
+function resolveRVView(value: string | null): View {
+  if (value === "distribution" || value === "spread-distribution") return "distribution";
+  if (value === "compare" || value === "compare-selected") return "compare";
+  return "table";
+}
+
+const RV_VIEW_LABELS: Record<View, string> = {
+  table: "Ranked names",
+  distribution: "Spread distribution",
+  compare: "Compare selected",
+};
 
 function display(value: unknown, suffix = "") {
   if (typeof value === "number" && Number.isFinite(value)) return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}${suffix}`;
@@ -114,7 +126,7 @@ function VirtualCandidateGrid({
     <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden rounded-md border border-caos-border bg-caos-panel">
     <div className="h-full min-h-0 min-w-[700px] flex flex-col" role="grid" aria-label="Ranked RV candidates" aria-rowcount={candidates.length + 1}>
       <div role="row" className="grid h-9 grid-cols-[40px_minmax(170px,1.5fr)_100px_90px_90px_100px_110px] items-center border-b border-caos-border bg-caos-panel px-2 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">
-        <span role="columnheader">#</span><span role="columnheader">Instrument</span><span role="columnheader">Class</span><span role="columnheader">DM</span><span role="columnheader">Pickup</span><span role="columnheader">Bid / Ask</span><span role="columnheader">Compare</span>
+        <span role="columnheader">#</span><span role="columnheader">Instrument</span><span role="columnheader">Class</span><span role="columnheader">Discount margin (bp)</span><span role="columnheader">Pickup (bp)</span><span role="columnheader">Bid / Ask</span><span role="columnheader">Compare</span>
       </div>
       <div ref={viewport} role="rowgroup" className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto" onScroll={(event) => setStart(Math.max(0, Math.floor(event.currentTarget.scrollTop / ROW_HEIGHT) - 4))}>
         <div role="presentation" style={{ height: candidates.length * ROW_HEIGHT, position: "relative" }}>
@@ -149,8 +161,8 @@ function VirtualCandidateGrid({
                 <span role="gridcell" className="text-caos-accent">{candidate.rank}</span>
                 <span role="gridcell" className="min-w-0"><span className="block truncate font-semibold text-caos-text">{candidate.borrower}</span><span className="block truncate text-caos-2xs text-caos-muted">{display(candidate.market.ranking)} · {candidate.figi ?? "identity unavailable"}</span></span>
                 <span role="gridcell" className={candidate.classification === "actionable" ? "text-caos-success" : candidate.classification === "unavailable" ? "text-caos-critical" : "text-caos-warning"}>{classificationLabel(candidate.classification)}</span>
-                <span role="gridcell" className="text-caos-text">{display(candidate.market.dm, "bp")}</span>
-                <span role="gridcell" className="text-caos-text">{display(pickup, "bp")}</span>
+                <span role="gridcell" className="text-caos-text">{display(candidate.market.dm)}</span>
+                <span role="gridcell" className="text-caos-text">{display(pickup)}</span>
                 <span role="gridcell" className="text-caos-muted">{display(candidate.market.bid)} / {display(candidate.market.ask)}</span>
                 <span role="gridcell">{(() => {
                   const atCap = !compareIds.has(candidate.id) && compareIds.size >= 5;
@@ -257,7 +269,7 @@ function useRVScreenerController() {
   const { values: urlState, update: updateUrlState } = useTypedUrlState(RV_URL_KEYS);
   const [screen, setScreen] = useState<RVScreenRun | null>(null);
   const [selected, setSelected] = useState<RVCandidate | null>(null);
-  const view: View = urlState.view === "distribution" || urlState.view === "compare" ? urlState.view : "table";
+  const view = resolveRVView(urlState.view);
   const [compareIds, setCompareIds] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -329,13 +341,12 @@ function rvPrimaryReason(controller: RVController) {
 }
 
 function rvPrimaryLabel(controller: RVController) {
-  if (controller.busy) return "Running…";
   if (!controller.screen) return "Run screen";
   return (controller.screen.counts.actionable ?? 0) > 0 ? "Review top candidate" : "Review top screen-only name";
 }
 
-function RVPrimaryAction({ controller }: { controller: RVController }) {
-  return <ActionReason reason={rvPrimaryReason(controller)} reasonDisplay="hidden" onClick={controller.reviewTop} className="caos-action-primary focus-ring">{rvPrimaryLabel(controller)}</ActionReason>;
+function RVPrimaryAction({ controller }: { controller: RVController }): PageAction {
+  return { label: rvPrimaryLabel(controller), onAction: controller.reviewTop, unavailableReason: rvPrimaryReason(controller) };
 }
 
 function RVContextualControls({ controller }: { controller: RVController }) {
@@ -349,7 +360,7 @@ function RVUtilities({ controller }: { controller: RVController }) {
   return (
     <div className="space-y-4 text-caos-xs">
       <section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Cohort construction</h3><p className="mt-2 leading-relaxed text-caos-text">Sector × rating cohort. Minimum n=4. Exact instruments remain separate even when the same issuer has multiple tranches.</p></section>
-      <section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / DM pickup</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section>
+      <section><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision methodology</h3><ol className="mt-2 list-decimal space-y-1 pl-4 text-caos-muted"><li>Spread / YTW / discount margin pickup (bp)</li><li>Instrument, collateral and recovery</li><li>Portfolio yield and risk budget</li></ol></section>
       <ActionReason reason={!controller.screen ? "Run the screen first — a saved screen references its snapshot" : null} onClick={() => void controller.contextState.patch({ filters: { ...(context?.filters ?? {}), rv: controller.screen?.filters ?? {} } })} className="caos-action-secondary focus-ring">Save current screen</ActionReason>
     </div>
   );
@@ -360,7 +371,8 @@ function RVViewTabs({ controller }: { controller: RVController }) {
     <div className="mb-2 flex flex-wrap items-center gap-1" role="tablist" aria-label="RV views">
       {(["table", "distribution", "compare"] as const).map((value) => {
         const gated = value === "compare" && controller.compareIds.size < 2;
-        return <button key={value} type="button" role="tab" aria-selected={controller.view === value} aria-disabled={gated || undefined} title={gated ? "Mark at least 2 candidates with each row's Compare action" : undefined} onClick={() => { if (!gated) controller.updateUrlState({ view: value === "table" ? null : value }); }} className={`caos-action-secondary focus-ring ${controller.view === value ? "border-caos-accent text-caos-text" : ""}`}>{value}{value === "compare" ? ` (${controller.compareIds.size})` : ""}</button>;
+        const urlValue = value === "table" ? "ranked-names" : value === "distribution" ? "spread-distribution" : "compare-selected";
+        return <button key={value} type="button" role="tab" aria-selected={controller.view === value} aria-disabled={gated || undefined} title={gated ? "Mark at least 2 candidates with each row's Compare action" : undefined} onClick={() => { if (!gated) controller.updateUrlState({ view: urlValue }); }} className={`caos-action-secondary focus-ring ${controller.view === value ? "border-caos-accent text-caos-text" : ""}`}>{RV_VIEW_LABELS[value]}{value === "compare" ? ` (${controller.compareIds.size})` : ""}</button>;
       })}
       {controller.screen ? <div className="ml-auto"><AuthorityLine authority={controller.screen.authority} /></div> : null}
     </div>
@@ -370,7 +382,7 @@ function RVViewTabs({ controller }: { controller: RVController }) {
 function RVCompareView({ candidates }: { candidates: RVCandidate[] }) {
   return (
     <div className="min-h-0 flex-1 overflow-auto"><div className="grid gap-3 xl:grid-cols-2">
-      {candidates.map((candidate) => <article key={candidate.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><h2 className="text-caos-sm font-semibold text-caos-text">{candidate.borrower}</h2><span className="ml-auto tabular text-caos-2xs uppercase text-caos-warning">{classificationLabel(candidate.classification)}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-caos-xs"><div><dt className="text-caos-muted">DM</dt><dd className="tabular text-caos-text">{display(candidate.market.dm, "bp")}</dd></div><div><dt className="text-caos-muted">Pickup</dt><dd className="tabular text-caos-text">{display((candidate.pitch.market_relative_value as Record<string, unknown>).dm_pickup_bps, "bp")}</dd></div><div><dt className="text-caos-muted">Ranking</dt><dd className="text-caos-text">{display(candidate.market.ranking)}</dd></div><div><dt className="text-caos-muted">Maturity</dt><dd className="text-caos-text">{display(candidate.market.maturity)}</dd></div></dl><p className="mt-3 text-caos-xs text-caos-warning">{candidate.missing_gates.join(" · ") || "All gates satisfied"}</p></article>)}
+      {candidates.map((candidate) => <article key={candidate.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><h2 className="text-caos-sm font-semibold text-caos-text">{candidate.borrower}</h2><span className="ml-auto tabular text-caos-2xs uppercase text-caos-warning">{classificationLabel(candidate.classification)}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-caos-xs"><div><dt className="text-caos-muted">Discount margin (bp)</dt><dd className="tabular text-caos-text">{display(candidate.market.dm)}</dd></div><div><dt className="text-caos-muted">Pickup (bp)</dt><dd className="tabular text-caos-text">{display((candidate.pitch.market_relative_value as Record<string, unknown>).dm_pickup_bps)}</dd></div><div><dt className="text-caos-muted">Ranking</dt><dd className="text-caos-text">{display(candidate.market.ranking)}</dd></div><div><dt className="text-caos-muted">Maturity</dt><dd className="text-caos-text">{display(candidate.market.maturity)}</dd></div></dl><p className="mt-3 text-caos-xs text-caos-warning">{candidate.missing_gates.join(" · ") || "All gates satisfied"}</p></article>)}
     </div></div>
   );
 }
@@ -408,9 +420,15 @@ function RVInspectorActions({ candidate, controller }: { candidate: RVCandidate;
   return (
     <div className="mt-4 flex flex-wrap gap-2">
       <button type="button" onClick={() => void controller.pinPitch("rv-pitch")} disabled={controller.busy} className="caos-action-secondary focus-ring">Pin pitch</button>
-      <button type="button" onClick={() => void controller.pinPitch("monitor-threshold")} disabled={controller.busy} className="caos-action-secondary focus-ring">Monitor threshold</button>
-      {context ? <><Link href={contextHref("/query", context.id, { instrument: candidate.instrument_id })} className="caos-action-secondary focus-ring no-underline">Investigate</Link><Link href={contextHref("/sector", context.id)} className="caos-action-secondary focus-ring no-underline">Sector view</Link></> : null}
+      {context ? <Link href={contextHref("/query", context.id, { instrument: candidate.instrument_id })} className="caos-action-secondary focus-ring no-underline">Investigate</Link> : null}
       <button type="button" onClick={() => void controller.ratifyCandidate()} disabled={!actionable || controller.busy} className="caos-action-secondary focus-ring disabled:opacity-40" title={actionable ? undefined : "Resolve every decision gate before ratification."}>{candidate.ratified_at ? "Ratified" : "Ratify candidate"}</button>
+      <details className="relative">
+        <summary className="caos-action-secondary flex cursor-pointer list-none items-center focus-ring">More</summary>
+        <div className="absolute right-0 z-20 mt-1 grid min-w-48 gap-1 rounded border border-caos-border bg-caos-elevated p-1 shadow-xl">
+          <button type="button" onClick={() => void controller.pinPitch("monitor-threshold")} disabled={controller.busy} className="caos-action-secondary focus-ring">Pin threshold finding</button>
+          {context ? <Link href={contextHref("/sector", context.id)} className="caos-action-secondary focus-ring no-underline">Sector view</Link> : null}
+        </div>
+      </details>
     </div>
   );
 }
@@ -443,21 +461,28 @@ function RVScreenerPage({ controller }: { controller: RVController }) {
     <EnterprisePage
       kind="analytical"
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text shrink-0">RV Screener</span>{screen ? <span className="tabular text-caos-2xs text-caos-muted min-w-0 truncate" title={`${screen.snapshot_source_label ?? "Snapshot"} · ${screen.snapshot_id}`}>{screen.snapshot_source_label ?? "Snapshot"} · {screen.snapshot_id.slice(0, 8)}</span> : null}</>}
-      status={<span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>}
-      primaryAction={<RVPrimaryAction controller={controller} />}
+      status={<span className="tabular text-caos-2xs uppercase text-caos-accent">Shared governed workspace</span>}
+      primaryAction={RVPrimaryAction({ controller })}
       contextualControls={<RVContextualControls controller={controller} />}
       utilityLabel="RV utilities"
       utilityControls={<RVUtilities controller={controller} />}
       narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">{screen?.candidates.length ?? 0} instruments</span> }}
     >
       <section aria-label="Relative value screening workspace" className="caos-persona-route rv-workbench min-h-0 flex-1 overflow-hidden p-2">
-        <PersonaWorkbench
+        {screen ? <PersonaWorkbench
           surface="rv-screener"
           decision={<DecisionHeader state={rvDecisionContext(screen, controller.selected)} defaultOpen />}
           primary={<RVCandidateWorkspace controller={controller} distributionSpec={distributionSpec} />}
           context={controller.view === "distribution" ? null : <SemanticVisualization spec={distributionSpec} headingLevel={2} />}
           inspector={<RVInspector controller={controller} />}
-        />
+        /> : <PersonaWorkbench
+          surface="rv-screener"
+          primary={<section className="flex min-h-56 flex-col items-center justify-center gap-2 border border-caos-border bg-caos-panel/50 p-4" aria-label="RV screen setup">
+            {controller.error ? <div className="w-full max-w-xl rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">{controller.error}</div> : null}
+            {controller.contextState.error ? <div className="w-full max-w-xl rounded-sm border border-caos-critical/50 bg-caos-critical/5 p-2 text-caos-xs text-caos-critical" role="alert">Analysis workspace unavailable — the screen cannot run without it. <button type="button" className="text-caos-accent focus-ring" onClick={() => window.location.reload()}>Reload to retry</button></div> : null}
+            <RVWorkspaceState controller={controller} />
+          </section>}
+        />}
         <RVImporter controller={controller} />
       </section>
     </EnterprisePage>

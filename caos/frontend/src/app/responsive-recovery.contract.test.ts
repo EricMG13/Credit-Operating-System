@@ -16,7 +16,6 @@ describe("narrow recovery controls", () => {
     expect(page).toContain("Retry saved model");
     expect(page).toContain("Reload saved model");
     expect(page).toContain("Export model");
-    expect(page).toContain("hidden md:inline-flex");
   });
 
   it("shortens the Report alert and preserves retry in the narrow utility drawer", () => {
@@ -24,5 +23,13 @@ describe("narrow recovery controls", () => {
     expect(page).toContain('<span className="md:hidden">model unavailable</span>');
     expect(page).toContain("Retry saved model");
     expect(page).toContain("hidden md:inline-flex min-h-6");
+  });
+
+  it("swaps the compact Ask utility for the phone trigger only on coarse narrow pointers", () => {
+    const css = source("./globals.css");
+    expect(css).toMatch(
+      /@media \(max-width: 767px\) and \(pointer: coarse\) \{\s*\.caos-ask-phone-trigger \{ display: flex; \}\s*\.caos-ask-compact-utility \{ display: none; \}/,
+    );
+    expect(css).not.toMatch(/@media \(max-width: 767px\) \{\s*\.caos-ask-phone-trigger \{ display: flex; \}/);
   });
 });

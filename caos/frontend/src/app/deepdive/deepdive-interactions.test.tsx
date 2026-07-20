@@ -4,6 +4,24 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 const REFERENCE_ISSUER = "a71f0000-0000-0000-0000-000000000001";
 
+type TestPageAction = {
+  label: string;
+  href?: string;
+  onAction?: () => void;
+  unavailableReason?: string | null;
+};
+
+function renderPageAction(action?: TestPageAction) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href}>{action.label}</a>;
+  return (
+    <>
+      <button type="button" aria-disabled={action.unavailableReason ? "true" : undefined} title={action.unavailableReason ?? undefined} onClick={action.unavailableReason ? undefined : action.onAction}>{action.label}</button>
+      {action.unavailableReason ? <span>{action.unavailableReason}.</span> : null}
+    </>
+  );
+}
+
 const state = vi.hoisted(() => ({
   search: "",
   wide: false,
@@ -49,6 +67,7 @@ vi.mock("next/dynamic", () => {
             <span>{name} dynamic</span>
             {name === "capacity" ? <span>capacity signals {Object.keys((props.signals as Record<string, unknown> | undefined) ?? {}).length}</span> : null}
             {name === "chat" ? <span>chat issuer {String(props.issuerName)}</span> : null}
+            {name === "scenario" ? <span>{props.runId ? `scenario run ${String(props.runId)}` : "Completed run required"}</span> : null}
             {typeof props.onOpenEvidence === "function" ? <button onClick={() => (props.onOpenEvidence as (id: string) => void)("E-202")}>open {name} evidence</button> : null}
             {typeof props.onClose === "function" ? <button onClick={() => (props.onClose as () => void)()}>close {name}</button> : null}
           </div>
@@ -65,7 +84,7 @@ vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: 
 vi.mock("@/components/shared/EnterprisePage", () => ({
   EnterprisePage: (props: {
     identity?: React.ReactNode;
-    primaryAction?: React.ReactNode;
+    primaryAction?: TestPageAction;
     status?: React.ReactNode;
     contextualControls?: React.ReactNode;
     utilityControls?: React.ReactNode;
@@ -74,7 +93,7 @@ vi.mock("@/components/shared/EnterprisePage", () => ({
   }) => (
     <main>
       <div data-testid="identity">{props.identity}</div>
-      <div data-testid="primary-action">{props.primaryAction}</div>
+      <div data-testid="primary-action">{renderPageAction(props.primaryAction)}</div>
       <div data-testid="status">{props.status}</div>
       <div data-testid="contextual">{props.contextualControls}</div>
       <div data-testid="utility">{props.utilityControls}</div>
@@ -86,7 +105,7 @@ vi.mock("@/components/shared/EnterprisePage", () => ({
 vi.mock("@/components/shared/ShellIdentity", () => ({
   ShellIdentity: ({ title, children }: { title: string; children?: React.ReactNode }) => <div><h1>{title}</h1>{children}</div>,
 }));
-vi.mock("@/components/shared/DecisionHeader", () => ({ DecisionHeader: () => <div>decision header</div> }));
+vi.mock("@/components/shared/DecisionHeader", () => ({ DecisionHeader: ({ state: decision }: { state: Record<string, { value?: unknown; message?: string; asOf?: string; authority?: { approval?: string } }> }) => <div data-testid="decision-header">{[decision.whatChanged?.value, decision.whyItMatters?.value ?? decision.whyItMatters?.message, decision.requiredAction?.value, decision.whatChanged?.asOf, decision.whatChanged?.authority?.approval].filter((value) => typeof value === "string").join(" · ")}</div> }));
 vi.mock("@/components/shared/PersonaWorkbench", () => ({
   PersonaWorkbench: ({ decision, primary }: { decision?: React.ReactNode; primary: React.ReactNode }) => <div>{decision}{primary}</div>,
 }));
@@ -103,7 +122,7 @@ vi.mock("@/components/pipeline/atoms", () => ({
 vi.mock("@/components/deepdive/rails", () => ({
   Panel: ({ children, title, right }: { children: React.ReactNode; title: string; right?: React.ReactNode }) => <section><h2>{title}</h2>{right}{children}</section>,
   SourceRail: ({ open, onToggle }: { open: boolean; onToggle: () => void }) => <aside>source rail {String(open)}<button onClick={onToggle}>toggle source rail</button></aside>,
-  DecisionRail: ({ open, onToggle, councilState }: { open: boolean; onToggle: () => void; councilState: string }) => <aside>decision rail {String(open)} · {councilState}<button onClick={onToggle}>toggle decision rail</button></aside>,
+  DecisionRail: ({ open, onToggle, councilState, council = [] }: { open: boolean; onToggle: () => void; councilState: string; council?: Array<{ finding_id?: string }> }) => <aside data-testid="decision-rail">decision rail {String(open)} · {councilState} · {council.map((finding) => finding.finding_id).join(",")}<button onClick={onToggle}>toggle decision rail</button></aside>,
 }));
 vi.mock("@/components/deepdive/ModuleFinder", () => ({
   ModuleFinder: ({ onSelect }: { onSelect: (id: string) => void }) => (
@@ -129,7 +148,7 @@ vi.mock("@/lib/pipeline/sim", () => ({
   }),
 }));
 vi.mock("@/lib/engine/useLiveRun", () => ({ useLiveRun: () => state.live }));
-vi.mock("@/components/shared/Ask", async () => {
+vi.mock("@/components/shared/AskContext", async () => {
   const React = await import("react");
   return {
     useAsk: () => {
@@ -194,7 +213,7 @@ function live(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  state.search = "";
+  state.search = "mode=reference";
   state.wide = false;
   state.mediaListener = null;
   state.simMods = {};
@@ -248,8 +267,8 @@ describe("Deep-Dive reference interaction coverage", () => {
   it("covers layouts, module navigation, accordion modes, pane collapse, chat, and lazy evidence", async () => {
     const view = render(<DeepDivePage />);
     expect(await screen.findByText("debate dynamic")).toBeTruthy();
-    expect(screen.getByText("decision header")).toBeTruthy();
-    expect(screen.getByText("scenario dynamic")).toBeTruthy();
+    expect(screen.getByTestId("decision-header")).toBeTruthy();
+    expect(screen.queryByText("scenario dynamic")).toBeNull();
     expect(screen.getByText(/Three panes:/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Affirm thesis" }));
     expect(await screen.findByText("Reference output cannot be ratified.")).toBeTruthy();
@@ -272,8 +291,13 @@ describe("Deep-Dive reference interaction coverage", () => {
     expect(await screen.findByText("recovery dynamic")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "finder CP-4" }));
     expect(await screen.findByText("covenants dynamic")).toBeTruthy();
-    expect(screen.getByText(/dominoes.*false/)).toBeTruthy();
-    fireEvent.click(screen.getByTitle("Expand L6 DEBATE"));
+    expect(screen.queryByText(/dominoes/)).toBeNull();
+    const groupButtons = ["Foundation", "Analysis", "Governance & Debate"].map((name) =>
+      screen.getByRole("button", { name: new RegExp(name) }),
+    );
+    expect(groupButtons.filter((button) => button.getAttribute("aria-expanded") === "true")).toHaveLength(1);
+    expect(groupButtons[1].getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(groupButtons[2]);
     fireEvent.click(screen.getByRole("button", { name: "Portfolio Debate" }));
     expect(await screen.findByText("debate dynamic")).toBeTruthy();
 
@@ -284,13 +308,13 @@ describe("Deep-Dive reference interaction coverage", () => {
     expect(await screen.findByText(/Source Readiness.*CP-0/)).toBeTruthy();
     fireEvent(window, new CustomEvent("caos:subview-cycle", { detail: { direction: -1 } }));
 
-    const layer = screen.getByTitle(/Collapse L0 · ORCH|Expand L0 · ORCH/);
-    fireEvent.click(layer);
-    fireEvent.click(screen.getByTitle(/Expand L0 · ORCH|Collapse L0 · ORCH/));
+    const foundation = screen.getByRole("button", { name: /Foundation/ });
+    fireEvent.click(foundation);
+    expect(foundation.getAttribute("aria-expanded")).toBe("true");
+    expect(groupButtons[2].getAttribute("aria-expanded")).toBe("false");
     state.wide = true;
     act(() => state.mediaListener?.());
-    fireEvent.click(screen.getByTitle(/Collapse L0 · ORCH/));
-    fireEvent.click(screen.getByTitle(/Expand L0 · ORCH/));
+    expect([foundation, ...groupButtons.slice(1)].filter((button) => button.getAttribute("aria-expanded") === "true")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "toggle source rail" }));
     fireEvent.click(screen.getByRole("button", { name: "toggle decision rail" }));
@@ -372,12 +396,13 @@ describe("Deep-Dive reference interaction coverage", () => {
       "CP-1C": { state: "not-reviewed" },
       "not-a-module": { state: "idle" },
     };
-    state.search = "mod=not-a-module";
+    state.search = "mode=reference&mod=not-a-module";
     render(<DeepDivePage />);
 
     expect(await screen.findByText("not-a-module awaiting upstream dependencies")).toBeTruthy();
     expect(screen.queryByText(/^Awaiting:/)).toBeNull();
-    const layer = screen.getByTitle("Expand L1 BASE");
+    fireEvent.click(screen.getByRole("button", { name: /Analysis/ }));
+    const layer = screen.getByTitle("Open group: Foundation");
     expect(layer.textContent).toContain("w/ concerns");
     expect(layer.textContent).toContain("failed");
     expect(layer.textContent).toContain("not reviewed");
@@ -388,7 +413,7 @@ describe("Deep-Dive reference interaction coverage", () => {
     const modules = PIPELINE_MODULES as Array<(typeof PIPELINE_MODULES)[number]>;
     const index = modules.findIndex((module) => module.id === "CP-X");
     const [removed] = modules.splice(index, 1);
-    state.search = "mod=CP-X";
+    state.search = "mode=reference&mod=CP-X";
     try {
       render(<DeepDivePage />);
       expect(await screen.findByRole("button", { name: "CP-X" })).toBeTruthy();
@@ -399,6 +424,23 @@ describe("Deep-Dive reference interaction coverage", () => {
 });
 
 describe("Deep-Dive live issuer and affirmation coverage", () => {
+  it.each([
+    ["without a live ATLF run", { loading: false, phase: "none", runId: null, asOf: null, committeeStatus: null, council: [], liveEvidence: {}, liveOuts: {}, liveStatus: {} }],
+    ["with a populated live ATLF run", live({ asOf: "2026-07-14T00:00:00Z", committeeStatus: "Approved", council: [{ finding_id: "F-LIVE", severity: "Critical", required_remediation: "Live remediation" }] })],
+  ])("keeps Reference fixture-owned %s", async (_label, referenceLive) => {
+    state.search = "mode=reference";
+    state.live = referenceLive;
+    render(<DeepDivePage />);
+    expect(await screen.findByText("debate dynamic")).toBeTruthy();
+    expect(screen.queryByText("Completed run required")).toBeNull();
+    expect(screen.queryByRole("button", { name: /export run-live/ })).toBeNull();
+    expect(screen.getByTestId("decision-header").textContent).not.toContain("F-LIVE");
+    expect(screen.getByTestId("decision-header").textContent).not.toContain("Live remediation");
+    expect(screen.getByTestId("decision-header").textContent).not.toContain("14 Jul 2026");
+    expect(screen.getByTestId("decision-header").textContent).toContain("UNRATIFIED");
+    expect(screen.getByTestId("decision-rail").textContent).not.toContain("F-LIVE");
+  });
+
   it("distinguishes issuer lookup failure/retry and live run caveat states", async () => {
     state.search = "issuer=issuer-live&mod=CP-1";
     state.context = context(["issuer-live"]);
@@ -419,8 +461,9 @@ describe("Deep-Dive live issuer and affirmation coverage", () => {
     state.live = { ...live(), phase: "none", runId: null, asOf: null };
     view.rerender(<DeepDivePage />);
     expect(await screen.findByText(/no run for KSTL/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Affirm thesis" }));
-    expect(await screen.findByText("A completed owned run is required before affirmation.")).toBeTruthy();
+    const unavailableAffirmation = screen.getByRole("button", { name: "Affirm thesis" });
+    expect(unavailableAffirmation.getAttribute("aria-disabled")).toBe("true");
+    expect(unavailableAffirmation.getAttribute("title")).toBe("Run analysis first — there is no live view to affirm");
     fireEvent.click(findButton(screen.getByTestId("contextual"), /ASK/));
     expect(await screen.findByText("chat dynamic")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "close chat" }));
@@ -429,6 +472,7 @@ describe("Deep-Dive live issuer and affirmation coverage", () => {
     view.rerender(<DeepDivePage />);
     expect(await screen.findByTitle(/Rendering this issuer's live engine output.*QA status: Passed/)).toBeTruthy();
     expect(screen.getByText("module dynamic")).toBeTruthy();
+    expect(screen.getByText("scenario run run-live-123456")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "export run-live-123456" }));
     expect(state.exportRun).toHaveBeenCalledWith("run-live-123456");
     fireEvent.click(screen.getByRole("button", { name: "finder CP-4" }));
@@ -469,7 +513,7 @@ describe("Deep-Dive live issuer and affirmation coverage", () => {
     expect((workspaceUpdater({ affirmations: "invalid" }).affirmations as unknown[]).length).toBe(1);
 
     state.createFinding.mockRejectedValueOnce(new Error("pin offline"));
-    fireEvent.click(screen.getByRole("button", { name: "Thesis affirmed" }));
+    fireEvent.click(screen.getByRole("button", { name: "Affirm thesis" }));
     expect(await screen.findByText("Thesis v3 saved; finding pin needs retry.")).toBeTruthy();
 
     state.createThesisVersion.mockRejectedValueOnce(new Error("thesis conflict"));

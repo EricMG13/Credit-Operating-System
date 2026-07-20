@@ -9,9 +9,9 @@ import type { RoleView } from "@/lib/api";
 import { useRovingTabs } from "@/lib/useRovingTabs";
 
 const OPTIONS: { value: RoleView; label: string; hint: string }[] = [
-  { value: "analyst", label: "Analyst", hint: "Analyst view — full working density" },
-  { value: "pm", label: "PM", hint: "PM view — posture and what-changed first" },
-  { value: "qa", label: "QA", hint: "QA view — governance and gates first" },
+  { value: "analyst", label: "Analyst", hint: "Analyst view — analytical artifact first, detailed density, context and evidence support open" },
+  { value: "pm", label: "PM", hint: "PM view — decision slot first, compact density, supporting panels collapsed; Command limits ranked changes to four" },
+  { value: "qa", label: "QA", hint: "QA view — available governance inspector first; Monitor opens gate, ownership, freshness, and evidence columns" },
 ];
 
 export function RoleViewSwitch() {

@@ -62,6 +62,22 @@ describe("StandingViewStrip", () => {
     expect(captured[19]).toMatchObject({ stance: "stance-18" });
   });
 
+  it("returns a failed personal annotation to a retryable idle state", async () => {
+    updateAnalystWorkspace.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce({});
+    render(<StandingViewStrip isReference issuerId="atlas-forge" runId={null} onRevise={() => {}} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Note agreement" }));
+    });
+    expect(screen.getByRole("button", { name: "Note agreement" }).getAttribute("aria-disabled")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Note agreement" }));
+    });
+    expect(await screen.findByRole("button", { name: "Noted" })).toBeTruthy();
+    expect(updateAnalystWorkspace).toHaveBeenCalledTimes(2);
+  });
+
   it("Revise deep-links to CP-6A", () => {
     const onRevise = vi.fn();
     render(<StandingViewStrip isReference issuerId="atlas-forge" runId={null} onRevise={onRevise} />);

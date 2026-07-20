@@ -1,7 +1,7 @@
 /**
  * Playwright E2E: The Analytical Deep-Dive — evidence-sync walk (journey 2).
  *
- * Route: /deepdive (bare = the ATLF reference deal, seeded showcase). The page
+ * Route: /deepdive?mode=reference (explicit ATLF seeded showcase). The page
  * opens on the CP-6A adversarial-debate tab, which renders the E-xx citation
  * chips inline in the debate rounds and the IC-Chair weighting matrix.
  *
@@ -36,16 +36,16 @@ const boxShadow = (chip: Locator) =>
 test.describe("Deep-Dive · evidence-sync (journey 2)", () => {
   // (1) SMOKE — three-pane shell + reference deal identity.
   test("renders the three-pane shell for the ATLF reference deal", async ({ page }) => {
-    await page.goto("/deepdive/");
+    await page.goto("/deepdive/?mode=reference");
 
     // Sub-header carries the reference deal label (DEAL.deal). Its presence is
     // the earliest stable signal the page shell has mounted.
-    await expect(page.getByText(/2L TL '31/).first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/2L TL '31/).filter({ visible: true }).first()).toBeVisible({ timeout: 15000 });
 
     // Reference deal identity (DEAL.code). The source rail is collapsed by
     // default and renders the code vertically; it also appears in the header
     // chip — at least one instance is on screen.
-    await expect(page.getByText("ATLF").first()).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("ATLF").filter({ visible: true }).first()).toBeVisible({ timeout: 15000 });
 
     // LEFT pane — source / evidence rail (collapsed shell still present).
     await expect(
@@ -69,7 +69,7 @@ test.describe("Deep-Dive · evidence-sync (journey 2)", () => {
   test("hovering an evidence chip cross-highlights every sibling citing the same id", async ({
     page,
   }) => {
-    await page.goto("/deepdive/");
+    await page.goto("/deepdive/?mode=reference");
 
     // E-44 is cited by multiple debate points + the weighting matrix, so there
     // are several chips sharing that id — enough to prove cross-pane sync. E-09
@@ -120,7 +120,7 @@ test.describe("Deep-Dive · evidence-sync (journey 2)", () => {
   test("focusing an evidence chip by keyboard fires the same cross-highlight", async ({
     page,
   }) => {
-    await page.goto("/deepdive/");
+    await page.goto("/deepdive/?mode=reference");
 
     const e44 = page.getByRole("button", { name: "Open source for E-44" });
     const e09 = page.getByRole("button", { name: "Open source for E-09" });
@@ -153,5 +153,21 @@ test.describe("Deep-Dive · evidence-sync (journey 2)", () => {
     // Blurring (focus elsewhere) clears the selection (onBlur → setActive(null)).
     await focused.blur();
     await expect.poll(() => boxShadow(sibling), { timeout: 5000 }).toBe("");
+  });
+
+  test("keeps the analytical workbench and global Ask reachable at phone width", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/deepdive/?mode=reference");
+
+    await expect(page.getByTestId("persona-workbench")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Ask CAOS phone utility" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ask CAOS utility" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Open source for E-44" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open Layout and simulation" })).toBeVisible();
+
+    const horizontalOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(horizontalOverflow).toBeLessThanOrEqual(0);
   });
 });

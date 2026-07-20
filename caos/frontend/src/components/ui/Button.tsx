@@ -18,6 +18,8 @@ export type ButtonVariant = "primary" | "secondary";
 export interface ButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick" | "title" | "aria-disabled" | "aria-describedby" | "disabled"> {
   variant?: ButtonVariant;
+  /** Pointer explanation for a live action; an inert reason takes precedence. */
+  title?: string;
   /** Non-empty → the action is inert and this explains why. Null/undefined → live. */
   reason?: string | null;
   reasonDisplay?: "inline" | "hidden";
@@ -25,12 +27,13 @@ export interface ButtonProps
   children: ReactNode;
 }
 
-export function Button({ variant = "secondary", reason, reasonDisplay, className = "", children, ...rest }: ButtonProps) {
+export function Button({ variant = "secondary", reason, reasonDisplay, title, className = "", children, ...rest }: ButtonProps) {
   const variantClass = variant === "primary" ? "caos-action-primary" : "caos-action-secondary";
   return (
     <ActionReason
       reason={reason}
       reasonDisplay={reasonDisplay}
+      actionTitle={title}
       className={`${variantClass} focus-ring${className ? ` ${className}` : ""}`}
       {...rest}
     >

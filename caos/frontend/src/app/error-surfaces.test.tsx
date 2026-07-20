@@ -57,7 +57,7 @@ describe("error surfaces", () => {
   it("custom 404: back-to-command-center link to root", () => {
     const html = renderToStaticMarkup(<NotFound />);
     expect(html).toContain("404");
-    expect(html).toContain("View not found");
+    expect(html).toContain("Page not found");
     expect(html).toContain('href="/"');
   });
 });

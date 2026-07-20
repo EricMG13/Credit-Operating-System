@@ -1535,7 +1535,7 @@ describe("Model Engine v2 workbench", () => {
     expect(screen.queryByText(/SCENARIO calc:FY2026:net_leverage/)).toBeNull();
     expect(screen.getByText(/1 local · not saved/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Preview pending" }).getAttribute("aria-disabled")).toBe("true");
-    expect(screen.getByRole("button", { name: "Commit 1 pending" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Recalculate & save" }).getAttribute("aria-disabled")).toBe("true");
     expect((screen.getByLabelText("Filter scenario nodes") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByLabelText("Scenario node") as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByLabelText("Scenario value") as HTMLInputElement).disabled).toBe(true);
@@ -1564,7 +1564,7 @@ describe("Model Engine v2 workbench", () => {
     expect(screen.getByText(/current server calculation could not be refreshed/i)).toBeTruthy();
     expect(screen.getByText(/1 local · not saved/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Preview pending" }).getAttribute("aria-disabled")).toBe("true");
-    expect(screen.getByRole("button", { name: "Commit 1 pending" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Recalculate & save" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("button", { name: "Preview sensitivity" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("button", { name: "Create checkpoint" }).getAttribute("aria-disabled")).toBe("true");
   });
@@ -1591,7 +1591,7 @@ describe("Model Engine v2 workbench", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save suggested draft" }));
 
-    expect(await screen.findByRole("button", { name: "Saving…" })).toBeTruthy();
+    expect((await screen.findByRole("button", { name: "Save suggested draft" })).getAttribute("aria-disabled")).toBe("true");
 
     await act(async () => {
       saved.resolve(makeRecord(false, 1));

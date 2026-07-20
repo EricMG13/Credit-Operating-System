@@ -28,13 +28,35 @@ type GovernanceDigestFixture = {
 
 type EnterprisePageMockProps = {
   identity?: ReactNode;
-  primaryAction?: ReactNode;
+  primaryAction?: TestPageAction;
   status?: ReactNode;
   contextualControls?: ReactNode;
   utilityControls?: ReactNode;
   narrowContract?: { essentialControls?: ReactNode };
   children?: ReactNode;
 };
+
+type TestPageAction = {
+  label: string;
+  href?: string;
+  onAction?: () => void;
+  unavailableReason?: string | null;
+};
+
+function renderPageAction(action?: TestPageAction) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href}>{action.label}</a>;
+  return (
+    <button
+      type="button"
+      aria-disabled={action.unavailableReason ? "true" : undefined}
+      title={action.unavailableReason ?? undefined}
+      onClick={action.unavailableReason ? undefined : action.onAction}
+    >
+      {action.label}
+    </button>
+  );
+}
 
 type DecisionEntry = {
   kind: string;
@@ -59,6 +81,7 @@ const controls = vi.hoisted(() => ({
   routerPush: vi.fn(),
   patch: vi.fn().mockResolvedValue(undefined),
   rankedCount: 2,
+  rankedHasIssuerId: true,
   portfolio: {
     rows: [{
       issuer_id: "issuer-live", name: "Live Issuer", ticker: "LIVE", sector: "Tech",
@@ -95,12 +118,8 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/components/shared/EnterprisePage", () => ({
   EnterprisePage: ({ identity, primaryAction, status, contextualControls, utilityControls, narrowContract, children }: EnterprisePageMockProps) => (
-    <div><header>{identity}{primaryAction}{status}{contextualControls}{narrowContract?.essentialControls}</header><aside>{utilityControls}</aside><main>{children}</main></div>
+    <div><header>{identity}{renderPageAction(primaryAction)}{status}{contextualControls}{narrowContract?.essentialControls}</header><aside>{utilityControls}</aside><main>{children}</main></div>
   ),
-}));
-
-vi.mock("@/components/shared/PersonaWorkbench", () => ({
-  PersonaWorkbench: ({ decision, primary, context, inspector }: { decision?: ReactNode; primary?: ReactNode; context?: ReactNode; inspector?: ReactNode }) => <div>{decision}{primary}{context}{inspector}</div>,
 }));
 
 vi.mock("@/components/shared/Panel", () => ({
@@ -124,6 +143,7 @@ vi.mock("@/components/shared/WorkbenchToolbar", () => ({
 
 vi.mock("@/components/shared/DominantTableRegion", () => ({
   DominantTableRegion: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  DominantTableOwnerGuard: ({ children }: { children?: ReactNode }) => <>{children}</>,
 }));
 
 vi.mock("@/components/shared/SurfaceState", () => ({
@@ -177,7 +197,7 @@ vi.mock("@/lib/analysis-workbench", () => ({
 vi.mock("@/lib/engine/usePortfolio", () => ({ usePortfolio: () => controls.portfolio }));
 vi.mock("@/lib/command/useGovernanceSources", () => ({ useGovernanceSources: () => controls.governance }));
 vi.mock("@/lib/engine/useAutonomyDraft", () => ({ useAutonomyDraft: () => controls.autonomy }));
-vi.mock("@/lib/alerts/inbox", () => ({ draftToAlertRows: () => Array.from({ length: controls.rankedCount }, (_, id) => ({ id, issuerId: `issuer-${id}`, issuerName: `Issuer ${id}` })) }));
+vi.mock("@/lib/alerts/inbox", () => ({ draftToAlertRows: () => Array.from({ length: controls.rankedCount }, (_, id) => ({ id, issuerId: controls.rankedHasIssuerId ? `issuer-${id}` : undefined, issuerName: `Issuer ${id}` })) }));
 
 vi.mock("@/components/command/RankedChanges", () => ({ RankedChangesView: () => <div>Ranked changes body</div> }));
 vi.mock("@/components/command/GovernancePanel", () => ({ GovernancePanel: () => <div>Governance body</div> }));
@@ -304,6 +324,7 @@ beforeEach(() => {
   controls.role = "analyst";
   controls.initialUrl = {};
   controls.rankedCount = 2;
+  controls.rankedHasIssuerId = true;
   controls.patch.mockResolvedValue(undefined);
   controls.portfolio.loading = false;
   controls.portfolio.error = null;
@@ -336,6 +357,20 @@ afterEach(() => {
 });
 
 describe("Command Center interactions", () => {
+  it("opens the PM role on posture and ranked changes before supporting analysis", async () => {
+    controls.role = "pm";
+    render(<CommandPage />);
+
+    const changesTab = await screen.findByRole("tab", { name: "Changes" });
+    expect(changesTab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Ranked changes body")).toBeTruthy();
+    expect(await screen.findByText("Posture total 1")).toBeTruthy();
+    const workbench = screen.getByTestId("persona-workbench");
+    const slots = Array.from(workbench.querySelectorAll<HTMLElement>("[data-slot]"));
+    expect(slots.map((slot) => slot.dataset.slot)).toEqual(["decision", "primary"]);
+    expect(slots[0].getAttribute("data-emphasized")).toBe("true");
+  });
+
   it("switches every dataset, selects live and held issuers, refreshes snapshots, and generates cited insight", async () => {
     render(<CommandPage />);
     expect((await screen.findAllByText("Credit Opportunities")).length).toBeGreaterThan(0);
@@ -383,8 +418,44 @@ describe("Command Center interactions", () => {
     render(<CommandPage />);
 
     expect(await screen.findByText("Holdings unavailable")).toBeTruthy();
+    expect(screen.getByText("Portfolio posture unavailable")).toBeTruthy();
     window.dispatchEvent(new Event("focus"));
     expect(await screen.findByText("No positions held")).toBeTruthy();
+    expect(screen.getByText("Portfolio posture · 0 positions")).toBeTruthy();
+  });
+
+  it("blocks ranked handoffs without stable issuer authority", async () => {
+    controls.rankedHasIssuerId = false;
+    render(<CommandPage />);
+
+    const action = await screen.findByRole("button", { name: "Open top change" });
+    expect(action.getAttribute("aria-disabled")).toBe("true");
+    expect(action.getAttribute("title")).toBe("Top ranked change has no issuer identifier");
+    fireEvent.click(action);
+    expect(controls.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("routes empty Command actions to intake or the coverage worklist without a no-op", async () => {
+    controls.rankedCount = 0;
+    controls.portfolio.rows = [];
+    const empty = render(<CommandPage />);
+    const intakeActions = await screen.findAllByRole("link", { name: "Start document intake" });
+    expect(intakeActions).toHaveLength(1);
+    expect(intakeActions[0].getAttribute("href")).toBe("/upload");
+    expect(screen.queryByText(/Daily Digest/)).toBeNull();
+    expect(screen.queryByText("Cited decision brief")).toBeNull();
+    expect(screen.queryByText("Governance body")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open top change" })).toBeNull();
+    empty.unmount();
+
+    controls.portfolio.rows = [{
+      issuer_id: "issuer-live", name: "Live Issuer", ticker: "LIVE", sector: "Tech",
+      run_id: "run-live", qa_status: "Pass", committee_status: "Ready", as_of: "2026-07-14",
+      metrics: { net_leverage: 4.2, interest_coverage: 3.1 }, gaps: [],
+    }];
+    render(<CommandPage />);
+    expect((await screen.findByRole("link", { name: "Open coverage worklist" })).getAttribute("href")).toBe("/issuers");
+    expect(screen.queryByRole("button", { name: "Open top change" })).toBeNull();
   });
 
   it("handles an invalid requested portfolio and opens the default selection", async () => {
@@ -400,6 +471,7 @@ describe("Command Center interactions", () => {
     vi.mocked(getPortfolios).mockResolvedValueOnce([]);
     const empty = render(<CommandPage />);
     expect(await screen.findByText("No portfolio configured")).toBeTruthy();
+    expect(screen.getByText("Portfolio posture · not configured")).toBeTruthy();
     empty.unmount();
 
     vi.mocked(getPortfolios).mockRejectedValueOnce(new Error("directory offline"));

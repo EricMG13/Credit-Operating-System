@@ -179,6 +179,14 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
+async function expectNoDocumentOverflow(page: Page) {
+  const geometry = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+}
+
 async function installCommandFixtures(
   page: Page,
   options: {
@@ -426,5 +434,44 @@ test.describe("Command Center — current persisted workbench", () => {
       kind: "decision-brief",
       force: true,
     });
+  });
+
+  test("all Command datasets remain operable without document overflow at 390px", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await installCommandFixtures(page);
+    await page.goto("/command/?portfolio=portfolio-qa");
+
+    const tabs = page.getByRole("tablist", { name: "Command dataset" });
+    await expect(tabs.getByRole("tab", { name: "Live coverage" })).toHaveAttribute("aria-selected", "true", { timeout: 15000 });
+    await expect(page.getByRole("row", { name: /ATLF Atlas Forge details/ })).toBeVisible();
+    await expectNoDocumentOverflow(page);
+
+    await tabs.getByRole("tab", { name: "Positions" }).click();
+    const positionRow = page.getByRole("row", { name: /Atlas Forge position details/ });
+    await expect(positionRow).toBeVisible();
+    await positionRow.click();
+    await expect(page.getByRole("button", { name: "Close" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Deep-Dive" })).toHaveAttribute(
+      "href",
+      "/deepdive?issuer=issuer-atlas&run=run-atlas",
+    );
+    await page.getByRole("button", { name: "Close" }).click();
+    await expectNoDocumentOverflow(page);
+
+    await tabs.getByRole("tab", { name: "Changes" }).click();
+    await expect(page.getByText("EBITDA margin compressed sharply vs peers", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Ack" })).toBeVisible();
+    await expectNoDocumentOverflow(page);
+
+    await tabs.getByRole("tab", { name: "Governance" }).click();
+    await expect(page.getByText("QA Queue · CP-5 open findings", { exact: true })).toBeVisible();
+    await expect(page.getByText("Overdue Refresh · never run", { exact: true })).toBeVisible();
+    await expectNoDocumentOverflow(page);
+
+    await page.getByRole("button", { name: "Open Command utilities" }).click();
+    const utilities = page.getByRole("dialog", { name: "Command utilities" });
+    await expect(utilities.getByRole("link", { name: "Open Portfolio Lab" })).toBeVisible();
+    await expect(utilities.getByRole("link", { name: "Open Monitor" })).toBeVisible();
+    await expectNoDocumentOverflow(page);
   });
 });

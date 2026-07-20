@@ -13,7 +13,7 @@ export default function NotFound() {
           <span className="font-mono text-caos-sm uppercase tracking-[0.2em] text-caos-accent">
             404
           </span>
-          <h1 className="text-caos-text text-lg font-semibold">View not found</h1>
+          <h2 className="text-caos-text text-lg font-semibold">Page not found</h2>
           <p className="text-caos-muted text-xs">
             This CAOS route does not exist. The view may have moved, or the link may be stale.
           </p>

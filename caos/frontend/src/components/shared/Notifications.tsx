@@ -21,6 +21,7 @@ type Toast = {
   title: string;
   body?: string;
   href?: string;
+  actionLabel?: string;
   eventId?: string;
 };
 type NotificationFeed = Awaited<ReturnType<typeof listNotifications>>;
@@ -48,6 +49,7 @@ const ingestNotificationFeed = (
       title: event.title,
       body: event.body ?? undefined,
       href: event.href ?? undefined,
+      actionLabel: event.action_label ?? undefined,
     });
   }
 };
@@ -141,7 +143,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 onClick={() => dismiss(t.id, t.eventId)}
                 className="mt-2 inline-flex rounded text-caos-xs font-semibold uppercase tracking-wider text-caos-accent transition-caos hover:text-caos-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-caos-accent"
               >
-                Open execution graph
+                {t.actionLabel ?? "Open related item"}
               </Link>
             ) : null}
           </div>

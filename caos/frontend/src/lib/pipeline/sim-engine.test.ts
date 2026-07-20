@@ -11,6 +11,14 @@ describe("simClock", () => {
     expect(simClock(1)).toBe("09:30:07");
     expect(simClock(60)).toBe("09:37:00");
   });
+
+  it("pipeline-17 clamps negative, fractional, and non-finite ticks to a stable clock", () => {
+    expect(simClock(-1)).toBe("09:30:00");
+    expect(simClock(1.9)).toBe("09:30:07");
+    expect(simClock(Number.NaN)).toBe("09:30:00");
+    expect(simClock(Number.POSITIVE_INFINITY)).toBe("09:30:00");
+    expect(simClock(Number.NEGATIVE_INFINITY)).toBe("09:30:00");
+  });
 });
 
 describe("initSim", () => {

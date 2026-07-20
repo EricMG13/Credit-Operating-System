@@ -12,6 +12,7 @@ import axios from "axios";
 import { login, recoverLogin, register } from "@/lib/api";
 import { useRovingTabs } from "@/lib/useRovingTabs";
 import { ActionReason } from "@/components/shared/ActionReason";
+import { RouteHeadingOverride } from "@/components/shared/RouteHeading";
 
 type Mode = "signin" | "signup" | "recover";
 const MODES: Mode[] = ["signin", "signup", "recover"];
@@ -151,7 +152,7 @@ function LoginHeader({ form }: { form: LoginFormModel }) {
     : form.mode === "recover"
       ? "Enter your email and all three recovery words. Stored hints are not disclosed on this endpoint."
       : "Sign in with your email and passcode.";
-  return <div className="flex flex-col gap-1"><span className="font-mono text-caos-sm uppercase tracking-[0.2em] text-caos-accent">Credit Agent OS</span><h1 className="text-caos-text text-lg font-semibold">{title}</h1><p className="text-caos-muted text-xs">{description}</p></div>;
+  return <div className="flex flex-col gap-1"><RouteHeadingOverride title={title} /><span className="font-mono text-caos-sm uppercase tracking-[0.2em] text-caos-accent">Credit Agent OS</span><h2 className="text-caos-text text-lg font-semibold">{title}</h2><p className="text-caos-muted text-xs">{description}</p></div>;
 }
 
 function LoginModeTabs({ form }: { form: LoginFormModel }) {

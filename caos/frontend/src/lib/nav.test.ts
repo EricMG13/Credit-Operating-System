@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { NAV_GROUPS, CONCEPT_CYCLE, activeGroupId, routeMatches } from "./nav";
+import { NAV_GROUPS, CONCEPT_CYCLE, activeGroupId, rolePriorityItems, routeMatches, routeTitleForPath } from "./nav";
 
 describe("nav registry", () => {
   it("has no duplicate hrefs", () => {
@@ -60,5 +60,28 @@ describe("nav registry", () => {
     expect(activeGroupId("/reports")).toBe("publish");
     expect(activeGroupId("/monitor")).toBe("monitor");
     expect(activeGroupId("/settings")).toBeNull();
+  });
+
+  it("projects the exact five role-priority destinations without changing the canonical cycle", () => {
+    expect(rolePriorityItems("analyst").map((item) => item.href)).toEqual([
+      "/issuers", "/deepdive", "/model", "/reports", "/pipeline",
+    ]);
+    expect(rolePriorityItems("pm").map((item) => item.href)).toEqual([
+      "/command", "/portfolios", "/decisions", "/reports", "/monitor",
+    ]);
+    expect(rolePriorityItems("qa").map((item) => item.href)).toEqual([
+      "/monitor", "/pipeline", "/decisions", "/reports", "/upload",
+    ]);
+    expect(CONCEPT_CYCLE).toEqual(NAV_GROUPS.flatMap((group) => group.items.map((item) => item.href)));
+  });
+
+  it("derives workflow headings from the canonical registry and resolves utility/dynamic routes", () => {
+    expect(routeTitleForPath("/portfolios")).toBe("Portfolio Lab");
+    expect(routeTitleForPath("/decisions/decision-1")).toBe("IC Book");
+    expect(routeTitleForPath("/issuers/profile?issuer=issuer-1")).toBe("Issuer Profile");
+    expect(routeTitleForPath("/issuers/issuer-1")).toBe("Issuer Profile");
+    expect(routeTitleForPath("/settings/access")).toBe("Settings");
+    expect(routeTitleForPath("/")).toBe("CAOS Home");
+    expect(routeTitleForPath("/unknown")).toBe("Page not found");
   });
 });

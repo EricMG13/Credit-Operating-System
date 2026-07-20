@@ -119,7 +119,8 @@ export const FEED_LINKABLE_ISSUERS: ReadonlySet<string> = new Set(["ATLF"]);
 const SIM_ALERT_ACCRUAL_EVERY = 5;
 const SIM_ALERT_BASELINE = 2;
 export function simAlertsToday(tick: number, active: boolean): number {
-  return active ? Math.min(ALERTS.length, Math.floor(tick / SIM_ALERT_ACCRUAL_EVERY) + SIM_ALERT_BASELINE) : ALERTS.length;
+  const safeTick = Number.isFinite(tick) ? Math.max(0, tick) : 0;
+  return active ? Math.min(ALERTS.length, Math.floor(safeTick / SIM_ALERT_ACCRUAL_EVERY) + SIM_ALERT_BASELINE) : ALERTS.length;
 }
 
 // One CP-5 QA-gate item. The live derivation (lib/command/qa.ts) emits this shape

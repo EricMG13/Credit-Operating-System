@@ -3,7 +3,8 @@
 // Run via `node scripts/a11y-axe.mjs`; registered as a Fallow entry point.
 import { chromium } from 'playwright';
 import { createRequire } from 'module';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { installSurfaceStubs } from './browser-surface-fixtures.mjs';
 import { summarizeAxeViolations } from './axe-results.mjs';
 const require = createRequire(import.meta.url);
@@ -14,7 +15,11 @@ const edgeSecret = process.env.E2E_EDGE_PROXY_SECRET;
 const forwardedEmail = process.env.E2E_FORWARDED_EMAIL || 'e2e-a11y@firm.test';
 const analystName = process.env.E2E_ANALYST_NAME || 'A11y Route Matrix';
 const screenshotDir = process.env.SCREENSHOT_DIR;
+const resultFile = process.env.A11Y_RESULT_FILE;
 const quiet = process.env.A11Y_QUIET === '1';
+const readySelector = process.env.A11Y_READY_SELECTOR;
+const readyTextAbsent = process.env.A11Y_READY_TEXT_ABSENT;
+const reducedMotion = process.env.REDUCED_MOTION === '1';
 let routes = (process.env.ROUTES || '/,/command,/decisions,/deepdive,/issuers,/issuers/profile?id=iss-1,/model,/monitor,/pipeline,/portfolios,/query,/reports,/research,/sector,/sector-rv,/settings,/sponsors,/upload').split(',');
 // Keep structural authoring defects (landmarks, heading order, empty table
 // headers, ARIA ownership) in the default gate. WCAG tags alone can report a
@@ -46,6 +51,7 @@ const page = await browser.newPage({
     'X-Forwarded-Preferred-Username': analystName,
   } } : {}),
 });
+if (reducedMotion) await page.emulateMedia({ reducedMotion: 'reduce' });
 
 // Static-export verification has no API process. When explicitly requested,
 // stub identity inside the browser only so axe scans the application surfaces,
@@ -92,11 +98,10 @@ for (const viewport of viewports) {
   // reliable application-ready signal. DOM readiness plus the shared surface
   // marker below is deterministic and avoids a 30s delay on every live route.
   await page.goto(BASE + route, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  // Most routes use EnterprisePage; standalone workbench routes (Portfolio Lab,
-  // IC Book, Query, Sector and RV) intentionally own their shell. Wait for the
-  // shared persona composition root as the equivalent readiness contract so a
-  // single standalone route cannot abort the complete accessibility matrix.
-  const surface = page.locator('.caos-enterprise-page, [data-testid="persona-workbench"]').first();
+  // Most routes use EnterprisePage; standalone workbenches use the shared
+  // persona root, while honest empty/error routes may intentionally render a
+  // SurfaceState without either shell. All three are explicit ready contracts.
+  const surface = page.locator('.caos-enterprise-page, [data-testid="persona-workbench"], [data-surface-state]').first();
   let readinessError = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -123,6 +128,59 @@ for (const viewport of viewports) {
     };
     continue;
   }
+  // The static root is a redirector rather than an audited workbench. Its
+  // transient shell can satisfy the shared readiness selector immediately
+  // before the client navigation destroys the axe/layout execution context.
+  // Wait for the destination document explicitly and re-establish readiness so
+  // the `/` matrix cell measures the route users actually receive.
+  if (new URL(route, BASE).pathname === "/") {
+    try {
+      await page.waitForURL((url) => url.pathname !== "/", { timeout: 15000 });
+      await surface.waitFor({ state: "visible", timeout: 15000 });
+    } catch (error) {
+      out[evidenceKey] = {
+        url: new URL(page.url()).pathname,
+        viewport,
+        scan_error: `Root redirect did not settle on an auditable surface: ${error.message}`,
+        violations: [],
+      };
+      continue;
+    }
+  }
+  // Some authenticated routes intentionally replace their populated workbench
+  // with an honest cold/empty state. The shared shell can already be visible
+  // while auth hydration is still settling, so allow focused audits to name a
+  // route-specific readiness contract rather than scanning that transient wall.
+  if (readyTextAbsent) {
+    try {
+      await page.waitForFunction(
+        (text) => !document.body.textContent?.includes(text),
+        readyTextAbsent,
+        { timeout: 15000 },
+      );
+    } catch (error) {
+      out[evidenceKey] = {
+        url: new URL(page.url()).pathname,
+        viewport,
+        scan_error: `Transient text "${readyTextAbsent}" did not clear: ${error.message}`,
+        violations: [],
+      };
+      continue;
+    }
+  }
+  if (readySelector) {
+    try {
+      await page.locator(readySelector).first().waitFor({ state: 'visible', timeout: 15000 });
+    } catch (error) {
+      out[evidenceKey] = {
+        url: new URL(page.url()).pathname,
+        viewport,
+        scan_error: `Route readiness selector "${readySelector}" not found: ${error.message}`,
+        violations: [],
+      };
+      continue;
+    }
+  }
   // The model route resolves a calculation-authority boundary after its shell
   // mounts. Scanning the transient card would miss the actual editor entirely.
   if (new URL(route, BASE).pathname.startsWith('/model')) {
@@ -137,6 +195,28 @@ for (const viewport of viewports) {
         url: new URL(page.url()).pathname,
         viewport,
         scan_error: `Model calculation authority did not settle: ${error.message}`,
+        violations: [],
+      };
+      continue;
+    }
+  }
+  // Reference Pipeline lazy-loads its stage graph after the route-level
+  // fallback mounts. That fallback intentionally has no enterprise chrome, so
+  // scanning it would report the global compact skip link as orphaned and miss
+  // the actual dependency map. Wait for the governed workbench, not the loader.
+  if (new URL(route, BASE).pathname.startsWith('/pipeline')) {
+    try {
+      await page.waitForFunction(
+        () => !document.body.textContent?.includes('Loading Reference route plan'),
+        undefined,
+        { timeout: 15000 },
+      );
+      await page.locator('.caos-enterprise-page').waitFor({ state: 'visible', timeout: 15000 });
+    } catch (error) {
+      out[evidenceKey] = {
+        url: new URL(page.url()).pathname,
+        viewport,
+        scan_error: `Pipeline reference workbench did not settle: ${error.message}`,
         violations: [],
       };
       continue;
@@ -282,5 +362,10 @@ const compact = process.env.A11Y_COMPACT === '1';
 const reportedRoutes = compact
   ? Object.fromEntries(Object.entries(out).filter(([, result]) => routeHasFailures(result)))
   : out;
-console.log(JSON.stringify({ base: BASE, tags: TAGS, viewports, total_nodes: total, scan_errors: scanErrors, layout_failures: layoutFailures, byImpact, routes: reportedRoutes }, null, 2));
+const summary = { base: BASE, tags: TAGS, viewports, total_nodes: total, scan_errors: scanErrors, layout_failures: layoutFailures, byImpact, routes: reportedRoutes };
+if (resultFile) {
+  await mkdir(dirname(resultFile), { recursive: true });
+  await writeFile(resultFile, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+}
+console.log(JSON.stringify(summary, null, 2));
 process.exit(total > 0 || scanErrors > 0 || layoutFailures > 0 ? 1 : 0);

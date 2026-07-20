@@ -62,7 +62,7 @@ const profiles = requestedProfiles
 if (profiles.length === 0) throw new Error("No matching performance profiles selected");
 
 const observerSource = () => {
-  const state = { cls: 0, lcp: 0, lcpElement: null, shifts: [], longTasks: [], maxEvent: 0 };
+  const state = { cls: 0, lcp: 0, lcpElement: null, shifts: [], longTasks: [], longTaskDetails: [], maxEvent: 0 };
   globalThis.__caosPerformance = state;
   const text = (value, limit) => String(value || "").trim().replace(/\s+/g, " ").slice(0, limit);
   const className = (node) => typeof node?.className === "string" ? node.className.slice(0, 160) : null;
@@ -93,7 +93,21 @@ const observerSource = () => {
   };
   observe({ type: "largest-contentful-paint", buffered: true }, recordLcp);
   observe({ type: "layout-shift", buffered: true }, recordShift);
-  observe({ type: "longtask", buffered: true }, (entry) => state.longTasks.push(entry.duration));
+  observe({ type: "longtask", buffered: true }, (entry) => {
+    state.longTasks.push(entry.duration);
+    state.longTaskDetails.push({
+      startTime: entry.startTime,
+      duration: entry.duration,
+      attribution: Array.from(entry.attribution || []).map((item) => ({
+        name: item.name,
+        entryType: item.entryType,
+        containerType: item.containerType,
+        containerName: item.containerName,
+        containerId: item.containerId,
+        containerSrc: item.containerSrc,
+      })),
+    });
+  });
   observe({ type: "event", buffered: true, durationThreshold: 16 }, (entry) => { state.maxEvent = Math.max(state.maxEvent, entry.duration); });
 };
 
@@ -152,6 +166,17 @@ try {
     for (const route of routes) {
       console.error(`performance: ${profile.name} ${route}`);
       const page = await context.newPage();
+      const staticAssetTransport = [];
+      page.on("response", (response) => {
+        try {
+          const pathname = new URL(response.url()).pathname;
+          if (!pathname.startsWith("/_next/static/") || !/\.(?:css|js)$/.test(pathname)) return;
+          staticAssetTransport.push({
+            pathname,
+            encoding: (response.headers()["content-encoding"] || "identity").toLowerCase(),
+          });
+        } catch {}
+      });
       const cdp = await context.newCDPSession(page);
       await cdp.send("Performance.enable");
       await cdp.send("Network.enable");
@@ -166,10 +191,19 @@ try {
         await page.waitForLoadState("load", { timeout: 30_000 }).catch(() => undefined);
         const surface = page.locator(".caos-enterprise-page, [data-testid=\"persona-workbench\"]").first();
         await surface.waitFor({ state: "visible", timeout: 20_000 });
+        if (new URL(route, BASE).pathname === "/model") {
+          await page.getByLabel("Model worksheet").waitFor({ state: "visible", timeout: 20_000 });
+        }
         await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         await page.waitForTimeout(350);
       } catch (error) {
         scanError = error instanceof Error ? error.message : String(error);
+      }
+      const uncompressedStaticAssets = staticAssetTransport
+        .filter((asset) => !/^(?:br|gzip|zstd)$/.test(asset.encoding))
+        .map((asset) => asset.pathname);
+      if (!scanError && uncompressedStaticAssets.length > 0 && process.env.ALLOW_UNCOMPRESSED !== "1") {
+        scanError = `${uncompressedStaticAssets.length} static JS/CSS assets used identity transport; run npm run serve:performance before accepting payload or timing evidence`;
       }
       const readyMs = performance.now() - startedAt;
 
@@ -181,7 +215,7 @@ try {
         const paints = Object.fromEntries(
           performance.getEntriesByType("paint").map((entry) => [entry.name, entry.startTime]),
         );
-        const state = fallback(globalThis.__caosPerformance, { cls: 0, lcp: 0, longTasks: [], maxEvent: 0 });
+        const state = fallback(globalThis.__caosPerformance, { cls: 0, lcp: 0, longTasks: [], longTaskDetails: [], maxEvent: 0 });
         const resourceRows = resources.map((entry) => ({
           name: entry.name,
           encodedBodySize: numeric(entry.encodedBodySize),
@@ -205,6 +239,7 @@ try {
           layoutShifts: fallback(state.shifts, []).sort((a, b) => b.value - a.value).slice(0, 5),
           tbtMs: longTasks.reduce((sum, duration) => sum + Math.max(0, duration - 50), 0),
           longestTaskMs: Math.max(0, ...longTasks),
+          longTaskDetails: fallback(state.longTaskDetails, []),
           maxEventMs: numeric(state.maxEvent),
           requests: resources.length + 1,
           encodedKb: encoded / 1024,
@@ -239,6 +274,8 @@ try {
         profile: profile.name,
         route,
         scanError,
+        contentEncodings: [...new Set(staticAssetTransport.map((asset) => asset.encoding))].sort(),
+        uncompressedStaticAssets,
         readyMs: round(readyMs),
         ...Object.fromEntries(Object.entries(browserMetrics).map(([key, value]) => [key, typeof value === "number" ? round(value, key === "cls" ? 3 : 1) : value])),
         heapMb: round((cdpMap.JSHeapUsedSize || 0) / 1024 / 1024),

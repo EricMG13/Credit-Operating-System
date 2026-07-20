@@ -91,6 +91,7 @@ async def test_execute_run_by_id_completes(seeded_db):
         ))).scalar_one()
         assert event.analyst_id == "t"
         assert event.kind == "run_complete"
+        assert event.action_label == "Open dependency map"
 
 
 @pytest.mark.asyncio
@@ -120,6 +121,7 @@ async def test_execute_run_by_id_marks_failed_on_error(seeded_db, monkeypatch):
             NotificationEvent.subject_id == run_id
         ))).scalar_one()
         assert event.kind == "run_failed"
+        assert event.action_label == "Open dependency map"
 
 
 @pytest.mark.asyncio
@@ -197,6 +199,7 @@ async def test_notification_render_failure_uses_minimal_event_and_run_stays_term
         assert len(events) == 1
         assert events[0].kind == "run_failed"
         assert events[0].title == "Issuer analysis failed"
+        assert events[0].action_label == "Open dependency map"
 
 
 @pytest.mark.asyncio
@@ -603,7 +606,7 @@ def test_runs_are_analyst_private_by_default(api_client):
 
 
 def test_export_to_vault_rejects_foreign_run(api_client, tmp_path, monkeypatch):
-    """A foreign run cannot be mirrored to the caller's filesystem vault."""
+    """A foreign run cannot be mirrored or assembled for committee export."""
     import asyncio
 
     from conftest import wait_for_run
@@ -630,6 +633,7 @@ def test_export_to_vault_rejects_foreign_run(api_client, tmp_path, monkeypatch):
 
     resp = api_client.post(f"/api/runs/{run_id}/vault")
     assert resp.status_code == 404
+    assert api_client.post(f"/api/runs/{run_id}/report").status_code == 404
 
 
 @pytest.mark.asyncio

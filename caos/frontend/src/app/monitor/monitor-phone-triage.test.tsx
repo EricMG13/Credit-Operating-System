@@ -8,6 +8,7 @@ import MonitorPage from "./page";
 
 let mockBreakpoint: "wide" | "desktop" | "tablet" | "mobile" = "wide";
 const analysisState = vi.hoisted(() => ({ loading: false, patch: vi.fn() }));
+const modeState = vi.hoisted(() => ({ mode: "live" as "live" | "reference" }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/monitor",
@@ -19,6 +20,10 @@ vi.mock("@/components/shared/RequireAuth", () => ({
 }));
 vi.mock("@/lib/useBreakpoint", () => ({
   useBreakpoint: () => ({ breakpoint: mockBreakpoint, hydrated: true }),
+}));
+vi.mock("@/lib/data-mode", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/data-mode")>()),
+  useDataMode: () => modeState.mode,
 }));
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
@@ -46,6 +51,7 @@ afterEach(() => {
   vi.clearAllMocks();
   mockBreakpoint = "wide";
   analysisState.loading = false;
+  modeState.mode = "live";
   window.history.replaceState({}, "", "/monitor");
 });
 
@@ -62,13 +68,14 @@ describe("Monitor · phone triage breakpoint gate (G6)", () => {
     await waitFor(() => expect(screen.getByText("Autonomy engine unreachable")).toBeTruthy()); // PhoneTriage's offline state
     expect(screen.queryByText("Email Intelligence · CP-MON intake")).toBeNull();
     expect(screen.queryByText("Governance summary")).toBeNull();
-    expect(screen.getByRole("tab", { name: "Email intake" })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Email intake" })).toBeNull();
     expect(screen.getByRole("button", { name: "Open context drawer" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open evidence inspector drawer" }));
     expect(await screen.findByText("Governance summary")).toBeTruthy();
   });
 
   it("mounts the desktop workspace, never PhoneTriage, at wider breakpoints", async () => {
+    modeState.mode = "reference";
     mockBreakpoint = "desktop";
     window.matchMedia = vi.fn().mockImplementation(() => ({
       matches: false,
@@ -78,12 +85,13 @@ describe("Monitor · phone triage breakpoint gate (G6)", () => {
     }));
     render(<MonitorPage />);
     await waitFor(() => expect(screen.getByRole("tab", { name: "Email intake" })).toBeTruthy());
-    expect(screen.getByText("Governance summary")).toBeTruthy();
+    expect(screen.getByText("Reference scope")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Email intake" }));
     expect(screen.getByText("Email Intelligence · CP-MON intake")).toBeTruthy();
   });
 
   it("keeps dataset tabs inert until analysis-context bootstrap settles", () => {
+    modeState.mode = "reference";
     window.history.replaceState({}, "", "/monitor");
     analysisState.loading = true;
     const { rerender } = render(<MonitorPage />);
@@ -91,7 +99,7 @@ describe("Monitor · phone triage breakpoint gate (G6)", () => {
     const email = screen.getByRole("tab", { name: "Email intake" });
     expect(email.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(email);
-    expect(screen.getByRole("tab", { name: "Alerts" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: "Replay" }).getAttribute("aria-selected")).toBe("true");
 
     analysisState.loading = false;
     rerender(<MonitorPage />);

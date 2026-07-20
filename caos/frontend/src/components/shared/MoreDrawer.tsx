@@ -24,12 +24,14 @@ export function MoreDrawer({
   onOpenChange,
   children,
   triggerLabel = "More",
+  triggerId,
   align = "right",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
   triggerLabel?: string;
+  triggerId?: string;
   align?: "left" | "right";
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -42,9 +44,13 @@ export function MoreDrawer({
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) { setPos(null); return; }
     const r = triggerRef.current.getBoundingClientRect();
+    const viewportInset = 8;
+    const panelWidth = Math.min(256, Math.max(0, window.innerWidth - viewportInset * 2));
+    const maxEdgeOffset = Math.max(viewportInset, window.innerWidth - panelWidth - viewportInset);
+    const clampEdge = (value: number) => Math.min(Math.max(value, viewportInset), maxEdgeOffset);
     setPos(align === "left"
-      ? { top: r.bottom + 4, left: r.left }
-      : { top: r.bottom + 4, right: window.innerWidth - r.right });
+      ? { top: r.bottom + 4, left: clampEdge(r.left) }
+      : { top: r.bottom + 4, right: clampEdge(window.innerWidth - r.right) });
   }, [open, align]);
 
   // Move focus to the first focusable element when the drawer opens, so the
@@ -133,6 +139,7 @@ export function MoreDrawer({
   return (
     <div className="relative shrink-0">
       <button
+        id={triggerId}
         ref={triggerRef}
         type="button"
         onClick={() => onOpenChange(!open)}
@@ -150,7 +157,7 @@ export function MoreDrawer({
           tabIndex={-1}
           aria-label={triggerLabel}
           onKeyDown={onKeyDown}
-          className="fixed z-overlay w-64 rounded-md border border-caos-border bg-caos-panel p-2 flex flex-col gap-1"
+          className="fixed z-overlay w-64 max-w-[calc(100vw-1rem)] rounded-md border border-caos-border bg-caos-panel p-2 flex flex-col gap-1"
           style={{ boxShadow: "var(--shadow-pop)", top: pos.top, left: pos.left, right: pos.right }}
         >
           {children}

@@ -29,6 +29,7 @@ describe("RequireAuth", () => {
     const refresh = vi.fn();
     state.auth = { loading: false, needsLogin: true, refresh };
     render(<RequireAuth>workspace</RequireAuth>);
+    expect(screen.queryByText("workspace")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "finish login" }));
     expect(refresh).toHaveBeenCalled();
   });
@@ -40,6 +41,7 @@ describe("RequireAuth", () => {
     const refresh = vi.fn();
     state.auth = { loading: false, needsLogin: false, error, user, refresh };
     render(<RequireAuth>workspace</RequireAuth>);
+    expect(screen.queryByText("workspace")).toBeNull();
     expect(screen.getByText("Analyst access could not be verified")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry access check" }));
     expect(refresh).toHaveBeenCalled();

@@ -312,7 +312,7 @@ function NodeLabel({ cx, cy, labelLines, n, style }: { cx: number; cy: number; l
   if (n.kind === "sector" || style.shape === "compact") return null;
   const shared = {
     textAnchor: "middle" as const,
-    fill: n.dim ? "#9a9aac" : "#f0f0f6",
+    fill: n.dim ? "var(--caos-muted)" : "var(--caos-text)",
     fontWeight: n.kind === "center" ? 600 : 400,
   };
   if (style.isCircle) {

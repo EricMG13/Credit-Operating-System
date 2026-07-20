@@ -145,3 +145,23 @@ generator are absent, so its documented pipeline cannot pass preflight. Package
 the referenced assets with the skill and add an explicit `not_applicable`
 outcome for repositories with no tracked C/C++/Rust source or valid
 `compile_commands.json`/`Cargo.toml`, distinct from a zero-finding clean audit.
+
+## 2026-07-19 — senior-qa — OPEN
+
+The skill covers unit, integration, E2E, and coverage workflows but has no
+stress/load protocol: it omits isolated-target safeguards, staged concurrency
+ramps, service-level failure oracles, expected-backpressure classification,
+post-load recovery checks, and mandatory reproduction of the first fault. Add a
+load-testing section that distinguishes HTTP correctness from latency collapse
+and requires one normal-user probe during saturation; without it, a Locust run
+can report zero failures while analyst reads exceed their latency budget by an
+order of magnitude.
+
+## 2026-07-19 — spreadsheets — OPEN
+
+The spreadsheet verification workflow should cap preview ranges for long sheets
+and add an explicit tail/recent-record preview when recency matters. Rendering a
+full multi-hundred-row CAOS defect ledger exceeded the renderer's maximum image
+height even though workbook import and formula inspection succeeded. Document a
+bounded head-plus-tail pattern so visual QA remains deterministic without
+silently omitting the newest validation and defect records.

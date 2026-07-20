@@ -290,7 +290,7 @@ export function LiveCoverage({
     <p id="live-coverage-grid-help" className="sr-only">
       Use Up and Down Arrow to move between issuer rows. Press Enter or Space to open row details. Press F2 to enter row actions; press Escape to return to the row.
     </p>
-    <div role="grid" aria-label="Live coverage worklist" aria-rowcount={data.shown.length + 1} className="text-caos-md flex-1 min-h-0 flex flex-col" style={{ minWidth: 760, height: "100%" }}>
+    <div role="grid" aria-label="Live coverage worklist" aria-rowcount={data.shown.length + 1} className="text-caos-md flex-1 min-h-0 flex flex-col" style={{ minWidth: 680, height: "100%" }}>
       <CoverageHeader rows={rows} filters={data.filters} sort={data.sort} onFilter={data.setFilter} onSort={data.handleSort} />
       <CoverageViewport scrollerRef={data.scrollerRef} paddingTop={data.paddingTop} paddingBottom={data.paddingBottom} visibleRows={data.visibleRows} startIndex={data.startIndex} selected={selected} actionRowId={interaction.actionRowId} rowIds={data.rowIds} rowRefs={interaction.rowRefs} getRowFocusProps={interaction.getRowFocusProps} onSelect={onSelect} setActionRowId={interaction.setActionRowId} onMove={interaction.moveFocus} />
     </div>

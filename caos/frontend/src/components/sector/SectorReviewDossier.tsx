@@ -28,7 +28,7 @@ const SECTOR_URL_KEYS = ["tab", "section", "compare"] as const;
 function decisionAuthority(authority: AuthorityEnvelope): DecisionAuthority {
   return {
     provenance: authorityProvenance(authority),
-    approval: authority.approval_state === "ratified" ? "RATIFIED" : authority.approval_state === "draft" ? "DRAFT" : "UNRATIFIED",
+    approval: ["ratified", "published"].includes(authority.approval_state) ? "RATIFIED" : authority.approval_state === "draft" ? "DRAFT" : "UNRATIFIED",
   };
 }
 
@@ -117,35 +117,66 @@ async function publishSectorReview(state: SectorActionState) {
 
 async function changeSector(state: SectorActionState, sectorId: string) {
   const context = state.contextState.context;
-  if (!context || sectorId === context.sector_id) return;
-  state.setReview(null);
-  state.setHistory([]);
-  state.setSelectedSection(null);
+  if (!context || state.busy || sectorId === context.sector_id) return;
+  state.setBusy(true);
   state.setError(null);
-  await state.contextState.patch({ sector_id: sectorId, sector_review_run_id: null, rv_run_id: null });
+  try {
+    const savedContext = await state.contextState.patch({
+      sector_id: sectorId,
+      sector_review_run_id: null,
+      rv_run_id: null,
+    });
+    if (!savedContext) return;
+    state.setReview(null);
+    state.setHistory([]);
+    state.setSelectedSection(null);
+  } catch (reason) {
+    state.setError(toErrorMessage(reason, "Sector change could not be saved. The prior dossier remains active."));
+  } finally {
+    state.setBusy(false);
+  }
 }
 
 async function toggleSectorFeed(state: SectorActionState, sectorLabel: string) {
+  if (state.busy) return;
   const current = state.feeds.find((feed) => feed.sector === sectorLabel);
   const next = [...state.feeds.filter((feed) => feed.sector !== sectorLabel), {
     sector: sectorLabel, enabled: !(current?.enabled ?? true),
     notify_pref: current?.notify_pref ?? "in_app", provenance: current?.provenance ?? "profile",
   }];
+  state.setBusy(true);
+  state.setError(null);
   try {
     state.setFeeds(await updateSectorFeeds(next));
   } catch (reason) {
     state.setError(toErrorMessage(reason, "Feed preference could not be saved."));
+  } finally {
+    state.setBusy(false);
   }
 }
 
 function useSectorReferenceData() {
   const [taxonomy, setTaxonomy] = useState<Array<{ id: string; label: string }>>([]);
   const [feeds, setFeeds] = useState<SectorFeed[]>([]);
+  const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
+  const [feedError, setFeedError] = useState<string | null>(null);
   useEffect(() => {
-    analysisApi.getTaxonomy().then(setTaxonomy).catch(() => setTaxonomy([]));
-    getSectorFeeds().then(setFeeds).catch(() => setFeeds([]));
+    analysisApi.getTaxonomy().then((rows) => {
+      setTaxonomy(rows);
+      setTaxonomyError(null);
+    }).catch(() => {
+      setTaxonomy([]);
+      setTaxonomyError("Sector taxonomy unavailable.");
+    });
+    getSectorFeeds().then((rows) => {
+      setFeeds(rows);
+      setFeedError(null);
+    }).catch(() => {
+      setFeeds([]);
+      setFeedError("Sector feed preferences unavailable.");
+    });
   }, []);
-  return { feeds, setFeeds, taxonomy };
+  return { feeds, setFeeds, taxonomy, referenceError: [taxonomyError, feedError].filter(Boolean).join(" ") || null };
 }
 
 function useSectorReviewHistory(contextState: SectorContextState, requestedSection: string | null | undefined) {
@@ -158,18 +189,39 @@ function useSectorReviewHistory(contextState: SectorContextState, requestedSecti
   const [reviewLoading, setReviewLoading] = useState(true);
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const contextId = contextState.context?.id ?? null;
+  const activeSectorId = contextState.context?.sector_id ?? null;
+  const requestedReviewId = contextState.context?.sector_review_run_id ?? null;
   useEffect(() => {
-    const context = contextState.context;
-    if (!context) return;
+    if (!contextId) {
+      setHistory([]);
+      setReview(null);
+      setReviewLoading(contextState.loading);
+      return;
+    }
+    let cancelled = false;
     setReviewLoading(true);
-    analysisApi.listSectorReviews(context.id).then((rows) => {
-      const active = rows.find((item) => item.id === context.sector_review_run_id) ?? rows[0] ?? null;
-      setHistory(rows);
+    setError(null);
+    setHistory([]);
+    setReview(null);
+    analysisApi.listSectorReviews(contextId).then((rows) => {
+      if (cancelled) return;
+      const sectorRows = activeSectorId
+        ? rows.filter((item) => item.sector_id === activeSectorId)
+        : rows;
+      const active = sectorRows.find((item) => item.id === requestedReviewId) ?? sectorRows[0] ?? null;
+      setHistory(sectorRows);
       setReview(active);
-      setSelectedSection(requestedSection ?? active?.sections[0]?.id ?? null);
-    }).catch((reason) => setError(toErrorMessage(reason, "Sector review history unavailable.")))
-      .finally(() => setReviewLoading(false));
-  }, [contextState.context, requestedSection]);
+    }).catch((reason) => {
+      if (!cancelled) setError(toErrorMessage(reason, "Sector review history unavailable."));
+    }).finally(() => {
+      if (!cancelled) setReviewLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [activeSectorId, contextId, contextState.loading, requestedReviewId]);
+  useEffect(() => {
+    setSelectedSection(requestedSection ?? review?.sections[0]?.id ?? null);
+  }, [requestedSection, review]);
   return { error, history, review, reviewLoading, selectedSection, setError, setHistory, setReview, setSelectedSection };
 }
 
@@ -200,9 +252,10 @@ function useSectorReviewController() {
   const compare = reviews.history.find((item) => item.id === compareVersion) ?? null;
   const ratifiableSections = reviews.review?.sections.filter((section) => reviews.review?.ratifications[section.id] !== "ratified") ?? [];
   const ratificationScope = ratifiableSections.map((section) => section.title).join(" · ");
+  const error = contextState.error ?? contextState.mutationError ?? reviews.error ?? reference.referenceError;
   useEffect(() => { setRatifyAllArmed(false); }, [reviews.review?.id, ratificationScope]);
   return {
-    busy, compare, compareVersion, contextState, ...reference, ...reviews, publish, ratifiableSections,
+    busy, compare, compareVersion, contextState, ...reference, ...reviews, error, publish, ratifiableSections,
     ratificationScope, ratifyAll, ratifyAllArmed, ratifySection, requestRefresh,
     roleView, selectSector, selected, setRatifyAllArmed, tab,
     toggleFeed, updateUrlState,
@@ -221,17 +274,13 @@ function sectorDecisionState(controller: SectorController): DecisionContextState
   };
 }
 
-type SectorFinalActionKind = "refresh" | "publish" | "confirm" | "arm";
+type SectorFinalActionKind = "refresh" | "publish" | "confirm" | "arm" | "none";
 
 function sectorFinalActionKind(controller: SectorController): SectorFinalActionKind {
   if (!controller.review || ["partial", "stale"].includes(controller.review.status)) return "refresh";
+  if (controller.review.authority.approval_state === "published") return "none";
   if (controller.review.authority.approval_state === "ratified") return "publish";
   return controller.ratifyAllArmed ? "confirm" : "arm";
-}
-
-function SectorRefreshAction({ controller }: { controller: SectorController }) {
-  const disabled = !controller.contextState.context || controller.busy;
-  return <button type="button" data-page-primary-action onClick={() => void controller.requestRefresh()} disabled={disabled} className="caos-action-primary focus-ring disabled:opacity-40">{controller.busy ? "Refreshing…" : "Request refresh"}</button>;
 }
 
 function SectorPublishAction({ controller }: { controller: SectorController }) {
@@ -251,7 +300,7 @@ function SectorArmAction({ controller }: { controller: SectorController }) {
 
 function SectorFinalAction({ controller }: { controller: SectorController }) {
   const kind = sectorFinalActionKind(controller);
-  if (kind === "refresh") return <SectorRefreshAction controller={controller} />;
+  if (kind === "refresh" || kind === "none") return null;
   if (kind === "publish") return <SectorPublishAction controller={controller} />;
   if (kind === "confirm") return <SectorConfirmAction controller={controller} />;
   return <SectorArmAction controller={controller} />;
@@ -277,8 +326,11 @@ function SectorFinalization({ controller }: { controller: SectorController }) {
   const { contextState, error, ratificationScope, ratifyAllArmed, review } = controller;
   const context = contextState.context;
   const status = review ? `${review.status} · ${review.missing_dependencies.length} dependency gaps` : "No draft";
+  const visibleError = error && /^Request failed with status code \d+$/i.test(error)
+    ? "Sector review service unavailable. The prior dossier remains unchanged."
+    : error;
   return <>
-    {error ? <span className="mr-auto text-caos-xs text-caos-critical" role="alert">{error}</span>
+    {visibleError ? <span className="mr-auto text-caos-xs text-caos-critical" role="alert">{visibleError}</span>
       : ratifyAllArmed ? <span className="mr-auto text-caos-xs text-caos-warning">Confirm ratification scope · {ratificationScope}</span>
         : <span className="mr-auto tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{status}</span>}
     {context ? <>
@@ -313,19 +365,19 @@ function sectorFeedClass(subscribed: boolean) {
 }
 
 function SectorDirectoryRow({ controller, sector }: { controller: SectorController; sector: SectorTaxonomyItem }) {
-  const { contextState, feeds, review } = controller;
+  const { busy, contextState, feeds, review } = controller;
   const subscribed = feeds.find((feed) => feed.sector === sector.label)?.enabled ?? true;
   const active = contextState.context?.sector_id === sector.id;
   return <li className={sectorDirectoryRowClass(active)}>
-    <button type="button" onClick={() => void controller.selectSector(sector.id)} className="w-full px-2 py-2 text-left focus-ring">
+    <button type="button" onClick={() => void controller.selectSector(sector.id)} disabled={busy} className="w-full px-2 py-2 text-left focus-ring disabled:opacity-40">
       <span className="flex items-center gap-2">
         <span className="text-caos-xs font-semibold text-caos-text">{sector.label}</span>
         <SectorReviewRequired active={active} review={review} />
       </span>
       <SectorActiveState active={active} review={review} />
     </button>
-    <button type="button" role="switch" onClick={() => void controller.toggleFeed(sector.label)} aria-checked={subscribed} className={sectorFeedClass(subscribed)}>
-      <SectorFeedSignal subscribed={subscribed} />Alerts {subscribed ? "on" : "off"}
+    <button type="button" role="switch" onClick={() => void controller.toggleFeed(sector.label)} aria-checked={subscribed} disabled={busy} className={`${sectorFeedClass(subscribed)} disabled:opacity-40`}>
+      <SectorFeedSignal subscribed={subscribed} />Alert coverage · {subscribed ? "active" : "inactive"}
     </button>
   </li>;
 }
@@ -340,11 +392,22 @@ function SectorDirectory({ controller }: { controller: SectorController }) {
 function SectorDossierTabs({ controller }: { controller: SectorController }) {
   const { contextState, roleView, tab, taxonomy, updateUrlState } = controller;
   const defaultTab = roleView === "qa" ? "sources" : "overview";
-  return <nav className="flex shrink-0 overflow-x-auto border-b border-caos-border bg-caos-panel/70 p-1" aria-label="Sector dossier sections">
-    <select aria-label="Active sector" value={contextState.context?.sector_id ?? ""} onChange={(event) => void controller.selectSector(event.target.value)} className="mr-1 min-w-36 rounded-sm border border-caos-border bg-caos-bg px-2 text-caos-xs text-caos-text focus-ring xl:hidden">
-      {taxonomy.map((sector) => <option value={sector.id} key={sector.id}>{sector.label}</option>)}
-    </select>
-    {SECTOR_REVIEW_TABS.map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => updateUrlState({ tab: item.id === defaultTab ? null : item.id })} className={`min-h-8 whitespace-nowrap rounded-sm px-3 tabular text-caos-xs focus-ring ${tab === item.id ? "bg-caos-info-surface text-caos-text" : "text-caos-muted hover:text-caos-text"}`}>{item.label}</button>)}
+  const directTabs = SECTOR_REVIEW_TABS.filter((item) => !["early-warning", "sources"].includes(item.id));
+  const secondaryTabs = SECTOR_REVIEW_TABS.filter((item) => ["early-warning", "sources"].includes(item.id));
+  const tabButton = (item: (typeof SECTOR_REVIEW_TABS)[number]) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => updateUrlState({ tab: item.id === defaultTab ? null : item.id })} className={`min-h-8 whitespace-nowrap rounded-sm px-3 tabular text-caos-xs focus-ring ${tab === item.id ? "bg-caos-info-surface text-caos-text" : "text-caos-muted hover:text-caos-text"}`}>{item.label}</button>;
+  return <nav className="flex shrink-0 overflow-visible border-b border-caos-border bg-caos-panel/70 p-1" aria-label="Sector dossier sections">
+    <div data-sector-tabs-scroll className="flex min-w-0 flex-1 overflow-x-auto">
+      <select aria-label="Active sector" value={contextState.context?.sector_id ?? ""} onChange={(event) => void controller.selectSector(event.target.value)} disabled={controller.busy} className="mr-1 min-w-36 rounded-sm border border-caos-border bg-caos-bg px-2 text-caos-xs text-caos-text focus-ring disabled:opacity-40 xl:hidden">
+        {taxonomy.map((sector) => <option value={sector.id} key={sector.id}>{sector.label}</option>)}
+      </select>
+      {directTabs.map(tabButton)}
+    </div>
+    {secondaryTabs.length ? <details className="relative shrink-0">
+      <summary className="flex min-h-8 cursor-pointer list-none items-center rounded-sm px-3 tabular text-caos-xs text-caos-muted hover:text-caos-text focus-ring">More</summary>
+      <div data-sector-more-menu className="absolute right-0 z-20 mt-1 grid min-w-36 rounded border border-caos-border bg-caos-elevated p-1 shadow-xl">
+        {secondaryTabs.map(tabButton)}
+      </div>
+    </details> : null}
   </nav>;
 }
 
@@ -426,7 +489,16 @@ function SectorReviewPage({ controller }: { controller: SectorController }) {
   return <EnterprisePage
     kind="analytical"
     identity={<SectorIdentity review={review} />}
-    status={<span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>}
+    primaryAction={{
+      label: "Request refresh",
+      onAction: () => { void controller.requestRefresh(); },
+      unavailableReason: !controller.contextState.context
+        ? "Select or create an analysis context first"
+        : controller.busy
+          ? "A sector review action is already in progress"
+          : null,
+    }}
+    status={<span className="tabular text-caos-2xs uppercase text-caos-accent">Shared governed workspace</span>}
     contextualControls={<SectorContextStats controller={controller} />}
     utilityLabel="Review utilities"
     utilityControls={<SectorUtilities controller={controller} />}
@@ -437,9 +509,9 @@ function SectorReviewPage({ controller }: { controller: SectorController }) {
       <PersonaWorkbench
         surface="sector-review"
         decision={<DecisionHeader state={sectorDecisionState(controller)} defaultOpen />}
-        context={<SectorDirectory controller={controller} />}
+        context={review ? <SectorDirectory controller={controller} /> : null}
         primary={<SectorDossier controller={controller} />}
-        inspector={<SectorInspector controller={controller} />}
+        inspector={review ? <SectorInspector controller={controller} /> : null}
       />
     </section>
   </EnterprisePage>;

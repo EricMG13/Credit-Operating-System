@@ -129,4 +129,22 @@ describe("SectorReviewContent", () => {
 
     expect(screen.getAllByRole("link", { name: "Open source E-1" }).every((link) => link.getAttribute("href") === "https://sources.example.test/e-1")).toBe(true);
   });
+
+  it("keeps duplicate display-only comparable names distinct and bounds metric columns to four finite keys", () => {
+    const review = reviewFixture();
+    review.comparables = [
+      { issuer_id: null, issuer_name: "Private Peer", posture: "watch", metrics: { alpha: 1, beta: 2, gamma: 3, omega: 4, zeta: 5, nan: Number.NaN, infinite: Number.POSITIVE_INFINITY }, missing_dependencies: [] },
+      { issuer_id: null, issuer_name: "Private Peer", posture: "stable", metrics: {}, missing_dependencies: [] },
+    ];
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<SectorReviewContent review={review} tab="comparables" selectedSection={null} onSelectSection={() => {}} />);
+
+    expect(screen.getAllByText("Private Peer")).toHaveLength(2);
+    expect(screen.getAllByRole("columnheader")).toHaveLength(7);
+    expect(screen.queryByRole("columnheader", { name: "Zeta" })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "Nan" })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "Infinite" })).toBeNull();
+    expect(error.mock.calls.flat().join(" ")).not.toContain("same key");
+    error.mockRestore();
+  });
 });

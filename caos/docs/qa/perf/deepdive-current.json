@@ -1,0 +1,316 @@
+{
+  "base": "http://127.0.0.1:4175",
+  "generatedAt": "2026-07-19T23:18:38.943Z",
+  "profiles": {
+    "desktop": {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "cpuRate": 1,
+      "network": null,
+      "scanErrors": 0,
+      "summary": {
+        "readyMs": {
+          "median": 526.2,
+          "p75": 526.2,
+          "p95": 526.2,
+          "worstRoute": "/deepdive"
+        },
+        "fcpMs": {
+          "median": 56,
+          "p75": 56,
+          "p95": 56,
+          "worstRoute": "/deepdive"
+        },
+        "lcpMs": {
+          "median": 152,
+          "p75": 152,
+          "p95": 152,
+          "worstRoute": "/deepdive"
+        },
+        "tbtMs": {
+          "median": 0,
+          "p75": 0,
+          "p95": 0,
+          "worstRoute": "/deepdive"
+        },
+        "cls": {
+          "median": 0,
+          "p75": 0,
+          "p95": 0,
+          "worstRoute": "/deepdive"
+        },
+        "encodedKb": {
+          "median": 351.2,
+          "p75": 351.2,
+          "p95": 351.2,
+          "worstRoute": "/deepdive"
+        },
+        "jsKb": {
+          "median": 306.8,
+          "p75": 306.8,
+          "p95": 306.8,
+          "worstRoute": "/deepdive"
+        },
+        "cssKb": {
+          "median": 24.1,
+          "p75": 24.1,
+          "p95": 24.1,
+          "worstRoute": "/deepdive"
+        },
+        "domNodes": {
+          "median": 161,
+          "p75": 161,
+          "p95": 161,
+          "worstRoute": "/deepdive"
+        },
+        "heapMb": {
+          "median": 5.5,
+          "p75": 5.5,
+          "p95": 5.5,
+          "worstRoute": "/deepdive"
+        }
+      }
+    },
+    "mobile-slow": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "cpuRate": 4,
+      "network": {
+        "offline": false,
+        "latency": 150,
+        "downloadThroughput": 200000,
+        "uploadThroughput": 93750,
+        "connectionType": "cellular3g"
+      },
+      "scanErrors": 0,
+      "summary": {
+        "readyMs": {
+          "median": 2507.2,
+          "p75": 2507.2,
+          "p95": 2507.2,
+          "worstRoute": "/deepdive"
+        },
+        "fcpMs": {
+          "median": 988,
+          "p75": 988,
+          "p95": 988,
+          "worstRoute": "/deepdive"
+        },
+        "lcpMs": {
+          "median": 2084,
+          "p75": 2084,
+          "p95": 2084,
+          "worstRoute": "/deepdive"
+        },
+        "tbtMs": {
+          "median": 63,
+          "p75": 63,
+          "p95": 63,
+          "worstRoute": "/deepdive"
+        },
+        "cls": {
+          "median": 0,
+          "p75": 0,
+          "p95": 0,
+          "worstRoute": "/deepdive"
+        },
+        "encodedKb": {
+          "median": 273.2,
+          "p75": 273.2,
+          "p95": 273.2,
+          "worstRoute": "/deepdive"
+        },
+        "jsKb": {
+          "median": 242.4,
+          "p75": 242.4,
+          "p95": 242.4,
+          "worstRoute": "/deepdive"
+        },
+        "cssKb": {
+          "median": 24.1,
+          "p75": 24.1,
+          "p95": 24.1,
+          "worstRoute": "/deepdive"
+        },
+        "domNodes": {
+          "median": 162,
+          "p75": 162,
+          "p95": 162,
+          "worstRoute": "/deepdive"
+        },
+        "heapMb": {
+          "median": 5.8,
+          "p75": 5.8,
+          "p95": 5.8,
+          "worstRoute": "/deepdive"
+        }
+      }
+    }
+  },
+  "records": [
+    {
+      "profile": "desktop",
+      "route": "/deepdive",
+      "scanError": null,
+      "contentEncodings": [
+        "gzip"
+      ],
+      "uncompressedStaticAssets": [],
+      "readyMs": 526.2,
+      "url": "/deepdive",
+      "ttfbMs": 10.7,
+      "domContentLoadedMs": 53,
+      "loadMs": 108.6,
+      "fcpMs": 56,
+      "lcpMs": 152,
+      "lcpElement": {
+        "tag": "p",
+        "id": null,
+        "className": "mt-1 max-w-[70ch] text-caos-md leading-relaxed text-caos-muted text-pretty [overflow-wrap:anywhere]",
+        "text": "Live Deep-Dive requires an issuer context. No seeded analysis has been substituted."
+      },
+      "cls": 0,
+      "layoutShifts": [],
+      "tbtMs": 0,
+      "longestTaskMs": 0,
+      "maxEventMs": 0,
+      "requests": 42,
+      "encodedKb": 351.2,
+      "transferredKb": 363.5,
+      "jsKb": 306.8,
+      "cssKb": 24.1,
+      "domNodes": 161,
+      "heapMb": 5.5,
+      "taskDurationMs": 155.4,
+      "scriptDurationMs": 34.4,
+      "layoutDurationMs": 9.5,
+      "recalcStyleDurationMs": 12.7
+    },
+    {
+      "profile": "mobile-slow",
+      "route": "/deepdive",
+      "scanError": null,
+      "contentEncodings": [
+        "gzip"
+      ],
+      "uncompressedStaticAssets": [],
+      "readyMs": 2507.2,
+      "url": "/deepdive",
+      "ttfbMs": 1.9,
+      "domContentLoadedMs": 987.1,
+      "loadMs": 1936,
+      "fcpMs": 988,
+      "lcpMs": 2084,
+      "lcpElement": {
+        "tag": "p",
+        "id": null,
+        "className": "mt-1 max-w-[70ch] text-caos-md leading-relaxed text-caos-muted text-pretty [overflow-wrap:anywhere]",
+        "text": "Live Deep-Dive requires an issuer context. No seeded analysis has been substituted."
+      },
+      "cls": 0,
+      "layoutShifts": [
+        {
+          "value": 0.00011906474271144875,
+          "sources": [
+            {
+              "tag": "span",
+              "id": null,
+              "className": "tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap shrink-0",
+              "text": "DEEP-DIVE",
+              "previousRect": {
+                "x": 75.796875,
+                "y": 12.5,
+                "width": 75.828125,
+                "height": 18,
+                "top": 12.5,
+                "right": 151.625,
+                "bottom": 30.5,
+                "left": 75.796875
+              },
+              "currentRect": {
+                "x": 63.171875,
+                "y": 12.5,
+                "width": 75.828125,
+                "height": 18,
+                "top": 12.5,
+                "right": 139,
+                "bottom": 30.5,
+                "left": 63.171875
+              }
+            },
+            {
+              "tag": "span",
+              "id": null,
+              "className": "caos-shell-identity-title font-semibold leading-tight text-caos-text whitespace-nowrap min-w-0 truncate m-0",
+              "text": "Issuer selection required",
+              "previousRect": {
+                "x": 163.625,
+                "y": 11.5,
+                "width": 38.390625,
+                "height": 20,
+                "top": 11.5,
+                "right": 202.015625,
+                "bottom": 31.5,
+                "left": 163.625
+              },
+              "currentRect": {
+                "x": 151,
+                "y": 11.5,
+                "width": 51.015625,
+                "height": 20,
+                "top": 11.5,
+                "right": 202.015625,
+                "bottom": 31.5,
+                "left": 151
+              }
+            },
+            {
+              "tag": "div",
+              "id": null,
+              "className": "h-4 w-px shrink-0 bg-caos-border",
+              "text": "",
+              "previousRect": {
+                "x": 62.796875,
+                "y": 13.5,
+                "width": 1,
+                "height": 16,
+                "top": 13.5,
+                "right": 63.796875,
+                "bottom": 29.5,
+                "left": 62.796875
+              },
+              "currentRect": {
+                "x": 50.171875,
+                "y": 13.5,
+                "width": 1,
+                "height": 16,
+                "top": 13.5,
+                "right": 51.171875,
+                "bottom": 29.5,
+                "left": 50.171875
+              }
+            }
+          ]
+        }
+      ],
+      "tbtMs": 63,
+      "longestTaskMs": 108,
+      "maxEventMs": 0,
+      "requests": 32,
+      "encodedKb": 273.2,
+      "transferredKb": 282.6,
+      "jsKb": 242.4,
+      "cssKb": 24.1,
+      "domNodes": 162,
+      "heapMb": 5.8,
+      "taskDurationMs": 501.6,
+      "scriptDurationMs": 140.3,
+      "layoutDurationMs": 23.6,
+      "recalcStyleDurationMs": 25.8
+    }
+  ]
+}

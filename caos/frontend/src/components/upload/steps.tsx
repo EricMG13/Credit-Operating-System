@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { useDropzone } from "react-dropzone";
 import { ActionReason } from "@/components/shared/ActionReason";
+import { CompletionStateSummary } from "@/components/shared/CompletionStateSummary";
 import { TextInput } from "@/components/shared/TextInput";
 import { Dot } from "@/components/pipeline/atoms";
 import { Panel } from "@/components/shared/Panel";
@@ -306,26 +307,27 @@ function AuthorityDeclaration({ props }: { props: FileStepProps }) {
       </label>
     </div>
     <p className="mt-1 text-caos-xs text-caos-muted">This declaration is written into the immutable source manifest and follows the evidence downstream.</p>
+    <p className="mt-1 text-caos-xs text-caos-muted">Declared by analyst; system validation and approval are separate.</p>
   </div>;
-}
-
-function RunModeRow({ active, mode, select }: { active: boolean; mode: RunMode; select: (key: string) => void }) {
-  const activeClass = active ? "bg-caos-elevated" : "";
-  return <button onClick={() => select(mode.k)} aria-pressed={active} className={`focus-ring w-full grid grid-cols-[52px_150px_1fr_70px] items-center gap-x-3 px-3 py-[7px] border-b border-caos-border/50 last:border-b-0 text-left transition-caos hover:bg-caos-elevated/60 ${activeClass}`}>
-    <span className="tabular text-caos-xs text-caos-accent">{mode.code}</span>
-    <span className="text-caos-text text-caos-lg">{mode.label}</span>
-    <span className="text-caos-muted text-caos-sm truncate">{mode.desc}</span>
-    <span className="tabular text-caos-xs text-right" style={{ color: active ? "var(--caos-success)" : "var(--caos-muted)" }}>{active ? "✓ SELECTED" : "SELECT"}</span>
-  </button>;
 }
 
 function RunModePicker({ props }: { props: FileStepProps }) {
-  return <div>
-    <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted mb-1.5">Run mode</div>
-    <div className="rounded border border-caos-border overflow-hidden">
-      {RUN_MODES.map((mode) => <RunModeRow key={mode.k} active={props.runMode === mode.k} mode={mode} select={props.setRunMode} />)}
-    </div>
-  </div>;
+  const selected = RUN_MODES.find((mode) => mode.k === props.runMode) ?? RUN_MODES[0];
+  return <label className="grid gap-1.5">
+    <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Run mode</span>
+    <select
+      aria-label="Run mode"
+      value={props.runMode}
+      onChange={(event) => props.setRunMode(event.target.value)}
+      className="h-9 w-full rounded border border-caos-border bg-caos-bg px-2.5 text-caos-md text-caos-text focus-ring"
+    >
+      {RUN_MODES.map((mode) => <option key={mode.k} value={mode.k}>{mode.code} · {mode.label}</option>)}
+    </select>
+    <span className="rounded border border-caos-border/70 bg-caos-elevated/35 px-2.5 py-2">
+      <span className="tabular text-caos-xs text-caos-accent">{selected.code} · {selected.label}</span>
+      <span className="mt-0.5 block text-caos-sm text-caos-muted">{selected.desc}</span>
+    </span>
+  </label>;
 }
 
 function PrimaryModeWarning({ runMode }: { runMode: string }) {
@@ -456,7 +458,7 @@ function ResultSummary({ props, zeroCount }: { props: ResultStepProps; zeroCount
   const documentSuffix = props.okCount === 1 ? "" : "s";
   return <div className="px-3 py-2.5 border-b border-caos-border text-caos-lg text-caos-text leading-snug">
     {props.okCount} document{documentSuffix} vaulted for {props.selectedIssuer?.name}
-    {props.modeMeta ? <span className="text-caos-muted"> · {props.modeMeta.label} is intake metadata; runs use the full CP-X route</span> : null}
+    {props.modeMeta ? <span className="text-caos-muted"> · {props.modeMeta.label} is intake metadata; runs use the full analysis route</span> : null}
     <RunOutcomeStatus outcome={props.runOutcome} />
     {props.failCount ? <span style={{ color: "var(--caos-critical)" }}> · {props.failCount} failed</span> : null}
     {zeroCount ? <span style={{ color: "var(--caos-warning)" }}> · {zeroCount} with no extractable text</span> : null}
@@ -468,7 +470,7 @@ function QueuedRunLink({ props }: { props: ResultStepProps }) {
   if (props.uploading || !props.selectedIssuer || outcome?.state !== "queued") return null;
   return <div className="flex items-center gap-2 border-b border-caos-border px-3 py-2">
     <span className="tabular text-caos-xs text-caos-muted">Exact run {outcome.runId.slice(0, 8)}</span>
-    <Link href={pipelineRunHref(props.selectedIssuer.id, outcome.runId, props.contextId)} className="caos-action-secondary ml-auto no-underline focus-ring">Open Execution Graph</Link>
+    <Link href={pipelineRunHref(props.selectedIssuer.id, outcome.runId, props.contextId)} className="caos-action-secondary ml-auto no-underline focus-ring">Open dependency map</Link>
   </div>;
 }
 
@@ -497,7 +499,7 @@ function PendingRun({ props }: { props: ResultStepProps }) {
       className="focus-ring tabular text-caos-md px-3 py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos aria-disabled:opacity-40 flex items-center gap-1.5"
     >
       {props.runCreating ? <Dot sev="running" pulse /> : null}
-      {props.runCreating ? "QUEUING RUN…" : "START FULL CP-X RUN"}
+      {props.runCreating ? "QUEUING RUN…" : "START FULL ANALYSIS RUN"}
     </ActionReason>
     <ManualRunMessage props={props} />
   </>;
@@ -570,10 +572,25 @@ function ResultActions({ props }: { props: ResultStepProps }) {
 
 export function ResultStep(props: ResultStepProps) {
   const zeroCount = zeroChunkCount(props.outcomes);
+  const headline = props.uploading
+    ? "Ingesting · CP-0 processing."
+    : props.okCount === 0
+      ? "Intake failed · no documents vaulted."
+      : props.failCount > 0
+        ? `Intake partially complete · ${props.okCount}/${props.outcomes.length} vaulted.`
+        : "Vaulted · CP-0 not ready.";
   return <Panel
-    title={props.uploading ? "Ingesting · CP-0 processing" : "Intake complete · CP-0 ready"}
+    title={headline}
     right={<ResultPanelStatus props={props} zeroCount={zeroCount} />}
   >
+    <CompletionStateSummary
+      label="CP-0 intake completion"
+      execution={props.uploading ? "running" : props.okCount > 0 ? "complete" : "failed"}
+      persistence={props.okCount === 0 ? "unsaved" : props.uploading || props.failCount > 0 ? "partial" : "saved"}
+      approval="not-applicable"
+      freshness="unknown"
+      className="m-3 mb-0"
+    />
     <ResultSummary props={props} zeroCount={zeroCount} />
     <QueuedRunLink props={props} />
     <ManualRunGate props={props} />

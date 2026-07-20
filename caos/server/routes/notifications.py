@@ -31,6 +31,7 @@ class NotificationOut(BaseModel):
     title: str
     body: Optional[str]
     href: Optional[str]
+    action_label: Optional[str] = None
     seen_at: Optional[datetime]
     created_at: datetime
 
@@ -56,6 +57,10 @@ def _notification_out(row: NotificationEvent) -> NotificationOut:
         title=row.title,
         body=row.body,
         href=row.href,
+        # Older producers and test doubles predate the optional label column.
+        # Preserve the wire contract during rolling upgrades; the frontend uses
+        # its generic "Open related item" fallback when this remains null.
+        action_label=getattr(row, "action_label", None),
         seen_at=_as_utc(row.seen_at) if row.seen_at else None,
         created_at=_as_utc(row.created_at),
     )

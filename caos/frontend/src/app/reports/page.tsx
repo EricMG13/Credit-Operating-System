@@ -10,7 +10,10 @@ import { usePrintPortalElement } from "@/lib/use-print-portal";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { RequireAuth } from "@/components/shared/RequireAuth";
+import { CAOS_COLOR_TOKENS } from "@/lib/color-tokens";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
+import { CompletionStateSummary } from "@/components/shared/CompletionStateSummary";
+import { ActionReason } from "@/components/shared/ActionReason";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
 import { fromReportCaveat } from "@/lib/provenance";
 import { ReportDoc } from "@/components/reports/ReportDoc";
@@ -40,6 +43,8 @@ import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
 import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { derivedFreshness, useIssuerFreshness } from "@/lib/engine/useFreshness";
 import { freshnessDetail, resolveReportFreshnessTarget, toProvFreshness } from "@/lib/freshness";
+import { useDataMode } from "@/lib/data-mode";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 
 const EvidenceModal = dynamic(
   () => import("@/components/reports/EvidenceModal").then((module) => module.EvidenceModal),
@@ -69,11 +74,13 @@ const DecisionRoomDrawer = dynamic(
   },
 );
 
-const ZOOMS = [0.7, 0.85, 1, 1.15];
+const REPORT_ZOOM_MIN = 1;
+const REPORT_ZOOM_MAX = 1.5;
+const REPORT_ZOOM_STEP = 0.05;
 const PAPERS = [
-  { v: "#ffffff", label: "White" },
-  { v: "#f7f5ee", label: "Warm" },
-  { v: "#eef0f3", label: "Cool" },
+  { v: CAOS_COLOR_TOKENS.paperWhite, label: "White" },
+  { v: CAOS_COLOR_TOKENS.paperWarm, label: "Warm" },
+  { v: CAOS_COLOR_TOKENS.paperCool, label: "Cool" },
 ];
 
 type ReportKeyAction =
@@ -86,9 +93,10 @@ const reportShortcutBlocked = (target: EventTarget | null): boolean => {
   return Boolean(element?.isContentEditable || element?.tagName === "INPUT" || element?.tagName === "TEXTAREA");
 };
 
-const lowerZoom = (zoom: number): number | null => {
-  const below = ZOOMS.filter((candidate) => candidate < zoom);
-  return below.at(-1) ?? null;
+const steppedZoom = (zoom: number, direction: -1 | 1): number | null => {
+  const value = Math.round((zoom + direction * REPORT_ZOOM_STEP) * 100) / 100;
+  if (value < REPORT_ZOOM_MIN || value > REPORT_ZOOM_MAX) return null;
+  return value;
 };
 
 const reportKeyAction = (
@@ -97,11 +105,11 @@ const reportKeyAction = (
   reports: readonly { id: string }[],
 ): ReportKeyAction | null => {
   if (key === "+" || key === "=") {
-    const value = ZOOMS.find((candidate) => candidate > zoom);
+    const value = steppedZoom(zoom, 1);
     return value == null ? null : { kind: "zoom", value };
   }
   if (key === "-" || key === "_") {
-    const value = lowerZoom(zoom);
+    const value = steppedZoom(zoom, -1);
     return value == null ? null : { kind: "zoom", value };
   }
   if (key === "f") return { kind: "fit" };
@@ -132,7 +140,7 @@ function PrintPortal({
   const el = usePrintPortalElement();
   if (!el) return null;
   return createPortal(
-    <ReportDoc rep={rep} omit={omit} paper="#ffffff" showSources={showSources} edits={edits} editableSectionCount={editableSectionCount} hideAddbacks={hideAddbacks} authority={authority} />,
+    <ReportDoc rep={rep} omit={omit} paper={CAOS_COLOR_TOKENS.paperWhite} showSources={showSources} edits={edits} editableSectionCount={editableSectionCount} hideAddbacks={hideAddbacks} authority={authority} />,
     el,
   );
 }
@@ -150,11 +158,39 @@ export default function ReportsPage() {
 // fallow-ignore-next-line complexity -- Context-bound report lifecycle is coordinated at the route boundary.
 function ReportStudio() {
   const searchParams = useSearchParams();
-  const issuerId = searchParams.get("issuer") || ATLF_REFERENCE_ISSUER_ID;
+  const dataMode = useDataMode();
+  const requestedIssuerId = searchParams.get("issuer");
+  if (dataMode === "live" && !requestedIssuerId) return <ReportSetupState />;
+  return <ReportStudioWorkspace
+    issuerId={dataMode === "reference" ? ATLF_REFERENCE_ISSUER_ID : requestedIssuerId!}
+    isReference={dataMode === "reference"}
+  />;
+}
+
+function ReportSetupState() {
+  return (
+    <EnterprisePage
+      kind="editor"
+      identity={<ShellIdentity tag="CP-RENDER" title="Report Studio — committee deliverables" />}
+      primaryAction={{ label: "Open reference report", href: "/reports?mode=reference" }}
+      narrowContract={{ essentialControls: null }}
+    >
+      <div className="caos-persona-route report-workbench flex-1 min-h-0 p-2">
+        <PersonaWorkbench
+          surface="reports"
+          primary={<SurfaceState kind="empty" title="Select an issuer report" detail="Open Report Studio from an issuer or choose the explicitly labelled reference report." headingLevel={2} compact />}
+        />
+      </div>
+    </EnterprisePage>
+  );
+}
+
+// fallow-ignore-next-line complexity -- Context-bound report lifecycle is coordinated at the route boundary.
+function ReportStudioWorkspace({ issuerId, isReference }: { issuerId: string; isReference: boolean }) {
+  const searchParams = useSearchParams();
   const exactRunId = searchParams.get("run");
   const requestedContextId = searchParams.get("context");
   const reportParam = searchParams.get("report");
-  const isReference = issuerId === ATLF_REFERENCE_ISSUER_ID;
   const analysis = useAnalysisContext({
     name: "Committee report workspace",
     context_id: requestedContextId,
@@ -221,10 +257,10 @@ function ReportStudio() {
   );
 
   const [activeId, setActiveId] = useState("snapshot");
-  const [zoom, setZoom] = useState(0.85);
+  const [zoom, setZoom] = useState(1);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [omit, setOmit] = useState<Record<string, Record<number, boolean>>>({});
-  const [paper, setPaper] = useState("#f7f5ee");
+  const [paper, setPaper] = useState<(typeof PAPERS)[number]["v"]>(CAOS_COLOR_TOKENS.paperWarm);
   const [showSources, setShowSources] = useState(true);
   const [evModal, setEvModal] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -299,7 +335,7 @@ function ReportStudio() {
   useEffect(() => {
     try {
       const z = parseFloat(localStorage.getItem("caos-e-zoom") || "");
-      if (ZOOMS.includes(z)) setZoom(z);
+      if (Number.isFinite(z) && z >= REPORT_ZOOM_MIN && z <= REPORT_ZOOM_MAX) setZoom(z);
     } catch { /* first visit */ }
     setHydrated(true);
   }, []);
@@ -349,7 +385,8 @@ function ReportStudio() {
         if (!deepLinkedVersionId && typeof payload.active_id === "string") setActiveId(payload.active_id);
         if (payload.omit && typeof payload.omit === "object") setOmit(payload.omit as Record<string, Record<number, boolean>>);
         if (payload.edits && typeof payload.edits === "object") setEdits(payload.edits as Record<string, Record<string, string>>);
-        if (typeof payload.paper === "string") setPaper(payload.paper);
+        const draftPaper = PAPERS.find((candidate) => candidate.v === payload.paper)?.v;
+        if (draftPaper) setPaper(draftPaper);
         if (typeof payload.show_sources === "boolean") setShowSources(payload.show_sources);
         if (typeof payload.hide_addbacks === "boolean") setHideAddbacks(payload.hide_addbacks);
       })
@@ -574,12 +611,12 @@ function ReportStudio() {
       return next;
     });
   };
-  // Fit the 980px paper to the available preview width (px-6 padding both sides),
-  // clamped to a sane zoom band. On-demand so it never fights manual zoom.
+  // Keep screen proofing at or above 100%; narrower previews scroll rather
+  // than shrinking committee text below its semantic floor.
   const fitToWidth = () => {
     const el = scrollRef.current;
     if (!el) return;
-    setZoom(Math.max(0.4, Math.min(1.15, (el.clientWidth - 48) / 980)));
+    setZoom(Math.max(REPORT_ZOOM_MIN, Math.min(REPORT_ZOOM_MAX, (el.clientWidth - 48) / 980)));
   };
 
   const publishCommitteeVersion = async () => {
@@ -743,10 +780,12 @@ function ReportStudio() {
       </span>
     ),
   };
+  const pendingPublishedSelection = Boolean(deepLinkedVersionId && activeId !== deepLinkedVersionId);
   const canPublish = Boolean(
     !isReference
     && rep
     && !selectedPublishedVersion
+    && !pendingPublishedSelection
     && live.runId
     && live.committeeStatus === "Committee Ready"
     && analysis.context?.artifacts.model_checkpoint_id,
@@ -755,6 +794,8 @@ function ReportStudio() {
     ? "Reference output can be previewed and exported, but cannot be published as a live committee version."
     : selectedPublishedVersion
       ? "This is already an immutable published version. Select the live draft to create a new version."
+    : pendingPublishedSelection
+      ? "Opening the requested immutable published version…"
     : !live.runId
       ? "A completed issuer run is required."
       : live.committeeStatus !== "Committee Ready"
@@ -770,7 +811,7 @@ function ReportStudio() {
   return (
     <EnterprisePage kind="editor"
       identity={
-        <ShellIdentity tag="CP-RENDER" title="Report Studio — committee deliverables">
+        <ShellIdentity tag="CP-RENDER" title="Report Studio — committee deliverables" badges={<>
           {selectedPublishedVersion ? (
             <span
               className="tabular text-caos-xs whitespace-nowrap text-caos-accent"
@@ -790,7 +831,7 @@ function ReportStudio() {
               title="A live run backs this issuer's figures, but the bespoke debate/recovery/covenant tabs still render the Atlas Forge reference fixture."
             >
               <ProvenanceChip prov={fromReportCaveat("reference", true)!} />
-              <span className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted">
+              <span className="hidden xl:inline tabular text-caos-xs whitespace-nowrap truncate text-caos-muted">
                 bespoke tabs stay fixture, other figures reflect the live run
               </span>
             </span>
@@ -801,7 +842,7 @@ function ReportStudio() {
               title="Report Studio renders the Atlas Forge reference deal as a committee-ready template — not wired to a live issuer run."
             >
               <ProvenanceChip prov={fromReportCaveat("reference", false)!} />
-              <span className="tabular text-caos-xs whitespace-nowrap truncate text-caos-muted">
+              <span className="hidden xl:inline tabular text-caos-xs whitespace-nowrap truncate text-caos-muted">
                 Atlas Forge fixture, not a live issuer run
               </span>
             </span>
@@ -824,7 +865,7 @@ function ReportStudio() {
               title="Live engine modules are composed into this issuer-specific committee document."
             >
               <ProvenanceChip prov={fromReportCaveat("live", true)!} />
-              <span className="tabular text-caos-xs whitespace-nowrap truncate" style={{ color: "var(--caos-warning)" }}>
+              <span className="hidden xl:inline tabular text-caos-xs whitespace-nowrap truncate" style={{ color: "var(--caos-warning)" }}>
                 live module report · {live.runId?.slice(0, 8)}
               </span>
             </span>
@@ -859,24 +900,38 @@ function ReportStudio() {
               </button>
             </span>
           ) : null}
-        </ShellIdentity>
+        </>} />
       }
-      primaryAction={
-        <button
-          type="button"
-          onClick={() => void publishCommitteeVersion()}
-          disabled={!canPublish || publishState === "publishing"}
-          title={publishBlockReason}
-          className="caos-primary-action focus-ring disabled:opacity-40"
+      primaryAction={{
+        label: isFrozenPreview
+          ? hasPendingPreviewEditorial ? "Apply editorial changes to frozen preview" : "Publish reviewed preview"
+          : "Review frozen preview",
+        onAction: () => { void publishCommitteeVersion(); },
+        unavailableReason: publishState === "publishing"
+          ? "Publication is in progress…"
+          : canPublish
+            ? null
+            : publishBlockReason,
+        title: publishBlockReason,
+      }}
+      status={<div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span
+          className="2xl:hidden tabular text-caos-xs text-caos-muted whitespace-nowrap"
+          aria-label={`Report completion: ${publishState === "publishing" ? "publishing" : publishState === "error" ? "failed" : selectedPublishedVersion ? "published" : isFrozenPreview ? "frozen preview" : "draft"}`}
         >
-          {publishState === "publishing"
-            ? "Publishing…"
-            : isFrozenPreview
-              ? hasPendingPreviewEditorial ? "Review editorial changes" : "Publish reviewed preview"
-              : "Review frozen preview"}
-        </button>
-      }
-      status={<AnalysisContextSaveState analysis={analysis} />}
+          {publishState === "publishing" ? "Publishing" : publishState === "error" ? "Publish failed" : selectedPublishedVersion ? "Published" : isFrozenPreview ? "Frozen preview" : "Report draft"}
+        </span>
+        <span className="hidden 2xl:inline">
+          <CompletionStateSummary
+            label="Report completion"
+            execution={publishState === "publishing" ? "running" : publishState === "error" ? "failed" : selectedPublishedVersion || isFrozenPreview || publishState === "published" ? "complete" : "not-started"}
+            persistence={selectedPublishedVersion ? "published" : "draft"}
+            approval={activeFrozenAuthority?.approval_state === "ratified" ? "ratified" : activeFrozenAuthority?.approval_state === "conditional" ? "conditional" : "unratified"}
+            freshness={reportFreshness?.state === "current" ? "current" : reportFreshness?.state === "stale" ? "stale" : "unknown"}
+          />
+        </span>
+        <span className="hidden 2xl:inline"><AnalysisContextSaveState analysis={analysis} /></span>
+      </div>}
       utilityLabel="Report utilities"
       utilityControls={
         <div className="grid gap-3 min-w-[17rem]">
@@ -891,7 +946,7 @@ function ReportStudio() {
           ) : null}
           <fieldset className="grid gap-1.5">
             <legend className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Document display</legend>
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               {PAPERS.map((p) => (
                 <button
                   key={p.v}
@@ -936,19 +991,20 @@ function ReportStudio() {
           <fieldset className="grid gap-1.5">
             <legend className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">Zoom</legend>
             <div className="flex flex-wrap items-center gap-1.5">
-              {ZOOMS.map((z) => (
-                <button
-                  key={z}
-                  type="button"
-                  onClick={() => setZoom(z)}
-                  aria-pressed={zoom === z}
-                  aria-label={"Zoom " + Math.round(z * 100) + " percent"}
-                  className={"focus-ring tabular text-caos-xs px-2 h-7 rounded border transition-caos " + (zoom === z ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")}
-                >
-                  {Math.round(z * 100)}%
-                </button>
-              ))}
-              <button type="button" onClick={fitToWidth} className="caos-action-secondary focus-ring">FIT</button>
+              <button type="button" onClick={() => setZoom(1)} aria-pressed={zoom === 1} className={"focus-ring tabular text-caos-xs px-2 h-7 rounded border transition-caos " + (zoom === 1 ? "border-caos-accent text-caos-text bg-caos-elevated" : "border-caos-border text-caos-muted hover:text-caos-text")}>100%</button>
+              <button type="button" onClick={fitToWidth} className="caos-action-secondary focus-ring">Fit</button>
+              <input
+                type="range"
+                aria-label="Document zoom"
+                aria-valuetext={`${Math.round(zoom * 100)} percent`}
+                min={REPORT_ZOOM_MIN * 100}
+                max={REPORT_ZOOM_MAX * 100}
+                step={REPORT_ZOOM_STEP * 100}
+                value={Math.round(zoom * 100)}
+                onChange={(event) => setZoom(Number(event.target.value) / 100)}
+                className="focus-ring min-w-0 w-24 max-w-full accent-caos-accent"
+              />
+              <output aria-live="polite" className="tabular min-w-[7ch] text-caos-xs text-caos-muted">{Math.round(zoom * 100)}%</output>
             </div>
           </fieldset>
           {isReference ? (
@@ -971,17 +1027,11 @@ function ReportStudio() {
             >Print / save PDF</button>
             <button type="button" onClick={() => void downloadVersion("pdf")} disabled={!activeVersionId} title={activeVersionId ? "Download the immutable PDF" : "Publish a committee version first"} className="caos-action-secondary focus-ring disabled:opacity-40">Download PDF</button>
             <button type="button" onClick={() => void downloadVersion("xlsx")} disabled={!activeVersionId} title={activeVersionId ? "Download the immutable XLSX" : "Publish a committee version first"} className="caos-action-secondary focus-ring disabled:opacity-40">Download XLSX</button>
-          {live.runId ? (
-            <button
-              type="button"
-              onClick={() => setDecisionOpen(true)}
-              disabled={live.committeeStatus !== "Committee Ready"}
-              title={live.committeeStatus === "Committee Ready" ? "Capture immutable IC decision" : `Run is ${live.committeeStatus ?? "not committee ready"}`}
-              className="caos-action-secondary focus-ring disabled:opacity-40"
-            >
-              Submit to IC
-            </button>
-          ) : null}
+          {live.runId ? <ActionReason
+            onClick={() => setDecisionOpen(true)}
+            reason={live.committeeStatus === "Committee Ready" ? null : `Run is ${live.committeeStatus ?? "not committee ready"}`}
+            className="caos-action-secondary focus-ring aria-disabled:opacity-40"
+          >Open IC decision room</ActionReason> : null}
           </div>
           <span role={publishState === "error" ? "alert" : "status"} className="tabular text-caos-xs text-caos-muted">{publishMessage || "Draft autosaves to the active analysis context."}</span>
         </div>
@@ -992,7 +1042,6 @@ function ReportStudio() {
             {editMode ? "EDITING" : "PREVIEW"} · {showSources ? "SOURCES ON" : "SOURCES OFF"} · ZOOM {Math.round(zoom * 100)}%
           </span>
           <button type="button" onClick={() => setEditMode(!editMode)} disabled={!canEditComposition} className="caos-action-secondary focus-ring disabled:opacity-40">{editMode ? "Finish editing" : "Edit report"}</button>
-          {live.runId ? <button type="button" onClick={() => setDecisionOpen(true)} disabled={live.committeeStatus !== "Committee Ready"} className="caos-action-secondary focus-ring disabled:opacity-40">Open IC decision</button> : null}
         </span>
       }
       narrowContract={narrowContract}
@@ -1000,9 +1049,9 @@ function ReportStudio() {
       {/* workspace */}
       <div className="caos-persona-route reports-workbench flex-1 min-h-0">
       <PersonaWorkbench surface="reports" primary={<div className="report-studio-layout h-full min-h-0 flex gap-2 p-2">
-        {rep && leftOpen ? <div className="report-studio-deliverables"><ReportList reports={reports} active={rep.id} onSel={setActiveId} onCollapse={() => setLeftOpen(false)} liveHeldReason={liveHeldReason} /></div> : rep ? <ReportRail label="Deliverables" onExpand={() => setLeftOpen(true)} /> : null}
+        {rep && leftOpen ? <div className="report-studio-deliverables"><ReportList reports={reports} active={rep.id} onSel={setActiveId} onCollapse={() => setLeftOpen(false)} isReference={isReference} liveHeldReason={liveHeldReason} /></div> : rep ? <ReportRail label="Deliverables" onExpand={() => setLeftOpen(true)} /> : null}
 
-        <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="report-studio-preview flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "#08080c" }}>
+        <div ref={scrollRef} tabIndex={0} aria-label="Report preview" className="report-studio-preview flex-1 min-w-0 rounded border border-caos-border overflow-auto focus-ring" style={{ background: "var(--caos-bg)" }}>
           <div className="flex py-7 px-6" style={{ justifyContent: "safe center" }}>
             {/* Hide the paper until the stored/auto-fit zoom has applied so a
                 remembered preference never flashes at the wrong geometry. */}

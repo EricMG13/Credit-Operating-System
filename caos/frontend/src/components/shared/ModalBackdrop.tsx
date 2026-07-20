@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 // Canonical dim tint for all z-modal backdrops (matches --caos-bg, not pure black).
-const BACKDROP_COLOR = "rgba(5,5,7,0.72)";
+const BACKDROP_COLOR = "color-mix(in srgb, var(--caos-bg) 72%, transparent)";
 
 export function ModalBackdrop({
   onClose,

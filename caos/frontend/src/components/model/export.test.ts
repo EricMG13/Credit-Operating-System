@@ -122,10 +122,12 @@ describe("buildWorkbook", () => {
   it("Assumptions sheet carries base and downside columns for every driver", async () => {
     const wb = await roundTrip(build());
     const rows = sheetRows(wb.getWorksheet("Assumptions")!);
-    const sofr = rows.find((r) => String(r[0]).includes("SOFR"));
+    const sofr = rows.find((r) => String(r[0]).includes("SOFR delta"));
     expect(sofr).toBeTruthy();
-    expect(sofr?.[1] as number).toBeCloseTo(0.043, 5);
-    expect(sofr?.[2] as number).toBeCloseTo(0.043, 5);
+    expect(sofr?.[1] as number).toBe(0);
+    expect(sofr?.[2] as number).toBe(0);
+    expect(rows.some((r) => String(r[0]).includes("EURIBOR"))).toBe(false);
+    expect(rows.some((r) => String(r[0]).includes("SONIA"))).toBe(false);
   });
 
   it("Scenarios sheet carries best/base/worst projections for every forecast year", async () => {

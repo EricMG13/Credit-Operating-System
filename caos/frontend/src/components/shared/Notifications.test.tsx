@@ -25,6 +25,7 @@ const historyEvent = {
   title: "Historical run complete",
   body: "Old result",
   href: "/pipeline?run=run-history&view=graph",
+  action_label: null,
   seen_at: null,
   created_at: "2026-07-15T09:00:00Z",
 };
@@ -49,14 +50,16 @@ describe("NotificationProvider durable feed", () => {
       subject_id: "run-fresh",
       title: "Fresh run complete",
       href: "/pipeline?run=run-fresh&view=graph",
+      action_label: "Open execution graph",
     };
     const plain = { ...fresh, id: "plain-1", title: "Plain event", body: null, href: null };
-    const linked = { ...fresh, id: "linked-1", title: "Linked event", body: "Linked body" };
+    const linked = { ...fresh, id: "linked-1", title: "Linked event", body: "Linked body", href: "/reports?report=version-1", action_label: "Open report" };
+    const legacyLinked = { ...fresh, id: "legacy-linked-1", title: "Legacy linked event", body: "Legacy body", href: "/issuers", action_label: null };
     vi.mocked(listNotifications)
       .mockResolvedValueOnce({ items: [historyEvent], next_cursor: "cursor-1" })
       .mockResolvedValueOnce({ items: [fresh], next_cursor: "cursor-2" })
       .mockResolvedValueOnce({ items: [fresh], next_cursor: "cursor-2" })
-      .mockResolvedValueOnce({ items: [plain, linked], next_cursor: null });
+      .mockResolvedValueOnce({ items: [plain, linked, legacyLinked], next_cursor: null });
 
     render(<NotificationProvider><div>Application</div></NotificationProvider>);
     await act(async () => { await Promise.resolve(); });
@@ -86,8 +89,10 @@ describe("NotificationProvider durable feed", () => {
     });
     expect(screen.getByText("Plain event")).toBeTruthy();
     expect(screen.getByText("Linked event")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open report" }).getAttribute("href")).toBe("/reports?report=version-1");
+    expect(screen.getByRole("link", { name: "Open related item" }).getAttribute("href")).toBe("/issuers");
     vi.mocked(markNotificationSeen).mockRejectedValueOnce(new Error("seen write failed"));
-    fireEvent.click(screen.getByRole("link", { name: "Open execution graph" }));
+    fireEvent.click(screen.getByRole("link", { name: "Open report" }));
     expect(markNotificationSeen).toHaveBeenCalledWith("linked-1");
     expect(screen.queryByText("Linked event")).toBeNull();
     expect(screen.queryByText("Old result")).toBeNull();

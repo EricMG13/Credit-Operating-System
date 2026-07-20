@@ -15,19 +15,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { RequireAuth } from "@/components/shared/RequireAuth";
-import { headStat } from "@/components/shared/headStat";
-import { ActionReason } from "@/components/shared/ActionReason";
 import { Button } from "@/components/ui/Button";
-import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { EnterprisePage, type PageAction } from "@/components/shared/EnterprisePage";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { ShellIdentity } from "@/components/shared/ShellIdentity";
 import { ProvenanceChip } from "@/components/shared/ProvenanceChip";
-import { simAlertsToday, CRITICAL_ALERTS } from "@/lib/command/monitor-data";
 import { fmtUtcDateTime } from "@/lib/format-date";
-import { useSharedDayRun } from "@/lib/pipeline/sim";
-import { Dot, SimControls } from "@/components/pipeline/atoms";
 import { Panel as PanelShell } from "@/components/shared/Panel";
-import { AlertFeed, EmailIntel } from "@/components/command/MonitorStreams";
 import { AlertInbox } from "@/components/monitor/AlertInbox";
 import { PhoneTriage } from "@/components/monitor/PhoneTriage";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
@@ -38,19 +32,31 @@ import { usePortfolio } from "@/lib/engine/usePortfolio";
 import { useGovernanceSources } from "@/lib/command/useGovernanceSources";
 import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
-import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { PersonaWorkbench, usePersonaComposition, useWorkbenchComposition } from "@/components/shared/PersonaWorkbench";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { SemanticVisualization, type VisualizationSpec } from "@/components/charts/SemanticVisualization";
-import { useRoleView } from "@/components/shared/RoleViewProvider";
 import { contextHref, useAnalysisContext, type InsightArtifact } from "@/lib/analysis-workbench";
 import { useTypedUrlState, type TypedUrlUpdate } from "@/lib/typed-url-state";
 import { AnalysisContextSaveState } from "@/components/shared/AnalysisContextSaveState";
 import { GovernanceSummary } from "@/components/shared/GovernanceSummary";
 import { useSurfaceInsight } from "@/lib/use-surface-insight";
+import { SurfaceState } from "@/components/shared/SurfaceState";
+import { useDataMode, type DataMode } from "@/lib/data-mode";
+import { useScrollOwner } from "@/lib/use-scroll-owner";
 
 const GovernancePanel = dynamic(
   () => import("@/components/command/GovernancePanel").then((module) => module.GovernancePanel),
   { loading: () => <div role="status" aria-live="polite" className="min-h-72 p-3 text-caos-xs text-caos-muted">Loading governance queue…</div> },
+);
+
+const ReferenceMonitorReplay = dynamic(
+  () => import("@/components/monitor/ReferenceMonitorReplay").then((module) => module.ReferenceMonitorReplay),
+  { ssr: false, loading: () => <div role="status" className="p-3 text-caos-xs text-caos-muted">Loading Reference replay…</div> },
+);
+
+const ReferenceEmailIntel = dynamic(
+  () => import("@/components/command/MonitorStreams").then((module) => module.EmailIntel),
+  { ssr: false, loading: () => <div role="status" className="p-3 text-caos-xs text-caos-muted">Loading Reference email intelligence…</div> },
 );
 
 const MONITOR_URL_KEYS = ["dataset", "severity", "selected"] as const;
@@ -58,9 +64,11 @@ type MonitorDataset = "alerts" | "email" | "governance";
 type MonitorUrlKey = (typeof MONITOR_URL_KEYS)[number];
 type MonitorUrlUpdater = (changes: TypedUrlUpdate<MonitorUrlKey>, mode?: "push" | "replace") => void;
 
-function resolveMonitorDataset(value: string | null, roleView: ReturnType<typeof useRoleView>["roleView"]): MonitorDataset {
-  if (value === "email" || value === "governance") return value;
-  return roleView === "qa" ? "governance" : "alerts";
+function resolveMonitorDataset(value: string | null, leadingDataset: string | undefined, dataMode: DataMode): MonitorDataset {
+  const allowed: readonly MonitorDataset[] = dataMode === "reference" ? ["alerts", "email"] : ["alerts", "governance"];
+  if (allowed.includes(value as MonitorDataset)) return value as MonitorDataset;
+  if (allowed.includes(leadingDataset as MonitorDataset)) return leadingDataset as MonitorDataset;
+  return "alerts";
 }
 
 function selectionDetail(event: Event) {
@@ -159,6 +167,7 @@ export default function MonitorPage() {
 type MonitorSurfaceStatus = "loading" | "error" | "ready";
 
 type MonitorViewProps = {
+  dataMode: DataMode;
   analysis: ReturnType<typeof useAnalysisContext>;
   dataset: MonitorDataset;
   updateUrlState: MonitorUrlUpdater;
@@ -180,15 +189,7 @@ type MonitorViewProps = {
   qaStatus: MonitorSurfaceStatus;
   findingStatus: MonitorSurfaceStatus;
   digestStatus: MonitorSurfaceStatus;
-  showDemo: boolean;
-  toggleDemo: () => void;
-  run: ReturnType<typeof useSharedDayRun>;
-  running: boolean;
-  done: boolean;
-  tick: number;
-  alertsToday: number;
   criticalOnly: boolean;
-  simState: string;
   draftAsOf: string | null;
   monitorDecision: DecisionContextState;
   insight: InsightArtifact | null;
@@ -196,20 +197,27 @@ type MonitorViewProps = {
   generateInsight: () => Promise<void>;
 };
 
-function MonitorIdentity() {
-  const provenance = <ProvenanceChip prov={{ origin: "LIVE", detail: "Alert worklist, governance, and control plane are live. The routing tape inside the inbox is a seeded replay, labeled where it appears." }} />;
-  return <ShellIdentity tag="CP-MON" badges={provenance} title="Monitor — email intelligence & alert routing" />;
+function MonitorIdentity({ view }: { view: MonitorViewProps }) {
+  const provenance = view.dataMode === "reference"
+    ? <ProvenanceChip prov={{ origin: "REFERENCE", detail: "Seeded replay and email examples. No issuer alert routing is represented." }} />
+    : <ProvenanceChip prov={{ origin: "LIVE", detail: "Persisted alert routing, governance, and control-plane sources only." }} />;
+  return <ShellIdentity tag="CP-MON" badges={provenance} title={view.dataMode === "reference" ? "Monitor — Reference replay & email examples" : "Monitor — live alert worklist"} />;
 }
 
 function acknowledgeReason(view: MonitorViewProps) {
+  if (view.dataMode === "reference") return "Reference replay is read-only.";
   if (view.selectedAlertCount > 0) return null;
   if (view.hasLiveAlerts) return "Select live alerts in the worklist first.";
-  return "No live alerts to acknowledge — the demo tape below is a read-only replay.";
+  return "No live alerts to acknowledge.";
 }
 
-function MonitorPrimaryAction({ view }: { view: MonitorViewProps }) {
+function MonitorPrimaryAction({ view }: { view: MonitorViewProps }): PageAction {
   const count = view.selectedAlertCount ? ` (${view.selectedAlertCount})` : "";
-  return <ActionReason reason={acknowledgeReason(view)} reasonDisplay="hidden" onClick={() => window.dispatchEvent(new Event("caos:monitor-ack-selected"))} className="caos-action-primary focus-ring">Acknowledge selected{count}</ActionReason>;
+  return {
+    label: `Acknowledge selected${count}`,
+    onAction: () => window.dispatchEvent(new Event("caos:monitor-ack-selected")),
+    unavailableReason: acknowledgeReason(view),
+  };
 }
 
 function MonitorHeaderStatus({ view }: { view: MonitorViewProps }) {
@@ -217,40 +225,88 @@ function MonitorHeaderStatus({ view }: { view: MonitorViewProps }) {
 }
 
 function MonitorUtilities({ view }: { view: MonitorViewProps }) {
-  return <div className="grid gap-3"><SimControls run={view.run} /><span className="tabular text-caos-xs text-caos-muted">{view.simState} · {view.run.clock} ET</span>{view.analysis.context ? <Link href={contextHref("/command", view.analysis.context.id)} className="caos-action-secondary no-underline focus-ring">Open Command</Link> : null}</div>;
+  return <div className="grid gap-3"><span className="tabular text-caos-xs text-caos-muted">{view.dataMode === "reference" ? "Seeded Reference fixtures" : "Live routed-alert sources"}</span>{view.analysis.context ? <Link href={contextHref("/command", view.analysis.context.id)} className="caos-action-secondary no-underline focus-ring">Open Command</Link> : null}</div>;
 }
 
 function MonitorToolbar({ view }: { view: MonitorViewProps }) {
-  const count = view.autonomyLoading ? "Loading" : view.autonomyOffline ? "Offline" : `${view.liveRows.length} live alerts`;
-  return <WorkbenchToolbar title="Alert worklist" description="Acknowledge, assign and hand off routed events; phone remains triage-only." count={count} viewLabel="Shared worklist" />;
+  const count = view.dataMode === "reference" ? "Seeded examples" : view.autonomyLoading ? "Loading" : view.autonomyOffline ? "Offline" : `${view.liveRows.length} live alerts`;
+  return <WorkbenchToolbar title={view.dataMode === "reference" ? "Reference monitor" : "Alert worklist"} description={view.dataMode === "reference" ? "Inspect seeded replay and email examples without asserting issuer state." : "Acknowledge, assign and hand off routed events; phone remains triage-only."} count={count} viewLabel={view.dataMode === "reference" ? "Reference" : "Live worklist"} />;
 }
 
-function CriticalReplayFilter({ view }: { view: MonitorViewProps }) {
-  const title = (view.criticalOnly ? "Show all routed alerts. " : "Filter the replay tape to critical. ") + "Seeded demo replay count — not live routed alerts (see the worklist below for live).";
-  const selectedClass = view.criticalOnly ? "caos-selected bg-caos-elevated border-caos-critical/60" : "border-transparent";
-  return <button type="button" onClick={() => view.updateUrlState({ severity: view.criticalOnly ? null : "critical" })} aria-pressed={view.criticalOnly} title={title} className={`rounded border px-1.5 py-0.5 -my-0.5 transition-caos focus-ring hover:bg-caos-elevated/70 ${selectedClass}`}>{headStat("Replay criticals", String(CRITICAL_ALERTS), "var(--caos-critical)", true)}</button>;
+function LiveAlertContent({ view }: { view: MonitorViewProps }) {
+  if (view.autonomyLoading) return <SurfaceState kind="loading" title="Loading live alerts" compact className="m-2" />;
+  if (view.autonomyOffline) return <SurfaceState kind="unavailable" title="Live alert service unavailable" detail="No routed-alert state can be asserted while the autonomy endpoint is offline." compact className="m-2" />;
+  if (!view.hasLiveAlerts) return <SurfaceState kind="empty" title="No live alerts routed" detail="The current live worklist is empty. Reference replay and email examples remain available only in Reference mode." compact className="m-2" />;
+  return <AlertInbox />;
 }
 
-function SeededReplay({ view }: { view: MonitorViewProps }) {
-  return <>
-    <AlertInbox />
-    <div className="flex items-center gap-2 border-t-2 border-caos-border px-3 min-h-8">
-      <button type="button" onClick={view.toggleDemo} aria-expanded={view.showDemo} className="flex items-center gap-2 tabular text-caos-2xs uppercase tracking-widest text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">{view.showDemo ? "− " : "+ "}Seeded replay · CP-MON-H demo tape</button>
-      <span className="ml-auto flex items-center gap-3"><CriticalReplayFilter view={view} /><span title="Seeded demo replay count for the simulated day — live routed-alert counts are in the worklist above.">{headStat("Replay today", String(view.alertsToday), "var(--caos-accent)", true)}</span></span>
+function governanceStatus(status: MonitorSurfaceStatus, count: number) {
+  if (status === "loading") return "Checking";
+  if (status === "error") return "Unavailable";
+  return count === 0 ? "Clear" : `${count} open`;
+}
+
+function GovernanceQueueTable({ view }: { view: MonitorViewProps }) {
+  const tableScroll = useScrollOwner<HTMLDivElement>();
+  const stale = view.digestLive ? view.digest?.stale ?? [] : [];
+  const aging = stale.filter((row) => row.detail !== "never run");
+  const overdue = stale.filter((row) => row.detail === "never run");
+  const rows = [
+    ["CP-5 findings", governanceStatus(view.findingStatus, view.liveQa?.length ?? 0), "Research QA", view.liveQa?.[0]?.age ?? "Current", "Finding citations"],
+    ["Committee gates", governanceStatus(view.qaStatus, view.liveFailed?.length ?? 0), "IC governance", "Current run", "Approval prerequisites"],
+    ["CP-0 source gaps", governanceStatus(view.qaStatus, view.liveGapsItems?.length ?? 0), "Coverage analyst", view.liveGapsItems?.[0]?.requested ?? "Current", "Source readiness"],
+    ["Mixed-origin content", governanceStatus(view.qaStatus, view.liveMixed?.length ?? 0), "Research QA", "Persisted run", "Live/reference boundary"],
+    ["Stale sources", governanceStatus(view.digestStatus, aging.length), "Coverage analyst", aging.length ? `${aging.length} outside window` : "Within window", "Digest freshness"],
+    ["Overdue refresh", governanceStatus(view.digestStatus, overdue.length), "Coverage lead", overdue.length ? `${overdue.length} never run` : "Covered", "Coverage evidence"],
+  ] as const;
+  return (
+    <div>
+      <div ref={tableScroll.ref} className={`overflow-x-auto${tableScroll.scrollable ? " focus-ring" : ""}`} tabIndex={tableScroll.scrollable ? 0 : undefined} role={tableScroll.scrollable ? "region" : undefined} aria-label={tableScroll.scrollable ? "QA governance gates and evidence health" : undefined}>
+        <table className="caos-table min-w-[760px] w-full">
+          <thead>
+            <tr>
+              <th scope="col">Gate or exception</th>
+              <th scope="col">Status</th>
+              <th scope="col">Owner</th>
+              <th scope="col">Freshness</th>
+              <th scope="col">Evidence health</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([gate, status, owner, freshness, evidence]) => (
+              <tr key={gate}>
+                <th scope="row" className="text-left">{gate}</th>
+                <td className="tabular">{status}</td>
+                <td>{owner}</td>
+                <td className="tabular">{freshness}</td>
+                <td>{evidence}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <details className="border-t border-caos-border" open>
+        <summary className="caos-details-summary focus-ring">Open finding registers</summary>
+        <GovernancePanel findingStatus={view.findingStatus} qaStatus={view.qaStatus} digestStatus={view.digestStatus} liveQa={view.liveQa} liveFailedGates={view.liveFailed} liveGaps={view.liveGapsItems} liveMixedOrigin={view.liveMixed} staleRows={stale} />
+      </details>
     </div>
-    {view.showDemo ? <AlertFeed tick={view.tick} running={view.running} done={view.done} sevFilter={view.criticalOnly ? "critical" : null} /> : null}
-  </>;
+  );
 }
 
 function MonitorDatasetContent({ view }: { view: MonitorViewProps }) {
-  if (view.dataset === "email") return <EmailIntel />;
-  if (view.dataset === "governance") return <GovernancePanel findingStatus={view.findingStatus} qaStatus={view.qaStatus} digestStatus={view.digestStatus} liveQa={view.liveQa} liveFailedGates={view.liveFailed} liveGaps={view.liveGapsItems} liveMixedOrigin={view.liveMixed} staleRows={view.digestLive ? view.digest?.stale ?? [] : []} />;
-  return view.isPhone ? <PhoneTriage /> : <SeededReplay view={view} />;
+  const composition = useWorkbenchComposition();
+  if (view.dataset === "email") return <ReferenceEmailIntel />;
+  if (view.dataset === "governance") return composition.tableColumnPreset === "qa-gates"
+    ? <GovernanceQueueTable view={view} />
+    : <GovernancePanel findingStatus={view.findingStatus} qaStatus={view.qaStatus} digestStatus={view.digestStatus} liveQa={view.liveQa} liveFailedGates={view.liveFailed} liveGaps={view.liveGapsItems} liveMixedOrigin={view.liveMixed} staleRows={view.digestLive ? view.digest?.stale ?? [] : []} />;
+  if (view.dataMode === "reference") return <ReferenceMonitorReplay criticalOnly={view.criticalOnly} onCriticalChange={(criticalOnly) => view.updateUrlState({ severity: criticalOnly ? "critical" : null })} />;
+  return view.isPhone ? <PhoneTriage /> : <LiveAlertContent view={view} />;
 }
 
 function monitorDatasetTitle(view: MonitorViewProps) {
   if (view.dataset === "email") return "Email Intelligence · CP-MON intake";
-  if (view.dataset === "governance") return "Governance queue · CP-5 / CP-0 / Staleness";
+  if (view.dataset === "governance") return "Live governance queue · CP-5 / CP-0 / Staleness";
+  if (view.dataMode === "reference") return "Reference alert replay · CP-MON-H";
   return view.isPhone ? "Alert triage · autonomy routing" : "Alert inbox · autonomy routing";
 }
 
@@ -261,7 +317,7 @@ function monitorDatasetLabel(dataset: MonitorDataset) {
 }
 
 function MonitorDatasetTabs({ view }: { view: MonitorViewProps }) {
-  return <div role="tablist" aria-label="Monitor dataset" aria-busy={!view.datasetControlsReady} className="flex items-center gap-1"><Button variant="secondary" type="button" role="tab" aria-selected={view.dataset === "alerts"} reason={view.datasetSwitchReason} reasonDisplay="hidden" onClick={() => view.updateUrlState({ dataset: "alerts" })}>Alerts</Button><Button variant="secondary" type="button" role="tab" aria-selected={view.dataset === "email"} reason={view.datasetSwitchReason} reasonDisplay="hidden" onClick={() => view.updateUrlState({ dataset: "email" })}>Email intake</Button><Button variant="secondary" type="button" role="tab" aria-selected={view.dataset === "governance"} reason={view.datasetSwitchReason} reasonDisplay="hidden" onClick={() => view.updateUrlState({ dataset: "governance" })}>Governance</Button></div>;
+  return <div role="tablist" aria-label="Monitor dataset" aria-busy={!view.datasetControlsReady} className="flex items-center gap-1"><Button variant="secondary" type="button" role="tab" aria-selected={view.dataset === "alerts"} reason={view.datasetSwitchReason} reasonDisplay="hidden" onClick={() => view.updateUrlState({ dataset: "alerts" })}>{view.dataMode === "reference" ? "Replay" : "Alerts"}</Button>{view.dataMode === "reference" ? <Button variant="secondary" type="button" role="tab" aria-selected={view.dataset === "email"} reason={view.datasetSwitchReason} reasonDisplay="hidden" onClick={() => view.updateUrlState({ dataset: "email" })}>Email intake</Button> : <Button variant="secondary" type="button" role="tab" aria-selected={view.dataset === "governance"} reason={view.datasetSwitchReason} reasonDisplay="hidden" onClick={() => view.updateUrlState({ dataset: "governance" })}>Governance</Button>}</div>;
 }
 
 function MonitorDatasetPanel({ view }: { view: MonitorViewProps }) {
@@ -275,27 +331,33 @@ function MonitorCitedBrief({ view }: { view: MonitorViewProps }) {
 }
 
 function MonitorInspector({ view }: { view: MonitorViewProps }) {
-  return <div className="grid gap-2"><GovernanceSummary coldStart={!view.portfolio.live && !view.portfolio.error && !view.portfolio.loading} qa={view.liveQa?.length} failed={view.liveFailed?.length} gaps={view.liveGapsItems?.length} mixed={view.liveMixed?.length} stale={view.digestLive ? view.digest?.stale?.length ?? 0 : undefined} onOpen={() => view.updateUrlState({ dataset: "governance" })} /><PanelShell title="Coverage Control Plane · ingestion"><ControlPlanePanel /></PanelShell><MonitorCitedBrief view={view} /></div>;
+  if (view.dataMode === "reference") return <PanelShell title="Reference scope"><p className="p-2 text-caos-xs text-caos-muted">Seeded replay and email examples only. Live governance and control-plane state are not merged into this workspace.</p></PanelShell>;
+  return <div className="grid gap-2"><GovernanceSummary coldStart={!view.portfolio.live && !view.portfolio.error && !view.portfolio.loading} qa={view.liveQa?.length} failed={view.liveFailed?.length} gaps={view.liveGapsItems?.length} mixed={view.liveMixed?.length} stale={view.digestLive ? view.digest?.stale?.length ?? 0 : undefined} onOpen={() => view.updateUrlState({ dataset: "governance" })} /><PanelShell title="Source intake health"><ControlPlanePanel /></PanelShell><MonitorCitedBrief view={view} /></div>;
 }
 
 function MonitorWorkbench({ view }: { view: MonitorViewProps }) {
-  return <><MonitorToolbar view={view} /><div id="alert-inbox" className="caos-persona-route monitor-workbench flex-1 min-h-0 p-2" tabIndex={-1}><PersonaWorkbench surface="monitor" decision={<DecisionHeader state={view.monitorDecision} />} primary={<MonitorDatasetPanel view={view} />} context={<MonitorContext rows={view.liveRows} asOf={view.draftAsOf} simState={view.simState} running={view.running} done={view.done} />} inspector={<MonitorInspector view={view} />} /></div></>;
+  const decision = view.dataMode === "reference"
+    ? <SurfaceState kind="unavailable" title="Decision context not applicable" detail="Reference replay does not assert a live issuer decision or observation timestamp." compact />
+    : <DecisionHeader state={view.monitorDecision} />;
+  const sparseAlerts = view.dataMode === "live" && view.dataset === "alerts" && view.liveRows.length > 0 && view.liveRows.length <= 3;
+  return <><MonitorToolbar view={view} /><div id="alert-inbox" className={`caos-persona-route monitor-workbench flex-1 min-h-0 p-2${sparseAlerts ? " monitor-workbench--sparse" : ""}`} tabIndex={-1}><PersonaWorkbench surface="monitor" retainEmphasizedSupportOnNarrow={!view.isPhone} decision={decision} primary={<MonitorDatasetPanel view={view} />} context={<MonitorContext rows={view.liveRows} asOf={view.draftAsOf} dataMode={view.dataMode} />} inspector={<MonitorInspector view={view} />} /></div></>;
 }
 
 function MonitorView({ view }: { view: MonitorViewProps }) {
-  return <EnterprisePage kind="worklist" identity={<MonitorIdentity />} primaryAction={<MonitorPrimaryAction view={view} />} status={<MonitorHeaderStatus view={view} />} utilityLabel="Replay controls" utilityControls={<MonitorUtilities view={view} />} narrowContract={{ essentialControls: <SimControls run={view.run} /> }}><MonitorWorkbench view={view} /></EnterprisePage>;
+  return <EnterprisePage kind="worklist" identity={<MonitorIdentity view={view} />} primaryAction={MonitorPrimaryAction({ view })} status={<MonitorHeaderStatus view={view} />} utilityLabel="Monitor shortcuts" utilityControls={<MonitorUtilities view={view} />} narrowContract={{ essentialControls: null }}><MonitorWorkbench view={view} /></EnterprisePage>;
 }
 
-function useMonitorNavigation() {
+function useMonitorNavigation(dataMode: DataMode) {
   const analysis = useAnalysisContext({ name: "Alert oversight" });
-  const { roleView } = useRoleView();
+  const composition = usePersonaComposition("monitor");
   const { values, update } = useTypedUrlState(MONITOR_URL_KEYS);
   const selectedAlertCount = useMonitorSelection(analysis, update);
   const { breakpoint } = useBreakpoint();
   const datasetControlsReady = !analysis.loading;
   return {
+    dataMode,
     analysis,
-    dataset: resolveMonitorDataset(values.dataset, roleView),
+    dataset: resolveMonitorDataset(values.dataset, composition.leadingDataset, dataMode),
     updateUrlState: update,
     selected: values.selected,
     criticalOnly: values.severity === "critical",
@@ -308,27 +370,9 @@ function useMonitorNavigation() {
 
 function useMonitorAlerts() {
   const autonomy = useAutonomyDraft();
-  const [demoOverride, setDemoOverride] = useState<boolean | null>(null);
-  const run = useSharedDayRun();
   const liveRows = autonomy.draft ? draftToAlertRows(autonomy.draft) : [];
   const hasLiveAlerts = !autonomy.offline && liveRows.length > 0;
-  const showDemo = demoOverride ?? !hasLiveAlerts;
-  const running = run.playing && !run.sim.done;
-  const done = run.sim.done;
-  const tick = run.sim.tick;
-  return {
-    autonomy,
-    liveRows,
-    hasLiveAlerts,
-    showDemo,
-    toggleDemo: () => setDemoOverride(!showDemo),
-    run,
-    running,
-    done,
-    tick,
-    alertsToday: simAlertsToday(tick, !done),
-    simState: running ? "SIM" : done ? "COMPLETE" : "PAUSED",
-  };
+  return { autonomy, liveRows, hasLiveAlerts };
 }
 
 function monitorSurfaceStatus(loading: boolean, error: boolean): MonitorSurfaceStatus {
@@ -349,14 +393,15 @@ function useMonitorGovernance() {
   };
 }
 
-function useMonitorView() {
-  const navigation = useMonitorNavigation();
+function useLiveMonitorView() {
+  const navigation = useMonitorNavigation("live");
   const alerts = useMonitorAlerts();
   const governanceModel = useMonitorGovernance();
   const insight = useMonitorInsight(navigation.analysis.context?.id, navigation.selected);
   const decisionInput = { draft: alerts.autonomy.draft, loading: alerts.autonomy.loading, offline: alerts.autonomy.offline, rows: alerts.liveRows };
   const governance = governanceModel.governance;
   return {
+    dataMode: navigation.dataMode,
     analysis: navigation.analysis,
     dataset: navigation.dataset,
     updateUrlState: navigation.updateUrlState,
@@ -378,15 +423,7 @@ function useMonitorView() {
     qaStatus: governanceModel.qaStatus,
     findingStatus: governanceModel.findingStatus,
     digestStatus: governanceModel.digestStatus,
-    showDemo: alerts.showDemo,
-    toggleDemo: alerts.toggleDemo,
-    run: alerts.run,
-    running: alerts.running,
-    done: alerts.done,
-    tick: alerts.tick,
-    alertsToday: alerts.alertsToday,
     criticalOnly: navigation.criticalOnly,
-    simState: alerts.simState,
     draftAsOf: monitorDecisionAuthority(decisionInput).asOf,
     monitorDecision: buildMonitorDecision(decisionInput),
     insight: insight.insight,
@@ -395,12 +432,57 @@ function useMonitorView() {
   } satisfies MonitorViewProps;
 }
 
-function Monitor() {
-  const view = useMonitorView();
+function useReferenceMonitorView() {
+  const navigation = useMonitorNavigation("reference");
+  return {
+    dataMode: "reference",
+    analysis: navigation.analysis,
+    dataset: navigation.dataset,
+    updateUrlState: navigation.updateUrlState,
+    datasetControlsReady: navigation.datasetControlsReady,
+    datasetSwitchReason: navigation.datasetSwitchReason,
+    selectedAlertCount: 0,
+    isPhone: navigation.isPhone,
+    autonomyLoading: false,
+    autonomyOffline: false,
+    liveRows: [],
+    hasLiveAlerts: false,
+    portfolio: null as unknown as ReturnType<typeof usePortfolio>,
+    digest: null,
+    digestLive: false,
+    liveQa: [],
+    liveFailed: [],
+    liveGapsItems: [],
+    liveMixed: [],
+    qaStatus: "ready",
+    findingStatus: "ready",
+    digestStatus: "ready",
+    criticalOnly: navigation.criticalOnly,
+    draftAsOf: null,
+    monitorDecision: {} as DecisionContextState,
+    insight: null,
+    insightMessage: null,
+    generateInsight: async () => undefined,
+  } satisfies MonitorViewProps;
+}
+
+function LiveMonitor() {
+  const view = useLiveMonitorView();
   return <MonitorView view={view} />;
 }
 
-function MonitorContext({ rows, asOf, simState, running, done }: { rows: ReturnType<typeof draftToAlertRows>; asOf: string | null; simState: string; running: boolean; done: boolean }) {
+function ReferenceMonitor() {
+  const view = useReferenceMonitorView();
+  return <MonitorView view={view} />;
+}
+
+function Monitor() {
+  const dataMode = useDataMode();
+  return dataMode === "reference" ? <ReferenceMonitor /> : <LiveMonitor />;
+}
+
+function MonitorContext({ rows, asOf, dataMode }: { rows: ReturnType<typeof draftToAlertRows>; asOf: string | null; dataMode: DataMode }) {
+  if (dataMode === "reference" || rows.length <= 1) return null;
   const severityBand = (value: number) => value >= 3 ? "critical" : value >= 2 ? "high" : value >= 1 ? "medium" : "low";
   const severities = ["critical", "high", "medium", "low"].map((severity) => ({ severity, count: rows.filter((row) => severityBand(row.severity) === severity).length }));
   const spec: VisualizationSpec = {
@@ -409,11 +491,11 @@ function MonitorContext({ rows, asOf, simState, running, done }: { rows: ReturnT
     unit: "alerts",
     asOf: asOf ?? undefined,
     sourceIds: ["autonomy-draft"],
-    accessibleSummary: rows.length ? `${rows.length} live routed alerts; ${severities[0].count} are critical.` : "No live routed alerts are available.",
+    accessibleSummary: `${rows.length} live routed alerts; ${severities[0].count} are critical.`,
     status: severities[0].count ? { label: "Critical present", tone: "critical" } : { label: "No critical alert", tone: "success" },
     data: severities,
     tabularFallback: { label: "Alert severity counts", columns: [{ key: "severity", label: "Severity" }, { key: "count", label: "Count" }], data: severities },
     chart: { type: "interval", encode: { x: "severity", y: "count" } },
   };
-  return <div className="grid gap-2"><SemanticVisualization spec={spec} /><PanelShell title="Replay state"><div className="p-2 flex items-center gap-1.5"><Dot sev={done ? "ok" : "running"} pulse={running} glyph={done} /><span className="tabular text-caos-xs text-caos-muted">{simState} · alert routing follows the replay clock; email intake is the reconciled EOD tape.</span></div></PanelShell></div>;
+  return <SemanticVisualization spec={spec} />;
 }

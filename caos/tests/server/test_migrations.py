@@ -128,7 +128,7 @@ def test_postgres_specific_migration_contracts(revision: str, monkeypatch) -> No
 
 @pytest.mark.parametrize(
     "revision",
-    ("0055_market_xlsx_v2", "0056_model_engine_v2_persistence", "0058_notification_events"),
+    ("0055_market_xlsx_v2", "0056_model_engine_v2_persistence", "0058_notification_events", "0065_notification_action_label"),
 )
 def test_evidence_preserving_downgrades_refuse_destructive_rollback(
     revision: str, monkeypatch,
@@ -140,6 +140,43 @@ def test_evidence_preserving_downgrades_refuse_destructive_rollback(
 
     with pytest.raises(RuntimeError, match="downgrade refused"):
         migration.downgrade()
+
+
+def test_notification_action_label_downgrade_is_safe_only_without_populated_labels(
+    tmp_path: Path,
+) -> None:
+    safe_path = tmp_path / "notification-action-label-safe.db"
+    safe_url = f"sqlite+aiosqlite:///{safe_path}"
+    assert _alembic("upgrade", "head", db_url=safe_url).returncode == 0
+    with sqlite3.connect(safe_path) as connection:
+        connection.execute(
+            """INSERT INTO notification_events
+               (id, analyst_id, kind, subject_kind, subject_id, title,
+                idempotency_key, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("legacy", "owner", "legacy", "run", "run-1", "Legacy", "legacy:1", "2026-07-19 00:00:00"),
+        )
+    safe = _alembic("downgrade", "0064", db_url=safe_url)
+    assert safe.returncode == 0, safe.stderr
+
+    guarded_path = tmp_path / "notification-action-label-guarded.db"
+    guarded_url = f"sqlite+aiosqlite:///{guarded_path}"
+    assert _alembic("upgrade", "head", db_url=guarded_url).returncode == 0
+    with sqlite3.connect(guarded_path) as connection:
+        connection.execute(
+            """INSERT INTO notification_events
+               (id, analyst_id, kind, subject_kind, subject_id, title, href,
+                action_label, idempotency_key, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "rich", "owner", "run_complete", "run", "run-2", "Complete",
+                "/pipeline?run=run-2", "Open execution graph", "run:2:complete",
+                "2026-07-19 00:00:00",
+            ),
+        )
+    guarded = _alembic("downgrade", "0064", db_url=guarded_url)
+    assert guarded.returncode != 0
+    assert "0065 downgrade refused" in guarded.stderr
 
 
 def test_issuer_uniqueness_migration_is_team_aware_and_refuses_existing_duplicates(

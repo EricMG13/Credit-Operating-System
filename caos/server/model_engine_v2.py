@@ -199,8 +199,8 @@ class ModelPeriodInput(StrictModel):
     total_debt: Optional[float] = None
     net_debt: Optional[float] = None
     cash_interest: Optional[float] = None
-    taxes: Optional[float] = None
-    capex: Optional[float] = None
+    taxes: Optional[float] = Field(default=None, ge=0)
+    capex: Optional[float] = Field(default=None, ge=0)
     working_capital_change: Optional[float] = None
     other_cash_flow: Optional[float] = None
     authority: ModelAuthority
@@ -678,11 +678,18 @@ class ModelEngineV2:
             nodes: list[ModelNode] = []
             key = period.period_key
 
-            def input_value(field: str) -> Optional[Decimal]:
+            def input_value(
+                field: str,
+                *,
+                non_negative: bool = False,
+                negative_message: str = "model value cannot be negative",
+            ) -> Optional[Decimal]:
                 return apply_node(
                     f"input:{key}:{field}",
                     _decimal(getattr(period, field)),
                     nodes,
+                    non_negative=non_negative,
+                    negative_message=negative_message,
                 )
 
             def input_is_overridden(field: str) -> bool:
@@ -734,7 +741,8 @@ class ModelEngineV2:
                     f"{key}: debt schedule is missing period rows for "
                     + ", ".join(missing_instruments)
                 )
-            complete_debt = bool(schedule_rows) and not missing_instruments
+            complete_balance_schedule = bool(schedule_rows) and not missing_instruments
+            complete_interest_schedule = bool(schedule_rows) and not missing_instruments
             for instrument, point in schedule_rows:
                 prefix = f"debt:{instrument.instrument_id}:{key}"
                 context = f"{key}/{instrument.instrument_id}"
@@ -1199,10 +1207,13 @@ class ModelEngineV2:
                     if value is None:
                         gaps.append(f"{context}: calculated debt field {field_name} is unavailable")
 
-                if debt_reporting is None or cash_interest is None:
-                    complete_debt = False
+                if debt_reporting is None:
+                    complete_balance_schedule = False
                 else:
                     reporting_debt_values.append(debt_reporting)
+                if cash_interest is None:
+                    complete_interest_schedule = False
+                else:
                     debt_cash_interest_values.append(cash_interest)
                 prior_closing_by_instrument[instrument.instrument_id] = closing
                 prior_period_by_instrument[instrument.instrument_id] = key
@@ -1242,7 +1253,7 @@ class ModelEngineV2:
                 warnings.append(
                     f"{key}: analyst total debt input override supersedes the debt schedule"
                 )
-            elif complete_debt:
+            elif complete_balance_schedule:
                 total_debt_original: Optional[Decimal] = debt_total
                 total_debt_formula = "sum(debt_instrument.closing_balance * fx_rate)"
                 if explicit_total_debt is not None and abs(explicit_total_debt - debt_total) > _TOLERANCE:
@@ -1251,7 +1262,7 @@ class ModelEngineV2:
                 total_debt_original = explicit_total_debt
                 total_debt_formula = "input.total_debt"
             if total_debt_original is None:
-                gaps.append(f"{key}: total debt or a complete debt schedule is required")
+                gaps.append(f"{key}: total debt or a complete balance schedule is required")
             total_debt = apply_node(
                 f"calc:{key}:total_debt",
                 total_debt_original,
@@ -1267,7 +1278,7 @@ class ModelEngineV2:
                 warnings.append(
                     f"{key}: analyst cash interest input override supersedes the debt schedule"
                 )
-            elif complete_debt:
+            elif complete_interest_schedule:
                 cash_interest_original: Optional[Decimal] = calculated_cash_interest
                 cash_interest_formula = "benchmark + margin + coupon + fees + hedge + FX"
                 if explicit_interest is not None and abs(explicit_interest - calculated_cash_interest) > _TOLERANCE:
@@ -1276,7 +1287,7 @@ class ModelEngineV2:
                 cash_interest_original = explicit_interest
                 cash_interest_formula = "input.cash_interest"
             if cash_interest_original is None:
-                gaps.append(f"{key}: cash interest or a complete debt schedule is required")
+                gaps.append(f"{key}: cash interest or a complete interest schedule is required")
             cash_interest = apply_node(
                 f"calc:{key}:cash_interest",
                 cash_interest_original,
@@ -1315,9 +1326,18 @@ class ModelEngineV2:
                 gaps.append(
                     f"{key}: leverage is not meaningful because adjusted EBITDA is non-positive"
                 )
+            elif adjusted_ebitda is not None and period.months != 12:
+                warnings.append(
+                    f"{key}: leverage requires a 12-month EBITDA basis; "
+                    f"this period contains {period.months} months"
+                )
             leverage_ebitda = (
                 adjusted_ebitda
-                if adjusted_ebitda is not None and adjusted_ebitda > 0
+                if (
+                    adjusted_ebitda is not None
+                    and adjusted_ebitda > 0
+                    and period.months == 12
+                )
                 else None
             )
             gross_leverage = apply_node(
@@ -1345,14 +1365,27 @@ class ModelEngineV2:
                 if cash_interest is not None and cash_interest > 0
                 else None
             )
+            coverage_ebitda = (
+                adjusted_ebitda
+                if adjusted_ebitda is not None and adjusted_ebitda > 0
+                else None
+            )
             interest_coverage = apply_node(
                 f"calc:{key}:interest_coverage",
-                _safe_div(leverage_ebitda, coverage_interest),
+                _safe_div(coverage_ebitda, coverage_interest),
                 nodes,
                 "adjusted_ebitda / cash_interest",
             )
-            taxes = input_value("taxes")
-            capex = input_value("capex")
+            taxes = input_value(
+                "taxes",
+                non_negative=True,
+                negative_message="taxes must be a non-negative outflow",
+            )
+            capex = input_value(
+                "capex",
+                non_negative=True,
+                negative_message="capex must be a non-negative outflow",
+            )
             working_capital = input_value("working_capital_change")
             other_cash_flow = input_value("other_cash_flow")
             if all(value is not None for value in (

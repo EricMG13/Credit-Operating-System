@@ -65,7 +65,7 @@ export function DecisionRoomDrawer({
         <label className="tabular text-caos-xs text-caos-muted">EXPIRY
           <TextInput type="date" name="decision-expiry" autoComplete="off" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="mt-1 w-full" />
         </label>
-        <ActionReason reason={busy ? "Capturing decision…" : !thesis.trim() ? "Enter a thesis first" : null} onClick={submit} className="tabular text-caos-xs min-h-9 rounded bg-caos-accent text-caos-bg aria-disabled:opacity-40 focus-ring">{busy ? "CAPTURING…" : "CAPTURE DECISION"}</ActionReason>
+        <ActionReason reason={busy ? "Recording decision…" : !thesis.trim() ? "Enter a thesis first" : null} onClick={submit} className="tabular text-caos-xs min-h-9 rounded bg-caos-accent text-caos-bg aria-disabled:opacity-40 focus-ring">{busy ? "Recording…" : "Record IC decision"}</ActionReason>
         {error ? <div role="alert" className="tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>{error}</div> : null}
 
         <div className="border-t border-caos-border pt-2 flex flex-col gap-2">

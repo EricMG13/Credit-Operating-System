@@ -19,6 +19,7 @@ vi.mock("@/components/shared/EnterprisePage", () => ({
 }));
 vi.mock("@/components/shared/PersonaWorkbench", () => ({
   PersonaWorkbench: ({ decision }: { decision: React.ReactNode }) => <>{decision}</>,
+  usePersonaComposition: () => ({ persona: "analyst", leadingDataset: "portfolio" }),
 }));
 vi.mock("@/components/shared/DecisionHeader", () => ({
   DecisionHeader: ({ state: decision }: { state: { evidenceHealth: { kind: string; value?: React.ReactNode; message?: string } } }) => (

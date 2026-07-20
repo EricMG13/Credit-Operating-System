@@ -129,7 +129,12 @@ test.describe("Model Builder", () => {
     await page.goto("/model/");
     await expect(page.getByLabel("Model worksheet")).toBeVisible({ timeout: 15000 });
 
-    // Scenario panel is expanded at this viewport.
+    // Support surfaces are selected explicitly through the shared toolbar;
+    // viewport width no longer auto-mounts the Scenario panel.
+    await page
+      .getByRole("group", { name: "Model support" })
+      .getByRole("button", { name: "Scenario" })
+      .click();
     await expect(
       page.getByText("Scenario & Sensitivity · forward cash-flow lens"),
     ).toBeVisible({ timeout: 15000 });
@@ -212,6 +217,10 @@ test.describe("Model Builder", () => {
       },
     }));
     await page.goto("/model/");
+    await page
+      .getByRole("group", { name: "Model support" })
+      .getByRole("button", { name: "Scenario" })
+      .click();
     await expect(page.getByText("Downside fragility · CP-2B", { exact: true })).toBeVisible({ timeout: 15000 });
     await expect(page.getByTitle("First-order EBITDA-shock fragility: MODERATE")).toContainText("MODERATE");
     await expect(page.getByText(/A −20% EBITDA decline lifts net leverage/)).toBeVisible();

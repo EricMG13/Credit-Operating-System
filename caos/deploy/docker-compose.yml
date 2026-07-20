@@ -67,6 +67,11 @@ services:
       # Postgres-only — run.py refuses >1 against SQLite. Size against Postgres's
       # max_connections and load-test before raising (.env.example has the guidance).
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+      # Per-worker Postgres pool. 0 derives 20 persistent + five overflow
+      # connections, bounded by the supported two-worker/50-connection envelope.
+      CAOS_DB_POOL_SIZE: ${CAOS_DB_POOL_SIZE:-0}
+      CAOS_DB_MAX_OVERFLOW: ${CAOS_DB_MAX_OVERFLOW:-5}
+      CAOS_DB_POOL_TIMEOUT_S: ${CAOS_DB_POOL_TIMEOUT_S:-30}
       # One 250 MiB upload/parser lane per process. At the supported maximum of
       # two workers this bounds live upload bodies to 500 MiB before parser copies.
       CAOS_UPLOAD_CONCURRENCY: ${CAOS_UPLOAD_CONCURRENCY:-1}

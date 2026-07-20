@@ -53,10 +53,10 @@ describe("ReportPane result footer + print path", () => {
     expect(screen.getAllByText(/AI-synthesized/i).length).toBeGreaterThan(0);
   });
 
-  it("keeps the Illustrative · demo marker on the demo branch", () => {
+  it("keeps the explicit Reference marker on the seeded branch", () => {
     // research-17: demo output is visibly distinguished from live research.
     render(<ReportPane {...base} result={{ ...live, demo: true }} />);
-    expect(screen.getAllByText(/Illustrative · demo/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/REFERENCE · seeded example · no live sources/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/AI-synthesized/i)).toBeNull();
   });
 
@@ -243,15 +243,13 @@ describe("ReportPane running, error, and empty states", () => {
     expect(screen.queryByRole("button", { name: "View previous report" })).toBeNull();
   });
 
-  it("previews the complete deliverable manifest before a run", () => {
+  it("renders one compact cold-state panel before a run", () => {
     render(<ReportPane {...base} result={null} />);
     expect(screen.getByText("Research not run")).toBeTruthy();
+    expect(screen.queryByText("Expected deliverable")).toBeNull();
     expect(document.querySelector('[data-surface-state="not-run"]')).toBeTruthy();
-    expect(screen.getByText("Executive summary")).toBeTruthy();
-    expect(screen.getByText("Detailed findings")).toBeTruthy();
-    expect(screen.getByText("Summary tables")).toBeTruthy();
-    expect(screen.getByText("Recommendations")).toBeTruthy();
-    expect(screen.getByText("04")).toBeTruthy();
+    expect(document.querySelector(".research-report--cold")).toBeTruthy();
+    expect(screen.queryByText("Executive summary")).toBeNull();
     expect(screen.queryByRole("button", { name: "EXPORT PDF" })).toBeNull();
   });
 });

@@ -5,7 +5,7 @@
 // Sector RV has been promoted to a standalone route under /sector-rv.
 // Click a row for the issuer detail strip; ATLF links into the Analytical Deep-Dive.
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -25,16 +25,15 @@ import {
   CommandPortfolioTable,
   CommandPositionStrip,
 } from "@/components/command/CommandPortfolio";
-import { EnterprisePage, type NarrowContract } from "@/components/shared/EnterprisePage";
+import { EnterprisePage, type NarrowContract, type PageAction } from "@/components/shared/EnterprisePage";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { RankedChangesView } from "@/components/command/RankedChanges";
-import { ActionReason } from "@/components/shared/ActionReason";
 import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
 import { draftToAlertRows } from "@/lib/alerts/inbox";
 import { useRoleView } from "@/components/shared/RoleViewProvider";
 import type { DecisionAuthority, DecisionContextState, DecisionDatumState } from "@/lib/decision-state";
 import { WorkbenchToolbar } from "@/components/shared/WorkbenchToolbar";
-import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
+import { PersonaWorkbench, usePersonaComposition, useWorkbenchComposition } from "@/components/shared/PersonaWorkbench";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
 import { contextHref, useAnalysisContext, type InsightArtifact } from "@/lib/analysis-workbench";
 import { useTypedUrlState, type TypedUrlUpdate } from "@/lib/typed-url-state";
@@ -65,10 +64,9 @@ const DATASET_TABS: readonly [string, CommandDataset][] = [
   ["Governance", "governance"],
 ];
 
-function resolveCommandDataset(requested: string | null, roleView: ReturnType<typeof useRoleView>["roleView"]): CommandDataset {
+function resolveCommandDataset(requested: string | null, leadingDataset?: string): CommandDataset {
   if (requested && DATASET_TABS.some(([, dataset]) => dataset === requested)) return requested as CommandDataset;
-  if (roleView === "qa") return "governance";
-  if (roleView === "pm") return "changes";
+  if (DATASET_TABS.some(([, dataset]) => dataset === leadingDataset)) return leadingDataset as CommandDataset;
   return "coverage";
 }
 
@@ -322,7 +320,11 @@ type CommandViewProps = {
   portfolioDirectory: PortfolioSummary[];
   selectedPortfolioId: string | null;
   selectedPortfolio: PortfolioSummary | null;
+  portfolioDirectoryLoading: boolean;
+  portfolioDirectoryError: boolean;
   commandSnapshot: CommandPortfolioSnapshot | null;
+  commandSnapshotLoading: boolean;
+  commandSnapshotError: boolean;
   autonomy: ReturnType<typeof useAutonomyDraft>;
   rankedRowCount: number;
   topChangeHref: string | null;
@@ -348,15 +350,24 @@ type CommandViewProps = {
 };
 
 function topChangeReason(props: CommandViewProps) {
-  if (props.autonomy.loading) return "Checking the autonomy draft…";
+  if (props.autonomy.loading) return "Checking pending changes…";
   if (props.autonomy.offline) return "Autonomy engine unreachable — no changes to open";
   if (props.rankedRowCount === 0) return props.autonomy.draft?.refreshing ? "Cycle running — no changes yet" : "No ranked changes yet — the first cycle populates this";
   if (!props.topChangeHref) return "Top ranked change has no issuer identifier";
   return null;
 }
 
-function CommandTopChangeAction({ view }: { view: CommandViewProps }) {
-  return <ActionReason reason={topChangeReason(view)} reasonDisplay="hidden" className="caos-action-primary focus-ring" onClick={() => { if (view.topChangeHref) view.routerPush(view.topChangeHref); }}>Open top change</ActionReason>;
+function CommandTopChangeAction({ view }: { view: CommandViewProps }): PageAction {
+  if (view.rankedRowCount === 0) {
+    return view.portfolio.rows.length === 0
+      ? { label: "Start document intake", href: "/upload" }
+      : { label: "Open coverage worklist", href: "/issuers" };
+  }
+  return {
+    label: "Open top change",
+    onAction: () => { if (view.topChangeHref) view.routerPush(view.topChangeHref); },
+    unavailableReason: topChangeReason(view),
+  };
 }
 
 function CommandIdentity({ view }: { view: CommandViewProps }) {
@@ -393,21 +404,42 @@ function CommandToolbar({ view }: { view: CommandViewProps }) {
 }
 
 function CommandCoverageContent({ view }: { view: CommandViewProps }) {
+  const scrollOwnerRef = useRef<HTMLDivElement>(null);
+  const [scrollable, setScrollable] = useState(false);
+  useLayoutEffect(() => {
+    const element = scrollOwnerRef.current;
+    if (!element) return;
+    const measure = () => setScrollable(
+      element.scrollHeight > element.clientHeight + 1
+      || element.scrollWidth > element.clientWidth + 1,
+    );
+    measure();
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    resizeObserver?.observe(element);
+    for (const child of element.children) resizeObserver?.observe(child);
+    const mutationObserver = typeof MutationObserver === "undefined" ? null : new MutationObserver(measure);
+    mutationObserver?.observe(element, { subtree: true, childList: true, characterData: true });
+    return () => {
+      resizeObserver?.disconnect();
+      mutationObserver?.disconnect();
+    };
+  }, [view.portfolio.error, view.portfolio.loading, view.portfolio.rows.length]);
   if (view.portfolio.loading) return <SurfaceState kind="loading" title="Loading live coverage" className="m-auto max-w-md" />;
   if (view.portfolio.error && !view.portfolio.rows.length) return <SurfaceState kind="offline" title="Live coverage unavailable" detail="Latest-run coverage could not be loaded." className="m-auto max-w-md" />;
   if (!view.portfolio.rows.length) return <SurfaceState kind="empty" title="No live coverage" detail="No completed analytical runs are available." className="m-auto max-w-md" primaryAction={<Link href="/upload" className="caos-action-primary no-underline focus-ring">Start document intake</Link>} />;
-  return <div className="overflow-x-auto h-full flex flex-col"><LiveCoverage rows={view.portfolio.rows} selected={view.selected} onSelect={(value) => view.updateUrlState({ selected: value }, "replace")} /></div>;
+  return <div ref={scrollOwnerRef} tabIndex={scrollable ? 0 : undefined} aria-label={scrollable ? "Live coverage worklist" : undefined} className={`overflow-x-auto h-full flex flex-col${scrollable ? " focus-ring" : ""}`}><LiveCoverage rows={view.portfolio.rows} selected={view.selected} onSelect={(value) => view.updateUrlState({ selected: value }, "replace")} /></div>;
 }
 
 function CommandDatasetContent({ view }: { view: CommandViewProps }) {
-  if (view.dataset === "changes") return <RankedChangesView state={view.autonomy} />;
+  const composition = useWorkbenchComposition();
+  if (view.dataset === "changes") return <RankedChangesView state={view.autonomy} limit={composition.summaryLimit} tableColumnPreset={composition.tableColumnPreset} />;
   if (view.dataset === "governance") return <GovernancePanel findingStatus={view.findingStatus} qaStatus={view.qaStatus} digestStatus={view.digestStatus} liveQa={view.liveQa} liveFailedGates={view.liveFailed} liveGaps={view.liveGapsItems} liveMixedOrigin={view.liveMixed} staleRows={view.digestLive ? view.digest?.stale ?? [] : []} />;
   const label = view.dataset === "positions" ? "Persisted portfolio positions" : "Live coverage worklist";
   return <DominantTableRegion ownerId="command-worklist" label={label} className="h-full min-h-0">{view.dataset === "positions" ? view.positionsContent : <CommandCoverageContent view={view} />}</DominantTableRegion>;
 }
 
 function commandDatasetTitle(dataset: CommandDataset) {
-  if (dataset === "changes") return "Ranked Changes · autonomy draft";
+  if (dataset === "changes") return "Ranked changes · pending review";
   if (dataset === "positions") return "Persisted portfolio · positions";
   if (dataset === "coverage") return "Live Coverage";
   return "Governance · CP-5 / CP-0 / Staleness";
@@ -430,15 +462,54 @@ function CommandInspector({ view }: { view: CommandViewProps }) {
   return <div className="grid gap-2"><GovernanceSummary coldStart={!view.portfolio.live && !view.portfolio.error && !view.portfolio.loading} qa={view.liveQa?.length} failed={view.liveFailed?.length} gaps={view.liveGapsItems?.length} mixed={view.liveMixed?.length} stale={view.digestLive ? view.digest?.stale?.length ?? 0 : undefined} onOpen={() => view.updateUrlState({ dataset: "governance" })} /><CitedBriefPanel view={view} /></div>;
 }
 
+function CommandPostureState({ label, detail, loading = false }: { label: string; detail: string; loading?: boolean }) {
+  return (
+    <section
+      aria-label="Portfolio posture status"
+      role={loading ? "status" : undefined}
+      className="shrink-0 rounded-md border border-caos-border bg-caos-panel px-3 py-2"
+    >
+      <div className="flex min-h-5 items-center gap-2">
+        <span className="tabular text-caos-xs font-semibold uppercase tracking-wider text-caos-text">{label}</span>
+        {loading ? <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-sm bg-caos-accent motion-reduce:animate-none" /> : null}
+      </div>
+      <p className="mt-1 text-caos-xs text-caos-muted">{detail}</p>
+    </section>
+  );
+}
+
+function CommandPostureRegion({ view }: { view: CommandViewProps }) {
+  const awaitingSnapshot = view.selectedPortfolio && !view.commandSnapshot && !view.commandSnapshotError;
+  if (view.portfolioDirectoryLoading || view.commandSnapshotLoading || awaitingSnapshot) {
+    return <CommandPostureState loading label="Portfolio posture · checking" detail="Retrieving persisted positions and completed-run links." />;
+  }
+  if (view.commandSnapshot && view.commandSnapshot.position_count > 0) {
+    return <CommandPortfolioPosture counts={view.commandSnapshot.posture_counts} total={view.commandSnapshot.position_count} portfolioName={view.commandSnapshot.portfolio.name} />;
+  }
+  if (view.commandSnapshot) {
+    return <CommandPostureState label="Portfolio posture · 0 positions" detail="No persisted positions are available for posture roll-up." />;
+  }
+  if (view.portfolioDirectoryError || view.commandSnapshotError) {
+    return <CommandPostureState label="Portfolio posture unavailable" detail="Persisted holdings could not be retrieved; no posture has been inferred." />;
+  }
+  return <CommandPostureState label="Portfolio posture · not configured" detail="Create or import a portfolio to establish a holdings posture." />;
+}
+
 function CommandDecisionPanel({ view }: { view: CommandViewProps }) {
-  const posture = view.commandSnapshot && view.commandSnapshot.position_count > 0
-    ? <CommandPortfolioPosture counts={view.commandSnapshot.posture_counts} total={view.commandSnapshot.position_count} portfolioName={view.commandSnapshot.portfolio.name} />
-    : null;
-  return <div className="grid gap-2"><DecisionHeader state={view.commandDecision} />{posture}</div>;
+  return <div className="command-decision-stack grid gap-2"><DecisionHeader state={view.commandDecision} /><CommandPostureRegion view={view} /></div>;
 }
 
 function CommandWorkspace({ view }: { view: CommandViewProps }) {
-  return <div className="flex-1 min-h-0 gap-2 p-2 flex flex-col overflow-hidden"><CommandToolbar view={view} /><div id="ranked-changes" className="caos-persona-route command-workbench flex-1 min-h-0" tabIndex={-1}><PersonaWorkbench surface="command" decision={<CommandDecisionPanel view={view} />} primary={<CommandDatasetPanel view={view} />} context={<CommandContext digest={view.digestLive ? view.digest : null} />} inspector={<CommandInspector view={view} />} /></div></div>;
+  const coldCoverage = !view.portfolio.loading && !view.portfolio.error && view.portfolio.rows.length === 0;
+  if (coldCoverage) {
+    return <div className="flex-1 min-h-0 p-2"><div id="ranked-changes" className="caos-persona-route command-workbench h-full min-h-0" tabIndex={-1}><PersonaWorkbench
+      surface="command"
+      decision={<CommandDecisionPanel view={view} />}
+      primary={<SurfaceState kind="empty" title="No live coverage" detail="Start document intake from the page action to establish the first governed coverage run." className="max-w-xl" compact />}
+    /></div></div>;
+  }
+  const sparseCoverage = view.dataset === "coverage" && view.portfolio.rows.length <= 3;
+  return <div className="flex-1 min-h-0 gap-2 p-2 flex flex-col overflow-hidden"><CommandToolbar view={view} /><div id="ranked-changes" className={`caos-persona-route command-workbench flex-1 min-h-0${sparseCoverage ? " command-workbench--sparse" : ""}`} tabIndex={-1}><PersonaWorkbench surface="command" decision={<CommandDecisionPanel view={view} />} primary={<CommandDatasetPanel view={view} />} context={<CommandContext digest={view.digestLive ? view.digest : null} />} inspector={<CommandInspector view={view} />} /></div></div>;
 }
 
 function CommandSelectionStrips({ view }: { view: CommandViewProps }) {
@@ -449,15 +520,16 @@ function CommandSelectionStrips({ view }: { view: CommandViewProps }) {
 }
 
 function CommandView({ view }: { view: CommandViewProps }) {
-  return <EnterprisePage kind="overview" identity={<CommandIdentity view={view} />} primaryAction={<CommandTopChangeAction view={view} />} status={<CommandHeaderStatus view={view} />} contextualControls={<CommandContextControls view={view} />} utilityLabel="Command utilities" utilityControls={<CommandUtilityControls view={view} />} narrowContract={view.narrowContract}><CommandWorkspace view={view} /><CommandSelectionStrips view={view} /></EnterprisePage>;
+  return <EnterprisePage kind="overview" identity={<CommandIdentity view={view} />} primaryAction={CommandTopChangeAction({ view })} status={<CommandHeaderStatus view={view} />} contextualControls={<CommandContextControls view={view} />} utilityLabel="Command utilities" utilityControls={<CommandUtilityControls view={view} />} narrowContract={view.narrowContract}><CommandWorkspace view={view} /><CommandSelectionStrips view={view} /></EnterprisePage>;
 }
 
 function useCommandNavigation() {
   const router = useRouter();
   const analysis = useAnalysisContext({ name: "Portfolio command" });
-  const { roleView } = useRoleView();
+  const composition = usePersonaComposition("command");
+  const roleView = composition.persona;
   const { values, update } = useTypedUrlState(COMMAND_URL_KEYS);
-  const dataset = resolveCommandDataset(values.dataset, roleView);
+  const dataset = resolveCommandDataset(values.dataset, composition.leadingDataset);
   const { getItemProps } = useRovingTabs(
     DATASET_TABS.length,
     DATASET_TABS.findIndex(([, mode]) => mode === dataset),
@@ -487,7 +559,7 @@ function commandSurfaceStatus(loading: boolean, error: boolean): CommandSurfaceS
 
 function deriveRankedChange(autonomy: ReturnType<typeof useAutonomyDraft>) {
   const rows = autonomy.draft ? draftToAlertRows(autonomy.draft) : [];
-  const issuer = rows[0]?.issuerId ?? rows[0]?.issuerName;
+  const issuer = rows[0]?.issuerId;
   return { count: rows.length, href: issuer ? `/deepdive?issuer=${encodeURIComponent(issuer)}` : null };
 }
 
@@ -558,7 +630,11 @@ function buildCommandViewProps(navigation: ReturnType<typeof useCommandNavigatio
     portfolioDirectory: portfolioModel.directory.rows,
     selectedPortfolioId: portfolioModel.selection.id,
     selectedPortfolio: portfolioModel.selection.portfolio,
+    portfolioDirectoryLoading: portfolioModel.directory.loading,
+    portfolioDirectoryError: portfolioModel.directory.error,
     commandSnapshot: portfolioModel.command.snapshot,
+    commandSnapshotLoading: portfolioModel.command.loading,
+    commandSnapshotError: portfolioModel.command.error,
     autonomy: governanceModel.autonomy,
     rankedRowCount: governanceModel.ranked.count,
     topChangeHref: governanceModel.ranked.href,

@@ -18,6 +18,15 @@ const profile = {
   signals: {}, coverage: {}, findings: {}, business: [], sponsor: {}, strengths: [], weaknesses: [],
   earnings: { latest_period: null, prior_period: null, revenue_growth_pct: null, ebitda_growth_pct: null, margin_change_pp: null, monitoring_signals: [] },
 };
+const referenceProfile = {
+  ...profile,
+  issuer: {
+    ...profile.issuer,
+    id: 'a71f0000-0000-0000-0000-000000000001',
+    name: 'Atlas Forge',
+    ticker: 'ATLF',
+  },
+};
 
 const analysisContext = {
   id: 'context-1', name: 'IC Book capture', sector_id: null, sub_segments: [],
@@ -117,11 +126,17 @@ export async function installSurfaceStubs(target, identity) {
   await target.route('**/api/issuers/iss-1/profile', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(profile),
   }));
+  await target.route('**/api/issuers/a71f0000-0000-0000-0000-000000000001/profile', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify(referenceProfile),
+  }));
   await target.route('**/api/issuers', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify([profile.issuer]),
   }));
   await target.route('**/api/issuers/', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify([profile.issuer]),
+  }));
+  await target.route('**/api/issuers/*/analyst-opinions', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ current: null, items: [] }),
   }));
   await target.route('**/api/portfolios**', (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -137,7 +152,7 @@ export async function installSurfaceStubs(target, identity) {
     body: JSON.stringify({
       model_lanes: {},
       email_intelligence: { outlook_connected: false, approved_senders: [] },
-      role_view: 'analyst',
+      role_view: identity.role_view ?? 'analyst',
       workspace: {},
       revision: 0,
     }),
@@ -178,6 +193,41 @@ export async function installSurfaceStubs(target, identity) {
       },
     }),
   }));
+  const autonomyDraft = {
+    status: 'draft', ai_generated: true, ratified: false, export_allowed: false,
+    marking: 'AI-GENERATED, UNRATIFIED', generated_at: '2026-07-20T09:00:00Z', refreshing: false,
+    sections: [{
+      issuer_id: 'iss-1', issuer_name: 'VMO2', max_severity: 0.9,
+      claims: [{ text: 'Liquidity headroom narrowed after the latest reporting update', claim_type: 'anomaly', anomaly_kind: 'period-change', anomaly_severity: 0.9, chunk_ids: [], fact_ids: [], model: 'fixture-model' }],
+      deterministic_bullets: [], exhibit: [],
+    }],
+    summary: { n_sections: 1, n_claims: 1, n_deterministic_bullets: 0, n_anomalies: 1 },
+  };
+  const fulfillAutonomy = (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(autonomyDraft) });
+  await target.route('**/api/autonomy/draft', fulfillAutonomy);
+  await target.route('**/api/autonomy/draft?**', fulfillAutonomy);
+  const fulfillAlertStates = (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  await target.route('**/api/alerts/state', fulfillAlertStates);
+  await target.route('**/api/alerts/state?**', fulfillAlertStates);
+  const portfolioBoard = {
+    rows: [{ issuer_id: 'iss-1', name: 'VMO2', ticker: 'VMO2', sector: 'Telecom', run_id: 'run-1', qa_status: 'Passed', committee_status: 'Committee Ready', as_of: '2026-06-30', metrics: {}, rv_recommendation: null, rv_percentile: null, downside_fragility: null, gaps: [] }],
+    issuer_count: 1, covered_count: 1,
+  };
+  const fulfillPortfolioBoard = (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(portfolioBoard) });
+  await target.route('**/api/portfolio', fulfillPortfolioBoard);
+  await target.route('**/api/portfolio?**', fulfillPortfolioBoard);
+  const digest = { as_of: '2026-07-20T09:00:00Z', coverage: { issuers: 1 }, stale_threshold_days: 30, stale: [], warf: null, warf_band: null, ccc_watch: [], qa: {}, activity_24h: {} };
+  const fulfillDigest = (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(digest) });
+  await target.route('**/api/digest/daily', fulfillDigest);
+  await target.route('**/api/digest/daily?**', fulfillDigest);
+  const ingestionGaps = { as_of: '2026-07-20T09:00:00Z', truncated: false, zero_chunk: [], ocr_lane: [], coverage: [{ issuer_id: 'iss-1', issuer_name: 'VMO2', analyst_owner: 'Task 4C Workflow Gate', origins: ['NATIVE'], document_count: 3 }] };
+  const fulfillIngestionGaps = (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ingestionGaps) });
+  await target.route('**/api/digest/ingestion-gaps', fulfillIngestionGaps);
+  await target.route('**/api/digest/ingestion-gaps?**', fulfillIngestionGaps);
+  const qaFindings = [{ id: 'qa-finding-1', finding_id: 'qa-finding-1', run_id: 'run-1', issuer_id: 'iss-1', issuer: 'VMO2', ticker: 'VMO2', module_id: 'CP-5', severity: 'MATERIAL', lane: 5, description: 'Confirm liquidity headroom evidence before committee clearance.', affected_claim_id: null, required_remediation: 'Attach the latest reporting support and rerun CP-5.', as_of: '2026-07-20T09:00:00Z' }];
+  const fulfillQaFindings = (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(qaFindings) });
+  await target.route('**/api/qa/findings', fulfillQaFindings);
+  await target.route('**/api/qa/findings?**', fulfillQaFindings);
   await target.route('**/api/query/capabilities', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -205,6 +255,29 @@ export async function installSurfaceStubs(target, identity) {
   // both shapes so the harness never falls through to a developer's live DB.
   await target.route('**/api/runs', fulfillRuns);
   await target.route('**/api/runs?**', fulfillRuns);
+  // Pipeline promotes the list fixture's latest row into an exact persisted
+  // run read. Stub that authority boundary as well; otherwise browser audits
+  // silently fall through to a developer's API and never reach the workbench.
+  await target.route('**/api/runs/run-1', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      id: 'run-1',
+      issuer_id: 'a71f0000-0000-0000-0000-000000000001',
+      status: 'complete',
+      qa_status: 'Passed',
+      committee_status: 'Committee Ready',
+      as_of_date: '2026-06-30',
+      model_id: null,
+      prompt_version: null,
+      error: null,
+      modules: [
+        { module_id: 'CP-0', module_name: 'Document intake', qa_status: 'Passed', committee_status: 'Committee Ready', confidence: 'High', validation_status: 'Passed' },
+        { module_id: 'CP-1', module_name: 'Credit fact base', qa_status: 'Passed', committee_status: 'Committee Ready', confidence: 'High', validation_status: 'Passed' },
+        { module_id: 'CP-X', module_name: 'Route plan', qa_status: 'Passed', committee_status: 'Committee Ready', confidence: 'High', validation_status: 'Passed' },
+      ],
+    }),
+  }));
   const moduleDetail = (moduleId) => ({
     module_id: moduleId,
     module_name: moduleId,
@@ -286,5 +359,49 @@ export async function installSurfaceStubs(target, identity) {
   });
   await target.route('**/api/decisions?**', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ items: [currentDecision], next_cursor: null, total: 1 }),
+  }));
+  await target.route('**/api/query/graph', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      capability_id: 'fixture-empty', mode: 'provenance', title: 'No fixture query executed',
+      nodes: [], edges: [], meta: [], caveats: ['Static browser verification fixture'],
+    }),
+  }));
+  await target.route('**/api/query/runs?**', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: '[]',
+  }));
+  await target.route('**/api/thesis?**', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: '[]',
+  }));
+  await target.route('**/api/issuers/*/freshness', (route) => {
+    const issuerId = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2));
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ issuer_id: issuerId, evaluated_at: '2026-06-30T10:05:00Z', evaluations: [] }),
+    });
+  });
+  await target.route('**/api/models/*/checkpoints', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: '[]',
+  }));
+  await target.route('**/api/analysis/taxonomy', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ sectors: [{ id: 'telecom', label: 'Telecom', aliases: ['Telecommunications'] }] }),
+  }));
+  await target.route('**/api/sector/feeds', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: '[]',
+  }));
+  await target.route('**/api/sector/reviews?**', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: '[]',
+  }));
+  await target.route('**/api/sponsors/*', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ sponsor: 'Fixture Sponsor', issuer_count: 0, avg_governance_risk_score: null, flag_counts: {}, issuers: [] }),
+  }));
+  await target.route('**/api/sponsors/', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: '[]',
   }));
 }

@@ -1,15 +1,19 @@
 "use client";
 
 import {
+  createContext,
+  useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useState,
   type ReactNode,
 } from "react";
 import type { AnalysisSurfaceName } from "@/lib/analysis-workbench";
 import type { RoleView } from "@/lib/api";
-import { getSurfaceComposition, type WorkbenchSlot } from "@/lib/persona-composition";
+import { getSurfaceComposition, type SurfaceComposition, type WorkbenchSlot } from "@/lib/persona-composition";
 import { useModalA11y } from "@/lib/use-modal-a11y";
+import { useScrollOwner } from "@/lib/use-scroll-owner";
 import { ModalBackdrop } from "./ModalBackdrop";
 import { useRoleView } from "./RoleViewProvider";
 import { DominantTableOwnerGuard } from "./DominantTableRegion";
@@ -26,6 +30,10 @@ export interface PersonaWorkbenchProps {
   utility?: ReactNode;
   finalization?: ReactNode;
   className?: string;
+  /** Keep an emphasized context/inspector slot in the narrow composition.
+   * Opt-in for governance surfaces whose leading control plane must not become
+   * a closed drawer at tablet/small-laptop widths. */
+  retainEmphasizedSupportOnNarrow?: boolean;
 }
 
 function useNarrowWorkbench() {
@@ -97,20 +105,43 @@ function PersonaDrawer({
   );
 }
 
-type SurfaceComposition = ReturnType<typeof getSurfaceComposition>;
+const WorkbenchCompositionContext = createContext<SurfaceComposition | null>(null);
+
+export function usePersonaComposition(surface: AnalysisSurfaceName, persona?: RoleView): SurfaceComposition {
+  const provider = useRoleView();
+  return getSurfaceComposition(surface, persona ?? provider.roleView);
+}
+
+/** @deprecated Prefer the public usePersonaComposition name. */
+export const useSurfaceComposition = usePersonaComposition;
+
+export function useWorkbenchComposition(): SurfaceComposition {
+  const composition = useContext(WorkbenchCompositionContext);
+  if (!composition) throw new Error("useWorkbenchComposition must be used within PersonaWorkbench");
+  return composition;
+}
 
 function usePersonaWorkbenchState(surface: AnalysisSurfaceName, activePersona: RoleView, composition: SurfaceComposition) {
   const narrow = useNarrowWorkbench();
   const [activeDrawer, setActiveDrawer] = useState<DrawerSlot | null>(null);
-  const [openPanels, setOpenPanels] = useState(() => defaultPanelState(composition.defaultOpenPanels));
+  const panelDefaultsKey = `${surface}:${activePersona}`;
+  const [panelState, setPanelState] = useState(() => ({
+    key: panelDefaultsKey,
+    panels: defaultPanelState(composition.defaultOpenPanels),
+  }));
+  const openPanels = panelState.key === panelDefaultsKey
+    ? panelState.panels
+    : defaultPanelState(composition.defaultOpenPanels);
   const drawerTitleId = useId();
   const contextPanelId = useId();
   const inspectorPanelId = useId();
 
-  useEffect(() => {
-    setOpenPanels(defaultPanelState(composition.defaultOpenPanels));
+  useLayoutEffect(() => {
+    setPanelState((current) => current.key === panelDefaultsKey
+      ? current
+      : { key: panelDefaultsKey, panels: defaultPanelState(composition.defaultOpenPanels) });
     setActiveDrawer(null);
-  }, [activePersona, composition.defaultOpenPanels, surface]);
+  }, [composition.defaultOpenPanels, panelDefaultsKey]);
 
   useEffect(() => {
     if (!narrow) setActiveDrawer(null);
@@ -118,12 +149,25 @@ function usePersonaWorkbenchState(surface: AnalysisSurfaceName, activePersona: R
 
   const toggleSupportingPanel = (slot: DrawerSlot) => {
     if (narrow) setActiveDrawer(slot);
-    else setOpenPanels((current) => ({ ...current, [slot]: !current[slot] }));
+    else setPanelState((current) => {
+      const panels = current.key === panelDefaultsKey
+        ? current.panels
+        : defaultPanelState(composition.defaultOpenPanels);
+      return { key: panelDefaultsKey, panels: { ...panels, [slot]: !panels[slot] } };
+    });
   };
   return { activeDrawer, contextPanelId, drawerTitleId, inspectorPanelId, narrow, openPanels, setActiveDrawer, toggleSupportingPanel };
 }
 
 type WorkbenchState = ReturnType<typeof usePersonaWorkbenchState>;
+
+function retainedNarrowSupport(props: PersonaWorkbenchProps, state: WorkbenchState, composition: SurfaceComposition): DrawerSlot | null {
+  if (!props.retainEmphasizedSupportOnNarrow || !state.narrow) return null;
+  const slot = composition.emphasizedSlot;
+  if (slot === "context" && props.context) return slot;
+  if (slot === "inspector" && props.inspector) return slot;
+  return null;
+}
 
 function SupportTrigger({ slot, state }: { slot: DrawerSlot; state: WorkbenchState }) {
   const context = slot === "context";
@@ -149,19 +193,23 @@ function SupportingPanelNav({ context, inspector, state }: { context?: ReactNode
   );
 }
 
-function workbenchSlots(props: PersonaWorkbenchProps, state: WorkbenchState): Record<WorkbenchSlot, ReactNode> {
+function workbenchSlots(props: PersonaWorkbenchProps, state: WorkbenchState, composition: SurfaceComposition): Record<WorkbenchSlot, ReactNode> {
+  const retained = retainedNarrowSupport(props, state, composition);
   return {
     decision: props.decision,
     primary: props.primary,
-    context: state.narrow || !state.openPanels.context ? null : props.context,
-    inspector: state.narrow || !state.openPanels.inspector ? null : props.inspector,
+    context: (state.narrow && retained !== "context") || !state.openPanels.context ? null : props.context,
+    inspector: (state.narrow && retained !== "inspector") || !state.openPanels.inspector ? null : props.inspector,
     utility: props.utility,
     finalization: props.finalization,
   };
 }
 
 function visibleSupportOrder(composition: SurfaceComposition, props: PersonaWorkbenchProps, state: WorkbenchState): DrawerSlot[] {
-  if (state.narrow) return [];
+  if (state.narrow) {
+    const retained = retainedNarrowSupport(props, state, composition);
+    return retained ? [retained] : [];
+  }
   return composition.slotOrder.filter((slot): slot is DrawerSlot => {
     if (slot !== "context" && slot !== "inspector") return false;
     const supplied = slot === "context" ? props.context : props.inspector;
@@ -170,7 +218,7 @@ function visibleSupportOrder(composition: SurfaceComposition, props: PersonaWork
 }
 
 function WorkbenchComposition({ composition, props, state }: { composition: SurfaceComposition; props: PersonaWorkbenchProps; state: WorkbenchState }) {
-  const slots = workbenchSlots(props, state);
+  const slots = workbenchSlots(props, state, composition);
   const supportOrder = visibleSupportOrder(composition, props, state);
   const gridAreaFor = (slot: WorkbenchSlot) => {
     if (slot === supportOrder[0]) return "support-a";
@@ -180,11 +228,48 @@ function WorkbenchComposition({ composition, props, state }: { composition: Surf
   return (
     <div className={`persona-workbench__composition persona-workbench__composition--supports-${supportOrder.length}`} data-visible-support-count={supportOrder.length}>
       {composition.slotOrder.map((slot) => slots[slot] ? (
-        <section key={slot} id={slot === "context" ? state.contextPanelId : slot === "inspector" ? state.inspectorPanelId : undefined} className={`persona-workbench__slot persona-workbench__slot--${slot}`} data-slot={slot} data-grid-area={gridAreaFor(slot)} style={{ gridArea: gridAreaFor(slot) }}>
-          {slots[slot]}
-        </section>
+        <WorkbenchSlotSection key={slot} slot={slot} content={slots[slot]} composition={composition} state={state} gridArea={gridAreaFor(slot)} />
       ) : null)}
     </div>
+  );
+}
+
+function WorkbenchSlotSection({
+  slot,
+  content,
+  composition,
+  state,
+  gridArea,
+}: {
+  slot: WorkbenchSlot;
+  content: ReactNode;
+  composition: SurfaceComposition;
+  state: WorkbenchState;
+  gridArea: string;
+}) {
+  const scrollOwner = useScrollOwner<HTMLElement>();
+  const label = slot === "primary"
+    ? "Primary workbench"
+    : slot === "inspector"
+      ? "Evidence inspector"
+      : slot === "context"
+        ? "Workbench context"
+        : `${slot} workbench region`;
+  return (
+    <section
+      ref={scrollOwner.ref}
+      id={slot === "context" ? state.contextPanelId : slot === "inspector" ? state.inspectorPanelId : undefined}
+      role={scrollOwner.scrollable ? "region" : undefined}
+      tabIndex={scrollOwner.scrollable ? 0 : undefined}
+      aria-label={scrollOwner.scrollable ? label : undefined}
+      className={`persona-workbench__slot persona-workbench__slot--${slot} ${composition.emphasizedSlot === slot ? "persona-workbench__slot--emphasized" : ""}${scrollOwner.scrollable ? " focus-ring" : ""}`}
+      data-slot={slot}
+      data-emphasized={composition.emphasizedSlot === slot}
+      data-grid-area={gridArea}
+      style={{ gridArea }}
+    >
+      {content}
+    </section>
   );
 }
 
@@ -199,9 +284,10 @@ function ActivePersonaDrawer({ context, inspector, state }: { context?: ReactNod
 }
 
 function PersonaWorkbenchView({ activePersona, composition, props, state }: { activePersona: RoleView; composition: SurfaceComposition; props: PersonaWorkbenchProps; state: WorkbenchState }) {
+  const retained = retainedNarrowSupport(props, state, composition);
   return (
-    <div data-testid="persona-workbench" data-surface={props.surface} data-persona={activePersona} data-dominant-representation={composition.dominantRepresentation} data-summary-density={composition.summaryDensity} data-default-open-panels={composition.defaultOpenPanels.join(" ")} data-table-column-preset={composition.tableColumnPreset} className={`persona-workbench ${props.className ?? ""}`}>
-      <SupportingPanelNav context={props.context} inspector={props.inspector} state={state} />
+    <div data-testid="persona-workbench" data-surface={props.surface} data-persona={activePersona} data-dominant-representation={composition.dominantRepresentation} data-summary-density={composition.summaryDensity} data-default-open-panels={composition.defaultOpenPanels.join(" ")} data-table-column-preset={composition.tableColumnPreset} className={`persona-workbench persona-workbench--density-${composition.summaryDensity} persona-workbench--emphasis-${composition.emphasizedSlot} ${props.className ?? ""}`}>
+      <SupportingPanelNav context={retained === "context" ? undefined : props.context} inspector={retained === "inspector" ? undefined : props.inspector} state={state} />
       <WorkbenchComposition composition={composition} props={props} state={state} />
       <ActivePersonaDrawer context={props.context} inspector={props.inspector} state={state} />
     </div>
@@ -209,13 +295,14 @@ function PersonaWorkbenchView({ activePersona, composition, props, state }: { ac
 }
 
 export function PersonaWorkbench(props: PersonaWorkbenchProps) {
-  const provider = useRoleView();
-  const activePersona = props.persona ?? provider.roleView;
-  const composition = getSurfaceComposition(props.surface, activePersona);
+  const composition = usePersonaComposition(props.surface, props.persona);
+  const activePersona = composition.persona;
   const state = usePersonaWorkbenchState(props.surface, activePersona, composition);
   return (
-    <DominantTableOwnerGuard>
-      <PersonaWorkbenchView activePersona={activePersona} composition={composition} props={props} state={state} />
-    </DominantTableOwnerGuard>
+    <WorkbenchCompositionContext.Provider value={composition}>
+      <DominantTableOwnerGuard>
+        <PersonaWorkbenchView activePersona={activePersona} composition={composition} props={props} state={state} />
+      </DominantTableOwnerGuard>
+    </WorkbenchCompositionContext.Provider>
   );
 }

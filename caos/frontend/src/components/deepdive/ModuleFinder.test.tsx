@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ModuleFinder } from "./ModuleFinder";
+import { DEEP_DIVE_MODULES } from "@/lib/deepdive/module-groups";
 
 const getAnalystSettings = vi.fn();
 const updateAnalystWorkspace = vi.fn();
@@ -107,6 +108,27 @@ describe("ModuleFinder", () => {
     fireEvent.change(input, { target: { value: "liquidity" } });
     fireEvent.mouseDown(await screen.findByTitle("Unpin"));
     expect(updateAnalystWorkspace).toHaveBeenCalledTimes(2);
+  });
+
+  it("deduplicates, validates, and caps persisted pins and recents before rendering shortcuts", async () => {
+    const pins = DEEP_DIVE_MODULES.slice(0, 13).map((entry) => entry.id);
+    const recents = DEEP_DIVE_MODULES.slice(13, 23).map((entry) => entry.id);
+    getAnalystSettings.mockResolvedValue({
+      model_lanes: {},
+      email_intelligence: {},
+      workspace: {
+        deepdive_pins: [...pins, pins[0], "unknown"],
+        deepdive_recents: [...recents, recents[0], "unknown"],
+      },
+    });
+
+    render(<ModuleFinder onSelect={() => {}} activeId="CP-0" />);
+    expect(await screen.findByTitle(DEEP_DIVE_MODULES[11].name)).toBeTruthy();
+    expect(screen.queryByTitle(DEEP_DIVE_MODULES[12].name)).toBeNull();
+    for (const entry of DEEP_DIVE_MODULES.slice(13, 17)) {
+      expect(screen.getByTitle(entry.name)).toBeTruthy();
+    }
+    expect(screen.queryByTitle(DEEP_DIVE_MODULES[17].name)).toBeNull();
   });
 
   it("supports mouse focus, empty results, and roving keyboard selection", async () => {

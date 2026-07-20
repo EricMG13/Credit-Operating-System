@@ -272,7 +272,7 @@ function SortableFilterHeader<T>({ active, controller, dialog, props }: { active
         aria-label={`Sort ${props.label} ${nextSortVerb(dir)}`}
         title={`Sort ${props.label} ${nextSortVerb(dir)}`}
         onClick={(event) => { event.preventDefault(); event.stopPropagation(); sort(); }}
-        className={`inline-flex items-center gap-1 min-w-0 hover:text-caos-text transition-caos focus-ring ${props.className ?? ""}${dir ? " text-caos-accent" : " text-caos-muted"}`}
+        className={`inline-flex min-h-6 items-center gap-1 min-w-0 hover:text-caos-text transition-caos focus-ring ${props.className ?? ""}${dir ? " text-caos-accent" : " text-caos-muted"}`}
       >
         <span className="truncate">{props.children}</span><SortGlyph dir={dir} />
       </button>

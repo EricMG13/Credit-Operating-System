@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import type { DropzoneInputProps, DropzoneRootProps } from "react-dropzone";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -132,6 +132,8 @@ describe("upload step presentational controls", () => {
     };
     const { rerender } = render(<FileStep {...base} />);
 
+    expect(screen.getByText("Declared by analyst; system validation and approval are separate.")).toBeTruthy();
+
     fireEvent.click(screen.getByTestId("dropzone"));
     expect(rootClick).toHaveBeenCalled();
     expect(screen.getByRole("note").textContent).toContain("new-loan price");
@@ -141,8 +143,13 @@ describe("upload step presentational controls", () => {
     fireEvent.change(screen.getByDisplayValue("REPORTED · source disclosure"), { target: { value: "modelled" } });
     expect(setOrigin).toHaveBeenCalledWith("demo");
     expect(setMethod).toHaveBeenCalledWith("modelled");
-    fireEvent.click(screen.getByRole("button", { name: /Relative Value/ }));
+    const runMode = screen.getByRole("combobox", { name: "Run mode" });
+    expect(within(runMode).getAllByRole("option")).toHaveLength(RUN_MODES.length);
+    fireEvent.change(runMode, { target: { value: "rv" } });
     expect(setRunMode).toHaveBeenCalledWith("rv");
+    rerender(<FileStep {...base} runMode="rv" />);
+    expect(screen.getAllByText("R-RV · Relative Value")).toHaveLength(2);
+    expect(screen.getByText("RV refresh — pricing, comps and positioning")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Portfolio to evaluate this issuer against"), { target: { value: "portfolio-1" } });
     expect(setPortfolioId).toHaveBeenCalledWith("portfolio-1");
     fireEvent.click(screen.getByRole("button", { name: "UPLOAD 2 FILES & PROCESS" }));
@@ -195,19 +202,22 @@ describe("upload step presentational controls", () => {
       contextId: "context-1",
     };
     const { rerender } = render(<ResultStep {...base} />);
+    expect(screen.getByText("Ingesting · CP-0 processing.")).toBeTruthy();
     expect(screen.getByText("2/3 processing")).toBeTruthy();
     expect(screen.getByText(/— scan\.pdf/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "UPLOAD ANOTHER" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.queryByRole("button", { name: /RETRY/ })).toBeNull();
 
     rerender(<ResultStep {...base} uploading={false} progress={null} runOutcome={{ state: "failed", message: "queue offline" }} runError="manual offline" />);
+    expect(screen.getByText("Intake partially complete · 2/3 vaulted.")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "CP-0 intake completion" }).getAttribute("data-persistence")).toBe("partial");
     expect(screen.getByText(/2 documents vaulted/)).toBeTruthy();
     expect(screen.getByText(/run not started \(queue offline\)/)).toBeTruthy();
     expect(screen.getByText(/1 failed/)).toBeTruthy();
     expect(screen.getByText(/1 with no extractable text/)).toBeTruthy();
     expect(screen.getByTitle(/No extractable text/).textContent).toContain("0 chunks");
     expect(screen.getByRole("alert").textContent).toBe("manual offline");
-    fireEvent.click(screen.getByRole("button", { name: /START FULL CP-X RUN/ }));
+    fireEvent.click(screen.getByRole("button", { name: /START FULL ANALYSIS RUN/ }));
     fireEvent.click(screen.getByRole("button", { name: /RETRY 1 FAILED/ }));
     fireEvent.click(screen.getByRole("button", { name: "UPLOAD ANOTHER" }));
     fireEvent.click(screen.getByRole("button", { name: "OPEN ISSUER PROFILE →" }));
@@ -216,8 +226,20 @@ describe("upload step presentational controls", () => {
     expect(onReset).toHaveBeenCalledTimes(1);
     expect(overlay.openProfile).toHaveBeenCalledWith("issuer-1");
 
+    rerender(<ResultStep {...base} uploading={false} progress={null} outcomes={[result("scan-a.pdf", 0), result("scan-b.pdf", 0)]} okCount={2} failCount={0} totalChunks={0} />);
+    expect(screen.getByText("Vaulted · CP-0 not ready.")).toBeTruthy();
+    expect(screen.queryByText(/CP-0 ready/i)).toBeNull();
+
+    rerender(<ResultStep {...base} uploading={false} progress={null} outcomes={[result("readable.pdf", 2)]} okCount={1} failCount={0} totalChunks={2} />);
+    expect(screen.getByText("Vaulted · CP-0 not ready.")).toBeTruthy();
+    expect(screen.queryByText(/CP-0 ready/i)).toBeNull();
+
+    rerender(<ResultStep {...base} uploading={false} progress={null} outcomes={[{ name: "failed.pdf", error: "upload offline" }]} okCount={0} failCount={1} totalChunks={0} />);
+    expect(screen.getByText("Intake failed · no documents vaulted.")).toBeTruthy();
+    expect(screen.getByText("upload offline")).toBeTruthy();
+
     rerender(<ResultStep {...base} uploading={false} progress={null} failCount={0} runOutcome={{ state: "queued", runId: "run-123456789" }} />);
-    const graph = screen.getByRole("link", { name: "Open Execution Graph" });
+    const graph = screen.getByRole("link", { name: "Open dependency map" });
     expect(graph.getAttribute("href")).toContain("run=run-123456789");
     expect(graph.getAttribute("href")).toContain("context=context-1");
 
@@ -233,9 +255,13 @@ describe("upload step presentational controls", () => {
     expect(screen.getByRole("button", { name: "QUEUING RUN…" })).toBeTruthy();
 
     rerender(<ResultStep {...base} uploading={false} progress={null} failCount={0} modeMeta={undefined} runCreating={false} runCreated={null} />);
-    expect(screen.getByRole("button", { name: "START FULL CP-X RUN" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "START FULL ANALYSIS RUN" })).toBeTruthy();
 
     rerender(<ResultStep {...base} uploading={false} progress={null} outcomes={[]} okCount={0} failCount={0} totalChunks={0} selectedIssuer={null} />);
+    const completion = screen.getByRole("group", { name: "CP-0 intake completion" });
+    expect(completion.getAttribute("data-execution")).toBe("failed");
+    expect(completion.getAttribute("data-persistence")).toBe("unsaved");
+    expect(screen.queryByText(/CP-0 ready/i)).toBeNull();
     expect(screen.getByRole("link", { name: "OPEN ISSUER PROFILE →" }).getAttribute("href")).toBe("/issuers");
   });
 });

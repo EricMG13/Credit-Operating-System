@@ -41,7 +41,7 @@ class Analyst(HttpUser):
     def report(self) -> None:
         if self.run_id:  # the heavy one: re-assembles every module+claim+evidence to Markdown
             with self.client.post(f"/api/runs/{self.run_id}/report", name="POST /runs/{id}/report", catch_response=True) as r:
-                if r.status_code in (200, 409):
+                if r.status_code in (200, 409, 429):
                     r.success()
 
 

@@ -526,6 +526,38 @@ describe("Profile (distilled)", () => {
     expect(screen.getByText("no run")).toBeTruthy();
   });
 
+  it("never exposes seeded headline values in a live no-run profile", () => {
+    const noRunSeeded: IssuerProfile = {
+      ...richData,
+      latest_run: null,
+      issuer: { ...data.issuer, name: "Kestrel Chemicals", ticker: "KSTL" },
+      metrics: [
+        metric("net_leverage", "LTM", 2.3, "x", true, "seed"),
+        metric("interest_coverage", "LTM", 8.5, "x", true, "fixture"),
+        metric("revenue", "LTM", 1900, "$M", true, "demo_fixture"),
+      ],
+      signals: { recommendation: "OVERWEIGHT", covenant_headroom_turns: 4.2 },
+    };
+    const view = render(<Profile id="iss-1" data={noRunSeeded} />);
+
+    expect(screen.getByText("No completed issuer run")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open reference example" })).toBeTruthy();
+    expect(screen.queryByText("2.3×")).toBeNull();
+    expect(screen.queryByText("8.5×")).toBeNull();
+    expect(screen.queryByText("$1.9bn")).toBeNull();
+    expect(screen.queryByText("OVERWEIGHT")).toBeNull();
+    expect(screen.queryByText("Take-private financing")).toBeNull();
+    expect(screen.queryByText("Aggressive dividends")).toBeNull();
+    expect(screen.queryByText("Margin compression")).toBeNull();
+
+    view.rerender(<Profile id="iss-1" data={noRunSeeded} dataMode="reference" />);
+    expect(screen.getAllByText("2.3×").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("8.5×").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$1.9bn").length).toBeGreaterThan(0);
+    expect(screen.getByText("Take-private financing")).toBeTruthy();
+    expect(screen.getByText("Aggressive dividends")).toBeTruthy();
+  });
+
   it("covers clean empty-snapshot, material-finding, and earnings-signal variants", () => {
     freshnessState.checkpointId = "checkpoint-current";
     const variants: IssuerProfile = {
@@ -577,7 +609,10 @@ describe("Profile (distilled)", () => {
 });
 
 describe("Issuer profile route states", () => {
-  const search = (id: string | null) => vi.mocked(useSearchParams).mockReturnValue({ get: () => id } as unknown as ReturnType<typeof useSearchParams>);
+  const search = (id: string | null, mode: string | null = null) => vi.mocked(useSearchParams).mockReturnValue({
+    get: (key: string) => key === "id" ? id : key === "mode" ? mode : null,
+    toString: () => new URLSearchParams({ ...(id ? { id } : {}), ...(mode ? { mode } : {}) }).toString(),
+  } as unknown as ReturnType<typeof useSearchParams>);
 
   it("rejects a profile URL without an issuer id", async () => {
     search(null);
@@ -596,6 +631,15 @@ describe("Issuer profile route states", () => {
     resolve(data);
     expect(await screen.findByRole("heading", { name: "VMO2" })).toBeTruthy();
     expect(getIssuerProfile).toHaveBeenCalledWith("iss-1");
+    expect(getIssuerProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads the explicit Atlas Forge reference profile even when no live issuer is selected", async () => {
+    search(null, "reference");
+    vi.mocked(getIssuerProfile).mockResolvedValueOnce(data);
+    render(<IssuerProfilePage />);
+    expect(await screen.findByRole("heading", { name: "VMO2" })).toBeTruthy();
+    expect(getIssuerProfile).toHaveBeenCalledWith("a71f0000-0000-0000-0000-000000000001");
   });
 
   it.each([

@@ -4,6 +4,8 @@
 // existed (ConceptHotkeys kept its own list that omitted /issuers and /upload
 // and disagreed with ConceptNav's order).
 
+import type { RoleView } from "@/lib/api";
+
 export type NavItem = { href: string; icon: string; label: string };
 
 export type NavGroupId = "intake" | "analyze" | "decide" | "publish" | "monitor";
@@ -58,6 +60,65 @@ export const NAV_GROUPS: NavGroup[] = [
 
 /** Alt+←/→ stops, in visual nav order. */
 export const CONCEPT_CYCLE: string[] = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href));
+
+const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
+
+type RouteMetadata = {
+  pattern: string;
+  title: string;
+  exact?: boolean;
+};
+
+// Route headings share the workflow ontology above. Only utility routes and a
+// more-specific issuer profile pattern are additive metadata; workflow labels
+// are always derived from NAV_GROUPS so navigation and document titles cannot
+// drift into competing maps.
+export const ROUTE_METADATA: readonly RouteMetadata[] = [
+  ...NAV_ITEMS.map((item) => ({ pattern: item.href, title: item.label })),
+  { pattern: "/issuers/profile", title: "Issuer Profile" },
+  { pattern: "/issuers/[issuerId]", title: "Issuer Profile" },
+  { pattern: "/settings", title: "Settings" },
+  { pattern: "/", title: "CAOS Home", exact: true },
+];
+
+export const ROLE_PRIORITY_HREFS = {
+  analyst: ["/issuers", "/deepdive", "/model", "/reports", "/pipeline"],
+  pm: ["/command", "/portfolios", "/decisions", "/reports", "/monitor"],
+  qa: ["/monitor", "/pipeline", "/decisions", "/reports", "/upload"],
+} as const satisfies Record<RoleView, readonly string[]>;
+
+export function rolePriorityItems(role: RoleView): NavItem[] {
+  return ROLE_PRIORITY_HREFS[role].map((href) => NAV_ITEMS.find((item) => item.href === href)!);
+}
+
+export function navItemForPath(pathname: string): NavItem | null {
+  return NAV_ITEMS.find((item) => routeMatches(pathname, item.href)) ?? null;
+}
+
+function normalizedPathname(pathname: string | null | undefined): string {
+  const path = (pathname || "/").split(/[?#]/, 1)[0] || "/";
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
+
+function routeMetadataMatches(pathname: string, route: RouteMetadata): boolean {
+  if (route.exact) return pathname === route.pattern;
+  if (route.pattern.includes("[issuerId]")) {
+    const prefix = route.pattern.slice(0, route.pattern.indexOf("[issuerId]"));
+    const remainder = pathname.slice(prefix.length);
+    return pathname.startsWith(prefix) && Boolean(remainder.split("/")[0]);
+  }
+  return routeMatches(pathname, route.pattern);
+}
+
+/** Accurate route-level title, with longest/specific metadata winning. */
+export function routeTitleForPath(pathname: string | null | undefined): string {
+  if (!pathname) return "CAOS";
+  const normalized = normalizedPathname(pathname);
+  const match = ROUTE_METADATA
+    .filter((route) => routeMetadataMatches(normalized, route))
+    .sort((left, right) => right.pattern.length - left.pattern.length)[0];
+  return match?.title ?? "Page not found";
+}
 
 export function routeMatches(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");

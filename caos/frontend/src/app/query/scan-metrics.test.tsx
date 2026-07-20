@@ -84,7 +84,7 @@ describe("Query investigation workbench", () => {
     render(<QueryPage />);
     const input = await screen.findByLabelText("Query coverage");
     fireEvent.change(input, { target: { value: "which issuers are most levered" } });
-    expect(screen.getByRole("button", { name: "metric" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Compare metrics" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Run Query" }));
     await waitFor(() => expect(mocks.createQueryRun).toHaveBeenCalledWith(expect.objectContaining({
       context_id: "context-1", selected_lane: "metric", question: "which issuers are most levered",
@@ -105,10 +105,10 @@ describe("Query investigation workbench", () => {
     render(<QueryPage />);
     const input = await screen.findByLabelText("Query coverage");
     fireEvent.change(input, { target: { value: "explain the evidence" } });
-    expect(screen.getByRole("button", { name: "grounded" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Research with citations" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Run Query" }));
     expect(await screen.findByText("Question preserved")).toBeTruthy();
-    expect(screen.getByText(/metric · graph/)).toBeTruthy();
+    expect(screen.getByText(/Compare metrics · Map relationships/)).toBeTruthy();
     expect(screen.getByLabelText("Query coverage")).toBeTruthy();
   });
 
@@ -129,7 +129,7 @@ describe("Query investigation workbench", () => {
     });
     render(<QueryPage />);
     fireEvent.change(await screen.findByLabelText("Query coverage"), { target: { value: "show graph relationships" } });
-    expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Map relationships" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Run Query" }));
     expect(await screen.findByRole("group", { name: "Graph: Issuer relationships" })).toBeTruthy();
     expect(screen.getByText("2 nodes · 1 links")).toBeTruthy();
@@ -169,13 +169,13 @@ describe("Query investigation workbench", () => {
   it("keeps composer interactions inert until the analysis context is ready", async () => {
     mocks.context = null;
     const { rerender } = render(<QueryPage />);
-    expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("button", { name: "Map relationships" }).getAttribute("aria-disabled")).toBe("true");
     expect((screen.getByLabelText("Query coverage") as HTMLTextAreaElement).disabled).toBe(true);
 
     mocks.context = { id: "context-1", name: "Coverage", sector_id: null, query_session_id: null, filters: {}, selected: {} };
     rerender(<QueryPage />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "graph" }).getAttribute("aria-disabled")).not.toBe("true");
+      expect(screen.getByRole("button", { name: "Map relationships" }).getAttribute("aria-disabled")).not.toBe("true");
       expect((screen.getByLabelText("Query coverage") as HTMLTextAreaElement).disabled).toBe(false);
     });
   });
@@ -241,6 +241,9 @@ describe("Query investigation workbench", () => {
     fireEvent.change(await screen.findByLabelText("Query coverage"), { target: { value: "context A question" } });
     fireEvent.click(screen.getByRole("button", { name: "Run Query" }));
     await waitFor(() => expect(mocks.createQueryRun).toHaveBeenCalledWith(expect.objectContaining({ context_id: "context-1" })));
+    const runningAction = screen.getByRole("button", { name: "Run Query" });
+    expect(runningAction.getAttribute("aria-disabled")).toBe("true");
+    expect(runningAction.getAttribute("title")).toBe("Running…");
 
     mocks.context = { ...mocks.context!, id: "context-2", name: "Second context" };
     rerender(<QueryPage />);

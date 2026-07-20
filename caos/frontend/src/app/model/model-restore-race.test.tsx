@@ -16,6 +16,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   useSearchParams: () => ({ get: (k: string) => (k === "issuer" ? currentIssuer : null) }),
 }));
+vi.mock("@/lib/data-mode", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/data-mode")>()),
+  useDataMode: () => currentIssuer === REFERENCE_ISSUER ? "reference" : "live",
+}));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));

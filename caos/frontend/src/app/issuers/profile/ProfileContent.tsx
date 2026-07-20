@@ -18,6 +18,13 @@ const EMPTY_EARNINGS: EarningsSummary = {
   latest_period: null, prior_period: null, revenue_growth_pct: null,
   ebitda_growth_pct: null, margin_change_pp: null, monitoring_signals: [],
 };
+const EMPTY_PROFILE_METRICS: IssuerProfile["metrics"] = [];
+const EMPTY_PROFILE_SIGNALS: IssuerProfile["signals"] = {};
+const EMPTY_PROFILE_COVERAGE: IssuerProfile["coverage"] = {};
+const EMPTY_PROFILE_FINDINGS: IssuerProfile["findings"] = {};
+const EMPTY_PROFILE_BUSINESS: IssuerProfile["business"] = [];
+const EMPTY_PROFILE_SPONSOR: IssuerProfile["sponsor"] = {};
+const EMPTY_PROFILE_POINTS: string[] = [];
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { CrossDefaultDominoes } from "@/components/shared/CrossDefaultDominoes";
@@ -43,6 +50,9 @@ import { FreshnessIndicator } from "@/components/shared/FreshnessIndicator";
 import { SourceRef } from "@/components/ui/SourceRef";
 import { derivedFreshness, useIssuerFreshness } from "@/lib/engine/useFreshness";
 import { freshnessDetail, toProvFreshness } from "@/lib/freshness";
+import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+import { type DataMode, dataModeFromSearch, withDataMode } from "@/lib/data-mode";
+import { OpenReferenceExample } from "@/components/shared/DataMode";
 
 const PROFILE_URL_KEYS = ["tab"] as const;
 const PROFILE_TABS = [
@@ -257,7 +267,7 @@ const METRIC_TOOLTIP: Record<string, string> = {
 
 // Provenance → how trustworthy. demo_fixture is fabricated and flagged loud.
 const PROV: Record<string, { sev: string; label: string }> = {
-  run: { sev: "pass", label: "live run" },
+  run: { sev: "pass", label: "persisted run" },
   derived: { sev: "low", label: "derived" },
   seed: { sev: "low", label: "demo seed" },
   fixture: { sev: "info", label: "reference demo" },
@@ -412,7 +422,10 @@ function deskReadLine(earnings: EarningsSummary, hasRun: boolean): string {
 
 // fallow-ignore-next-line complexity -- Profile fetch, loading, error, and route state share one view boundary.
 function IssuerProfileView() {
-  const id = useSearchParams().get("id");
+  const searchParams = useSearchParams();
+  const dataMode = dataModeFromSearch(searchParams);
+  const requestedId = searchParams.get("id");
+  const id = dataMode === "reference" ? ATLF_REFERENCE_ISSUER_ID : requestedId;
   const [data, setData] = useState<IssuerProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -434,9 +447,9 @@ function IssuerProfileView() {
   }, [id]);
 
   if (loading) return <Splash msg="Loading profile…" />;
-  if (error || !data) return <ErrorView id={id} msg={error || "No data."} />;
+  if (error || !data) return <ErrorView id={requestedId} msg={error || "No data."} />;
 
-  return <Profile id={id!} data={data} />;
+  return <Profile id={id!} data={data} dataMode={dataMode} />;
 }
 
 function ErrorView({ id, msg }: { id: string | null; msg: string }) {
@@ -467,15 +480,34 @@ function ErrorView({ id, msg }: { id: string | null; msg: string }) {
 export function Profile({
   id,
   data,
+  dataMode = "live",
   isOverlay = false,
   onClose,
 }: {
   id: string;
   data: IssuerProfile;
+  dataMode?: DataMode;
   isOverlay?: boolean;
   onClose?: () => void;
 }) {
-  const { issuer, latest_run, signal_run_id, runs, metrics, signals, coverage, findings, business, sponsor, strengths, weaknesses } = data;
+  const {
+    issuer, latest_run, signal_run_id, runs,
+    metrics: suppliedMetrics, signals: suppliedSignals,
+    coverage: suppliedCoverage, findings: suppliedFindings,
+    business: suppliedBusiness, sponsor: suppliedSponsor,
+    strengths: suppliedStrengths, weaknesses: suppliedWeaknesses,
+  } = data;
+  // A read model may contain retained/example figures without a persisted run.
+  // In live mode those values have no issuer-run authority and must not render.
+  const suppressUnpersistedValues = dataMode === "live" && !latest_run;
+  const metrics = suppressUnpersistedValues ? EMPTY_PROFILE_METRICS : suppliedMetrics;
+  const signals = suppressUnpersistedValues ? EMPTY_PROFILE_SIGNALS : suppliedSignals;
+  const coverage = suppressUnpersistedValues ? EMPTY_PROFILE_COVERAGE : suppliedCoverage;
+  const findings = suppressUnpersistedValues ? EMPTY_PROFILE_FINDINGS : suppliedFindings;
+  const business = suppressUnpersistedValues ? EMPTY_PROFILE_BUSINESS : suppliedBusiness;
+  const sponsor = suppressUnpersistedValues ? EMPTY_PROFILE_SPONSOR : suppliedSponsor;
+  const strengths = suppressUnpersistedValues ? EMPTY_PROFILE_POINTS : suppliedStrengths;
+  const weaknesses = suppressUnpersistedValues ? EMPTY_PROFILE_POINTS : suppliedWeaknesses;
   const analysis = useAnalysisContext({ name: `${issuer.name} issuer profile` });
   const activeFreshnessArtifact = analysis.context?.artifacts.model_checkpoint_id
     ?? analysis.context?.artifacts.report_version_id;
@@ -493,10 +525,13 @@ export function Profile({
   const activeTab = PROFILE_TABS.some((tab) => tab.id === profileUrl.tab)
     ? profileUrl.tab as ProfileTab
     : "snapshot";
-  const earnings = data.earnings ?? EMPTY_EARNINGS;  // trust boundary — old/odd payloads may omit it
-  const deepHref = analysis.context
+  const earnings = suppressUnpersistedValues
+    ? EMPTY_EARNINGS
+    : data.earnings ?? EMPTY_EARNINGS;  // trust boundary — old/odd payloads may omit it
+  const baseDeepHref = analysis.context
     ? contextHref("/deepdive", analysis.context.id, { issuer: id })
     : "/deepdive?issuer=" + encodeURIComponent(id);
+  const deepHref = withDataMode(baseDeepHref, dataMode);
   // A Blocked run must not flash a committee-green stance: the recommendation
   // chip is rendered gated (idle sev + explicit label) so a screenshot can never
   // show the overweight without the block.
@@ -585,6 +620,7 @@ export function Profile({
   const syncPatch = analysis.patch;
   const syncContext = analysis.context;
   useEffect(() => {
+    if (dataMode === "reference") return;
     const context = syncContext;
     if (!context) return;
     const issuerIds = context.issuer_ids.includes(id) ? context.issuer_ids : [...context.issuer_ids, id];
@@ -604,7 +640,7 @@ export function Profile({
         "issuer-profile": { ...(current ?? {}), active_id: id, selected_ids: runId ? [runId] : [], view: activeTab },
       },
     }).catch(() => {});
-  }, [activeTab, syncContext, syncPatch, id, latest_run?.id]);
+  }, [activeTab, dataMode, syncContext, syncPatch, id, latest_run?.id]);
 
   const totalFindings = (findings.CRITICAL || 0) + (findings.MATERIAL || 0) + (findings.MINOR || 0);
 
@@ -641,8 +677,8 @@ export function Profile({
   const hasCompletedRun = !!latest_run;
   const profileAsOf = latest_run?.as_of_date ?? (hasCompletedRun ? "timestamp unavailable" : null);
   const profileAuthority = hasCompletedRun ? {
-    provenance: { origin: "LIVE" as const, method: "DERIVED" as const, freshness: toProvFreshness(profileFreshness), detail: profileFreshness ? freshnessDetail(profileFreshness) : "Central freshness evaluation unavailable for the issuer read-model.", asOf: profileAsOf as string },
-    approval: latest_run?.committee_status === "Approved" ? "RATIFIED" as const : "UNRATIFIED" as const,
+    provenance: { origin: dataMode === "reference" ? "REFERENCE" as const : "LIVE" as const, method: "DERIVED" as const, freshness: toProvFreshness(profileFreshness), detail: dataMode === "reference" ? "Seeded reference profile — not issuer data." : profileFreshness ? freshnessDetail(profileFreshness) : "Central freshness evaluation unavailable for the issuer read-model.", asOf: profileAsOf as string },
+    approval: dataMode === "reference" ? "UNRATIFIED" as const : latest_run?.committee_status === "Approved" ? "RATIFIED" as const : "UNRATIFIED" as const,
   } : undefined;
   const profileUnavailable = { kind: "unavailable" as const, message: "No completed run available" };
   const profileDecision: DecisionContextState = hasCompletedRun
@@ -666,7 +702,7 @@ export function Profile({
   const evidenceAtlas = (
     <Panel title="Evidence Atlas" right={<span className="tabular text-caos-2xs text-caos-muted uppercase tracking-wider">Latest run</span>}>
       <dl className="grid gap-1 p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Authority</dt><dd className="tabular text-caos-xs text-caos-text">{profileAuthority ? `${profileAuthority.provenance.origin} · ${profileAuthority.approval}` : "Unavailable — no completed run"}</dd></div>
+        <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Authority</dt><dd className="tabular text-caos-xs text-caos-text">{profileAuthority ? `${dataMode === "reference" ? "Reference fixture" : "Persisted run"} · ${profileAuthority.approval}` : "Unavailable — no completed run"}</dd></div>
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Freshness</dt><dd><FreshnessIndicator evaluation={profileFreshness} /></dd></div>
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Source readiness</dt><dd className="tabular text-caos-xs text-caos-text">{coverage.readiness_score != null ? `${Math.round(Number(coverage.readiness_score) * 100)}%` : "Unavailable"}</dd></div>
         <div className="flex items-center justify-between gap-3 border-b border-caos-border/40 py-1"><dt className="text-caos-xs text-caos-muted">Documents</dt><dd className="tabular text-caos-xs text-caos-text">{Number(coverage.documents) || 0}</dd></div>
@@ -679,6 +715,14 @@ export function Profile({
 
   const body = (
       <div className="flex flex-col gap-3">
+        {suppressUnpersistedValues ? (
+          <SurfaceState
+            kind="not-run"
+            title="No completed issuer run"
+            detail="Live issuer metrics and conclusions remain unavailable until a completed persisted run exists."
+            secondaryAction={<OpenReferenceExample />}
+          />
+        ) : null}
         <div role="tablist" aria-label="Issuer profile sections" className="flex items-center gap-1 overflow-x-auto border-b border-caos-border pb-2" onKeyDown={(event) => {
           if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
           event.preventDefault();
@@ -939,6 +983,7 @@ export function Profile({
         />
       </div>
   );
+  const displayedBody = body;
 
   return (
     <EnterprisePage kind="object"
@@ -980,11 +1025,7 @@ export function Profile({
           ) : null}
         </ShellIdentity>
       }
-      primaryAction={
-        <Link href={deepHref} className="no-underline tabular text-caos-xs px-2 py-1 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos whitespace-nowrap shrink-0 focus-ring">
-          OPEN DEEP-DIVE →
-        </Link>
-      }
+      primaryAction={{ label: "OPEN DEEP-DIVE →", href: deepHref }}
       status={profileAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Latest run {profileAsOf}</span> : null}
       contextualControls={
         isOverlay && onClose ? (
@@ -1004,7 +1045,7 @@ export function Profile({
       }}
     >
       <div className="flex-1 min-h-0 overflow-auto p-2.5 md:p-3 flex flex-col gap-3">
-        {body}
+        {displayedBody}
       </div>
 
       {/* Issuer-scoped jumps — static desk function bar (Deep-Dive stays the
@@ -1014,7 +1055,7 @@ export function Profile({
         {ISSUER_ACTIONS.map((a) => (
           <Link
             key={a.href}
-            href={`${a.href}${encodeURIComponent(id)}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`}
+            href={withDataMode(`${a.href}${encodeURIComponent(id)}${analysis.context ? `&context=${encodeURIComponent(analysis.context.id)}` : ""}`, dataMode)}
             className="no-underline tabular text-caos-xs uppercase tracking-wider px-2 py-1 rounded text-caos-muted hover:text-caos-text hover:bg-caos-elevated transition-caos focus-ring"
           >
             {a.label}

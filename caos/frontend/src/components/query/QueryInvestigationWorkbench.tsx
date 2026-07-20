@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ConceptNav } from "@/components/shared/ConceptNav";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
-import { EnterprisePage } from "@/components/shared/EnterprisePage";
+import { EnterprisePage, type PageAction } from "@/components/shared/EnterprisePage";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { ActionReason } from "@/components/shared/ActionReason";
@@ -64,6 +64,16 @@ function inferLane(question: string): QueryRun["selected_lane"] {
   if (/\b(graph|link|connected|relationship|contagion|lineage)\b/i.test(question)) return "graph";
   if (/\b(why|explain|evidence|source|caveat|thesis)\b/i.test(question)) return "grounded";
   return "metric";
+}
+
+const QUERY_LANE_LABELS: Record<QueryRun["selected_lane"], string> = {
+  metric: "Compare metrics",
+  graph: "Map relationships",
+  grounded: "Research with citations",
+};
+
+function queryLaneLabel(lane: QueryRun["selected_lane"]) {
+  return QUERY_LANE_LABELS[lane];
 }
 
 function decisionAuthority(authority: AuthorityEnvelope): DecisionAuthority {
@@ -411,7 +421,7 @@ function MetricLaneResult({ run, onCitation }: { run: QueryRun; onCitation?: Cit
       <div className="rounded-md border border-caos-border bg-caos-panel p-3">
         <div className="flex flex-wrap items-center gap-2">
           <AnalysisStateBadge state={run.status} />
-          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Native {run.selected_lane} view</span>
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{queryLaneLabel(run.selected_lane)}</span>
           {model.levelCaveat ? <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning" title="This lane ranks by current level, not by period-over-period change. Δ metrics are not yet available.">△ ranked by level, not change</span> : null}
         </div>
         {model.headline !== run.question ? <p className="mt-2 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{run.question}</p> : null}
@@ -423,7 +433,9 @@ function MetricLaneResult({ run, onCitation }: { run: QueryRun; onCitation?: Cit
 }
 
 function QueryIncompleteResult({ run }: { run: QueryRun }) {
-  const alternatives = Array.isArray(run.result.available_lanes) ? run.result.available_lanes.join(" · ") : "metric · graph";
+  const alternatives = Array.isArray(run.result.available_lanes)
+    ? run.result.available_lanes.filter((lane): lane is QueryRun["selected_lane"] => lane === "metric" || lane === "graph" || lane === "grounded").map(queryLaneLabel).join(" · ")
+    : `${queryLaneLabel("metric")} · ${queryLaneLabel("graph")}`;
   return <SurfaceState
     kind={run.status === "error" ? "error" : "partial"}
     title="Question preserved"
@@ -704,7 +716,7 @@ function queryRequiredAction(run: QueryRun | null) {
 function queryDecisionState(run: QueryRun | null): DecisionContextState {
   const missing = missingDependencies(run);
   return {
-    whatChanged: datum(run, run ? `Query completed via ${run.selected_lane}` : null, missing),
+    whatChanged: datum(run, run ? `Query completed via ${queryLaneLabel(run.selected_lane)}` : null, missing),
     whyItMatters: datum(run, run?.question ?? null, missing),
     requiredAction: datum(run, queryRequiredAction(run), missing),
     evidenceHealth: datum(run, run ? `${run.authority.source_ids.length} cited sources · ${run.authority.freshness}` : null, missing),
@@ -745,7 +757,7 @@ function LaneControls({ controller }: { controller: QueryController }) {
   const { contextReadyReason, state } = controller;
   return <div className="flex flex-wrap items-center gap-2">
     <span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">Selected lane</span>
-    {(["metric", "graph", "grounded"] as const).map((lane) => <Button key={lane} variant="secondary" reason={contextReadyReason} aria-pressed={state.composer.lane === lane} onClick={() => { state.composer.setLane(lane); state.composer.setManualLane(true); }} className={state.composer.lane === lane ? "border-caos-accent text-caos-text" : ""}>{lane}</Button>)}
+    {(["metric", "graph", "grounded"] as const).map((lane) => <Button key={lane} variant="secondary" reason={contextReadyReason} aria-pressed={state.composer.lane === lane} onClick={() => { state.composer.setLane(lane); state.composer.setManualLane(true); }} className={state.composer.lane === lane ? "border-caos-accent text-caos-text" : ""}>{queryLaneLabel(lane)}</Button>)}
     {state.composer.manualLane ? <ActionReason reason={contextReadyReason} className="tabular text-caos-2xs text-caos-accent focus-ring aria-disabled:opacity-40" onClick={() => { state.composer.setManualLane(false); state.composer.setLane(inferLane(state.composer.question)); }}>Use suggested lane</ActionReason> : null}
   </div>;
 }
@@ -791,7 +803,7 @@ function QueryUtilities({ state }: { state: QueryState }) {
       {state.history.historyError ? <p role="alert" className="mt-2 text-caos-critical">{state.history.historyError}</p> : null}
       <ol className="mt-2 space-y-1">{state.history.history.slice(0, 8).map((item) => <li key={item.id}><button type="button" className="w-full rounded-sm px-2 py-1.5 text-left text-caos-text hover:bg-caos-elevated focus-ring" onClick={() => selectHistoryRun(state, item)}>{item.question}</button></li>)}</ol>
     </div>
-    <div><h3 className="tabular uppercase tracking-wider text-caos-muted">Advanced graph</h3><label className="mt-2 block">Capability<input name="query-capability" autoComplete="off" value={state.capabilities.capabilityId} onChange={(event) => state.capabilities.setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label></div>
+    <details className="rounded-sm border border-caos-border p-2"><summary className="cursor-pointer tabular uppercase tracking-wider text-caos-muted focus-ring">Advanced</summary><div className="mt-2 grid gap-3"><label className="block">Capability ID<input name="query-capability" aria-label="Capability" autoComplete="off" value={state.capabilities.capabilityId} onChange={(event) => state.capabilities.setCapabilityId(event.target.value)} className="mt-1 w-full rounded-sm border border-caos-border bg-caos-bg px-2 py-1.5 text-caos-text focus-ring" /></label><div><h3 className="tabular uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div></div></details>
     {context ? <Link href={contextHref("/reports", context.id)} className="caos-action-secondary focus-ring no-underline">Open in Report Studio</Link> : null}
   </div>;
 }
@@ -803,13 +815,17 @@ function QueryIdentity({ context }: { context: QueryContextState["context"] }) {
 function QueryStatus({ contextState }: { contextState: QueryContextState }) {
   if (contextState.loading) return <span className="tabular text-caos-2xs text-caos-muted">Loading context…</span>;
   if (contextState.error) return <span className="text-caos-xs text-caos-critical">{contextState.error}</span>;
-  return <span className="tabular text-caos-2xs uppercase text-caos-accent">Composition only · permissions unchanged</span>;
+  return <span className="tabular text-caos-2xs uppercase text-caos-accent">Shared governed workspace</span>;
 }
 
-function QueryPrimaryAction({ controller }: { controller: QueryController }) {
+function QueryPrimaryAction({ controller }: { controller: QueryController }): PageAction {
   const { contextReadyReason, state } = controller;
   const reason = contextReadyReason ?? (!state.composer.question.trim() ? "Enter a question first" : state.execution.running ? "Running…" : null);
-  return <Button variant="primary" onClick={() => void runQuery(state)} reason={reason}>{state.execution.running ? "Running…" : "Run Query"}</Button>;
+  return {
+    label: "Run Query",
+    onAction: () => { void runQuery(state); },
+    unavailableReason: reason,
+  };
 }
 
 function QueryResultSurface({ state }: { state: QueryState }) {
@@ -876,7 +892,6 @@ function QueryRunDetails({ state }: { state: QueryState }) {
   return <>
     <div className="mt-3"><AuthorityLine authority={run.authority} /></div>
     <QueryCitationRegister state={state} />
-    <div className="mt-4"><h3 className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Downstream consumers</h3><p className="mt-1 text-caos-xs text-caos-text">Deep-Dive · Report Studio · Command · Monitor</p></div>
   </>;
 }
 
@@ -895,7 +910,7 @@ function QueryWorkspace({ controller }: { controller: QueryController }) {
   const selectedRunError = !!controller.state.url.values.run && !!controller.state.history.historyError;
   const contextRail = run || selectedRunError
     ? <QueryComposer controller={controller} />
-    : <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer note"><p className="text-caos-xs leading-relaxed text-caos-muted">TIP · Declare the lane before running — metric ranks coverage, graph traverses relationships, grounded answers from cited documents.</p></section>;
+    : <section className="border border-caos-border bg-caos-panel/70 p-3" aria-label="Query composer note"><p className="text-caos-xs leading-relaxed text-caos-muted">TIP · Choose the method before running — compare metrics, map relationships, or research with citations.</p></section>;
   return <section aria-label="Query investigation workspace" className="caos-persona-route query-workbench min-h-0 flex-1 overflow-hidden p-2">
     <PersonaWorkbench
       surface="query"
@@ -918,7 +933,7 @@ export function QueryInvestigationWorkbench() {
     kind="analytical"
     identity={<QueryIdentity context={state.contextState.context} />}
     status={<QueryStatus contextState={state.contextState} />}
-    primaryAction={<QueryPrimaryAction controller={controller} />}
+    primaryAction={QueryPrimaryAction({ controller })}
     contextualControls={<>{headStat("Lane", state.composer.lane)}{headStat("History", `${state.history.history.length} runs`)}</>}
     utilityLabel="Query utilities"
     utilityControls={<QueryUtilities state={state} />}

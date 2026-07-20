@@ -176,6 +176,7 @@ export interface NotificationEventDTO {
   title: string;
   body: string | null;
   href: string | null;
+  action_label?: string | null;
   seen_at: string | null;
   created_at: string;
 }

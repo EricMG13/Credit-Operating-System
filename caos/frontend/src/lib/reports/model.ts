@@ -159,12 +159,13 @@ function deriveCreditKpis(input: Partial<ModelCol>) {
   // stress, no debt, zero interest) degrades to null rather than leaking
   // NaN/±Infinity into the grid — which `?.toFixed() ?? "—"` would print as
   // "Infinityx" since Infinity is a real number that survives optional chaining.
-  const div = (num: number, den: number): number | null => (den ? num / den : null);
-  c.srsec = div(c.rcf + c.tlb + c.ssn - c.cash, c.adj);
-  c.totlev = div(c.tdebt, c.adj);
-  c.netlev = div(c.ndebt, c.adj);
-  c.intcov = div(c.adj, c.int);
-  c.fcfdebt = div(c.fcf, c.tdebt);
+  const divByPositive = (num: number, den: number): number | null =>
+    Number.isFinite(num) && Number.isFinite(den) && den > 0 ? num / den : null;
+  c.srsec = divByPositive(c.rcf + c.tlb + c.ssn - c.cash, c.adj);
+  c.totlev = divByPositive(c.tdebt, c.adj);
+  c.netlev = divByPositive(c.ndebt, c.adj);
+  c.intcov = c.adj > 0 ? divByPositive(c.adj, c.int) : null;
+  c.fcfdebt = divByPositive(c.fcf, c.tdebt);
 }
 
 function finishBalances(input: Ctx) {
@@ -240,7 +241,7 @@ function applyAnchor(c: ModelCol, a: ModelAnchor): void {
     deriveCreditKpis(c);
     c.intcov = null;
   }
-  c.netlev = c.adj ? c.ndebt / c.adj : null;
+  c.netlev = c.adj > 0 ? c.ndebt / c.adj : null;
   c.totlev = null;
   c.srsec = null;
   c.fcfdebt = null;
@@ -451,12 +452,15 @@ export function buildModel(sev: number = 1, OV: Overrides = {}, anchor?: ModelAn
     // the unrealised remainder is deducted, leaving reported EBITDA unchanged.
     const abAccts = ADDBACKS.map((a) => p.ab * a.w);
     const abAdj = ADDBACKS.reduce((s, a, i) => s + abAccts[i] * A[a.key], 0);
-    const sofrDebtInterest = rcf * (A.sofrRate + 0.035) + p.tlb * (A.sofrRate + 0.0375) + 900 * (A.sofrRate + 0.0425);
-    const fixedInterest = 200 * 0.10;
+    const baselineSofr = p.sofr / 100;
+    const effectiveSofr = Math.max(0, baselineSofr + A.sofrDelta);
+    const effectiveSofrPct = Math.round(effectiveSofr * 1e12) / 1e10;
+    const floatingDebt = rcf + p.tlb + 900;
+    const rateDeltaInterest = floatingDebt * (effectiveSofr - baselineSofr);
     return fCtx(key, fLabels[i], kind, {
-      ab: abAdj, abAccts, oth: p.oth, othf: p.othf, tlb: p.tlb, sofr: A.sofrRate * 100, days: p.days,
+      ab: abAdj, abAccts, oth: p.oth, othf: p.othf, tlb: p.tlb, sofr: effectiveSofrPct, days: p.days,
       adj: adj + (abAdj - p.ab), gpmF: p.gpmF + A.dGpm, daPct: A.daPct,
-      int: (sofrDebtInterest + fixedInterest) * A.mInt, leases: 10 * A.mLeases, tax: p.tax * A.mTax, wc: p.wc * A.mWc,
+      int: (p.int + rateDeltaInterest) * A.mInt, leases: 10 * A.mLeases, tax: p.tax * A.mTax, wc: p.wc * A.mWc,
       capexPct: p.capexPct * A.mCapex, acq: p.acq * A.mAcq, diss: p.diss * A.mDiss, div: A.divDelta,
       segA: seg.a, segD: seg.d, segF: seg.f, rcf, ssn: 900, sub: 200,
     }, pc, prior);

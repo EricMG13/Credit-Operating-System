@@ -1052,6 +1052,9 @@ async def list_sector_reviews(
     stmt = select(SectorReviewRun).where(SectorReviewRun.analyst_id == caller.id)
     if context_id:
         await _owned_analysis_context(db, context_id, caller.id)
+        stmt = stmt.where(
+            SectorReviewRun.payload["context_id"].as_string() == context_id
+        )
     if sector_id:
         canonical = canonical_sector_id(sector_id)
         if canonical is None:

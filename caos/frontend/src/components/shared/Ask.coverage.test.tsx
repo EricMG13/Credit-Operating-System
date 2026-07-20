@@ -93,7 +93,8 @@ vi.mock("@/lib/analysis-workbench", () => ({
   },
 }));
 
-import { AskLauncher, AskProvider, useAsk } from "./Ask";
+import { AskProvider, useAsk } from "./AskContext";
+import { AskLauncher, AskUtility } from "./AskShell";
 
 const RICH_NODE: GraphNode = {
   id: "node-1",
@@ -231,7 +232,7 @@ describe("Ask provider and launcher coverage", () => {
     state.pathname = "/query/investigation";
     let focusEvents = 0;
     window.addEventListener("caos:query-focus", () => { focusEvents += 1; });
-    render(<AskProvider><AskControls /><AskLauncher /></AskProvider>);
+    render(<AskProvider><AskControls /><AskUtility /><AskLauncher /></AskProvider>);
     expect(screen.queryByRole("button", { name: /Ask CAOS/ })).toBeNull();
     expect(document.querySelector(".caos-ask-dock")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "open plain" }));
@@ -240,33 +241,31 @@ describe("Ask provider and launcher coverage", () => {
     expect(screen.getByTestId("ask-state").textContent).toContain("closed");
   });
 
-  it("gates signed-out users and positions authenticated launchers by surface", () => {
+  it("gates signed-out users and exposes labelled shell and phone-fallback utilities without a dock", () => {
     state.user = null;
-    const view = render(<AskProvider><AskLauncher /></AskProvider>);
+    const view = render(<AskProvider><AskUtility /><AskLauncher /></AskProvider>);
     expect(screen.queryByRole("button", { name: /Ask/ })).toBeNull();
 
     state.user = { id: "analyst-1" };
     state.needsLogin = true;
-    view.rerender(<AskProvider><AskLauncher /></AskProvider>);
+    view.rerender(<AskProvider><AskUtility /><AskLauncher /></AskProvider>);
     expect(screen.queryByRole("button", { name: /Ask/ })).toBeNull();
 
     state.needsLogin = false;
     state.pathname = "/sector/industrials";
-    view.rerender(<AskProvider><AskLauncher /></AskProvider>);
-    expect(screen.getByRole("button", { name: /Ask/ }).className).toContain("bottom-16");
-
-    state.pathname = "/reports";
-    view.rerender(<AskProvider><AskLauncher /></AskProvider>);
-    expect(screen.getByRole("button", { name: /Ask/ }).className).toContain("bottom-3");
+    view.rerender(<AskProvider><AskUtility /><AskLauncher /></AskProvider>);
+    expect(screen.getByRole("button", { name: "Ask CAOS utility" }).className).not.toContain("fixed");
+    expect(screen.getByRole("button", { name: "Ask CAOS phone utility" }).className).toContain("caos-ask-phone-trigger");
+    expect(document.querySelector(".caos-ask-dock")).toBeNull();
   });
 
   it("lets Deep-Dive own the open chat while the global launcher only owns its trigger", () => {
     state.pathname = "/deepdive";
     render(<AskProvider><AskControls /><AskLauncher /></AskProvider>);
-    expect(document.querySelector(".caos-ask-dock")).not.toBeNull();
+    expect(document.querySelector(".caos-ask-dock")).toBeNull();
     fireEvent.click(screen.getByTitle(/Ask CAOS/));
     expect(screen.getByTestId("ask-state").textContent).toContain("open");
-    expect(document.querySelector(".caos-ask-dock")).not.toBeNull();
+    expect(document.querySelector(".caos-ask-dock")).toBeNull();
     expect(screen.queryByTestId("issuer-chat")).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Ask with Query" })).toBeNull();
   });
@@ -275,7 +274,7 @@ describe("Ask provider and launcher coverage", () => {
     state.pathname = "/model";
     const view = render(<AskProvider><AskLauncher /></AskProvider>);
     fireEvent.click(screen.getByTitle(/Ask CAOS/));
-    expect(screen.getByTestId("issuer-chat").textContent).toContain("reference issuerfixture run");
+    expect((await screen.findByTestId("issuer-chat")).textContent).toContain("reference issuerfixture run");
     expect(state.liveRun).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "close issuer chat" }));
 
@@ -297,7 +296,7 @@ describe("Ask provider and launcher coverage", () => {
     render(<AskProvider><AskLauncher /></AskProvider>);
     fireEvent.click(screen.getByTitle(/Ask CAOS/));
     await waitFor(() => expect(state.getIssuer).toHaveBeenCalled());
-    expect(screen.getByTestId("issuer-chat").textContent).toContain("reference issuerlive run");
+    expect((await screen.findByTestId("issuer-chat")).textContent).toContain("reference issuerlive run");
   });
 });
 
@@ -371,6 +370,9 @@ describe("Ask cross-issuer query coverage", () => {
     await openAsk();
     fireEvent.click(await screen.findByText("Map today's closest credit peers"));
     expect(await screen.findByText("Peer graph")).toBeTruthy();
+    const askDialog = screen.getByRole("dialog", { name: "Ask with Query" });
+    expect(askDialog.querySelector("main")).toBeNull();
+    expect(screen.getByRole("region", { name: "Ask results" })).toBeTruthy();
     expect(screen.getByText("rv table")).toBeTruthy();
     expect(screen.getByText("Observed data only")).toBeTruthy();
     expect(screen.getByText(/12 issuers/)).toBeTruthy();
@@ -386,6 +388,7 @@ describe("Ask cross-issuer query coverage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "select graph node" }));
     const reader = screen.getByRole("complementary", { name: "Node detail reader" });
+    expect(reader.className).toContain("caos-ask-reader");
     expect(reader.textContent).toContain("document chunk");
     expect(reader.textContent).toContain("First-lien leverage evidence");
     expect(reader.textContent).toContain("Capital structure");

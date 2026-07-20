@@ -146,7 +146,7 @@ const CASE_FIELD_LABELS: [keyof CaseAssumptions, string, RowFormat][] = [
   ["mInt", "× cash interest", "x"], ["mLeases", "× leases", "x"], ["mTax", "× cash taxes", "x"],
   ["mWc", "× changes in WC", "x"], ["mCapex", "× capex", "x"], ["mAcq", "× acquisitions", "x"], ["mDiss", "× debt issue/(repay)", "x"],
   ["divDelta", "Dividends $/yr", "m"],
-  ["sofrRate", "SOFR rate", "p"], ["euriborRate", "EURIBOR rate", "p"], ["soniaRate", "SONIA rate", "p"],
+  ["sofrDelta", "SOFR delta", "p"],
 ];
 
 function buildAssumptionsSheet(wb: ExcelJS.Workbook, a: Assumptions, prov: Provenance, runId?: string | null): void {

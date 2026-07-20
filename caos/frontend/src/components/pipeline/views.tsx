@@ -4,12 +4,10 @@
 // rail, and orchestrator event log (port of design bundle concept-b.jsx).
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  ancestorsOf, descendantsOf, DRIVERS, EDGES, LAYERS, MODULES,
-  NODE_LIMITS, NODE_QA, NODE_REQS, SIM_PLAN, type Driver, type PlanStep,
-} from "@/lib/pipeline/data";
+import type { Driver, NodeReq, PlanStep } from "@/lib/pipeline/data";
+import { EDGES, MODULES } from "@/lib/pipeline/topology";
 import { type Sim, type SimEvent } from "@/lib/pipeline/sim-engine";
-import { planCounts } from "@/lib/pipeline/sim";
+import { planCounts } from "@/lib/pipeline/plan-counts";
 import { sevVar } from "@/lib/pipeline/sev";
 import { EvChip } from "@/components/reports/EvChip";
 import { Bar, Dot, Tag } from "./atoms";
@@ -18,32 +16,64 @@ import { SurfaceState } from "@/components/shared/SurfaceState";
 import { OutSections } from "@/components/deepdive/OutSections";
 import type { ModuleOutput } from "@/lib/deepdive/module-outputs";
 
-const COL_ORDER = ["L0", "ORCH", "L1", "L2", "L3", "L4", "L6", "L5", "INFRA"];
+const STAGE_DEFINITIONS = [
+  { id: "intake-routing", label: "Intake & routing", layers: ["L0", "ORCH"] },
+  { id: "credit-fact-base", label: "Credit fact base", layers: ["L1"] },
+  { id: "fundamental-analysis", label: "Fundamental analysis", layers: ["L2"] },
+  { id: "value-legal", label: "Value & legal", layers: ["L3", "L4"] },
+  { id: "committee-debate", label: "Committee debate", layers: ["L6"] },
+  { id: "qa-clearance", label: "QA clearance", layers: ["L5"] },
+  { id: "output-persistence", label: "Output & persistence", layers: ["INFRA"] },
+] as const;
+
+export const PIPELINE_STAGES = STAGE_DEFINITIONS.map((stage) => ({
+  ...stage,
+  moduleIds: MODULES.filter((module) => stage.layers.some((layer) => layer === module.layer)).map((module) => module.id),
+}));
+
+const STAGE_INDEX_BY_MODULE = new Map(PIPELINE_STAGES.flatMap((stage, index) => stage.moduleIds.map((moduleId) => [moduleId, index] as const)));
+
+export const STAGE_EDGE_BUNDLES = (() => {
+  const bundles = new Map<string, { sourceStage: number; targetStage: number; count: number; edges: [string, string][] }>();
+  EDGES.forEach((edge) => {
+    const sourceStage = STAGE_INDEX_BY_MODULE.get(edge[0]);
+    const targetStage = STAGE_INDEX_BY_MODULE.get(edge[1]);
+    if (sourceStage === undefined || targetStage === undefined || sourceStage === targetStage) return;
+    const key = `${sourceStage}:${targetStage}`;
+    const bundle = bundles.get(key) ?? { sourceStage, targetStage, count: 0, edges: [] };
+    bundle.count += 1;
+    bundle.edges.push(edge);
+    bundles.set(key, bundle);
+  });
+  return [...bundles.values()].sort((a, b) => a.sourceStage - b.sourceStage || a.targetStage - b.targetStage);
+})();
+
+export interface PipelineReferenceFixtures {
+  drivers: readonly Driver[];
+  nodeLimits: Record<string, string>;
+  nodeQa: Record<string, { id: string; sev: string; text: string }>;
+  nodeReqs: Record<string, NodeReq[]>;
+}
 
 /* ---------- graph geometry ---------- */
-const GW = 1490, GH = 596;
+const GW = 1480, GH = 620;
+const STAGE_X = 112;
+const STAGE_GAP = 208;
 function layoutNodes(): Record<string, { x: number; y: number }> {
   const pos: Record<string, { x: number; y: number }> = {};
-  COL_ORDER.forEach((layer, ci) => {
-    const mods = MODULES.filter((m) => m.layer === layer);
-    const x = 110 + ci * 158;
-    const spacing = Math.min(104, (GH - 60) / Math.max(1, mods.length));
+  PIPELINE_STAGES.forEach((stage, ci) => {
+    const mods = stage.moduleIds.map((moduleId) => MODULES.find((module) => module.id === moduleId)).filter((module): module is PipelineModule => Boolean(module));
+    const x = STAGE_X + ci * STAGE_GAP;
+    const spacing = mods.length > 1 ? (GH - 150) / (mods.length - 1) : 0;
     mods.forEach((m, i) => {
-      const y = GH / 2 + (i - (mods.length - 1) / 2) * spacing;
+      const y = mods.length > 1 ? 108 + i * spacing : GH / 2;
       pos[m.id] = { x, y };
     });
   });
   return pos;
 }
 const NODE_POS = layoutNodes();
-const MODULES_BY_LAYER = (() => {
-  const groups: Record<string, typeof MODULES> = {};
-  COL_ORDER.forEach((layer) => {
-    groups[layer] = MODULES.filter((m) => m.layer === layer);
-  });
-  return groups;
-})();
-const NW = 128, NH = 44;
+const NW = 184, NH = 58;
 type PipelineModule = (typeof MODULES)[number];
 
 function openSelectedModule(event: React.KeyboardEvent<HTMLButtonElement>, selected: boolean, moduleId: string, onOpen?: (id: string) => void) {
@@ -69,28 +99,34 @@ function graphEdgeOpacity(outOfScope: boolean, selected: string | null, active: 
   return active ? 0.95 : 0.16;
 }
 
-function GraphEdgePath({ edge, index, selected, scope, up, down }: { edge: (typeof EDGES)[number]; index: number; selected: string | null; scope: Set<string>; up: Set<string>; down: Set<string> }) {
-  const [source, target] = edge;
-  const start = NODE_POS[source], end = NODE_POS[target];
-  if (!start || !end) return null;
-  const x1 = start.x + NW / 2, y1 = start.y, x2 = end.x - NW / 2, y2 = end.y;
-  const midpoint = (x1 + x2) / 2;
-  const kind = graphEdgeKind(source, target, selected, up, down);
+function GraphEdgePath({ bundle, index, selected, scope, up, down }: { bundle: (typeof STAGE_EDGE_BUNDLES)[number]; index: number; selected: string | null; scope: Set<string>; up: Set<string>; down: Set<string> }) {
+  const x1 = STAGE_X + bundle.sourceStage * STAGE_GAP + NW / 2;
+  const x2 = STAGE_X + bundle.targetStage * STAGE_GAP - NW / 2;
+  const y = 74 + (index % 4) * 5;
+  const activeEdge = selected ? bundle.edges.find(([source, target]) => source === selected || target === selected) : undefined;
+  const kind = activeEdge ? graphEdgeKind(activeEdge[0], activeEdge[1], selected, up, down) : "idle";
   const active = kind !== "idle";
-  const stroke = { up: "var(--caos-accent)", down: "#a855f7", idle: "#4a4a60" }[kind];
-  const opacity = graphEdgeOpacity(!scope.has(source) || !scope.has(target), selected, active);
-  return <path key={index} d={`M ${x1} ${y1} C ${midpoint} ${y1}, ${midpoint} ${y2}, ${x2} ${y2}`} fill="none" stroke={stroke} strokeWidth={active ? 1.6 : 1.2} opacity={opacity} />;
+  const stroke = { up: "var(--caos-accent)", down: "var(--tranche-sub)", idle: "var(--caos-border)" }[kind];
+  const outOfScope = bundle.edges.every(([source, target]) => !scope.has(source) || !scope.has(target));
+  const opacity = graphEdgeOpacity(outOfScope, selected, active);
+  const midpoint = (x1 + x2) / 2;
+  return (
+    <g data-testid="stage-edge-bundle">
+      <path d={`M ${x1} ${y} C ${midpoint} ${y - 12}, ${midpoint} ${y + 12}, ${x2} ${y}`} fill="none" stroke={stroke} strokeWidth={active ? 2 : Math.min(2.2, 1 + bundle.count / 12)} opacity={opacity} />
+      <text x={midpoint} y={y - 4} textAnchor="middle" fill="var(--caos-muted)" fontSize="9" opacity={Math.max(0.62, opacity)}>{bundle.count}</text>
+    </g>
+  );
 }
 
 function GraphEdges({ selected, scope, up, down }: { selected: string | null; scope: Set<string>; up: Set<string>; down: Set<string> }) {
-  return <svg width={GW} height={GH} className="absolute inset-0" aria-hidden="true" focusable="false">{EDGES.map((edge, index) => <GraphEdgePath key={index} edge={edge} index={index} selected={selected} scope={scope} up={up} down={down} />)}</svg>;
+  return <svg width={GW} height={GH} className="absolute inset-0" aria-hidden="true" focusable="false">{STAGE_EDGE_BUNDLES.map((bundle, index) => <GraphEdgePath key={`${bundle.sourceStage}:${bundle.targetStage}`} bundle={bundle} index={index} selected={selected} scope={scope} up={up} down={down} />)}</svg>;
 }
 
-function GraphNodeBadges({ inScope, moduleId, state }: { inScope: boolean; moduleId: string; state: string }) {
+function GraphNodeBadges({ inScope, moduleId, state, fixtures }: { inScope: boolean; moduleId: string; state: string; fixtures?: PipelineReferenceFixtures }) {
   return (
     <>
-      {inScope && NODE_QA[moduleId] ? <span role="img" aria-label="QA Finding" className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>⛨</span> : null}
-      {inScope && NODE_LIMITS[moduleId] ? <span role="img" aria-label="Has limitations" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
+      {inScope && fixtures?.nodeQa[moduleId] ? <span role="img" aria-label="QA Finding" className="ml-auto text-caos-xs" style={{ color: "var(--caos-critical-bright)" }}>⛨</span> : null}
+      {inScope && fixtures?.nodeLimits[moduleId] ? <span role="img" aria-label="Has limitations" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Has limitations"><StatusGlyph kind="warning" /></span> : null}
       {state === "held" ? <span role="img" aria-label="Held" className="ml-auto inline-flex items-center" style={{ color: "var(--caos-warning)" }} title="Held"><StatusGlyph kind="locked" /></span> : null}
     </>
   );
@@ -108,8 +144,9 @@ function moduleTitle(module: PipelineModule, inScope: boolean) {
 }
 
 function graphModuleOpacity(inScope: boolean, related: boolean, dimmed: boolean) {
-  if (!inScope) return 0.22;
-  return related && !dimmed ? 1 : 0.32;
+  if (!inScope) return 0.38;
+  if (related && !dimmed) return 1;
+  return dimmed ? 0.62 : 0.68;
 }
 
 function moduleProgress(inScope: boolean, state: string, progress: number) {
@@ -127,7 +164,7 @@ function moduleRuntime(module: PipelineModule, selected: string | null, scope: S
   };
 }
 
-function GraphModuleNode({ dim, down, module, onDoubleClick, onSelect, scope, selected, sim, up }: { dim: boolean; down: Set<string>; module: PipelineModule; onDoubleClick?: (id: string) => void; onSelect: (id: string | null) => void; scope: Set<string>; selected: string | null; sim: Sim; up: Set<string> }) {
+function GraphModuleNode({ dim, down, fixtures, module, onDoubleClick, onSelect, scope, selected, sim, up }: { dim: boolean; down: Set<string>; fixtures?: PipelineReferenceFixtures; module: PipelineModule; onDoubleClick?: (id: string) => void; onSelect: (id: string | null) => void; scope: Set<string>; selected: string | null; sim: Sim; up: Set<string> }) {
   const position = NODE_POS[module.id];
   const runtime = moduleRuntime(module, selected, scope, sim);
   const related = !selected || runtime.isSelected || up.has(module.id) || down.has(module.id);
@@ -135,13 +172,13 @@ function GraphModuleNode({ dim, down, module, onDoubleClick, onSelect, scope, se
   const className = "absolute text-left rounded border bg-caos-panel transition-caos hover:border-caos-accent/70 focus-ring " + (runtime.isSelected ? "caos-selected z-10" : "");
   return (
     <button type="button" onClick={() => onSelect(runtime.isSelected ? null : module.id)} onDoubleClick={() => onDoubleClick?.(module.id)} onKeyDown={(event) => openSelectedModule(event, runtime.isSelected, module.id, onDoubleClick)} title={moduleTitle(module, runtime.inScope)} aria-pressed={runtime.isSelected} className={className} style={{ left: position.x - NW / 2, top: position.y - NH / 2, width: NW, height: NH, borderColor: moduleBorderColor(runtime.isSelected, runtime.state, runtime.color, 40), borderStyle: runtime.inScope ? "solid" : "dashed", opacity: graphModuleOpacity(runtime.inScope, related, dimmed) }}>
-      <div className="flex items-center gap-1.5 px-2 pt-1.5 whitespace-nowrap">
+      <div className="px-2 pt-1.5 text-caos-xs font-medium text-caos-text leading-tight line-clamp-2">{module.name}</div>
+      <div className="flex items-center gap-1.5 px-2 pt-1 whitespace-nowrap">
         <Dot sev={runtime.state} pulse={runtime.state === "running"} glyph />
-        <span className="tabular text-caos-md text-caos-text whitespace-nowrap">{module.id}</span>
-        <GraphNodeBadges inScope={runtime.inScope} moduleId={module.id} state={runtime.state} />
+        <span className="tabular text-caos-xs text-caos-muted whitespace-nowrap">{module.id}</span>
+        <GraphNodeBadges inScope={runtime.inScope} moduleId={module.id} state={runtime.state} fixtures={fixtures} />
       </div>
-      <div className="px-2 text-caos-xs font-medium text-caos-text/90 truncate leading-tight">{module.name}</div>
-      <div className="px-2 pt-[3px]"><Bar pct={moduleProgress(runtime.inScope, runtime.state, runtime.progress)} color={runtime.color} h={2} /></div>
+      {runtime.state !== "idle" ? <div className="px-2 pt-[3px]"><Bar pct={moduleProgress(runtime.inScope, runtime.state, runtime.progress)} color={runtime.color} h={2} /></div> : null}
     </button>
   );
 }
@@ -153,37 +190,76 @@ function swimlaneOpacity(inScope: boolean, state: string) {
 
 function swimlaneStateLabel(inScope: boolean, state: string) {
   if (!inScope) return "skip";
-  return state === "idle" ? "queued" : state;
+  return state === "idle" ? "planned" : state;
 }
 
-function SwimlaneModuleNode({ module, onDoubleClick, onSelect, scope, selected, sim }: { module: PipelineModule; onDoubleClick?: (id: string) => void; onSelect: (id: string | null) => void; scope: Set<string>; selected: string | null; sim: Sim }) {
+function SwimlaneModuleNode({ fixtures, module, onDoubleClick, onSelect, scope, selected, sim }: { fixtures?: PipelineReferenceFixtures; module: PipelineModule; onDoubleClick?: (id: string) => void; onSelect: (id: string | null) => void; scope: Set<string>; selected: string | null; sim: Sim }) {
   const runtime = moduleRuntime(module, selected, scope, sim);
   const className = "text-left rounded border bg-caos-panel px-2 py-1.5 transition-caos hover:border-caos-accent/70 focus-ring " + (runtime.isSelected ? "caos-selected" : "");
   return (
     <button type="button" onClick={() => onSelect(runtime.isSelected ? null : module.id)} onDoubleClick={() => onDoubleClick?.(module.id)} onKeyDown={(event) => openSelectedModule(event, runtime.isSelected, module.id, onDoubleClick)} title={moduleTitle(module, runtime.inScope)} aria-pressed={runtime.isSelected} className={className} style={{ borderColor: moduleBorderColor(runtime.isSelected, runtime.state, runtime.color, 33), borderStyle: runtime.inScope ? "solid" : "dashed", opacity: swimlaneOpacity(runtime.inScope, runtime.state) }}>
-      <div className="flex items-center gap-1.5"><Dot sev={runtime.state} pulse={runtime.state === "running"} /><span className="tabular text-caos-md text-caos-text">{module.id}</span><span className="tabular text-caos-2xs ml-auto" style={{ color: runtime.inScope ? runtime.color : "var(--caos-muted)" }}>{swimlaneStateLabel(runtime.inScope, runtime.state)}</span></div>
-      <div className="text-caos-xs text-caos-muted leading-tight mt-0.5">{module.name}</div>
-      <div className="mt-1"><Bar pct={moduleProgress(runtime.inScope, runtime.state, runtime.progress)} color={runtime.color} h={2} /></div>
-      {runtime.inScope && NODE_QA[module.id] ? <div className="mt-1"><Tag sev="critical">QA {NODE_QA[module.id].id}</Tag></div> : null}
-      {runtime.inScope && NODE_LIMITS[module.id] ? <div className="mt-1"><Tag sev="warning">LIMIT L-04</Tag></div> : null}
+      <div className="text-caos-xs text-caos-text leading-tight">{module.name}</div>
+      <div className="flex items-center gap-1.5 mt-0.5"><Dot sev={runtime.state} pulse={runtime.state === "running"} /><span className="tabular text-caos-xs text-caos-muted">{module.id}</span><span className="tabular text-caos-2xs ml-auto" style={{ color: runtime.inScope ? runtime.color : "var(--caos-muted)" }}>{swimlaneStateLabel(runtime.inScope, runtime.state)}</span></div>
+      {runtime.state !== "idle" ? <div className="mt-1"><Bar pct={moduleProgress(runtime.inScope, runtime.state, runtime.progress)} color={runtime.color} h={2} /></div> : null}
+      {runtime.inScope && fixtures?.nodeQa[module.id] ? <div className="mt-1"><Tag sev="critical">QA {fixtures.nodeQa[module.id].id}</Tag></div> : null}
+      {runtime.inScope && fixtures?.nodeLimits[module.id] ? <div className="mt-1"><Tag sev="warning">LIMIT L-04</Tag></div> : null}
     </button>
   );
 }
 
-function SwimlaneColumn({ layer, onDoubleClick, onSelect, scope, selected, sim }: { layer: string; onDoubleClick?: (id: string) => void; onSelect: (id: string | null) => void; scope: Set<string>; selected: string | null; sim: Sim }) {
-  const meta = LAYERS.find((value) => value.id === layer);
-  const sequenceNote = layer === "L5" || layer === "L6" ? "Execution order — L6 Debate feeds L5 Governance sign-off" : undefined;
+function SwimlaneColumn({ fixtures, stage, onDoubleClick, onSelect, scope, selected, sim }: { fixtures?: PipelineReferenceFixtures; stage: (typeof PIPELINE_STAGES)[number]; onDoubleClick?: (id: string) => void; onSelect: (id: string | null) => void; scope: Set<string>; selected: string | null; sim: Sim }) {
   return (
     <div className="flex flex-col min-h-0 rounded border border-caos-border bg-caos-bg/50">
-      <div className="px-2 py-1.5 border-b border-caos-border shrink-0" title={sequenceNote}><div className="tabular text-caos-sm uppercase tracking-widest text-caos-text">{layer}</div><div className="text-caos-2xs text-caos-muted">{meta?.label ?? ""}{layer === "L5" ? " · after L6" : ""}</div></div>
-      <div className="flex-1 min-h-0 overflow-auto p-1.5 flex flex-col gap-1.5">{(MODULES_BY_LAYER[layer] || []).map((module) => <SwimlaneModuleNode key={module.id} module={module} onDoubleClick={onDoubleClick} onSelect={onSelect} scope={scope} selected={selected} sim={sim} />)}</div>
+      <div className="px-2 py-1.5 border-b border-caos-border shrink-0"><div className="text-caos-sm uppercase tracking-widest text-caos-text">{stage.label}</div><div className="tabular text-caos-2xs text-caos-muted">Stage {PIPELINE_STAGES.indexOf(stage) + 1} · {stage.moduleIds.length} modules</div></div>
+      <div className="flex-1 min-h-0 overflow-auto p-1.5 flex flex-col gap-1.5">{stage.moduleIds.map((moduleId) => MODULES.find((module) => module.id === moduleId)).filter((module): module is PipelineModule => Boolean(module)).map((module) => <SwimlaneModuleNode key={module.id} fixtures={fixtures} module={module} onDoubleClick={onDoubleClick} onSelect={onSelect} scope={scope} selected={selected} sim={sim} />)}</div>
+    </div>
+  );
+}
+
+function directGraphNeighbors(selected: string | null) {
+  if (!selected) return { up: new Set<string>(), down: new Set<string>() };
+  return {
+    up: new Set(EDGES.filter(([, target]) => target === selected).map(([source]) => source)),
+    down: new Set(EDGES.filter(([source]) => source === selected).map(([, target]) => target)),
+  };
+}
+
+export function PipelineStageTable({ selected, scope, sim }: { selected: string | null; scope: Set<string>; sim: Sim }) {
+  return (
+    <div tabIndex={0} aria-label="Ordered stage table; scroll to inspect all modules" className="min-h-[180px] min-w-0 overflow-auto rounded border border-caos-border bg-caos-bg/55 focus-ring">
+      <table aria-label="Ordered pipeline stages and modules" className="w-full border-collapse text-left">
+        <caption className="sr-only">Ordered pipeline stages and modules with current route state</caption>
+        <thead className="sticky top-0 z-10 bg-caos-panel">
+          <tr className="border-b border-caos-border text-caos-2xs uppercase tracking-widest text-caos-muted">
+            <th scope="col" className="px-2 py-1.5 font-medium">Stage</th>
+            <th scope="col" className="px-2 py-1.5 font-medium">Module</th>
+            <th scope="col" className="px-2 py-1.5 font-medium">State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {PIPELINE_STAGES.flatMap((stage, stageIndex) => stage.moduleIds.map((moduleId) => {
+            const pipelineModule = MODULES.find((candidate) => candidate.id === moduleId);
+            if (!pipelineModule) return null;
+            const inScope = scope.has(pipelineModule.id);
+            const state = sim.mods[pipelineModule.id]?.state ?? "idle";
+            const stateLabel = swimlaneStateLabel(inScope, state);
+            return (
+              <tr key={pipelineModule.id} aria-current={selected === pipelineModule.id ? "true" : undefined} className={`border-b border-caos-border/55 ${selected === pipelineModule.id ? "bg-caos-accent/10" : ""}`}>
+                <td className="px-2 py-1.5 align-top text-caos-xs text-caos-muted"><span className="tabular mr-1">{stageIndex + 1}</span>{stage.label}</td>
+                <td className="px-2 py-1.5 align-top"><span className="block text-caos-xs text-caos-text">{pipelineModule.name}</span><span className="tabular block text-caos-2xs text-caos-muted">{pipelineModule.id}</span></td>
+                <td className="tabular px-2 py-1.5 align-top text-caos-xs" style={{ color: inScope && state !== "idle" ? sevVar(state) : "var(--caos-muted)" }}>{stateLabel}</td>
+              </tr>
+            );
+          }))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 /* ---------- DAG view ---------- */
 export function GraphView({
-  sim, selected, onSelect, dim, scope, onDoubleClick,
+  sim, selected, onSelect, dim, scope, onDoubleClick, referenceFixtures,
 }: {
   sim: Sim;
   selected: string | null;
@@ -191,9 +267,11 @@ export function GraphView({
   dim: boolean;
   scope: Set<string>;
   onDoubleClick?: (id: string) => void;
+  referenceFixtures?: PipelineReferenceFixtures;
 }) {
-  const up = useMemo(() => (selected ? ancestorsOf(selected) : new Set<string>()), [selected]);
-  const down = useMemo(() => (selected ? descendantsOf(selected) : new Set<string>()), [selected]);
+  const neighbors = useMemo(() => directGraphNeighbors(selected), [selected]);
+  const up = neighbors.up;
+  const down = neighbors.down;
   const wrapRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: GW, h: GH });
   useEffect(() => {
@@ -215,47 +293,48 @@ export function GraphView({
   const scaledH = GH * scale;
 
   return (
-    <div
-      ref={wrapRef}
-      role="region"
-      tabIndex={0}
-      aria-label="Execution graph; scroll horizontally to inspect all module layers"
-      className="pipeline-graph-canvas focus-ring relative h-full min-h-[420px] overflow-auto overscroll-contain"
-    >
-      <div className="relative overflow-hidden" style={{ width: scaledW, height: scaledH }}>
-        <div className="absolute left-0 top-0 origin-top-left" style={{ width: GW, height: GH, transform: `scale(${scale})` }}>
-          <GraphEdges selected={selected} scope={scope} up={up} down={down} />
-      {COL_ORDER.map((l, ci) => {
-        const meta = LAYERS.find((x) => x.id === l);
-        const seqNote = l === "L5" || l === "L6" ? "Execution order — L6 Debate feeds L5 Governance sign-off" : undefined;
-        return (
-          <div key={l} className="absolute text-center" style={{ left: 110 + ci * 158 - NW / 2, top: 4, width: NW }} title={seqNote}>
-            <div className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">{l}</div>
-            <div className="text-caos-xs text-caos-muted">{meta ? meta.label : ""}{l === "L5" ? " · after L6" : ""}</div>
+    <div className="grid h-full min-h-0 gap-2 grid-rows-[minmax(420px,1fr)_minmax(180px,35%)] lg:grid-cols-[minmax(0,1fr)_minmax(280px,34%)] lg:grid-rows-1">
+      <div
+        ref={wrapRef}
+        role="region"
+        tabIndex={0}
+        aria-label="Execution graph; scroll horizontally to inspect all ordered stages"
+        className="pipeline-graph-canvas focus-ring relative min-h-[420px] overflow-auto overscroll-contain"
+      >
+        <div className="relative overflow-hidden" style={{ width: scaledW, height: scaledH }}>
+          <div className="absolute left-0 top-0 origin-top-left" style={{ width: GW, height: GH, transform: `scale(${scale})` }}>
+            <GraphEdges selected={selected} scope={scope} up={up} down={down} />
+            {PIPELINE_STAGES.map((stage, stageIndex) => (
+              <div key={stage.id} className="absolute text-center" style={{ left: STAGE_X + stageIndex * STAGE_GAP - NW / 2, top: 4, width: NW }}>
+                <div className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted">Stage {stageIndex + 1}</div>
+                <div className="text-caos-xs font-semibold text-caos-text">{stage.label}</div>
+                <div className="tabular text-caos-2xs text-caos-muted">{stage.moduleIds.length} modules</div>
+              </div>
+            ))}
+            {MODULES.map((module) => <GraphModuleNode key={module.id} dim={dim} down={down} fixtures={referenceFixtures} module={module} onDoubleClick={onDoubleClick} onSelect={onSelect} scope={scope} selected={selected} sim={sim} up={up} />)}
           </div>
-        );
-      })}
-      {MODULES.map((module) => <GraphModuleNode key={module.id} dim={dim} down={down} module={module} onDoubleClick={onDoubleClick} onSelect={onSelect} scope={scope} selected={selected} sim={sim} up={up} />)}
         </div>
       </div>
+      <PipelineStageTable selected={selected} scope={scope} sim={sim} />
     </div>
   );
 }
 
 /* ---------- swimlane view ---------- */
 export function SwimlaneView({
-  sim, selected, onSelect, scope, onDoubleClick,
+  sim, selected, onSelect, scope, onDoubleClick, referenceFixtures,
 }: {
   sim: Sim;
   selected: string | null;
   onSelect: (id: string | null) => void;
   scope: Set<string>;
   onDoubleClick?: (id: string) => void;
+  referenceFixtures?: PipelineReferenceFixtures;
 }) {
   return (
     <div className="h-full overflow-x-auto">
-      <div className="grid h-full gap-1.5 p-2 min-w-[1100px]" style={{ gridTemplateColumns: "repeat(9, 1fr)" }}>
-        {COL_ORDER.map((layer) => <SwimlaneColumn key={layer} layer={layer} onDoubleClick={onDoubleClick} onSelect={onSelect} scope={scope} selected={selected} sim={sim} />)}
+      <div className="grid h-full gap-1.5 p-2 min-w-[1120px]" style={{ gridTemplateColumns: `repeat(${PIPELINE_STAGES.length}, 1fr)` }}>
+        {PIPELINE_STAGES.map((stage) => <SwimlaneColumn key={stage.id} fixtures={referenceFixtures} stage={stage} onDoubleClick={onDoubleClick} onSelect={onSelect} scope={scope} selected={selected} sim={sim} />)}
       </div>
     </div>
   );
@@ -285,6 +364,7 @@ interface InspectorProps {
   // surface — "show me this module's evidence" — which was previously double-
   // click-only on the graph nodes (mouse-only, undiscoverable). (a11y H3)
   onOpen?: (id: string) => void;
+  referenceFixtures?: PipelineReferenceFixtures;
 }
 
 function selectedById<T extends { id: string }>(selected: string | null, values: readonly T[]): T | undefined {
@@ -296,21 +376,20 @@ function seededInspectorFixture<T>(available: boolean, selected: string | null, 
   return fixtures[selected] ?? null;
 }
 
-function inspectorModel({ sim, selected, plan, scope, isLive = false }: InspectorProps) {
+function inspectorModel({ sim, selected, plan, scope, isLive = false, referenceFixtures }: InspectorProps) {
   const m = selectedById(selected, MODULES);
   const planEntry = selectedById(selected, plan);
-  const base = selectedById(selected, SIM_PLAN);
   const inScope = Boolean(selected && scope.has(selected));
   const st = selected ? (sim.mods[selected]?.state || "idle") : "idle";
-  const deps = planEntry?.deps ?? base?.deps ?? [];
+  const deps = planEntry?.deps ?? [];
   const consumers = selected ? EDGES.filter(([source]) => source === selected).map(([, target]) => target) : [];
   // Seeded ATLF fixtures (keyed by module id) — only valid for the offline demo.
   // Suppress under a live run so they don't read as this run's QA / limitations.
   const degraded = ["warning", "held", "blocked"].includes(st);
-  const fixtureAvailable = inScope && !isLive;
-  const qa = seededInspectorFixture(fixtureAvailable, selected, NODE_QA);
-  const lim = seededInspectorFixture(fixtureAvailable, selected, NODE_LIMITS);
-  const reqs = seededInspectorFixture(fixtureAvailable && degraded, selected, NODE_REQS);
+  const fixtureAvailable = inScope && !isLive && Boolean(referenceFixtures);
+  const qa = seededInspectorFixture(fixtureAvailable, selected, referenceFixtures?.nodeQa ?? {});
+  const lim = seededInspectorFixture(fixtureAvailable, selected, referenceFixtures?.nodeLimits ?? {});
+  const reqs = seededInspectorFixture(fixtureAvailable && degraded, selected, referenceFixtures?.nodeReqs ?? {});
   return { consumers, deps, inScope, lim, m, planEntry, qa, reqs, selected, st };
 }
 
@@ -320,7 +399,7 @@ function EmptyInspector({ modeLabel, plan }: Pick<InspectorProps, "modeLabel" | 
   return (
     <div className="p-4 text-caos-xl text-caos-muted leading-relaxed max-w-[50ch]">
       <h2 className="text-caos-text font-medium mb-2 text-balance">Module Inspector</h2>
-      Select a module in the route graph or swimlanes to trace its <span style={{ color: "var(--caos-accent)" }}>upstream data lineage</span>, review <span style={{ color: "var(--caos-consumer)" }}>downstream consumers</span>, inspect execution payload logs, and view QA findings or limitations.
+      Select a module in the dependency map or stage lanes to trace source inputs, affected modules, run details, and QA findings or limitations.
       <div className="mt-3 tabular text-caos-sm text-caos-muted">{modeLabel} route · {planCounts(plan).total} modules in scope.</div>
     </div>
   );
@@ -334,7 +413,7 @@ function InspectorHeader({ model, onOpen }: { model: InspectorModel; onOpen?: (i
       <div className="flex items-center gap-2">
         <Dot sev={model.st} pulse={model.st === "running"} />
         <span className="tabular text-caos-xl text-caos-text">{model.m.id}</span>
-        <Tag sev={model.st}>{model.st === "idle" ? "queued" : model.st}</Tag>
+        <Tag sev={model.st}>{model.st === "idle" ? "planned" : model.st}</Tag>
         {onOpen ? <button type="button" onClick={() => onOpen(model.selected!)} title={`Open ${model.m.id} outputs${destination}`} className="ml-auto tabular text-caos-xs px-1.5 h-6 rounded border border-caos-border text-caos-accent hover:bg-caos-accent hover:text-caos-bg hover:border-caos-accent transition-caos whitespace-nowrap shrink-0 focus-ring">OPEN →</button> : null}
       </div>
       <h2 className="text-caos-2xl text-caos-text mt-1 font-medium text-balance">{model.m.name}</h2>
@@ -449,15 +528,16 @@ export function Inspector(props: InspectorProps) {
 
 /* ---------- CP-5B lineage rail ---------- */
 export function LineagePanel({
-  onPick, drivers, onOpenEvidence,
+  onPick, drivers, onOpenEvidence, catalog,
 }: {
   onPick: (d: Driver) => void;
   drivers: number[] | null;
   onOpenEvidence: (id: string) => void;
+  catalog: readonly Driver[];
 }) {
   const list = useMemo(() => {
-    return drivers ? DRIVERS.filter((d) => drivers.includes(d.n)) : DRIVERS;
-  }, [drivers]);
+    return drivers ? catalog.filter((d) => drivers.includes(d.n)) : catalog;
+  }, [catalog, drivers]);
   return (
     <div>
       {/* Default (no node selected) shows the full seeded reference register —

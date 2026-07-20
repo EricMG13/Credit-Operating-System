@@ -26,11 +26,16 @@ type LiveRunMock = {
 };
 
 const state = vi.hoisted(() => ({
+  dataMode: "live" as "live" | "reference",
   search: "issuer=a71f0000-0000-0000-0000-000000000001",
   pushes: [] as string[],
   replaces: [] as string[],
   runs: [] as Array<Record<string, unknown>>,
   listError: false,
+  simulationCalls: 0,
+  pipelineStatusCalls: 0,
+  freshnessCalls: 0,
+  liveRunCalls: 0,
   context: null as AnalysisContextMock | null,
   patch: vi.fn(),
   pipeline: { value: null, phase: "none", latest: null } as PipelineMock,
@@ -69,14 +74,25 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => <a href={href} {...props}>{children}</a>,
 }));
+vi.mock("@/lib/data-mode", () => ({
+  useDataMode: () => state.dataMode,
+  preserveDataModeInHref: (href: string, mode: string) => mode === "reference" ? `${href}${href.includes("?") ? "&" : "?"}mode=reference` : href,
+  withDataMode: (href: string, mode: string) => mode === "reference" ? `${href}${href.includes("?") ? "&" : "?"}mode=reference` : href,
+}));
 vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/shared/ShellIdentity", () => ({
   ShellIdentity: ({ title, badges }: { title: React.ReactNode; badges?: React.ReactNode }) => <div data-testid="identity"><span>{title}</span>{badges}</div>,
 }));
+type TestPageAction = { label: string; href?: string; onAction?: () => void; unavailableReason?: string | null };
+function renderPageAction(action?: TestPageAction) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href}>{action.label}</a>;
+  return <button type="button" aria-disabled={action.unavailableReason ? "true" : undefined} onClick={action.unavailableReason ? undefined : action.onAction}>{action.label}</button>;
+}
 vi.mock("@/components/shared/EnterprisePage", () => ({
   EnterprisePage: (props: {
     identity?: React.ReactNode;
-    primaryAction?: React.ReactNode;
+    primaryAction?: TestPageAction;
     status?: React.ReactNode;
     contextualControls?: React.ReactNode;
     utilityControls?: React.ReactNode;
@@ -85,7 +101,7 @@ vi.mock("@/components/shared/EnterprisePage", () => ({
   }) => (
     <main>
       <div data-testid="enterprise-identity">{props.identity}</div>
-      <div data-testid="primary">{props.primaryAction}</div>
+      <div data-testid="primary">{renderPageAction(props.primaryAction)}</div>
       <div data-testid="status">{props.status}</div>
       <div data-testid="contextual">{props.contextualControls}</div>
       <div data-testid="utility">{props.utilityControls}</div>
@@ -96,7 +112,7 @@ vi.mock("@/components/shared/EnterprisePage", () => ({
 }));
 vi.mock("@/components/shared/SubHeader", () => ({ SubHeader: ({ identity, contextualControls }: { identity?: React.ReactNode; contextualControls?: React.ReactNode }) => <header>{identity}{contextualControls}</header> }));
 vi.mock("@/components/shared/SurfaceState", () => ({
-  SurfaceState: ({ kind, title, detail, supporting, primaryAction, secondaryAction }: { kind: string; title: React.ReactNode; detail: React.ReactNode; supporting?: React.ReactNode; primaryAction?: React.ReactNode; secondaryAction?: React.ReactNode }) => <section data-testid={`surface-${kind}`}><h1>{title}</h1><p>{detail}</p>{supporting}{primaryAction}{secondaryAction}</section>,
+  SurfaceState: ({ kind, title, detail, supporting, primaryAction, secondaryAction, headingLevel = 3 }: { kind: string; title: React.ReactNode; detail: React.ReactNode; supporting?: React.ReactNode; primaryAction?: React.ReactNode; secondaryAction?: React.ReactNode; headingLevel?: number }) => <section data-testid={`surface-${kind}`}>{headingLevel === 2 ? <h2>{title}</h2> : <h3>{title}</h3>}<p>{detail}</p>{supporting}{primaryAction}{secondaryAction}</section>,
 }));
 vi.mock("@/components/shared/Panel", () => ({ Panel: ({ title, right, children }: { title: React.ReactNode; right?: React.ReactNode; children?: React.ReactNode }) => <section><h2>{title}</h2>{right}{children}</section> }));
 vi.mock("@/components/shared/WorkbenchToolbar", () => ({ WorkbenchToolbar: ({ title, count, viewLabel }: { title: React.ReactNode; count: React.ReactNode; viewLabel: React.ReactNode }) => <div>{title} · {count} · {viewLabel}</div> }));
@@ -123,12 +139,18 @@ vi.mock("@/components/pipeline/views", () => ({
   LiveLineagePanel: ({ output, loading, onOpenEvidence }: { output: unknown; loading: boolean; onOpenEvidence: (id: string) => void }) => <div>live lineage {String(Boolean(output))} loading {String(loading)}<button onClick={() => onOpenEvidence("E-LIVE")}>live evidence</button></div>,
 }));
 vi.mock("@/lib/pipeline/sim", () => ({
-  useSimRun: () => ({ sim: sim(), completed: 1, total: 4, playing: true, clock: "09:42" }),
+  useSimRun: () => {
+    state.simulationCalls += 1;
+    return { sim: sim(), completed: 0, total: 24, playing: false, clock: "09:42" };
+  },
 }));
-vi.mock("@/lib/pipeline/useLivePipeline", () => ({ useLivePipelineStatus: () => state.pipeline }));
-vi.mock("@/lib/engine/useLiveRun", () => ({ useLiveRun: () => state.liveRun }));
+vi.mock("@/lib/pipeline/useLivePipeline", () => ({ useLivePipelineStatus: () => { state.pipelineStatusCalls += 1; return state.pipeline; } }));
+vi.mock("@/lib/engine/useLiveRun", () => ({ useLiveRun: () => { state.liveRunCalls += 1; return state.liveRun; } }));
 vi.mock("@/lib/engine/useFreshness", () => ({
-  useIssuerFreshness: ({ runId }: { runId?: string | null }) => ({ run: runId ? { evaluation: { state: `state-${runId}` } } : null }),
+  useIssuerFreshness: ({ runId }: { runId?: string | null }) => {
+    state.freshnessCalls += 1;
+    return { run: runId ? { evaluation: { state: `state-${runId}` } } : null };
+  },
 }));
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
@@ -155,11 +177,16 @@ function run(id: string, issuer: string, status: string, extra: Record<string, u
 }
 
 beforeEach(() => {
+  state.dataMode = "live";
   state.search = `issuer=${REFERENCE_ISSUER}`;
   state.pushes = [];
   state.replaces = [];
   state.runs = [];
   state.listError = false;
+  state.simulationCalls = 0;
+  state.pipelineStatusCalls = 0;
+  state.freshnessCalls = 0;
+  state.liveRunCalls = 0;
   state.context = null;
   state.patch.mockReset().mockResolvedValue(null);
   state.pipeline = { value: null, phase: "none", latest: null };
@@ -170,17 +197,65 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("Pipeline route interaction coverage", () => {
+  it("keeps Live and Reference controller hooks runtime-isolated in both directions", async () => {
+    state.dataMode = "live";
+    state.search = "issuer=issuer-live";
+    state.pipeline = { value: null, phase: "none", latest: null };
+    const view = render(<PipelinePage />);
+    expect(await screen.findByText("No runs for this issuer")).toBeTruthy();
+    expect(state.simulationCalls).toBe(0);
+    expect(state.pipelineStatusCalls).toBeGreaterThan(0);
+    expect(state.liveRunCalls).toBeGreaterThan(0);
+
+    state.simulationCalls = 0;
+    state.pipelineStatusCalls = 0;
+    state.freshnessCalls = 0;
+    state.liveRunCalls = 0;
+    state.dataMode = "reference";
+    state.search = `issuer=${REFERENCE_ISSUER}&run=run-live-hidden&mode=reference`;
+    view.rerender(<PipelinePage />);
+
+    expect((await screen.findAllByText(/24 planned · 0 executed/)).length).toBeGreaterThan(0);
+    expect(state.simulationCalls).toBeGreaterThan(0);
+    expect(state.pipelineStatusCalls).toBe(0);
+    expect(state.freshnessCalls).toBe(0);
+    expect(state.liveRunCalls).toBe(0);
+    expect(document.body.textContent).not.toContain("state-run-live-hidden");
+  });
+
+  it("never presents reference/demo or live-unavailable fallback execution as running", () => {
+    state.dataMode = "reference";
+    const view = render(<PipelinePage />);
+    const referenceSummary = screen.getByRole("group", { name: "Pipeline completion" });
+    expect(referenceSummary.getAttribute("data-execution")).toBe("not-applicable");
+    expect(referenceSummary.getAttribute("data-execution")).not.toBe("running");
+
+    state.search = "issuer=issuer-live-unavailable";
+    state.pipeline = { value: null, phase: "complete", latest: null };
+    view.rerender(<PipelinePage />);
+    const unavailableSummary = screen.getByRole("group", { name: "Pipeline completion" });
+    expect(unavailableSummary.getAttribute("data-execution")).toBe("not-applicable");
+    expect(unavailableSummary.getAttribute("data-execution")).not.toBe("running");
+
+    state.dataMode = "live";
+    state.search = "issuer=issuer-live&run=run-live-abcdef";
+    state.pipeline = { value: live({ status: "running" }), phase: "in_flight", latest: { status: "running" } };
+    view.rerender(<PipelinePage />);
+    expect(screen.getByRole("group", { name: "Pipeline completion" }).getAttribute("data-execution")).toBe("running");
+  });
+
   it("pipeline-10 pipeline-11 pipeline-14 pipeline-17 pipeline-18 pipeline-32 pipeline-34 pipeline-44 pipeline-45 drives reference views, route modes, module exits, lineage, evidence, and context sync", async () => {
-    state.search = `issuer=${REFERENCE_ISSUER}&run=run-demo&view=lanes`;
+    state.dataMode = "reference";
+    state.search = `issuer=${REFERENCE_ISSUER}&run=run-demo&view=stage-lanes`;
     state.context = analysisContext();
     state.context.artifacts.issuer_run_id = "run-demo";
     render(<PipelinePage />);
 
     expect(await screen.findByText("swimlanes")).toBeTruthy();
-    await waitFor(() => expect(state.patch).toHaveBeenCalled());
+    expect(state.patch).not.toHaveBeenCalled();
     const utility = screen.getByTestId("utility");
     expect(within(utility).getByRole("button", { name: "sim controls" })).toBeTruthy();
-    fireEvent.click(within(utility).getByRole("button", { name: "DAG" }));
+    fireEvent.click(within(utility).getByRole("button", { name: "Dependency map" }));
     const graph = await screen.findByText(/graph dim false/);
     expect(graph.getAttribute("data-scope")?.split(",")).toContain("CP-2");
     fireEvent(window, new CustomEvent("caos:subview-cycle", { detail: { direction: -1 } }));
@@ -236,7 +311,7 @@ describe("Pipeline route interaction coverage", () => {
     expect(state.replaces[0]).toContain("context=context-pipeline");
   });
 
-  it("pipeline-12 pipeline-17 pipeline-34 switches a completed real run between live and demo, including persisted lineage", async () => {
+  it("pipeline-12 pipeline-17 pipeline-34 isolates a persisted live run from the URL-addressable reference plan", async () => {
     state.search = "issuer=issuer-live&run=run-live-abcdef";
     state.pipeline = { value: live(), phase: "complete", latest: { status: "complete" } };
     state.liveRun = {
@@ -246,7 +321,7 @@ describe("Pipeline route interaction coverage", () => {
       loading: false,
       phase: "complete",
     };
-    render(<PipelinePage />);
+    const view = render(<PipelinePage />);
 
     expect(await screen.findByText(/live lineage true loading false/)).toBeTruthy();
     expect(screen.getByText(/live persisted/)).toBeTruthy();
@@ -255,13 +330,14 @@ describe("Pipeline route interaction coverage", () => {
     expect(await screen.findByText(/evidence E-LIVE live true/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "close evidence" }));
 
-    const identity = screen.getByTestId("enterprise-identity");
-    fireEvent.click(within(identity).getByRole("button", { name: "DEMO" }));
+    expect(within(screen.getByTestId("enterprise-identity")).queryByRole("button", { name: "DEMO" })).toBeNull();
+    state.dataMode = "reference";
+    state.search = `issuer=${REFERENCE_ISSUER}&mode=reference`;
+    view.rerender(<PipelinePage />);
     expect(await screen.findByText("demo lineage")).toBeTruthy();
     expect(screen.getByRole("button", { name: "sim controls" })).toBeTruthy();
     expect(within(screen.getByTestId("utility")).getByRole("button", { name: "COMMITTEE" })).toBeTruthy();
-    fireEvent.click(within(identity).getByRole("button", { name: "LIVE" }));
-    expect(await screen.findByText(/live lineage true/)).toBeTruthy();
+    expect(screen.getByText(/REFERENCE PLAN/)).toBeTruthy();
   });
 
   it("pipeline-09 renders honest real-issuer loading, service error, failed, in-progress, and empty states", () => {
@@ -284,7 +360,7 @@ describe("Pipeline route interaction coverage", () => {
 
     state.pipeline = { value: null, phase: "none", latest: null };
     view.rerender(<PipelinePage />);
-    expect(screen.getByText("No runs for this issuer")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "No runs for this issuer" })).toBeTruthy();
   });
 
   it("renders persisted partial rows and only offers a re-run handoff for a blocked module with its persisted reason", async () => {
@@ -308,21 +384,29 @@ describe("Pipeline route interaction coverage", () => {
     expect(rerun.getAttribute("href")).toBe("/upload?issuer=issuer-partial");
   });
 
-  it("pipeline-14 pipeline-45 shows an unavailable worklist and uses non-context module URLs", async () => {
-    state.search = "";
+  it("pipeline-14 pipeline-45 shows an unavailable live worklist and keeps Reference module URLs isolated", async () => {
+    state.dataMode = "live";
+    state.search = "issuer=issuer-live&run=run-live-abcdef";
     state.listError = true;
-    render(<PipelinePage />);
+    state.pipeline = { value: live(), phase: "complete", latest: { status: "complete" } };
+    const view = render(<PipelinePage />);
     expect(await screen.findByRole("status")).toHaveProperty("textContent", expect.stringContaining("Run index unavailable"));
 
+    state.dataMode = "reference";
+    state.search = "";
+    state.listError = false;
+    view.rerender(<PipelinePage />);
+    expect(await screen.findByText(/graph dim false/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "open intake" }));
     fireEvent.click(screen.getByRole("button", { name: "open report" }));
     fireEvent.click(screen.getByRole("button", { name: "inspect open" }));
-    expect(state.pushes).toContain(`/upload?issuer=${REFERENCE_ISSUER}`);
-    expect(state.pushes.some((href) => href.startsWith("/reports?issuer="))).toBe(true);
-    expect(state.pushes.some((href) => href.startsWith("/deepdive?issuer=") && href.includes("mod=CP-1"))).toBe(true);
+    expect(state.pushes).toContain(`/upload?issuer=${REFERENCE_ISSUER}&mode=reference`);
+    expect(state.pushes.some((href) => href.startsWith("/reports?issuer=") && href.includes("mode=reference"))).toBe(true);
+    expect(state.pushes.some((href) => href.startsWith("/deepdive?issuer=") && href.includes("mod=CP-1") && href.includes("mode=reference"))).toBe(true);
   });
 
   it("pipeline-10 hydrates the stored swimlane preference and removes the cycle listener on unmount", async () => {
+    state.dataMode = "reference";
     localStorage.setItem("caos-b-view", "lanes");
     const remove = vi.spyOn(window, "removeEventListener");
     const view = render(<PipelinePage />);
@@ -330,5 +414,76 @@ describe("Pipeline route interaction coverage", () => {
     view.unmount();
     expect(remove).toHaveBeenCalledWith("caos:subview-cycle", expect.any(Function));
     remove.mockRestore();
+  });
+
+  it("pipeline-10 falls back to the graph when browser storage reads are denied", async () => {
+    state.dataMode = "reference";
+    const read = vi.spyOn(Storage.prototype, "getItem").mockImplementationOnce(() => {
+      throw new DOMException("Storage access denied", "SecurityError");
+    });
+
+    render(<PipelinePage />);
+
+    expect(await screen.findByText(/graph dim false/)).toBeTruthy();
+    expect(within(screen.getByTestId("utility")).getByRole("button", { name: "Dependency map" }).getAttribute("aria-pressed")).toBe("true");
+    read.mockRestore();
+  });
+
+  it("pipeline-09 pipeline-10 pipeline-11 pipeline-12 pipeline-13 pipeline-14 pipeline-15 pipeline-16 pipeline-17 pipeline-18 pipeline-19 pipeline-20 pipeline-21 pipeline-22 pipeline-23 pipeline-24 pipeline-25 pipeline-26 pipeline-27 pipeline-28 pipeline-29 pipeline-30 pipeline-31 pipeline-32 pipeline-33 pipeline-34 pipeline-35 pipeline-43 pipeline-44 pipeline-45 keeps the composed workbench safe under invalid route and context input", async () => {
+    state.dataMode = "reference";
+    state.search = `issuer=${REFERENCE_ISSUER}&run=run-demo&view=diagonal`;
+    state.context = analysisContext();
+    state.context.id = "context/../?x=1&y=2";
+    localStorage.setItem("caos-b-view", "unsupported");
+    render(<PipelinePage />);
+
+    expect(await screen.findByText(/graph dim false/)).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Pipeline completion" }).getAttribute("data-execution")).toBe("not-applicable");
+    const utility = screen.getByTestId("utility");
+    expect(within(utility).getByRole("button", { name: "Dependency map" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(utility).getByRole("button", { name: "sim controls" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "select graph" }));
+    expect(screen.getByText("inspector CP-1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "pick driver" }));
+    expect(screen.getByText("inspector CP-3B")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "demo evidence" }));
+    expect(await screen.findByText(/evidence E-44 live false/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "close evidence" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "open deepdive" }));
+    const deepDive = state.pushes.find((href) => href.startsWith("/deepdive?"));
+    expect(deepDive).toBeTruthy();
+    expect(deepDive).toContain("context=context%2F..%2F%3Fx%3D1%26y%3D2");
+  });
+
+  it("keeps live mode honest when no exact persisted run exists", async () => {
+    state.dataMode = "live";
+    state.search = "";
+    state.runs = [];
+    state.pipeline = { value: null, phase: "none", latest: null };
+    render(<PipelinePage />);
+
+    expect(await screen.findByText("No runs for this issuer")).toBeTruthy();
+    expect(screen.getByTestId("enterprise-identity")).toHaveProperty("textContent", expect.stringContaining("Run state"));
+    expect(screen.getByTestId("primary")).toHaveProperty("textContent", expect.stringContaining("DOCUMENT INTAKE"));
+    expect(screen.queryByText(/graph dim/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "sim controls" })).toBeNull();
+    expect(document.body.textContent).not.toContain("Atlas Forge");
+  });
+
+  it("labels an untouched Reference route as planned rather than executed or complete", async () => {
+    state.dataMode = "reference";
+    state.search = "view=dependency-map";
+    state.runs = [run("run-live-hidden", "issuer-live", "complete")];
+    render(<PipelinePage />);
+
+    expect((await screen.findAllByText(/24 planned · 0 executed/)).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Recent analysis runs")).toBeNull();
+    expect(document.body.textContent).not.toContain("run-live");
+    expect(document.body.textContent).not.toContain("0/24");
+    expect(document.body.textContent).not.toContain("bar 0");
+    expect(screen.getAllByRole("button", { name: "Dependency map" })[0].getAttribute("aria-pressed")).toBe("true");
+    expect(document.body.textContent).not.toContain("RUN COMPLETE");
   });
 });

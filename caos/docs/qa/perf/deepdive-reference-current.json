@@ -1,0 +1,232 @@
+{
+  "base": "http://127.0.0.1:4175",
+  "generatedAt": "2026-07-19T23:18:54.239Z",
+  "profiles": {
+    "desktop": {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "cpuRate": 1,
+      "network": null,
+      "scanErrors": 0,
+      "summary": {
+        "readyMs": {
+          "median": 542,
+          "p75": 542,
+          "p95": 542,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "fcpMs": {
+          "median": 44,
+          "p75": 44,
+          "p95": 44,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "lcpMs": {
+          "median": 168,
+          "p75": 168,
+          "p95": 168,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "tbtMs": {
+          "median": 0,
+          "p75": 0,
+          "p95": 0,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "cls": {
+          "median": 0,
+          "p75": 0,
+          "p95": 0,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "encodedKb": {
+          "median": 366.2,
+          "p75": 366.2,
+          "p95": 366.2,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "jsKb": {
+          "median": 335.9,
+          "p75": 335.9,
+          "p95": 335.9,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "cssKb": {
+          "median": 24.1,
+          "p75": 24.1,
+          "p95": 24.1,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "domNodes": {
+          "median": 560,
+          "p75": 560,
+          "p95": 560,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "heapMb": {
+          "median": 6.6,
+          "p75": 6.6,
+          "p95": 6.6,
+          "worstRoute": "/deepdive?mode=reference"
+        }
+      }
+    },
+    "mobile-slow": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "cpuRate": 4,
+      "network": {
+        "offline": false,
+        "latency": 150,
+        "downloadThroughput": 200000,
+        "uploadThroughput": 93750,
+        "connectionType": "cellular3g"
+      },
+      "scanErrors": 0,
+      "summary": {
+        "readyMs": {
+          "median": 2697.7,
+          "p75": 2697.7,
+          "p95": 2697.7,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "fcpMs": {
+          "median": 1004,
+          "p75": 1004,
+          "p95": 1004,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "lcpMs": {
+          "median": 2284,
+          "p75": 2284,
+          "p95": 2284,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "tbtMs": {
+          "median": 226,
+          "p75": 226,
+          "p95": 226,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "cls": {
+          "median": 0,
+          "p75": 0,
+          "p95": 0,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "encodedKb": {
+          "median": 293,
+          "p75": 293,
+          "p95": 293,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "jsKb": {
+          "median": 262.7,
+          "p75": 262.7,
+          "p95": 262.7,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "cssKb": {
+          "median": 24.1,
+          "p75": 24.1,
+          "p95": 24.1,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "domNodes": {
+          "median": 293,
+          "p75": 293,
+          "p95": 293,
+          "worstRoute": "/deepdive?mode=reference"
+        },
+        "heapMb": {
+          "median": 5.6,
+          "p75": 5.6,
+          "p95": 5.6,
+          "worstRoute": "/deepdive?mode=reference"
+        }
+      }
+    }
+  },
+  "records": [
+    {
+      "profile": "desktop",
+      "route": "/deepdive?mode=reference",
+      "scanError": null,
+      "contentEncodings": [
+        "gzip"
+      ],
+      "uncompressedStaticAssets": [],
+      "readyMs": 542,
+      "url": "/deepdive",
+      "ttfbMs": 3.9,
+      "domContentLoadedMs": 39.3,
+      "loadMs": 82.4,
+      "fcpMs": 44,
+      "lcpMs": 168,
+      "lcpElement": {
+        "tag": "div",
+        "id": null,
+        "className": "text-caos-lg text-caos-muted leading-relaxed",
+        "text": "The Chair finds the bear case on EBITDA quality persuasive but fully priced at +388bps; the bull case on aftermarket durability survives cross-examination intac"
+      },
+      "cls": 0,
+      "layoutShifts": [],
+      "tbtMs": 0,
+      "longestTaskMs": 0,
+      "maxEventMs": 0,
+      "requests": 31,
+      "encodedKb": 366.2,
+      "transferredKb": 375.3,
+      "jsKb": 335.9,
+      "cssKb": 24.1,
+      "domNodes": 560,
+      "heapMb": 6.6,
+      "taskDurationMs": 167.3,
+      "scriptDurationMs": 43.3,
+      "layoutDurationMs": 38.3,
+      "recalcStyleDurationMs": 11.5
+    },
+    {
+      "profile": "mobile-slow",
+      "route": "/deepdive?mode=reference",
+      "scanError": null,
+      "contentEncodings": [
+        "gzip"
+      ],
+      "uncompressedStaticAssets": [],
+      "readyMs": 2697.7,
+      "url": "/deepdive",
+      "ttfbMs": 2,
+      "domContentLoadedMs": 998.3,
+      "loadMs": 1935.1,
+      "fcpMs": 1004,
+      "lcpMs": 2284,
+      "lcpElement": {
+        "tag": "div",
+        "id": null,
+        "className": "text-caos-lg text-caos-muted leading-snug flex-1",
+        "text": "Three panes: sources & evidence (left) · module analysis (center) · the IC decision & sizing (right). Click any E-xx chip to open its cited source. Hold Alt — ,"
+      },
+      "cls": 0,
+      "layoutShifts": [],
+      "tbtMs": 226,
+      "longestTaskMs": 213,
+      "maxEventMs": 0,
+      "requests": 30,
+      "encodedKb": 293,
+      "transferredKb": 301.8,
+      "jsKb": 262.7,
+      "cssKb": 24.1,
+      "domNodes": 293,
+      "heapMb": 5.6,
+      "taskDurationMs": 684.2,
+      "scriptDurationMs": 186.5,
+      "layoutDurationMs": 142.5,
+      "recalcStyleDurationMs": 40.2
+    }
+  ]
+}

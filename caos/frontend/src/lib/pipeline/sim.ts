@@ -7,22 +7,14 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { SIM_PLAN, type PlanStep } from "./data";
 import { type Sim, initSim, simClock, stepSim } from "./sim-engine";
+import { planCounts } from "./plan-counts";
+export { planCounts } from "./plan-counts";
 
 // The one module-count rule for a route plan. Terminal bookkeeping steps
 // (outcome "idle", e.g. the CP-DB commit) never reach a graded outcome, so
 // they are excluded from BOTH the total and the in-scope figure — previously
 // the worklist filtered them ("24/24 modules") while the inspector counted
 // the raw plan ("25 modules in scope"), and the two contradicted on screen.
-export function planCounts(plan: PlanStep[], mods?: Sim["mods"]) {
-  const graded = plan.filter((m) => m.outcome !== "idle");
-  return {
-    total: graded.length,
-    completed: mods
-      ? graded.filter((m) => ["pass", "warning", "held"].includes(mods[m.id]?.state)).length
-      : 0,
-  };
-}
-
 export interface SimRun {
   sim: Sim;
   playing: boolean;
@@ -150,7 +142,10 @@ export function useSharedDayRun(): SimRun {
   }, []);
 
   const { sim, playing, speed } = state;
-  const counts = planCounts(SIM_PLAN, sim.mods);
+  const counts = (() => {
+    const graded = SIM_PLAN.filter((module) => module.outcome !== "idle");
+    return { total: graded.length, completed: graded.filter((module) => ["pass", "warning", "held"].includes(sim.mods[module.id]?.state)).length };
+  })();
   return {
     sim, playing, setPlaying, speed, setSpeed, reset,
     clock: simClock(sim.tick), completed: counts.completed,

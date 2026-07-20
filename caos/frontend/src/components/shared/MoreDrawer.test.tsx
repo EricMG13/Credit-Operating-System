@@ -37,13 +37,28 @@ describe("MoreDrawer", () => {
     fireEvent.click(trigger);
     const dialog = await screen.findByRole("dialog", { name: "Utilities" });
     expect(dialog.style.top).toBe("44px");
-    expect(dialog.style.right).toBe(`${window.innerWidth - 120}px`);
+    expect(dialog.style.right).toBe(`${window.innerWidth - 256 - 8}px`);
     fireEvent.click(trigger);
     expect(screen.queryByRole("dialog")).toBeNull();
 
     rerender(<Harness align="left" />);
     fireEvent.click(screen.getByRole("button", { name: "Open Utilities" }));
     expect((await screen.findByRole("dialog", { name: "Utilities" })).style.left).toBe("20px");
+  });
+
+  it("keeps either anchor edge inside the viewport inset", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    HTMLElement.prototype.getBoundingClientRect = () => ({
+      x: 170, y: 10, top: 10, left: 170, right: 196, bottom: 40, width: 26, height: 30,
+      toJSON: () => ({}),
+    });
+
+    const { rerender } = render(<Harness align="right" />);
+    fireEvent.click(screen.getByRole("button", { name: "Open Utilities" }));
+    expect((await screen.findByRole("dialog", { name: "Utilities" })).style.right).toBe("126px");
+
+    rerender(<Harness align="left" />);
+    expect((await screen.findByRole("dialog", { name: "Utilities" })).style.left).toBe("126px");
   });
 
   it("traps focus and closes for escape, outside pointer, resize, and page scroll", async () => {

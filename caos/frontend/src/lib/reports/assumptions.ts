@@ -9,7 +9,8 @@
 //  - daPct is the D&A % of sales itself (absolute; agent baseline 4.6%);
 //  - cash-flow lines (mInt … mDiss) are multipliers on the agent baseline $;
 //  - divDelta is an absolute $/yr dividend (the agent forecasts none, so a
-//    multiplier would be inert — negative = a sponsor distribution, CP-2D).
+//    multiplier would be inert — negative = a sponsor distribution, CP-2D);
+//  - sofrDelta is additive to each seeded annual SOFR point (0.01 = +100bp).
 
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 
@@ -28,9 +29,8 @@ export interface CaseAssumptions {
   mAcq: number;    // × acquisitions
   mDiss: number;   // × debt issue/(repay)
   divDelta: number; // dividends $/yr (− = distribution)
-  sofrRate: number;
-  euriborRate: number;
-  soniaRate: number;
+  // Additive movement from the seeded annual SOFR curve (0.01 = +100bp).
+  sofrDelta: number;
   // CP-1 K-09 add-back register — analyst acceptance multiplier per account
   // (1 = accept the sponsor's add-back in full, 0 = disallow it entirely).
   abRestr: number;
@@ -75,13 +75,18 @@ export interface Assumptions {
 }
 
 export const DEFAULT_DA_PCT = 0.046;
+export const REFERENCE_SOFR_CURVES = {
+  base: [0.038, 0.035, 0.033],
+  down: [0.033, 0.030, 0.030],
+} as const;
+const LEGACY_DEFAULT_SOFR_RATE = 0.043;
 
 export const DEFAULT_CASE: CaseAssumptions = {
   gDrive: 0, gFluid: 0, gAfter: 0,
   dGpm: 0, dAdjm: 0, daPct: DEFAULT_DA_PCT,
   mInt: 1, mLeases: 1, mTax: 1, mWc: 1, mCapex: 1, mAcq: 1, mDiss: 1,
   divDelta: 0,
-  sofrRate: 0.043, euriborRate: 0.032, soniaRate: 0.0475,
+  sofrDelta: 0,
   abRestr: 1, abMna: 1, abSbc: 1, abSyn: 1, abOther: 1,
 };
 
@@ -109,13 +114,48 @@ function sanitizeCase(raw: unknown): CaseAssumptions {
   return out;
 }
 
+const finiteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+function migrateLegacySofr(
+  rawCase: unknown,
+  rawYears: unknown,
+  curve: readonly [number, number, number],
+): { ca: CaseAssumptions; years: YearOverrides } {
+  const ca = sanitizeCase(rawCase);
+  const years = sanitizeYears(rawYears);
+  const source = rawCase && typeof rawCase === "object" ? rawCase as Record<string, unknown> : {};
+  const yearSource = rawYears && typeof rawYears === "object" ? rawYears as Record<number, unknown> : {};
+  const legacyAll = finiteNumber(source.sofrRate) ? source.sofrRate : null;
+
+  for (const year of [0, 1, 2] as FY[]) {
+    const rawYear = yearSource[year] && typeof yearSource[year] === "object"
+      ? yearSource[year] as Record<string, unknown>
+      : {};
+    const legacyYear = finiteNumber(rawYear.sofrRate) ? rawYear.sofrRate : null;
+    const alreadyMigrated = years[year]?.sofrDelta !== undefined;
+    // The old 4.3% all-years value was the buggy default, not an analyst change;
+    // adopting the seeded curve fixes untouched saved sessions. Non-default old
+    // values and explicit year values retain their effective absolute rate.
+    const absolute = legacyYear ?? (
+      legacyAll !== null && legacyAll !== LEGACY_DEFAULT_SOFR_RATE ? legacyAll : null
+    );
+    if (alreadyMigrated || absolute === null) continue;
+    const delta = Math.round((absolute - curve[year]) * 1e12) / 1e12;
+    years[year] = { ...(years[year] ?? {}), sofrDelta: delta };
+  }
+  return { ca, years };
+}
+
 export function parseAssumptions(raw: string | null): Assumptions | null {
   try {
     const s = JSON.parse(raw || "null");
     if (s && typeof s === "object" && s.base && s.down) {
+      const base = migrateLegacySofr(s.base, s.baseYears, REFERENCE_SOFR_CURVES.base);
+      const down = migrateLegacySofr(s.down, s.downYears, REFERENCE_SOFR_CURVES.down);
       return {
-        base: sanitizeCase(s.base), down: sanitizeCase(s.down),
-        baseYears: sanitizeYears(s.baseYears), downYears: sanitizeYears(s.downYears),
+        base: base.ca, down: down.ca,
+        baseYears: base.years, downYears: down.years,
       };
     }
   } catch { /* first visit / private mode */ }

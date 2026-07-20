@@ -1,11 +1,50 @@
 "use client";
 
+import Link from "next/link";
 import { ResponsiveShell, type NarrowContract } from "./ResponsiveShell";
 import { AnalysisContextStrip } from "./AnalysisContextStrip";
+import { Button } from "@/components/ui/Button";
 
 export type { NarrowContract } from "./ResponsiveShell";
 
 export type EnterpriseSurfaceKind = "overview" | "worklist" | "object" | "analytical" | "editor" | "wizard";
+
+export type PageAction = {
+  label: string;
+  title?: string;
+  unavailableReason?: string | null;
+} & (
+  | { href: string; onAction?: never }
+  | { onAction: () => void; href?: never }
+);
+
+function EnterprisePrimaryAction({ action }: { action?: PageAction }) {
+  if (!action) return null;
+  if (action.unavailableReason) {
+    return (
+      <Button
+        variant="primary"
+        reason={action.unavailableReason}
+        reasonDisplay="hidden"
+        title={action.title}
+      >
+        {action.label}
+      </Button>
+    );
+  }
+  if (action.href !== undefined) {
+    return (
+      <Link href={action.href} title={action.title} className="caos-action-primary no-underline focus-ring">
+        {action.label}
+      </Link>
+    );
+  }
+  return (
+    <Button variant="primary" onClick={action.onAction} title={action.title}>
+      {action.label}
+    </Button>
+  );
+}
 
 /**
  * Shared enterprise page anatomy. It standardizes chrome and decision/finalize
@@ -30,7 +69,7 @@ export function EnterprisePage({
   kind: EnterpriseSurfaceKind;
   identity: React.ReactNode;
   status?: React.ReactNode;
-  primaryAction?: React.ReactNode;
+  primaryAction?: PageAction;
   contextualControls?: React.ReactNode;
   utilityControls?: React.ReactNode;
   utilityLabel?: string;
@@ -45,7 +84,7 @@ export function EnterprisePage({
     <ResponsiveShell
       identity={identity}
       status={status}
-      primaryAction={primaryAction}
+      primaryAction={primaryAction ? <EnterprisePrimaryAction action={primaryAction} /> : undefined}
       contextualControls={contextualControls}
       utilityControls={utilityControls}
       utilityLabel={utilityLabel}

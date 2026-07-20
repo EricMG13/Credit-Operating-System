@@ -21,11 +21,17 @@ async function saveAudience(page: Page, value: string) {
 test.describe("Settings", () => {
   test("mirrors the server workspace configuration", async ({ page }) => {
     await page.goto("/settings/");
+
+    await expect(page.locator('span[title="Settings"]')).toBeVisible();
+    const sections = page.getByRole("tablist", { name: "Settings sections" });
+    await expect(sections).toBeVisible();
+    await expect(sections.getByRole("tab")).toHaveCount(5);
     await page.getByRole("tab", { name: "Workspace" }).click();
 
     await expect(page.getByRole("heading", { name: "Workspace configuration", exact: true })).toBeVisible({
       timeout: 10000,
     });
+    await expect(page.getByText(/\u00b7 runtime model /)).toBeVisible();
     // These rows only render once /api/settings resolves (not the loading/error state).
     await expect(page.getByText("Governance & QA")).toBeVisible();
     await expect(page.getByText("Council seats")).toBeVisible();
@@ -86,5 +92,37 @@ test.describe("Settings", () => {
     await advanced.click();
     await expect(advanced).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByLabel("Audience")).toHaveValue(value);
+  });
+
+  test("keeps every Settings section reachable without page overflow at phone width", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/settings/");
+
+    const sections = page.getByRole("tablist", { name: "Settings sections" });
+    await expect(sections).toBeVisible();
+    await expect(sections.getByRole("tab")).toHaveCount(5);
+
+    const panels = [
+      ["Models", "settings-panel-models"],
+      ["Research", "settings-panel-research"],
+      ["Email Intel", "settings-panel-email"],
+      ["Portfolios", "settings-panel-portfolios"],
+      ["Workspace", "settings-panel-workspace"],
+    ] as const;
+    for (const [label, panelId] of panels) {
+      const tab = sections.getByRole("tab", { name: label });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      await expect(page.locator(`#${panelId}[role="tabpanel"]`)).toBeVisible();
+      const pageOverflow = await page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(pageOverflow).toBeLessThanOrEqual(1);
+    }
+
+    const workspace = sections.getByRole("tab", { name: "Workspace" });
+    await workspace.focus();
+    await workspace.press("Home");
+    await expect(sections.getByRole("tab", { name: "Models" })).toHaveAttribute("aria-selected", "true");
   });
 });

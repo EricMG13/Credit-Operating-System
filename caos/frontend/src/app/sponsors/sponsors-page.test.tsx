@@ -15,12 +15,19 @@ const { analysis, getSponsorTrackRecord, getSponsors, openProfile } = vi.hoisted
   openProfile: vi.fn(),
 }));
 
+type TestPageAction = { label: string; onAction?: () => void; href?: string; unavailableReason?: string | null };
+function renderPageAction(action?: TestPageAction) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href}>{action.label}</a>;
+  return <button type="button" aria-disabled={action.unavailableReason ? "true" : undefined} onClick={action.unavailableReason ? undefined : action.onAction}>{action.label}</button>;
+}
+
 vi.mock("next/link", () => ({
   default: ({ children, href, ...props }: { children: React.ReactNode; href: string }) => <a href={href} {...props}>{children}</a>,
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({ RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/components/shared/Panel", () => ({ Panel: ({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) => <section><h2>{title}</h2>{right}{children}</section> }));
-vi.mock("@/components/shared/EnterprisePage", () => ({ EnterprisePage: ({ identity, primaryAction, status, contextualControls, children }: { identity?: React.ReactNode; primaryAction?: React.ReactNode; status?: React.ReactNode; contextualControls?: React.ReactNode; children: React.ReactNode }) => <main>{identity}{primaryAction}{status}{contextualControls}{children}</main> }));
+vi.mock("@/components/shared/EnterprisePage", () => ({ EnterprisePage: ({ identity, primaryAction, status, contextualControls, children }: { identity?: React.ReactNode; primaryAction?: TestPageAction; status?: React.ReactNode; contextualControls?: React.ReactNode; children: React.ReactNode }) => <main>{identity}{renderPageAction(primaryAction)}{status}{contextualControls}{children}</main> }));
 vi.mock("@/components/shared/ShellIdentity", () => ({ ShellIdentity: ({ title }: { title: string }) => <h1>{title}</h1> }));
 vi.mock("@/components/shared/StatusGlyph", () => ({ StatusGlyph: () => <span>warning</span> }));
 vi.mock("@/components/shared/WorkbenchToolbar", () => ({ WorkbenchToolbar: ({ title, count }: { title: string; count: string }) => <header>{title} {count}</header> }));
@@ -64,6 +71,7 @@ describe("SponsorsPage", () => {
   it("loads the sponsor register, renders a rich record, and opens issuer profiles", async () => {
     render(<SponsorsPage />);
     expect(screen.getByText("Loading sponsor register")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Review selected sponsor" })).toBeNull();
     expect(await screen.findByText("Aggressive add-backs · 2 of 2")).toBeTruthy();
     expect(screen.getByText("1 name")).toBeTruthy();
     expect(screen.getByText("2 names")).toBeTruthy();
@@ -86,7 +94,9 @@ describe("SponsorsPage", () => {
     expect(screen.getByText("Register unavailable")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("No sponsors on file")).toBeTruthy();
-    expect(screen.getByText("Add sponsors first")).toBeTruthy();
+    expect(screen.queryByText("Add sponsors first")).toBeNull();
+    expect(screen.queryByText("Track record")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review selected sponsor" })).toBeNull();
     expect(screen.getByRole("link", { name: "Open issuer directory" }).getAttribute("href")).toBe("/issuers?context=ctx-1");
   });
 

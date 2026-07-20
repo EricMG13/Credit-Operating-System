@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
 
 
@@ -59,6 +62,74 @@ def test_oversized_target_rejection_keeps_security_headers_and_access_log(client
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["Cache-Control"] == "private, no-store"
     assert any('"status": 414' in record.message for record in caplog.records)
+
+
+def _access_events(caplog, action: str) -> list[dict]:
+    return [
+        json.loads(record.message)
+        for record in caplog.records
+        if record.name == "caos.access"
+        and record.message.startswith("{")
+        and json.loads(record.message).get("action") == action
+    ]
+
+
+def test_csrf_rejection_keeps_policy_headers_and_logs_exactly_once(client, caplog):
+    caplog.clear()
+    caplog.set_level("INFO", logger="caos.access")
+
+    response = client.post(
+        "/api/health",
+        headers={"Host": "caos.example", "Sec-Fetch-Site": "cross-site"},
+    )
+
+    assert response.status_code == 403
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Cache-Control"] == "private, no-store"
+    events = _access_events(caplog, "POST /api/health")
+    assert len(events) == 1
+    assert events[0]["status"] == 403
+
+
+def test_edge_rejection_keeps_policy_headers_and_logs_exactly_once(
+    client, caplog, monkeypatch
+):
+    from config import get_settings
+
+    current = get_settings()
+    monkeypatch.setattr(current, "environment", "production")
+    monkeypatch.setattr(current, "edge_proxy_secret", "edge-secret")
+    caplog.clear()
+    caplog.set_level("INFO", logger="caos.access")
+
+    response = client.post("/api/auth/profile", json={"code": "x", "name": "Y"})
+
+    assert response.status_code == 401
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Cache-Control"] == "private, no-store"
+    events = _access_events(caplog, "POST /api/auth/profile")
+    assert len(events) == 1
+    assert events[0]["status"] == 401
+
+
+def test_policy_header_mutation_preserves_duplicate_set_cookie_headers():
+    from main import HTTPPolicyMiddleware
+
+    cookie_app = FastAPI()
+
+    @cookie_app.get("/cookies")
+    async def cookies():
+        response = PlainTextResponse("ok")
+        response.set_cookie("first", "one")
+        response.set_cookie("second", "two")
+        return response
+
+    cookie_app.add_middleware(HTTPPolicyMiddleware)
+    with TestClient(cookie_app) as local_client:
+        response = local_client.get("/cookies")
+
+    assert len(response.headers.get_list("set-cookie")) == 2
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
 
 
 def test_static_inline_script_hashes_matches_a_real_script_block(tmp_path):

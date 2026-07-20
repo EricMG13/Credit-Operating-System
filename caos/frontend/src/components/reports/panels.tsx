@@ -7,9 +7,9 @@ import type { Report, Section } from "@/lib/reports/builders";
 import { citeCount, secLabel } from "@/lib/reports/builders";
 import { MODULE_NAMES } from "@/lib/reports/deal";
 import { sevSurface } from "@/lib/pipeline/sev";
-import { EvChip } from "./EvChip";
 import { ExportToVaultButton } from "./ExportToVaultButton";
 import { Panel } from "@/components/shared/Panel";
+import { EvidenceSelectionList, type EvidenceSelectionItem } from "@/components/shared/EvidenceSelectionList";
 
 function StatusTag({ held }: { held: boolean }) {
   return (
@@ -44,12 +44,14 @@ export function ReportList({
   active,
   onSel,
   onCollapse,
+  isReference,
   liveHeldReason,
 }: {
   reports: Report[];
   active: string;
   onSel: (id: string) => void;
   onCollapse?: () => void;
+  isReference: boolean;
   /** Real committee status for a live (non-reference) run, e.g. "COMMITTEE:
       Restricted" — applies to every deliverable in the set, since they're
       all built from the same run. Undefined/null for the reference deal,
@@ -94,10 +96,20 @@ export function ReportList({
         })}
       </div>
       <div className="px-4 py-2.5 border-t border-caos-border flex items-start gap-2">
-        <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0 mt-1" style={{ background: "var(--caos-warning)" }} />
+        <span
+          aria-hidden="true"
+          className="inline-block w-1.5 h-1.5 rounded-full shrink-0 mt-1"
+          style={{ background: isReference || liveHeldReason ? "var(--caos-warning)" : "var(--caos-success)" }}
+        />
         <span className="text-caos-xs leading-relaxed text-caos-muted">
-          CP-RENDER assembles deliverables from cleared module outputs. The IC Credit Memo is held by CP-5
-          (QA-117 open) — it previews and prints <span className="text-caos-text">watermarked</span> until remediation R-1 lands.
+          {isReference ? <>
+            CP-RENDER assembles the reference deliverables from authored fixture outputs. The IC Credit Memo is held by CP-5
+            (QA-117 open) — its preview remains <span className="text-caos-text">watermarked</span> pending remediation R-1.
+          </> : liveHeldReason ? <>
+            Live deliverables follow the active run&apos;s committee authority. <span className="text-caos-text">{liveHeldReason}</span> — review blocking findings before publication.
+          </> : <>
+            Live deliverables follow the active run&apos;s module outputs and committee authority. Review the server-frozen preview before publication.
+          </>}
         </span>
       </div>
     </Panel>
@@ -112,20 +124,23 @@ function srcName(chip: string): string {
 }
 
 export function LineagePanel({ rep, onOpenEvidence }: { rep: Report; onOpenEvidence: (id: string) => void }) {
+  const sourcesByEvidence = new Map<string, string[]>();
+  rep.srcs.forEach((source) => source.ev.forEach((id) => {
+    sourcesByEvidence.set(id, [...(sourcesByEvidence.get(id) ?? []), `${source.chip} · ${srcName(source.chip)}`]);
+  }));
+  const items: EvidenceSelectionItem[] = [...sourcesByEvidence].map(([id, sources]) => ({
+    id,
+    label: sources.map((source) => source.split(" · ").slice(1).join(" · ")).join("; "),
+    description: sources.join("; "),
+    status: "Registered",
+    effect: { kind: "callback", onOpen: onOpenEvidence },
+  }));
+  const unregistered = rep.srcs.filter((source) => source.ev.length === 0).map((source) => source.chip);
   return (
     <Panel title="Lineage — built from">
       <div className="flex flex-col">
-        {rep.srcs.map((s) => (
-          <div key={s.chip} className="flex items-center gap-2 px-3 py-[7px] border-b border-caos-border/60">
-            <span className="tabular text-caos-xs text-caos-accent w-[84px] shrink-0 whitespace-nowrap">{s.chip}</span>
-            <span className="text-caos-sm text-caos-muted flex-1 truncate">{srcName(s.chip)}</span>
-            <span className="flex gap-1 shrink-0">
-              {s.ev.map((e) => (
-                <EvChip key={e} id={e} onOpen={onOpenEvidence} />
-              ))}
-            </span>
-          </div>
-        ))}
+        <EvidenceSelectionList label="Report lineage evidence" items={items} />
+        {unregistered.length ? <div className="px-3 py-1.5 tabular text-caos-2xs text-caos-muted">No registered evidence ID · {unregistered.join(" · ")}</div> : null}
         <div className="px-3 py-2 text-caos-xs text-caos-muted leading-relaxed">
           Every figure on the sheet resolves to a producing module and a registered evidence ID (CP-5B map).
         </div>

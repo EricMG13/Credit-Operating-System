@@ -41,7 +41,8 @@ vi.mock("@/lib/analysis-workbench", () => ({
   },
 }));
 
-import { AskLauncher, AskProvider } from "./Ask";
+import { AskProvider } from "./AskContext";
+import { AskLauncher } from "./AskShell";
 
 const authority = {
   origin: "live", method: "graph", freshness: "current", as_of: "2026-07-16T00:00:00Z",
@@ -65,12 +66,14 @@ afterEach(() => {
 });
 
 describe("ASK finding pin scope", () => {
-  it("clears the Command Center bottom action strip", () => {
+  it("does not restore the removed Command Center bottom-dock offsets", () => {
     render(<AskProvider><AskLauncher /></AskProvider>);
 
     const launcher = screen.getByRole("button", { name: /Ask/ });
-    expect(launcher.className).toContain("bottom-16");
+    expect(launcher.className).toContain("caos-ask-phone-trigger");
+    expect(launcher.className).not.toContain("bottom-16");
     expect(launcher.className).not.toContain("bottom-3");
+    expect(document.querySelector(".caos-ask-dock")).toBeNull();
   });
 
   it("ignores a stale pin rejection after both the query run and context change", async () => {

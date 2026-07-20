@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ModelCheckpointDTO } from "@/lib/api";
 
 const REFERENCE_ISSUER = "a71f0000-0000-0000-0000-000000000001";
+type TestPageAction = { label: string; onAction?: () => void; href?: string; unavailableReason?: string | null; title?: string };
+
+function renderPageAction(action?: TestPageAction) {
+  if (!action) return null;
+  if (action.href && !action.unavailableReason) return <a href={action.href} title={action.title}>{action.label}</a>;
+  return <button type="button" aria-disabled={action.unavailableReason ? "true" : undefined} title={action.unavailableReason ?? action.title} onClick={action.unavailableReason ? undefined : action.onAction}>{action.label}</button>;
+}
 
 const state = vi.hoisted(() => ({
   search: "",
@@ -34,12 +41,19 @@ const state = vi.hoisted(() => ({
   checkpoint: vi.fn(),
   restoreHistory: vi.fn(),
   deleteCheckpoint: vi.fn(),
+  nullDownLeverage: false,
+  controller: null as null | { restoreServerCheckpoint: (checkpoint: unknown) => Promise<void> },
 }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/model",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   useSearchParams: () => new URLSearchParams(state.search),
+}));
+vi.mock("@/lib/data-mode", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/data-mode")>()),
+  useDataMode: () => new URLSearchParams(state.search).get("mode") === "reference" ? "reference" : "live",
+  useCurrentAppHref: () => `/model${state.search ? `?${state.search}` : ""}`,
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -50,9 +64,14 @@ vi.mock("./ModelAuthorityRoute", async () => {
     import("@/lib/reports/builders"),
   ]);
   return {
-    ModelAuthorityRoute: ({ renderLegacy }: { renderLegacy: (runtime: { buildModel: typeof buildModel; buildReports: typeof buildReports }) => React.ReactNode }) => (
-      <>{renderLegacy({ buildModel, buildReports })}</>
-    ),
+    ModelAuthorityRoute: ({ renderLegacy }: { renderLegacy: (runtime: { buildModel: typeof buildModel; buildReports: typeof buildReports }) => React.ReactNode }) => {
+      const testBuildModel: typeof buildModel = (...args) => {
+        const model = buildModel(...args);
+        if (!state.nullDownLeverage) return model;
+        return { ...model, cols: { ...model.cols, d0: { ...model.cols.d0, netlev: null } } };
+      };
+      return <>{renderLegacy({ buildModel: testBuildModel, buildReports })}</>;
+    },
   };
 });
 vi.mock("@/lib/engine/useModelEngine", () => ({ useModelEngine: () => state.engine }));
@@ -111,7 +130,7 @@ vi.mock("@/components/model/ModelHistoryControls", () => ({
 vi.mock("@/components/shared/EnterprisePage", () => ({
   EnterprisePage: (props: {
     identity?: React.ReactNode;
-    primaryAction?: React.ReactNode;
+    primaryAction?: TestPageAction;
     status?: React.ReactNode;
     contextualControls?: React.ReactNode;
     utilityControls?: React.ReactNode;
@@ -119,8 +138,12 @@ vi.mock("@/components/shared/EnterprisePage", () => ({
     children: React.ReactNode;
   }) => (
     <div>
+      {(() => {
+        state.controller = (props.utilityControls as { props?: { state?: typeof state.controller } } | undefined)?.props?.state ?? null;
+        return null;
+      })()}
       <div data-testid="identity">{props.identity}</div>
-      <div data-testid="primary-actions">{props.primaryAction}</div>
+      <div data-testid="primary-actions">{renderPageAction(props.primaryAction)}</div>
       <div data-testid="status">{props.status}</div>
       <div data-testid="context-controls">{props.contextualControls}</div>
       <div data-testid="utility-controls">{props.utilityControls}</div>
@@ -137,7 +160,11 @@ vi.mock("@/components/shared/ShellIdentity", () => ({
 vi.mock("@/components/shared/PersonaWorkbench", () => ({
   PersonaWorkbench: ({ decision, primary }: { decision?: React.ReactNode; primary: React.ReactNode }) => <div>{decision}{primary}</div>,
 }));
-vi.mock("@/components/shared/DecisionHeader", () => ({ DecisionHeader: () => <div>decision header</div> }));
+vi.mock("@/components/shared/DecisionHeader", () => ({
+  DecisionHeader: ({ state: decision }: { state: { whyItMatters?: { value?: React.ReactNode } } }) => (
+    <div>decision header {decision.whyItMatters?.value}</div>
+  ),
+}));
 vi.mock("@/components/shared/FreshnessIndicator", () => ({ FreshnessIndicator: () => <span>freshness</span> }));
 vi.mock("@/components/shared/ProvenanceChip", () => ({ ProvenanceChip: () => <span>provenance</span> }));
 vi.mock("@/components/model/ModelSheet", () => ({
@@ -153,8 +180,9 @@ vi.mock("@/components/model/ModelSheet", () => ({
     onCommit: (value: string | null) => void;
     onPasteCells: (result: { applied: number; patch: Record<string, number>; skippedNotEditable: number; invalid: string[] }) => void;
     onToggleRow: (row: string) => void;
+    collapsedRows: Set<string>;
   }) => (
-    <div role="grid" aria-label="mock model sheet">
+    <div role="grid" aria-label="mock model sheet" data-collapsed-rows={[...props.collapsedRows].sort().join(",")}>
       <button onClick={() => props.onSel({ row: "rev", col: "q1" })}>select cell</button>
       <button onClick={() => props.onEdit({ row: "rev", col: "q1" })}>begin cell edit</button>
       <button onClick={() => props.onCommit("125.5")}>commit valid</button>
@@ -243,7 +271,7 @@ function checkpoint(overrides: Partial<ModelCheckpointDTO> = {}): ModelCheckpoin
 
 beforeEach(() => {
   vi.resetAllMocks();
-  state.search = "";
+  state.search = "mode=reference";
   state.engine = {
     anchor: null,
     downside: null,
@@ -258,6 +286,8 @@ beforeEach(() => {
   state.context = context();
   state.analysisError = null;
   state.analysisLoading = false;
+  state.nullDownLeverage = false;
+  state.controller = null;
   state.patchContext.mockResolvedValue(null);
   state.getSavedModel.mockResolvedValue(null);
   state.saveModel.mockResolvedValue({ issuer_id: REFERENCE_ISSUER, analyst_id: "analyst", payload: {}, updated_at: "2026-07-15T00:00:00Z" });
@@ -275,6 +305,58 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("legacy Model Builder interaction coverage", () => {
+  it("starts an unsaved worksheet with secondary detail groups collapsed", async () => {
+    render(<ModelPage />);
+    const sheet = await screen.findByRole("grid", { name: "mock model sheet" });
+    expect(sheet.getAttribute("data-collapsed-rows")).toBe("adj,rev,tdebt");
+  });
+
+  it("lets a persisted fully expanded worksheet override the first-open default", async () => {
+    state.getSavedModel.mockResolvedValue({
+      issuer_id: REFERENCE_ISSUER,
+      analyst_id: "analyst",
+      updated_at: "2026-07-20T08:00:00Z",
+      payload: { collapsedRows: [] },
+    });
+    render(<ModelPage />);
+    await screen.findByText(/SAVED/);
+    expect(screen.getByRole("grid", { name: "mock model sheet" }).getAttribute("data-collapsed-rows")).toBe("");
+  });
+
+  it("keeps the bare live route free of the seeded model and offers an explicit Reference entry", () => {
+    state.search = "";
+    render(<ModelPage />);
+    expect(screen.getByText("Select an issuer model")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open reference model" }).getAttribute("href")).toBe("/model?mode=reference");
+    expect(screen.queryByRole("grid", { name: "mock model sheet" })).toBeNull();
+  });
+
+  it("keeps model support surfaces mutually exclusive and behind four toolbar disclosures", async () => {
+    render(<ModelPage />);
+    await screen.findByRole("grid", { name: "mock model sheet" });
+
+    const support = screen.getByRole("group", { name: "Model support" });
+    expect(within(support).getAllByRole("button")).toHaveLength(4);
+    expect(screen.getAllByRole("button")).toHaveLength(20);
+    expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(40);
+    expect(within(screen.getByTestId("primary-actions")).getAllByRole("button").length + within(support).getAllByRole("button").length).toBeLessThanOrEqual(5);
+    expect(screen.queryByTestId("assumptions-panel")).toBeNull();
+    expect(screen.queryByTestId("scenario-panel")).toBeNull();
+    expect(screen.queryByRole("button", { name: "history undo" })).toBeNull();
+
+    fireEvent.click(within(support).getByRole("button", { name: "Assumptions" }));
+    expect(screen.getByTestId("assumptions-panel")).toBeTruthy();
+    fireEvent.click(within(support).getByRole("button", { name: "Scenario" }));
+    expect(screen.queryByTestId("assumptions-panel")).toBeNull();
+    expect(screen.getByTestId("scenario-panel")).toBeTruthy();
+    fireEvent.click(within(support).getByRole("button", { name: "History" }));
+    expect(screen.queryByTestId("scenario-panel")).toBeNull();
+    expect(screen.getByRole("button", { name: "history undo" })).toBeTruthy();
+    fireEvent.click(within(support).getByRole("button", { name: "Evidence" }));
+    expect(screen.queryByRole("button", { name: "history undo" })).toBeNull();
+    expect(screen.getByText("Select a model cell citation to inspect its source.")).toBeTruthy();
+  });
+
   it("model-05 exercises sheet editing, paste, assumptions, rails, keyboard history, evidence, and reset controls", async () => {
     window.localStorage.setItem("caos-d-overrides", JSON.stringify({ "q1:rev": 11, "q2:rev": 12 }));
     render(<ModelPage />);
@@ -299,6 +381,7 @@ describe("legacy Model Builder interaction coverage", () => {
     fireEvent.click(screen.getByRole("button", { name: "toggle row" }));
     fireEvent.click(screen.getByRole("button", { name: "toggle row" }));
 
+    fireEvent.click(screen.getByRole("button", { name: "Assumptions" }));
     for (const name of [
       "change base assumption", "change down assumption", "change base year", "change down year",
       "scrub all cash", "scrub cascade", "scrub noncash", "scrub unknown", "end scrub",
@@ -306,9 +389,9 @@ describe("legacy Model Builder interaction coverage", () => {
     ]) fireEvent.click(screen.getByRole("button", { name }));
 
     fireEvent.click(screen.getByRole("button", { name: "collapse assumptions" }));
-    fireEvent.click(screen.getByRole("button", { name: "Expand Assumptions panel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Assumptions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scenario" }));
     fireEvent.click(screen.getByRole("button", { name: "collapse scenarios" }));
-    fireEvent.click(screen.getByRole("button", { name: "Expand Scenario & Sensitivity panel" }));
     fireEvent(window, new Event("caos:collapse-toggle"));
     fireEvent(window, new Event("caos:collapse-toggle"));
 
@@ -336,33 +419,30 @@ describe("legacy Model Builder interaction coverage", () => {
     await screen.findByRole("grid", { name: "mock model sheet" });
 
     fireEvent.click(withinRole(screen.getByTestId("narrow-controls"), "QTRS"));
-    fireEvent.click(withinRole(screen.getByTestId("narrow-controls"), "ASMP"));
-    fireEvent.click(withinRole(screen.getByTestId("narrow-controls"), "SCEN"));
-
-    fireEvent.click(withinRole(screen.getByTestId("utility-controls"), "Open assumptions"));
-    fireEvent.click(withinRole(screen.getByTestId("utility-controls"), "Open scenarios"));
+    fireEvent.click(screen.getByRole("button", { name: "Assumptions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scenario" }));
     fireEvent.click(withinRole(screen.getByTestId("utility-controls"), "QUARTERS"));
-    fireEvent.click(withinRole(screen.getByTestId("utility-controls"), "ASSUMPTIONS"));
-    fireEvent.click(withinRole(screen.getByTestId("utility-controls"), "SCENARIOS"));
 
     act(() => {
       window.innerWidth = 900;
       window.dispatchEvent(new Event("resize"));
     });
-    expect(screen.getByRole("button", { name: "Expand Assumptions panel" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Expand Scenario & Sensitivity panel" })).toBeTruthy();
+    expect(screen.queryByTestId("assumptions-panel")).toBeNull();
+    expect(screen.queryByTestId("scenario-panel")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /EXPORT MODEL/ }));
-    await waitFor(() => expect(state.exportModel).toHaveBeenCalled());
-    expect(state.exportModel.mock.calls[0][4]).toMatchObject({ metrics: [] });
+    const primaryActions = screen.getByTestId("primary-actions");
+    expect(withinRole(primaryActions, "Save model checkpoint")).toBeTruthy();
+    expect(within(primaryActions).queryByRole("button", { name: /export/i })).toBeNull();
     fireEvent.click(withinRole(screen.getByTestId("utility-controls"), "Export model"));
-    await waitFor(() => expect(state.exportModel).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(state.exportModel).toHaveBeenCalledOnce());
+    expect(state.exportModel.mock.calls[0][4]).toMatchObject({ metrics: [] });
 
     fireEvent.click(screen.getByRole("button", { name: "Save model checkpoint" }));
     expect(await screen.findByText(/Checkpoint checkpoi saved/)).toBeTruthy();
     expect(state.createModelCheckpoint).toHaveBeenCalled();
     expect(state.patchContext).toHaveBeenCalledWith(expect.objectContaining({ artifacts: expect.objectContaining({ model_checkpoint_id: "checkpoint-new" }) }));
 
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
     const serverCheckpoint = await screen.findByRole("button", { name: /Committee base/ });
     fireEvent.click(serverCheckpoint);
     expect(await screen.findByText("Restored Committee base.")).toBeTruthy();
@@ -375,6 +455,23 @@ describe("legacy Model Builder interaction coverage", () => {
     expect(state.checkpoint).toHaveBeenCalled();
     expect(state.restoreHistory).toHaveBeenCalledWith("local-1");
     expect(state.deleteCheckpoint).toHaveBeenCalledWith("local-1");
+  });
+
+  it("keeps the checkpoint action name stable while its save is in progress", async () => {
+    let resolveCheckpoint!: (value: ModelCheckpointDTO) => void;
+    state.createModelCheckpoint.mockImplementationOnce(() => new Promise((resolve) => { resolveCheckpoint = resolve; }));
+    render(<ModelPage />);
+    await screen.findByRole("grid", { name: "mock model sheet" });
+
+    const readyAction = screen.getByRole("button", { name: "Save model checkpoint" });
+    expect(readyAction.getAttribute("title")).toContain("immutable checkpoint");
+    fireEvent.click(readyAction);
+    await waitFor(() => expect(state.createModelCheckpoint).toHaveBeenCalledOnce());
+
+    const pendingAction = screen.getByRole("button", { name: "Save model checkpoint" });
+    expect(pendingAction.getAttribute("aria-disabled")).toBe("true");
+    expect(pendingAction.getAttribute("title")).toBe("Model checkpoint save is in progress…");
+    await act(async () => resolveCheckpoint(checkpoint({ id: "checkpoint-pending" })));
   });
 
   it("model-32 hydrates guarded server payload fields and preserves only finite overrides", async () => {
@@ -404,6 +501,23 @@ describe("legacy Model Builder interaction coverage", () => {
     render(<ModelPage />);
     await screen.findByRole("grid", { name: "mock model sheet" });
     expect(window.sessionStorage.getItem(`caos-d-overrides:${REFERENCE_ISSUER}`)).toBe("{}");
+  });
+
+  it("falls back to guarded local defaults when browser storage is unavailable", async () => {
+    const storageRead = vi.spyOn(Storage.prototype, "getItem").mockImplementationOnce(() => {
+      throw new DOMException("storage denied", "SecurityError");
+    });
+    render(<ModelPage />);
+    await screen.findByRole("grid", { name: "mock model sheet" });
+    expect(state.getSavedModel).toHaveBeenCalledWith(REFERENCE_ISSUER);
+    storageRead.mockRestore();
+  });
+
+  it("reports a partial decision when down-case leverage is unavailable", async () => {
+    state.nullDownLeverage = true;
+    render(<ModelPage />);
+    await screen.findByRole("grid", { name: "mock model sheet" });
+    expect(document.body.textContent).toContain("Down-case leverage unavailable");
   });
 
   it("reports context sync and checkpoint creation failures without losing the draft", async () => {
@@ -444,11 +558,24 @@ describe("legacy Model Builder interaction coverage", () => {
       .mockRejectedValueOnce({ isAxiosError: true, response: { data: { detail: "restore revision conflict" } } })
       .mockRejectedValueOnce(new Error("restore offline"));
     render(<ModelPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
     const restore = await screen.findByRole("button", { name: /Committee base/ });
     fireEvent.click(restore);
     expect(await screen.findByText("restore revision conflict")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Committee base/ }));
     expect(await screen.findByText("Checkpoint could not be restored.")).toBeTruthy();
+  });
+
+  it("rejects a stale server checkpoint selected after the active issuer changes", async () => {
+    render(<ModelPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "History" }));
+    await screen.findByRole("button", { name: /Committee base/ });
+    expect(state.controller).toBeTruthy();
+    await act(async () => {
+      await state.controller!.restoreServerCheckpoint(checkpoint({ issuer_id: "issuer-other" }));
+    });
+    expect(await screen.findByText(/Checkpoint list changed with the active issuer/)).toBeTruthy();
+    expect(state.restoreModelCheckpoint).not.toHaveBeenCalled();
   });
 
   it("covers the utility-drawer save-conflict recovery callback", async () => {
@@ -503,7 +630,7 @@ describe("legacy Model Builder live-engine states", () => {
     const view = render(<ModelPage />);
     expect(await screen.findByText(/net lev ties CP-1 4.00x/)).toBeTruthy();
     expect(screen.getByText(/forecast cells unaudited — CP-5 scope is actuals only/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /EXPORT MODEL/ }));
+    fireEvent.click(withinRole(screen.getByTestId("utility-controls"), "Export model"));
     await waitFor(() => expect(state.exportModel).toHaveBeenCalled());
     expect(state.exportModel.mock.calls[0][3]).toMatchObject({
       header: "issuer-live — cash-flow model",

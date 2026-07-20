@@ -31,7 +31,8 @@ def validate_workers(workers: int, database_url: str) -> None:
     if workers > 2:
         raise SystemExit(
             f"WEB_CONCURRENCY={workers} exceeds the supported maximum of 2. "
-            "Each process owns a 15-connection DB pool and upload/parser memory; "
+            "Each process owns an auto-sized DB pool of up to 25 connections "
+            "and upload/parser memory; "
             "scale only after raising the documented resource envelope and load testing."
         )
     if workers > 1 and not database_url.startswith("postgresql"):

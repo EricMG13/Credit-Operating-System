@@ -8,12 +8,22 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { GraphView, SwimlaneView, Inspector, LineagePanel, LiveLineagePanel, EventLog } from "./views";
-import { DRIVERS, MODULES } from "@/lib/pipeline/data";
+import {
+  EventLog,
+  GraphView,
+  Inspector,
+  LineagePanel,
+  LiveLineagePanel,
+  PIPELINE_STAGES,
+  STAGE_EDGE_BUNDLES,
+  SwimlaneView,
+} from "./views";
+import { DRIVERS, MODULES, NODE_LIMITS, NODE_QA, NODE_REQS } from "@/lib/pipeline/data";
 import type { Sim } from "@/lib/pipeline/sim-engine";
 
 const emptySim: Sim = { mods: {}, events: [], tick: 0, done: false };
 const fullScope = () => new Set(MODULES.map((m) => m.id));
+const referenceFixtures = { drivers: DRIVERS, nodeLimits: NODE_LIMITS, nodeQa: NODE_QA, nodeReqs: NODE_REQS };
 
 afterEach(() => {
   cleanup();
@@ -36,20 +46,20 @@ describe("EventLog", () => {
 
 describe("LineagePanel", () => {
   it("renders every driver when the filter is null", () => {
-    render(<LineagePanel onPick={() => {}} drivers={null} onOpenEvidence={() => {}} />);
+    render(<LineagePanel onPick={() => {}} drivers={null} catalog={DRIVERS} onOpenEvidence={() => {}} />);
     expect(screen.getByText(/EBITDA quality/)).toBeTruthy();
     expect(screen.getByText(/Customer concentration/)).toBeTruthy();
   });
 
   it("filters to the listed driver numbers", () => {
-    render(<LineagePanel onPick={() => {}} drivers={[1]} onOpenEvidence={() => {}} />);
+    render(<LineagePanel onPick={() => {}} drivers={[1]} catalog={DRIVERS} onOpenEvidence={() => {}} />);
     expect(screen.getByText(/EBITDA quality/)).toBeTruthy();
     expect(screen.queryByText(/Customer concentration/)).toBeNull();
   });
 
   it("calls onPick with the clicked driver", () => {
     const onPick = vi.fn();
-    render(<LineagePanel onPick={onPick} drivers={[1]} onOpenEvidence={() => {}} />);
+    render(<LineagePanel onPick={onPick} drivers={[1]} catalog={DRIVERS} onOpenEvidence={() => {}} />);
     fireEvent.click(screen.getByText(/EBITDA quality/));
     expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ n: 1 }));
   });
@@ -57,7 +67,7 @@ describe("LineagePanel", () => {
   it("renders a driver without source chips", () => {
     DRIVERS.push({ n: 99, driver: "No-source driver", lineage: "Pending lineage", conf: 0.2, status: "open", evs: [] });
     try {
-      render(<LineagePanel onPick={() => {}} drivers={[99]} onOpenEvidence={() => {}} />);
+      render(<LineagePanel onPick={() => {}} drivers={[99]} catalog={DRIVERS} onOpenEvidence={() => {}} />);
       expect(screen.getByText("No-source driver")).toBeTruthy();
       expect(screen.queryByText("sources")).toBeNull();
     } finally {
@@ -109,7 +119,7 @@ describe("Inspector", () => {
     // CP-1C carries a NODE_QA entry (QA-117); a 'warning' state keeps it in the
     // degraded branch so the QA panel must render.
     const sim: Sim = { mods: { "CP-1C": { state: "warning", prog: 1 } }, events: [], tick: 0, done: false };
-    render(<Inspector sim={sim} selected="CP-1C" plan={[]} scope={new Set(["CP-1C"])} modeLabel="full-committee" />);
+    render(<Inspector sim={sim} selected="CP-1C" plan={[]} scope={new Set(["CP-1C"])} modeLabel="full-committee" referenceFixtures={referenceFixtures} />);
     expect(screen.getByText("Peer Benchmarking")).toBeTruthy(); // MODULES[CP-1C].name
     expect(screen.getByText("QA-117")).toBeTruthy();
     expect(screen.getByText(/Citation E-44 unresolved/)).toBeTruthy();
@@ -144,6 +154,7 @@ describe("Inspector", () => {
         scope={new Set(["CP-2F"])}
         modeLabel="full-committee"
         onOpen={onOpen}
+        referenceFixtures={referenceFixtures}
       />,
     );
     expect(screen.getByText(/Limitation L-04 propagated/)).toBeTruthy();
@@ -155,6 +166,22 @@ describe("Inspector", () => {
 });
 
 describe("GraphView", () => {
+  it("maps every canonical module into one analyst stage in execution order", () => {
+    expect(PIPELINE_STAGES.map((stage) => stage.label)).toEqual([
+      "Intake & routing",
+      "Credit fact base",
+      "Fundamental analysis",
+      "Value & legal",
+      "Committee debate",
+      "QA clearance",
+      "Output & persistence",
+    ]);
+    const stagedIds = PIPELINE_STAGES.flatMap((stage) => stage.moduleIds);
+    expect(stagedIds).toHaveLength(MODULES.length);
+    expect(new Set(stagedIds)).toEqual(new Set(MODULES.map((module) => module.id)));
+    expect(STAGE_EDGE_BUNDLES.every((bundle) => bundle.count > 0)).toBe(true);
+  });
+
   it("renders one node button per module and toggles selection on click", () => {
     const onSelect = vi.fn();
     render(<GraphView sim={emptySim} selected={null} onSelect={onSelect} dim={false} scope={fullScope()} />);
@@ -163,6 +190,25 @@ describe("GraphView", () => {
     fireEvent.click(buttons[0]);
     expect(onSelect).toHaveBeenCalledWith(MODULES[0].id);
     expect(screen.getByRole("region", { name: /scroll horizontally/i })).toBeTruthy();
+  });
+
+  it("renders full analyst labels with CP codes secondary and a stage-order table peer", () => {
+    render(<GraphView sim={emptySim} selected="CP-4C" onSelect={() => {}} dim={false} scope={fullScope()} />);
+    const node = screen.getByTitle(/Covenant Capacity — Enter to select/);
+    expect(node.textContent?.indexOf("Covenant Capacity")).toBeLessThan(node.textContent?.indexOf("CP-4C") ?? -1);
+
+    const table = screen.getByRole("table", { name: "Ordered pipeline stages and modules" });
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(MODULES.length);
+    expect(table.querySelector('tr[aria-current="true"]')?.textContent).toContain("Covenant Capacity");
+    expect(screen.getAllByTestId("stage-edge-bundle")).toHaveLength(STAGE_EDGE_BUNDLES.length);
+  });
+
+  it("highlights the selected module's local neighborhood without obscuring the remaining graph", () => {
+    render(<GraphView sim={emptySim} selected="CP-2" onSelect={() => {}} dim={false} scope={fullScope()} />);
+    const adjacent = screen.getByTitle(/Downside Pathways — Enter to select/);
+    const unrelated = screen.getByTitle(/Persist — Enter to select/);
+    expect(Number(adjacent.style.opacity)).toBe(1);
+    expect(Number(unrelated.style.opacity)).toBeGreaterThanOrEqual(0.6);
   });
 
   // Regression for matrix 2.1: `SEV_COLOR[st] + "66"` emitted `var(--caos-…)66`
@@ -199,16 +245,17 @@ describe("GraphView", () => {
       disconnect() { disconnect(); }
     });
     const view = render(<GraphView sim={emptySim} selected={null} onSelect={() => {}} dim={false} scope={fullScope()} />);
-    expect(screen.getByRole("region").firstElementChild?.getAttribute("style")).toContain("1281.4px");
+    expect(screen.getByRole("region").firstElementChild?.getAttribute("style")).toContain("1272.8px");
     view.unmount();
     expect(disconnect).toHaveBeenCalledOnce();
   });
 });
 
 describe("SwimlaneView", () => {
-  it("labels in-scope idle modules as queued", () => {
+  it("labels in-scope idle modules as planned", () => {
     render(<SwimlaneView sim={emptySim} selected={null} onSelect={() => {}} scope={fullScope()} />);
-    expect(screen.getAllByText("queued").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("planned").length).toBeGreaterThan(0);
+    expect(screen.queryByText("queued")).toBeNull();
   });
 
   it("pipeline-44 labels out-of-scope modules as skipped", () => {
