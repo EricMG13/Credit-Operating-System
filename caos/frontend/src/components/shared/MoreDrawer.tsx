@@ -90,10 +90,19 @@ export function MoreDrawer({
       }
     };
     const onResize = () => onOpenChange(false);
-    // Close when the PAGE scrolls (the fixed panel would detach from its
-    // trigger), but ignore scrolls inside the panel's own list.
+    const anchorRect = triggerRef.current?.getBoundingClientRect();
+    // Close when scrolling moves the trigger (the fixed panel would detach),
+    // but keep the drawer open for scroll events that leave its anchor fixed.
+    // WebKit can emit a one-pixel workbench scroll while focus moves into the
+    // portal; that must not dismiss the drawer before its first action lands.
     const onScroll = (e: Event) => {
       if (panelRef.current?.contains(e.target as Node)) return;
+      const currentRect = triggerRef.current?.getBoundingClientRect();
+      if (anchorRect && currentRect
+        && Math.abs(currentRect.top - anchorRect.top) <= 0.5
+        && Math.abs(currentRect.left - anchorRect.left) <= 0.5
+        && Math.abs(currentRect.right - anchorRect.right) <= 0.5
+        && Math.abs(currentRect.bottom - anchorRect.bottom) <= 0.5) return;
       onOpenChange(false);
     };
     window.addEventListener("pointerdown", onPointer);

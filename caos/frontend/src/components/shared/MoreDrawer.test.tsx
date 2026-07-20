@@ -104,6 +104,12 @@ describe("MoreDrawer", () => {
 
     await open();
     fireEvent.scroll(document.body);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue({
+      x: 20, y: 11, top: 11, left: 20, right: 120, bottom: 41, width: 100, height: 30,
+      toJSON: () => ({}),
+    });
+    fireEvent.scroll(document.body);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
