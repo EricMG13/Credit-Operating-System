@@ -274,18 +274,21 @@ test.describe("Model Builder", () => {
     await page.getByRole("button", { name: "Queue override" }).click();
     await expect(page.getByText(`${nodeId} queued locally. Preview before committing.`, { exact: true })).toBeVisible();
 
-    const previewOk = page.waitForResponse(
-      (response) => response.request().method() === "POST"
-        && new URL(response.url()).pathname === `/api/models/v2/${workflowIssuerId}/calculate`
-        && response.status() === 200,
-      { timeout: 15000 },
-    );
     await page.getByRole("button", { name: "Open Model v2 tools" }).click();
-    await page
-      .getByRole("dialog", { name: "Model v2 tools" })
-      .getByRole("button", { name: "Preview pending" })
-      .click();
-    await previewOk;
+    const previewButton = page.getByRole("button", { name: "Preview pending" });
+    await expect(previewButton).toBeVisible();
+    await Promise.all([
+      page.waitForResponse(
+        (response) => response.request().method() === "POST"
+          && new URL(response.url()).pathname === `/api/models/v2/${workflowIssuerId}/calculate`
+          && response.status() === 200,
+        { timeout: 15000 },
+      ),
+      // Header overflow can relocate this control between the utility drawer
+      // and the inline action row. Keep the locator page-scoped so Playwright
+      // follows the same control across that responsive remount.
+      previewButton.click(),
+    ]);
     await expect(page.getByText("Server preview refreshed. No mutation has been committed.", { exact: true })).toBeVisible();
 
     const commitOk = page.waitForResponse(

@@ -125,6 +125,9 @@ test.describe("Report Studio", () => {
 
     const dialog = page.getByRole("dialog", { name: /^Source evidence E-/ });
     await expect(dialog).toBeVisible();
+    await expect.poll(() => dialog.evaluate(
+      (element) => element.contains(document.activeElement),
+    )).toBe(true);
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
   });
