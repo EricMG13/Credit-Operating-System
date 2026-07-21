@@ -166,6 +166,13 @@ def _canonical_bytes(value: object) -> bytes:
     ).encode("utf-8")
 
 
+def _canonical_equal(left: object, right: object) -> bool:
+    try:
+        return _canonical_bytes(left) == _canonical_bytes(right)
+    except (TypeError, ValueError, UnicodeEncodeError):
+        return False
+
+
 def _omission_marker(value: object, *, count: int | None = None) -> dict[str, object]:
     canonical = _canonical_bytes(value)
     marker: dict[str, object] = {
@@ -237,8 +244,8 @@ def _validated_observation_from_evidence(
 
     detail = evidence.get("detail")
     detail_marker = _omission_marker(evaluation.detail_json)
-    detail_is_omitted = detail == detail_marker
-    if detail != evaluation.detail_json and not detail_is_omitted:
+    detail_is_omitted = _canonical_equal(detail, detail_marker)
+    if not _canonical_equal(detail, evaluation.detail_json) and not detail_is_omitted:
         return None
 
     artifact_value = evidence.get("source_artifact_refs")
@@ -333,7 +340,7 @@ def _candidate_matches_evaluation(
             evaluation.watch_rule_id == str(candidate.watch_rule_id),
             evaluation.rule_version == candidate.rule_version,
             evaluation.signal_type == candidate.signal_type,
-            evaluation.subject_scope_json == scope,
+            _canonical_equal(evaluation.subject_scope_json, scope),
             evaluation.issuer_id == candidate.issuer_id,
             evaluation.portfolio_id == candidate.portfolio_id,
             evaluation.observation_key
@@ -353,27 +360,23 @@ def _candidate_matches_evaluation(
             candidate.title == config.title == expected.title,
             candidate.impact == config.impact == expected.impact,
             candidate.run_id == expected.run_id,
-            candidate.authority == expected_authority == expected.authority,
+            _canonical_equal(candidate.authority, expected_authority),
+            _canonical_equal(expected_authority, expected.authority),
         )
     )
     if not identity_matches:
         return False
     if artifacts_recoverable:
-        return candidate.evidence == expected.evidence
+        return _canonical_equal(candidate.evidence, expected.evidence)
     # Task 3 may replace the source-artifact list with a digest marker only after
     # detail omission. Its original list is not persisted, so exact digest
     # provenance is unrecoverable; all remaining evidence is checked exactly.
-    return all(
-        (
-            candidate.evidence["source_identity"]
-            == expected.evidence["source_identity"],
-            candidate.evidence["observed_at"] == expected.evidence["observed_at"],
-            candidate.evidence["numeric_value"] == expected.evidence["numeric_value"],
-            candidate.evidence["categorical_value"]
-            == expected.evidence["categorical_value"],
-            candidate.evidence["detail"] == _omission_marker(evaluation.detail_json),
-        )
-    )
+    expected_evidence = dict(expected.evidence)
+    expected_evidence["detail"] = _omission_marker(evaluation.detail_json)
+    expected_evidence["source_artifact_refs"] = candidate.evidence[
+        "source_artifact_refs"
+    ]
+    return _canonical_equal(candidate.evidence, expected_evidence)
 
 
 def _event_matches(
@@ -391,8 +394,8 @@ def _event_matches(
             event.kind == candidate.kind,
             event.title == candidate.title,
             event.impact == candidate.impact,
-            event.evidence == candidate.evidence,
-            event.authority == candidate.authority,
+            _canonical_equal(event.evidence, candidate.evidence),
+            _canonical_equal(event.authority, candidate.authority),
             event.created_by == created_by,
         )
     )
@@ -426,7 +429,7 @@ def _context_matches(
             context.signal_type == evaluation.signal_type,
             context.correlation_root_id == str(candidate.correlation_root_id),
             context.hop_count == candidate.hop_count,
-            context.context_json == _context_payload(candidate),
+            _canonical_equal(context.context_json, _context_payload(candidate)),
         )
     )
 
@@ -481,6 +484,8 @@ async def _validate_run_scope(
     }:
         raise MaterializationError("run_scope_mismatch")
     else:
+        if tenant_id != team_id:
+            raise MaterializationError("run_scope_mismatch")
         tenancy_mode = "named"
     issuer_team_allowed = (
         tenancy_mode == "shared"

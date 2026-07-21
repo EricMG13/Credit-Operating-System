@@ -77,7 +77,7 @@ RULE_VERSION_FIXTURE = SimpleNamespace(
     signal_type="qa_gate",
     config_json=RULE_CONFIG,
 )
-DEFAULT_SCOPE = SubjectScope(tenant_id="tenant-a", issuer_id=None, portfolio_id=None)
+DEFAULT_SCOPE = SubjectScope(tenant_id="desk-a", issuer_id=None, portfolio_id=None)
 
 
 def _observation(
@@ -308,7 +308,7 @@ def _scoped_candidate(
     issuer_id: str | None,
     portfolio_id: str | None,
     run_id: str,
-    tenant_id: str = "tenant-a",
+    tenant_id: str = "desk-a",
 ) -> AlertCandidate:
     evidence = copy.deepcopy(_candidate().evidence)
     evidence["detail"]["run_id"] = run_id
@@ -334,7 +334,7 @@ def _candidate_evidence(**overrides: object) -> dict:
 @pytest_asyncio.fixture
 async def alert_store(tmp_path, request):
     tenancy = getattr(request, "param", {})
-    tenant_id = tenancy.get("tenant_id", "tenant-a")
+    tenant_id = tenancy.get("tenant_id", "desk-a")
     team_id = tenancy.get("team_id", "desk-a")
     fixture_scope = SubjectScope(
         tenant_id=tenant_id,
@@ -486,7 +486,7 @@ async def test_materialization_preserves_candidate_and_stamps_provenance(
         "observation_key": OBSERVATION_KEY,
         "correlation_id": str(CORRELATION_ID),
         "subject_scope": {
-            "tenant_id": "tenant-a",
+            "tenant_id": "desk-a",
             "issuer_id": None,
             "portfolio_id": None,
         },
@@ -554,6 +554,24 @@ async def test_sequential_replay_reuses_rows_without_resetting_terminal_intent(
         "operator_cancelled",
         NOW + timedelta(days=1),
     )
+
+
+@pytest.mark.asyncio
+async def test_replay_rejects_persisted_event_json_bool_integer_collision(
+    alert_store,
+) -> None:
+    first = await _materialize_committed(alert_store)
+    async with alert_store.begin() as session:
+        await session.execute(
+            AlertEvent.__table__.update()
+            .where(AlertEvent.id == first.event.id)
+            .values(authority={**first.event.authority, "rule_version": True})
+        )
+    async with alert_store() as session:
+        persisted = await session.get(AlertEvent, first.event.id)
+        assert persisted.authority["rule_version"] is True
+    with pytest.raises(MaterializationError, match="event_collision"):
+        await _materialize_committed(alert_store)
 
 
 @pytest.mark.asyncio
@@ -664,6 +682,7 @@ async def test_unknown_candidate_run_id_fails_closed_before_legacy_fk_insert(
     [
         _candidate(title="Drifted title"),
         _candidate(authority={**_candidate().authority, "extra": "forged"}),
+        _candidate(authority={**_candidate().authority, "rule_version": True}),
     ],
 )
 async def test_materialization_rejects_candidate_presentation_or_authority_drift(
@@ -722,6 +741,21 @@ async def test_materialization_rejects_noncanonical_or_drifted_evidence(
             )
     async with alert_store() as verify:
         assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 0
+
+
+@pytest.mark.asyncio
+async def test_materialization_rejects_nested_json_bool_integer_detail_drift(
+    alert_store,
+) -> None:
+    async with alert_store.begin() as session:
+        evaluation = await session.get(WatchRuleEvaluation, str(EVALUATION_ID))
+        evaluation.detail_json = {"nested": {"flag": True}}
+    evidence = _candidate_evidence(detail={"nested": {"flag": 1}})
+    with pytest.raises(MaterializationError, match="candidate_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(
+                session, _candidate(evidence=evidence), _sinks(), now=NOW
+            )
 
 
 @pytest.mark.asyncio
@@ -971,17 +1005,24 @@ async def test_scope_less_run_requires_shared_or_same_frozen_team(
             True,
         ),
         (
-            {"tenant_id": "tenant-a", "team_id": "desk-a"},
+            {"tenant_id": "desk-a", "team_id": "desk-a"},
             "portfolio",
             "desk-a",
             None,
             False,
         ),
         (
-            {"tenant_id": "tenant-a", "team_id": "desk-a"},
+            {"tenant_id": "desk-a", "team_id": "desk-a"},
             "portfolio",
             "desk-a",
             "desk-b",
+            False,
+        ),
+        (
+            {"tenant_id": "tenant-a", "team_id": "desk-a"},
+            "issuer",
+            None,
+            None,
             False,
         ),
         (
