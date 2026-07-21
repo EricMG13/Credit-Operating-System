@@ -151,6 +151,33 @@ function RuleList({ controller, onEdit }: { controller: PersistedWatchRuleContro
   );
 }
 
+function WatchRuleActivationState({ controller }: { controller: PersistedWatchRuleController }) {
+  const retryClass = "min-h-8 rounded border border-caos-border px-2 text-caos-xs text-caos-muted transition-caos focus-ring caos-target";
+  if (controller.availability === "checking") {
+    return <SurfaceState kind="checking" title="Checking watch-rule activation" detail="Waiting for a verified workspace-settings snapshot before any watch-rule request." compact />;
+  }
+  if (controller.availability === "disabled") {
+    return (
+      <SurfaceState
+        kind="offline"
+        title="Watch rules disabled"
+        detail="The deployment activation flag is default-off. Historical persisted alerts remain available."
+        primaryAction={<button type="button" onClick={() => void controller.retryActivation()} className={retryClass}>Recheck watch-rule activation</button>}
+        compact
+      />
+    );
+  }
+  return (
+    <SurfaceState
+      kind="unavailable"
+      title="Watch-rule activation unavailable"
+      detail={controller.activationError ?? "The workspace settings snapshot could not verify watch-rule activation. Historical persisted alerts remain available."}
+      primaryAction={<button type="button" onClick={() => void controller.retryActivation()} className={retryClass}>Retry watch-rule activation</button>}
+      compact
+    />
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="grid gap-1 text-caos-2xs uppercase tracking-wider text-caos-muted"><span>{label}</span>{children}</label>;
 }
@@ -185,6 +212,15 @@ export function WatchRuleEditor({ controller }: { controller: PersistedWatchRule
   const conflictRef = useRef<HTMLButtonElement | null>(null);
   const errorRef = useRef<HTMLDivElement | null>(null);
   const unavailable = UNAVAILABLE_SIGNALS.has(form.signal);
+
+  if (controller.availability !== "enabled") {
+    return (
+      <section aria-label="Watch rules" className="grid gap-2">
+        <h3 className="text-caos-xs font-semibold uppercase tracking-wider text-caos-text">Watch rules</h3>
+        <WatchRuleActivationState controller={controller} />
+      </section>
+    );
+  }
 
   const close = () => {
     setOpen(false);

@@ -1061,6 +1061,8 @@ export interface WorkspaceSettings {
   features: {
     lineage_v2_enabled: boolean;
     market_xlsx_v2_enabled: boolean;
+    /** Watch-rule runtime activation is enabled only when the server returns exact `true`. */
+    alert_rules_v1_enabled?: boolean;
     /** Compatibility alias used by staged workspace-settings deployments. */
     model_engine_v2?: boolean;
     model_engine_v2_enabled: boolean;
@@ -1068,8 +1070,8 @@ export interface WorkspaceSettings {
     cp_2g_enabled?: boolean;
   };
 }
-export const getSettings = (): Promise<WorkspaceSettings> =>
-  api.get("/api/settings").then((r) => r.data);
+export const getSettings = ({ signal }: { signal?: AbortSignal } = {}): Promise<WorkspaceSettings> =>
+  api.get("/api/settings", { signal }).then((r) => r.data);
 
 export type RoleView = "analyst" | "pm" | "qa";
 

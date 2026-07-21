@@ -59,6 +59,30 @@ from watch_rules import (
 
 
 NOW = datetime(2026, 7, 20, 12, tzinfo=timezone.utc)
+
+
+_DISPATCH_ONCE_TESTS = frozenset(
+    {
+        "test_dispatch_sees_only_committed_work_and_renders_between_transactions",
+        "test_dispatch_render_failure_is_sanitized_and_retried_without_secrets",
+        "test_dispatch_missing_sink_uses_machine_failure_only",
+    }
+)
+
+
+@pytest.fixture(autouse=True)
+def _enable_alert_rules_boundary(request, monkeypatch):
+    """Opt in only tests that exercise the gated dispatch orchestrator."""
+    test_name = getattr(request.node, "originalname", request.node.name)
+    if test_name not in _DISPATCH_ONCE_TESTS:
+        return
+    from config import get_settings
+
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", True
+    )
+
+
 RULE_ID = UUID("00000000-0000-0000-0000-000000000201")
 EVALUATION_ID = UUID("00000000-0000-0000-0000-000000000202")
 CORRELATION_ID = UUID("00000000-0000-0000-0000-000000000203")

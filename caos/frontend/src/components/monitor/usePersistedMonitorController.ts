@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createWatchRule,
   getAlertEventPage,
+  getSettings,
   getWatchRule,
   getWatchRulePage,
   patchAlertEvent,
@@ -19,11 +20,13 @@ import {
 export type MonitorAlertFilter = "all" | AlertEventDTO["state"];
 export type PersistedLoadStatus = "loading" | "error" | "ready";
 export type BatchErrorAction = "retry" | "reload" | "review" | null;
+export type WatchRuleAvailability = "checking" | "enabled" | "disabled" | "unavailable";
 
 const ALERT_PAGE_LIMIT = 200;
 const RULE_PAGE_LIMIT = 100;
 const ALERT_AUTHORITY_NOT_READY = "Persisted alert list authority is not ready; reload before updating";
 const RULE_AUTHORITY_NOT_READY = "Persisted watch-rule list authority is not ready; reload before updating";
+const RULE_ACTIVATION_NOT_ENABLED = "Watch-rule activation is not enabled by a verified workspace-settings snapshot";
 
 function authorityHasError(ref: { current: PersistedLoadStatus }): boolean {
   return ref.current === "error";
@@ -89,9 +92,12 @@ async function drainPages<T>(
 }
 
 export interface PersistedWatchRuleController {
+  availability: WatchRuleAvailability;
+  activationError: string | null;
   status: PersistedLoadStatus;
   error: string | null;
   rules: WatchRuleDTO[];
+  retryActivation: () => Promise<void>;
   refresh: () => Promise<void>;
   create: (body: WatchRuleWriteDTO) => Promise<WatchRuleDTO>;
   update: (id: string, expectedVersion: number, patch: WatchRuleWriteDTO) => Promise<WatchRuleDTO>;
@@ -99,23 +105,40 @@ export interface PersistedWatchRuleController {
 }
 
 export function usePersistedWatchRuleController(): PersistedWatchRuleController {
+  const [availability, setAvailability] = useState<WatchRuleAvailability>("checking");
+  const [activationError, setActivationError] = useState<string | null>(null);
   const [status, setStatus] = useState<PersistedLoadStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [rules, setRules] = useState<WatchRuleDTO[]>([]);
-  const requestRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
+  const availabilityRef = useRef<WatchRuleAvailability>("checking");
+  const activationEpochRef = useRef(0);
+  const settingsRequestRef = useRef(0);
+  const settingsAbortRef = useRef<AbortController | null>(null);
+  const listRequestRef = useRef(0);
+  const listAbortRef = useRef<AbortController | null>(null);
   const statusRef = useRef<PersistedLoadStatus>("loading");
   const publishStatus = useCallback((next: PersistedLoadStatus) => {
     statusRef.current = next;
     setStatus(next);
   }, []);
 
-  const refresh = useCallback(async () => {
-    const request = requestRef.current + 1;
-    requestRef.current = request;
-    abortRef.current?.abort();
+  const publishAvailability = useCallback((next: WatchRuleAvailability) => {
+    availabilityRef.current = next;
+    setAvailability(next);
+  }, []);
+  const fenceListLoad = useCallback(() => {
+    listRequestRef.current += 1;
+    listAbortRef.current?.abort();
+  }, []);
+  const loadRules = useCallback(async (activationEpoch: number) => {
+    if (availabilityRef.current !== "enabled" || activationEpochRef.current !== activationEpoch) {
+      throw new Error(RULE_ACTIVATION_NOT_ENABLED);
+    }
+    const request = listRequestRef.current + 1;
+    listRequestRef.current = request;
+    listAbortRef.current?.abort();
     const abort = new AbortController();
-    abortRef.current = abort;
+    listAbortRef.current = abort;
     publishStatus("loading");
     setError(null);
     try {
@@ -124,24 +147,80 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
         abort.signal,
         "Persisted watch-rule pagination repeated a cursor.",
       );
-      if (requestRef.current !== request || abort.signal.aborted) return;
+      if (
+        listRequestRef.current !== request
+        || abort.signal.aborted
+        || availabilityRef.current !== "enabled"
+        || activationEpochRef.current !== activationEpoch
+      ) return;
       const unique = new Map(loaded.map((rule) => [rule.id, rule]));
       setRules([...unique.values()]);
       publishStatus("ready");
     } catch (reason) {
-      if (requestRef.current !== request || abort.signal.aborted) return;
+      if (
+        listRequestRef.current !== request
+        || abort.signal.aborted
+        || availabilityRef.current !== "enabled"
+        || activationEpochRef.current !== activationEpoch
+      ) return;
       setError(toErrorMessage(reason, "Persisted watch rules are unavailable"));
       publishStatus("error");
     }
   }, [publishStatus]);
 
+  const refresh = useCallback(async () => {
+    if (availabilityRef.current !== "enabled") throw new Error(RULE_ACTIVATION_NOT_ENABLED);
+    await loadRules(activationEpochRef.current);
+  }, [loadRules]);
+
+  const retryActivation = useCallback(async () => {
+    const request = settingsRequestRef.current + 1;
+    settingsRequestRef.current = request;
+    settingsAbortRef.current?.abort();
+    const abort = new AbortController();
+    settingsAbortRef.current = abort;
+    activationEpochRef.current += 1;
+    const activationEpoch = activationEpochRef.current;
+    fenceListLoad();
+    setRules([]);
+    setError(null);
+    setActivationError(null);
+    publishStatus("loading");
+    publishAvailability("checking");
+    try {
+      const settings = await getSettings({ signal: abort.signal });
+      if (settingsRequestRef.current !== request || abort.signal.aborted) return;
+      const flag = (settings as { features?: { alert_rules_v1_enabled?: unknown } })?.features?.alert_rules_v1_enabled;
+      if (flag === false) {
+        publishAvailability("disabled");
+        publishStatus("ready");
+        return;
+      }
+      if (flag !== true) {
+        setActivationError("Workspace settings did not provide a valid watch-rule activation flag.");
+        publishAvailability("unavailable");
+        publishStatus("error");
+        return;
+      }
+      publishAvailability("enabled");
+      await loadRules(activationEpoch);
+    } catch (reason) {
+      if (settingsRequestRef.current !== request || abort.signal.aborted) return;
+      setActivationError(toErrorMessage(reason, "Watch-rule activation could not be verified"));
+      publishAvailability("unavailable");
+      publishStatus("error");
+    }
+  }, [fenceListLoad, loadRules, publishAvailability, publishStatus]);
+
   useEffect(() => {
-    void refresh();
+    void retryActivation();
     return () => {
-      requestRef.current += 1;
-      abortRef.current?.abort();
+      settingsRequestRef.current += 1;
+      settingsAbortRef.current?.abort();
+      activationEpochRef.current += 1;
+      fenceListLoad();
     };
-  }, [refresh]);
+  }, [fenceListLoad, retryActivation]);
 
   const replaceRule = useCallback((next: WatchRuleDTO) => {
     setRules((current) => {
@@ -154,11 +233,13 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
     return next;
   }, []);
 
-  const fenceListLoad = useCallback(() => {
-    requestRef.current += 1;
-    abortRef.current?.abort();
+  const activationIsCurrent = useCallback((activationEpoch: number) => {
+    if (availabilityRef.current !== "enabled" || activationEpochRef.current !== activationEpoch) {
+      throw new Error(RULE_ACTIVATION_NOT_ENABLED);
+    }
   }, []);
-  const finishMutation = useCallback((next: WatchRuleDTO) => {
+  const finishMutation = useCallback((next: WatchRuleDTO, activationEpoch: number) => {
+    activationIsCurrent(activationEpoch);
     // A list read may have started after this write. Fence it again so its
     // pre-write snapshot cannot replace the persisted write response.
     fenceListLoad();
@@ -166,27 +247,40 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
     // A completed write must not erase a list error that won the race.
     if (!authorityHasError(statusRef)) publishStatus("ready");
     return replaced;
-  }, [fenceListLoad, publishStatus, replaceRule]);
+  }, [activationIsCurrent, fenceListLoad, publishStatus, replaceRule]);
   const requireReadyAuthority = useCallback(() => {
+    if (availabilityRef.current !== "enabled") throw new Error(RULE_ACTIVATION_NOT_ENABLED);
     if (statusRef.current !== "ready") throw new Error(RULE_AUTHORITY_NOT_READY);
+    return activationEpochRef.current;
   }, []);
   const create = useCallback(async (body: WatchRuleWriteDTO) => {
-    requireReadyAuthority();
+    const activationEpoch = requireReadyAuthority();
     fenceListLoad();
-    return finishMutation(await createWatchRule(body));
+    return finishMutation(await createWatchRule(body), activationEpoch);
   }, [fenceListLoad, finishMutation, requireReadyAuthority]);
   const update = useCallback(async (id: string, expectedVersion: number, patch: WatchRuleWriteDTO) => {
-    requireReadyAuthority();
+    const activationEpoch = requireReadyAuthority();
     fenceListLoad();
-    return finishMutation(await updateWatchRule(id, expectedVersion, patch));
+    return finishMutation(await updateWatchRule(id, expectedVersion, patch), activationEpoch);
   }, [fenceListLoad, finishMutation, requireReadyAuthority]);
   const reloadOne = useCallback(async (id: string) => {
-    requireReadyAuthority();
+    const activationEpoch = requireReadyAuthority();
     fenceListLoad();
-    return finishMutation(await getWatchRule(id));
+    return finishMutation(await getWatchRule(id), activationEpoch);
   }, [fenceListLoad, finishMutation, requireReadyAuthority]);
 
-  return { status, error, rules, refresh, create, update, reloadOne };
+  return {
+    availability,
+    activationError,
+    status,
+    error,
+    rules,
+    retryActivation,
+    refresh,
+    create,
+    update,
+    reloadOne,
+  };
 }
 
 export interface PersistedMonitorController {

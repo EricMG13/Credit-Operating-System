@@ -8,12 +8,14 @@ import { usePersistedMonitorController } from "./usePersistedMonitorController";
 const getAlertEventPage = vi.fn();
 const getWatchRulePage = vi.fn();
 const patchAlertEvent = vi.fn();
+const getSettings = vi.fn().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
 const forbiddenDraft = vi.fn();
 const forbiddenRefresh = vi.fn();
 const forbiddenLegacyStates = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
+  getSettings: (...args: unknown[]) => getSettings(...args),
   getAlertEventPage: (...args: unknown[]) => getAlertEventPage(...args),
   getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
   patchAlertEvent: (...args: unknown[]) => patchAlertEvent(...args),
@@ -73,6 +75,18 @@ function DeepLinkHarness() {
   return <><output data-testid="deep-active">{controller.activeEventId ?? "none"}</output><output data-testid="deep-selected">{controller.selectedIds.length}</output><PhoneTriage controller={controller} /></>;
 }
 
+function ActivationHarness() {
+  const controller = usePersistedMonitorController();
+  return <>
+    <output data-testid="activation-alert-status">{controller.status}:{controller.events.length}:{controller.selectedIds.length}</output>
+    <output data-testid="activation-rule-availability">{controller.rules.availability}</output>
+    <output data-testid="activation-alert-state">{controller.events[0]?.state ?? "none"}</output>
+    <button type="button" onClick={() => { const first = controller.events[0]; if (first) controller.toggleSelected(first.id); }}>Select historical alert</button>
+    <button type="button" onClick={() => { const first = controller.events[0]; if (first) void controller.mutateEvent(first.id, "ack").catch(() => undefined); }}>Acknowledge historical alert</button>
+    <button type="button" onClick={() => void controller.refresh()}>Refresh historical alerts</button>
+  </>;
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -81,6 +95,7 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  getSettings.mockReset().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
   getAlertEventPage.mockReset();
   getWatchRulePage.mockReset();
   patchAlertEvent.mockReset();
@@ -575,5 +590,59 @@ describe("persisted Monitor controller", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mutate first alert" }));
     await waitFor(() => expect(screen.getByTestId("controller-status").textContent).toBe("error:1:1"));
     expect(patchAlertEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps historical alert load, selection, mutation, and refresh available while rule activation is off or unverifiable", async () => {
+    const cases: Array<{
+      label: string;
+      settings: unknown;
+      rejects?: boolean;
+      availability: "disabled" | "unavailable";
+    }> = [
+      {
+        label: "rules default off",
+        settings: { features: { alert_rules_v1_enabled: false } },
+        availability: "disabled",
+      },
+      {
+        label: "settings snapshot unavailable",
+        settings: new Error("workspace configuration offline"),
+        rejects: true,
+        availability: "unavailable",
+      },
+    ];
+
+    for (const scenario of cases) {
+      cleanup();
+      vi.clearAllMocks();
+      getSettings.mockReset();
+      getAlertEventPage.mockReset();
+      getWatchRulePage.mockReset();
+      patchAlertEvent.mockReset();
+      if (scenario.rejects) getSettings.mockRejectedValue(scenario.settings);
+      else getSettings.mockResolvedValue(scenario.settings);
+      getAlertEventPage
+        .mockResolvedValueOnce({ items: [event()], nextCursor: null })
+        .mockResolvedValueOnce({ items: [event({ state: "ack" })], nextCursor: null });
+      patchAlertEvent.mockResolvedValue(event({ state: "ack" }));
+
+      render(<ActivationHarness />);
+
+      await waitFor(() => expect(screen.getByTestId("activation-alert-status").textContent, scenario.label).toBe("ready:1:0"));
+      expect(screen.getByTestId("activation-rule-availability").textContent, scenario.label).toBe(scenario.availability);
+      expect(getSettings, scenario.label).toHaveBeenCalledOnce();
+      expect(getWatchRulePage, scenario.label).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Select historical alert" }));
+      await waitFor(() => expect(screen.getByTestId("activation-alert-status").textContent, scenario.label).toBe("ready:1:1"));
+      fireEvent.click(screen.getByRole("button", { name: "Acknowledge historical alert" }));
+      await waitFor(() => expect(patchAlertEvent, scenario.label).toHaveBeenCalledWith("event-open", "ack", undefined));
+      await waitFor(() => expect(screen.getByTestId("activation-alert-state").textContent, scenario.label).toBe("ack"));
+
+      fireEvent.click(screen.getByRole("button", { name: "Refresh historical alerts" }));
+      await waitFor(() => expect(getAlertEventPage, scenario.label).toHaveBeenCalledTimes(2));
+      expect(screen.getByTestId("activation-alert-status").textContent, scenario.label).toMatch(/^ready:1:/);
+      expect(getWatchRulePage, scenario.label).not.toHaveBeenCalled();
+    }
   });
 });

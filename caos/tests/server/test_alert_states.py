@@ -21,6 +21,27 @@ def client():
         yield c
 
 
+_C3_RULE_BOUNDARY_TESTS = frozenset(
+    {
+        "test_contextual_alert_lists_and_patch_are_404_masked_across_named_teams",
+        "test_direct_c3_state_writes_require_visible_context_before_rate_limit",
+    }
+)
+
+
+@pytest.fixture(autouse=True)
+def _enable_alert_rules_for_c3_boundaries(request, monkeypatch):
+    """Keep legacy alert tests default-off; opt in only C3 rule-backed cases."""
+    test_name = getattr(request.node, "originalname", request.node.name)
+    if test_name not in _C3_RULE_BOUNDARY_TESTS:
+        return
+    from config import get_settings
+
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", True
+    )
+
+
 def test_create_state_records_and_stamps_analyst(client):
     r = client.post(
         "/api/alerts/state",

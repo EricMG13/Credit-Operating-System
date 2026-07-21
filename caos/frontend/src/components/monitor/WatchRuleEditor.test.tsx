@@ -9,9 +9,11 @@ const getWatchRulePage = vi.fn();
 const getWatchRule = vi.fn();
 const createWatchRule = vi.fn();
 const updateWatchRule = vi.fn();
+const getSettings = vi.fn().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
+  getSettings: (...args: unknown[]) => getSettings(...args),
   getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
   getWatchRule: (...args: unknown[]) => getWatchRule(...args),
   createWatchRule: (...args: unknown[]) => createWatchRule(...args),
@@ -48,6 +50,17 @@ function Harness() {
   return <WatchRuleEditor controller={controller} />;
 }
 
+function AvailabilityHarness() {
+  const controller = usePersistedWatchRuleController();
+  const write: WatchRuleWriteDTO = {
+    name: "Guard probe", signal_type: "qa_gate", enabled: true, paused: false,
+    issuer_id: null, portfolio_id: null, schedule_kind: "event_driven",
+    schedule_interval_seconds: null, next_evaluation_at: null,
+    config: { operator: "present", threshold: null, kind: "qa_change", title: "QA changed", impact: "Review." },
+  };
+  return <><output data-testid="rule-availability">{controller.availability}</output><button type="button" onClick={() => void controller.retryActivation()}>Probe activation again</button><button type="button" onClick={() => void controller.refresh().catch(() => undefined)}>Probe guarded list refresh</button><button type="button" onClick={() => void controller.reloadOne(rule().id).catch(() => undefined)}>Probe guarded item read</button><button type="button" onClick={() => void controller.create(write).catch(() => undefined)}>Probe guarded create</button><button type="button" onClick={() => void controller.update(rule().id, 3, write).catch(() => undefined)}>Probe guarded update</button><WatchRuleEditor controller={controller} /></>;
+}
+
 function RuleFenceHarness() {
   const controller = usePersistedWatchRuleController();
   const write = (name: string): WatchRuleWriteDTO => ({
@@ -79,6 +92,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  getSettings.mockReset().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
   getWatchRulePage.mockReset();
   getWatchRule.mockReset();
   createWatchRule.mockReset();
@@ -288,5 +302,141 @@ describe("WatchRuleEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Update during load" }));
     expect(updateWatchRule).not.toHaveBeenCalled();
     expect(screen.getByTestId("rule-status").textContent).toBe("error");
+  });
+
+  it("enables rule reads only from one exact-true workspace-settings snapshot", async () => {
+    getSettings.mockReset().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
+
+    render(<AvailabilityHarness />);
+
+    await waitFor(() => expect(screen.getByTestId("rule-availability").textContent).toBe("enabled"));
+    expect(await screen.findByText("QA gate watch")).toBeTruthy();
+    expect(getSettings).toHaveBeenCalledOnce();
+    expect(getWatchRulePage).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed before every rule read or write when activation is off or cannot be verified", async () => {
+    const cases: Array<{
+      label: string;
+      settings: unknown;
+      rejects?: boolean;
+      availability: "disabled" | "unavailable";
+    }> = [
+      {
+        label: "explicit default-off flag",
+        settings: { features: { alert_rules_v1_enabled: false } },
+        availability: "disabled",
+      },
+      {
+        label: "settings read failure",
+        settings: new Error("workspace configuration offline"),
+        rejects: true,
+        availability: "unavailable",
+      },
+      {
+        label: "missing feature field",
+        settings: { features: {} },
+        availability: "unavailable",
+      },
+      {
+        label: "malformed feature field",
+        settings: { features: { alert_rules_v1_enabled: "true" } },
+        availability: "unavailable",
+      },
+    ];
+
+    for (const scenario of cases) {
+      cleanup();
+      vi.clearAllMocks();
+      getSettings.mockReset();
+      if (scenario.rejects) getSettings.mockRejectedValue(scenario.settings);
+      else getSettings.mockResolvedValue(scenario.settings);
+
+      render(<AvailabilityHarness />);
+
+      await waitFor(() => expect(screen.getByTestId("rule-availability").textContent, scenario.label).toBe(scenario.availability));
+      const copy = document.body.textContent ?? "";
+      if (scenario.availability === "disabled") {
+        expect(copy, scenario.label).toMatch(/watch rules?.*disabled|disabled.*watch rules?|default-off/i);
+        expect(copy, scenario.label).toMatch(/deployment|activation flag|default-off/i);
+      } else {
+        expect(copy, scenario.label).toMatch(/watch rules?.*unavailable|activation.*unavailable|could not verify/i);
+      }
+      expect(screen.queryByRole("button", { name: "Manage watch rules" }), scenario.label).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Probe guarded list refresh" }));
+      fireEvent.click(screen.getByRole("button", { name: "Probe guarded item read" }));
+      fireEvent.click(screen.getByRole("button", { name: "Probe guarded create" }));
+      fireEvent.click(screen.getByRole("button", { name: "Probe guarded update" }));
+      expect(getSettings, scenario.label).toHaveBeenCalledOnce();
+      expect(getWatchRulePage, scenario.label).not.toHaveBeenCalled();
+      expect(getWatchRule, scenario.label).not.toHaveBeenCalled();
+      expect(createWatchRule, scenario.label).not.toHaveBeenCalled();
+      expect(updateWatchRule, scenario.label).not.toHaveBeenCalled();
+    }
+  });
+
+  it("rechecks only workspace settings and transitions from disabled or unavailable to enabled", async () => {
+    const initialSnapshots: unknown[] = [
+      { features: { alert_rules_v1_enabled: false } },
+      new Error("workspace configuration offline"),
+    ];
+
+    for (const initial of initialSnapshots) {
+      cleanup();
+      vi.clearAllMocks();
+      getSettings.mockReset();
+      if (initial instanceof Error) getSettings.mockRejectedValueOnce(initial);
+      else getSettings.mockResolvedValueOnce(initial);
+      getSettings.mockResolvedValueOnce({ features: { alert_rules_v1_enabled: true } });
+      getWatchRulePage.mockResolvedValue({ items: [rule()], nextCursor: null });
+
+      render(<AvailabilityHarness />);
+
+      const activationButton = await screen.findByRole("button", { name: /watch-rule activation/i });
+      expect(getWatchRulePage).not.toHaveBeenCalled();
+      fireEvent.click(activationButton);
+      await waitFor(() => expect(screen.getByTestId("rule-availability").textContent).toBe("enabled"));
+      expect(await screen.findByText("QA gate watch")).toBeTruthy();
+      expect(getSettings).toHaveBeenCalledTimes(2);
+      expect(getWatchRulePage).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("fences stale settings and rule-list responses and ignores activation completion after unmount", async () => {
+    const staleSettings = deferred<{ features: { alert_rules_v1_enabled: true } }>();
+    getSettings.mockReset()
+      .mockReturnValueOnce(staleSettings.promise)
+      .mockResolvedValueOnce({ features: { alert_rules_v1_enabled: false } });
+    const first = render(<AvailabilityHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Probe activation again" }));
+    await waitFor(() => expect(screen.getByTestId("rule-availability").textContent).toBe("disabled"));
+    staleSettings.resolve({ features: { alert_rules_v1_enabled: true } });
+    await staleSettings.promise;
+    expect(screen.getByTestId("rule-availability").textContent).toBe("disabled");
+    expect(getWatchRulePage).not.toHaveBeenCalled();
+    first.unmount();
+
+    const staleRules = deferred<{ items: ReturnType<typeof rule>[]; nextCursor: null }>();
+    getSettings.mockReset()
+      .mockResolvedValueOnce({ features: { alert_rules_v1_enabled: true } })
+      .mockResolvedValueOnce({ features: { alert_rules_v1_enabled: false } });
+    getWatchRulePage.mockReset().mockReturnValueOnce(staleRules.promise);
+    render(<AvailabilityHarness />);
+    await waitFor(() => expect(getWatchRulePage).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Probe activation again" }));
+    await waitFor(() => expect(screen.getByTestId("rule-availability").textContent).toBe("disabled"));
+    staleRules.resolve({ items: [rule({ name: "Stale enabled rule" })], nextCursor: null });
+    await staleRules.promise;
+    expect(screen.queryByText("Stale enabled rule")).toBeNull();
+
+    cleanup();
+    const afterUnmount = deferred<{ features: { alert_rules_v1_enabled: true } }>();
+    getSettings.mockReset().mockReturnValueOnce(afterUnmount.promise);
+    getWatchRulePage.mockReset();
+    const unmounted = render(<AvailabilityHarness />);
+    unmounted.unmount();
+    afterUnmount.resolve({ features: { alert_rules_v1_enabled: true } });
+    await afterUnmount.promise;
+    expect(getWatchRulePage).not.toHaveBeenCalled();
   });
 });

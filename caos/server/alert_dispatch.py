@@ -21,6 +21,7 @@ from sqlalchemy.exc import OperationalError
 from alert_contracts import AlertCandidate, SignalObservation, SinkIntent, SinkResult
 from alert_evaluation import evaluate_rule
 from alert_sinks import AlertSink, Channel, DeliveryEnvelope, sink_idempotency_key
+from config import get_settings
 from database import (
     AlertDeliveryIntent,
     AlertEvent,
@@ -1036,6 +1037,8 @@ async def dispatch_once(
     clock: Callable[[], datetime],
 ) -> SinkResult | None:
     """Claim, render outside storage, then conditionally finish in two transactions."""
+    if not get_settings().caos_alert_rules_v1_enabled:
+        return None
     claim_now = _aware_utc(clock(), label="clock")
     try:
         async with session_factory() as db:

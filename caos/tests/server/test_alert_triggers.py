@@ -63,6 +63,14 @@ RULE_CONFIG = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _enable_alert_rules_boundary(monkeypatch):
+    """Existing Task 6 trigger contracts explicitly exercise the flag-on seam."""
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", True
+    )
+
+
 def _utc(value: datetime | None) -> datetime | None:
     if value is None or value.tzinfo is not None:
         return value

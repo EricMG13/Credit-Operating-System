@@ -7,6 +7,7 @@ import MonitorPage from "./page";
 
 const getAlertEventPage = vi.fn();
 const getWatchRulePage = vi.fn();
+const getSettings = vi.fn().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
 const getPortfolio = vi.fn();
 const getDigest = vi.fn();
 const patchAlertEvent = vi.fn();
@@ -71,6 +72,7 @@ vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
+  getSettings: (...args: unknown[]) => getSettings(...args),
   getAlertEventPage: (...args: unknown[]) => getAlertEventPage(...args),
   getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
   getPortfolio: (...args: unknown[]) => getPortfolio(...args),
@@ -150,9 +152,12 @@ function controlledMonitorController(events: AlertEventDTO[], activeEventId: str
     requiresAuthoritativeReload: false,
     refresh: vi.fn(async () => true),
     rules: {
+      availability: "enabled",
+      activationError: null,
       status: "ready",
       error: null,
       rules: [],
+      retryActivation: vi.fn(async () => undefined),
       refresh: vi.fn(async () => undefined),
       create: vi.fn(),
       update: vi.fn(),
@@ -162,6 +167,7 @@ function controlledMonitorController(events: AlertEventDTO[], activeEventId: str
 }
 
 beforeEach(() => {
+  getSettings.mockReset().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
   getAlertEventPage.mockReset();
   getWatchRulePage.mockReset();
   getPortfolio.mockReset();
@@ -215,9 +221,23 @@ describe("Monitor · persisted decision and governance authority", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show equivalent table" }));
     expect(screen.getByRole("table", { name: "Alert workflow state counts" }).textContent).toContain("ack1");
     expect(getAlertEventPage).toHaveBeenCalledOnce();
+    expect(getSettings).toHaveBeenCalledOnce();
     expect(getWatchRulePage).toHaveBeenCalledOnce();
     expect(forbiddenAutonomyDraft).not.toHaveBeenCalled();
     expect(forbiddenLegacyStates).not.toHaveBeenCalled();
+  });
+
+  it("keeps persisted decision authority live when the watch-rule activation flag is off", async () => {
+    getSettings.mockReset().mockResolvedValue({ features: { alert_rules_v1_enabled: false } });
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+
+    render(<MonitorPage />);
+
+    expect(await screen.findByTestId("monitor-persisted-ready")).toBeTruthy();
+    expect(screen.getByLabelText("Decision header").textContent).toContain("Covenant headroom moved below 1.5x");
+    expect(getAlertEventPage).toHaveBeenCalledOnce();
+    expect(getSettings).toHaveBeenCalledOnce();
+    expect(getWatchRulePage).not.toHaveBeenCalled();
   });
 
   it("keeps loading/error, settled-empty, and missing-timestamp decision states distinct", async () => {
@@ -620,6 +640,7 @@ describe("Monitor · persisted decision and governance authority", () => {
     expect(screen.getByRole("tab", { name: "Email intake" })).toBeTruthy();
     expect(screen.queryByLabelText("Decision header")).toBeNull();
     expect(screen.queryByTestId("monitor-persisted-ready")).toBeNull();
+    expect(getSettings).not.toHaveBeenCalled();
     expect(getAlertEventPage).not.toHaveBeenCalled();
     expect(getWatchRulePage).not.toHaveBeenCalled();
     expect(getPortfolio).not.toHaveBeenCalled();

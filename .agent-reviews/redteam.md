@@ -3047,3 +3047,28 @@ no remaining Critical, High, Medium, or Low issue after all eight original
 defects and the follow-up ordering regressions were re-evaluated. Reopen if a
 mutation can publish across the reload-authority barrier, a C3 decision reopen
 does not prove visible issuer context, or any UI offers stale Retry authority.
+
+## 2026-07-21 — C3 default-off activation and candidate-evidence critic pass
+
+Decision under review: expose the completed C3 watch-rule/runtime seam behind
+one deployment-global, default-false flag while retaining migration 0066 and
+all historical alert-event authority during rollback.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-21-781 | Route-boundary saboteur | A flag check inside a handler or after request dependencies can still validate inputs, consume quota, resolve identity, or open a database session while the feature is supposedly off; differing errors also disclose the hidden API. | Critical | Resolved | A dependency-free guard is attached to the entire watch-rule router, preserving global edge/CSRF policy outside it and returning one generic `404 Not Found`. Activation tests cover every method plus malformed identifiers, queries, schema-valid JSON, and exploding database/quota/handler sentinels. |
+| RT-2026-07-21-782 | Runtime-side-effect saboteur | Completed-run, scheduled, or dispatch gating after normalization, clock reads, snapshots, claims, registry access, or sink lookup can mutate durable attempts while off. | Critical | Resolved | Each runtime entry checks the Boolean first and returns the frozen compatibility-neutral off result: zero-count `evaluated`, `no_claim`, or `None`. Invalid `now`/cursor values and exploding clocks, factories, registries, and sinks prove no downstream boundary is crossed. |
+| RT-2026-07-21-783 | Compatibility reviewer | Requiring the new settings field, or coupling settings discovery to the combined Monitor authority, can break mixed-version clients and hide historical alerts when settings is missing, malformed, or unavailable. | Critical | Resolved | `alert_rules_v1_enabled` is optional in the client contract and exact `true` is the only enabling value. The independent `checking`/`enabled`/`disabled`/`unavailable` rule state leaves persisted alert reads and mutations live; false, missing, malformed, and failed settings make zero watch-rule calls while the desktop and phone inbox remain usable. |
+| RT-2026-07-21-784 | New-hire/UI-state reviewer | Reusing rule-list loading/error state for deployment activation can leave a permanent spinner or offer New/Edit/Retry authority when the deployment is known off. | High | Resolved | Explicit deployment-off and activation-unverified states expose no rule-management controls. The settings-only retry preserves alert authority and has regression coverage for false, failure/retry, and transition to exact true. |
+| RT-2026-07-21-785 | Release-configuration reviewer | Enabling the flag in a job-wide/global environment erases the observable default-off contract and silently enables C3 in unrelated suites. | High | Resolved | Compose and both environment examples are explicitly false. CI sets true only on the real-API E2E server subprocess, scoped tests opt in locally, the browser lane uses `--retries=0`, and a repository audit finds the CI subprocess as the sole committed true-valued deployment occurrence. |
+| RT-2026-07-21-786 | Evidence-retention reviewer | Calling a successful Alembic downgrade the production rollback path would delete rule, evaluation, context, and delivery-intent evidence. | Critical | Resolved | Production rollback is documented as flag-off with migration 0066 retained. The 0066→0065→0066 path ran only against a disposable SQLite database, the populated legacy alert/state preservation selector passed, and the result is labeled destructive local rehearsal rather than operational rollback. |
+| RT-2026-07-21-787 | Evidence-truth reviewer | Local API, fixture, browser, or axe results can be mistaken for immutable H0, production PostgreSQL, target-host, external-scheduler, or enterprise-delivery evidence. | Critical | Resolved | Candidate evidence records branch/commit, local topology, SQLite dialect, exact flags, commands, zero-retry browser counts, injected failure, and warnings. CP-MON remains PROVISIONAL, PD-06 remains OPEN, NO-GO remains in force, and live PostgreSQL/H0, real external operation, flag observation, enterprise transport, and target-host proof remain explicit blockers. |
+
+Decision: accept the default-off activation boundary as candidate-local/offline
+evidence. All seven objections were first captured as failing tests and then
+verified through focused server/frontend suites, the full Monitor real-API
+browser matrix, local axe scans, configuration audit, and disposable migration
+rehearsal. Migration 0066 remains applied under production rollback; the flag
+gates only watch-rule activation boundaries and never the legacy persisted
+alert-event/state APIs. This decision does not satisfy H0, close PD-06, authorize
+flag activation, or change the release NO-GO.

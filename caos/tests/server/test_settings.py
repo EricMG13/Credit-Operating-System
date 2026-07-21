@@ -21,6 +21,7 @@ def test_settings_returns_snapshot_without_secrets():
         "model_engine_v2_enabled": False,
         "cp_4d_enabled": False,
         "cp_2g_enabled": False,
+        "alert_rules_v1_enabled": False,
     }
 
     # No secret material anywhere in the payload (key/db url/storage/EDGAR UA).

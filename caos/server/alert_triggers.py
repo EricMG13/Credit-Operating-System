@@ -22,6 +22,7 @@ from alert_contracts import EvaluationTrigger, SignalObservation, SubjectScope
 from alert_dispatch import materialize_alert
 from alert_evaluation import claim_rule_evaluation, evaluate_rule
 from alert_sinks import EmailSink, InAppSink
+from config import get_settings
 from database import (
     AlertEventContext,
     AsyncSessionLocal,
@@ -478,6 +479,8 @@ async def evaluate_scheduled_rule(
     cursor: str | None | object = _CURSOR_UNCHANGED,
 ) -> ScheduledEvaluationResult:
     """Claim and evaluate one schedule tick without transport or source I/O."""
+    if not get_settings().caos_alert_rules_v1_enabled:
+        return ScheduledEvaluationResult(status="no_claim")
     normalized_now = _aware_utc(now, label="now")
     _bounded_cursor(cursor)
     async with session_factory() as claim_db:
@@ -921,6 +924,8 @@ async def trigger_completed_run(
     session_factory: AsyncSessionFactory = AsyncSessionLocal,
 ) -> RunTriggerResult:
     """Evaluate committed governed outputs for matching event-driven rules."""
+    if not get_settings().caos_alert_rules_v1_enabled:
+        return RunTriggerResult(status="evaluated")
     run, rules, findings = await _completed_run_snapshot(session_factory, run_id)
     if run is None:
         return RunTriggerResult(status="not_committed")

@@ -57,7 +57,13 @@ from watch_rules import (
 )
 
 
-router = APIRouter()
+def _require_alert_rules_enabled() -> None:
+    """Mask the complete C3 rule surface while its rollback seam is off."""
+    if not get_settings().caos_alert_rules_v1_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not Found")
+
+
+router = APIRouter(dependencies=[Depends(_require_alert_rules_enabled)])
 
 _WRITE_LIMIT = 30
 _EVALUATE_LIMIT = 12

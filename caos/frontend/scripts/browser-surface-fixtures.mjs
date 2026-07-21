@@ -236,6 +236,7 @@ export async function installSurfaceStubs(target, identity) {
         market_xlsx_v2_enabled: false,
         model_engine_v2: false,
         model_engine_v2_enabled: false,
+        alert_rules_v1_enabled: true,
       },
     }),
   }));

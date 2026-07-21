@@ -7,6 +7,7 @@ import MonitorPage from "./page";
 let mockBreakpoint: "wide" | "desktop" | "tablet" | "mobile" = "wide";
 const getAlertEventPage = vi.fn();
 const getWatchRulePage = vi.fn();
+const getSettings = vi.fn().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
 const getPortfolio = vi.fn();
 const getDigest = vi.fn();
 const forbiddenAutonomyDraft = vi.fn();
@@ -47,6 +48,7 @@ vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
+  getSettings: (...args: unknown[]) => getSettings(...args),
   getAlertEventPage: (...args: unknown[]) => getAlertEventPage(...args),
   getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
   getPortfolio: (...args: unknown[]) => getPortfolio(...args),
@@ -86,6 +88,7 @@ function setNarrowMedia(matches: boolean) {
 }
 
 beforeEach(() => {
+  getSettings.mockReset().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
   getAlertEventPage.mockReset();
   getWatchRulePage.mockReset();
   getPortfolio.mockReset();
@@ -128,6 +131,7 @@ describe("Monitor · phone persisted triage gate", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open context drawer" }));
     expect(await screen.findByText("Persisted alerts by workflow state")).toBeTruthy();
     expect(getAlertEventPage).toHaveBeenCalledOnce();
+    expect(getSettings).toHaveBeenCalledOnce();
     expect(getWatchRulePage).toHaveBeenCalledOnce();
     expect(forbiddenAutonomyDraft).not.toHaveBeenCalled();
     expect(forbiddenLegacyStates).not.toHaveBeenCalled();
@@ -157,6 +161,7 @@ describe("Monitor · phone persisted triage gate", () => {
     fireEvent.click(email);
     expect(screen.getByRole("tab", { name: "Replay" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByTestId("monitor-persisted-ready")).toBeNull();
+    expect(getSettings).not.toHaveBeenCalled();
     expect(getAlertEventPage).not.toHaveBeenCalled();
     expect(getWatchRulePage).not.toHaveBeenCalled();
 
@@ -165,5 +170,22 @@ describe("Monitor · phone persisted triage gate", () => {
     expect(screen.getByRole("tab", { name: "Email intake" }).getAttribute("aria-disabled")).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Email intake" }));
     expect(screen.getByText("Email Intelligence · CP-MON intake")).toBeTruthy();
+  });
+
+  it("keeps the phone inbox and decision header on historical events when rule activation is default-off", async () => {
+    getSettings.mockReset().mockResolvedValue({ features: { alert_rules_v1_enabled: false } });
+    mockBreakpoint = "mobile";
+    setNarrowMedia(true);
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+
+    render(<MonitorPage />);
+
+    expect(await screen.findByTestId("monitor-persisted-ready")).toBeTruthy();
+    expect(screen.getByText("Alert triage · persisted events")).toBeTruthy();
+    expect(screen.getAllByText("Phone and desktop share this persisted event")).toHaveLength(2);
+    expect(screen.getByLabelText("Decision header").textContent).toContain("Phone and desktop share this persisted event");
+    expect(getAlertEventPage).toHaveBeenCalledOnce();
+    expect(getSettings).toHaveBeenCalledOnce();
+    expect(getWatchRulePage).not.toHaveBeenCalled();
   });
 });

@@ -5,7 +5,19 @@
  * tracker, so each passing node maps to the exact implemented workflow.
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
+
+interface CreatedWatchRule {
+  id: string;
+  current_version: number;
+}
+
+interface ManualEvaluation {
+  evaluation_id: string;
+  outcome: "matched" | "ignored" | "rejected";
+  alert_event_id: string | null;
+  created: boolean;
+}
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -87,5 +99,117 @@ test.describe("Monitor", () => {
     await expect(speed).toHaveAttribute("aria-pressed", "true");
     await play.click();
     await expect(page.getByText(/^SIM · seeded Reference replay/)).toBeVisible();
+  });
+
+  test("C3 real API creates, deduplicates, retries, and persists an acknowledged alert", async ({ page, request }, testInfo) => {
+    const marker = testInfo.project.name;
+    const ruleName = `C3 activation E2E ${marker}`;
+    const alertTitle = `C3 persisted alert ${marker}`;
+    let createdRule: CreatedWatchRule | null = null;
+
+    await page.goto("/monitor/");
+    await expect(page.getByRole("button", { name: "Manage watch rules" })).toBeVisible({ timeout: 15000 });
+
+    const createResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST"
+        && url.pathname === "/api/watch-rules"
+        && response.status() === 201;
+    });
+    await page.getByRole("button", { name: "Manage watch rules" }).click();
+    const editor = page.getByRole("dialog", { name: "Create watch rule" });
+    await expect(editor).toBeVisible();
+    await editor.getByLabel("Rule name").fill(ruleName);
+    await editor.getByLabel("Alert kind").fill("c3_e2e_activation");
+    await editor.getByLabel("Alert title").fill(alertTitle);
+    await editor.getByLabel("Alert impact").fill("Verify the durable C3 activation path.");
+    await editor.getByRole("button", { name: "Save rule" }).click();
+    createdRule = await (await createResponse).json() as CreatedWatchRule;
+
+    try {
+      await expect(page.getByRole("status").filter({ hasText: "Rule created." })).toBeVisible();
+      const observation = {
+        source_identity: `e2e:monitor:${marker}`,
+        observed_at: "2026-07-21T12:00:00Z",
+        numeric_value: null,
+        categorical_value: "critical",
+        detail: { scenario: "c3-real-api" },
+        source_artifact_refs: [`e2e:monitor:${marker}`],
+        hop_count: 0,
+      };
+      const evaluatePath = `/api/watch-rules/${createdRule.id}/evaluate`;
+      const firstResponse = await request.post(evaluatePath, { data: observation });
+      expect(firstResponse.ok(), await firstResponse.text()).toBeTruthy();
+      const first = await firstResponse.json() as ManualEvaluation;
+      expect(first).toMatchObject({ outcome: "matched", created: true });
+      expect(first.alert_event_id).toBeTruthy();
+
+      const replayResponse = await request.post(evaluatePath, { data: observation });
+      expect(replayResponse.ok(), await replayResponse.text()).toBeTruthy();
+      const replay = await replayResponse.json() as ManualEvaluation;
+      expect(replay).toEqual({ ...first, created: false });
+
+      const eventId = first.alert_event_id!;
+      await page.reload();
+      let row = page.locator(`[data-alert-event-id="${eventId}"]`);
+      await expect(row).toBeVisible({ timeout: 15000 });
+      await expect(row.getByRole("heading", { name: alertTitle })).toBeVisible();
+
+      let patchAttempts = 0;
+      let injectedFailures = 0;
+      await page.route(`**/api/alerts/events/${eventId}`, async (route) => {
+        if (route.request().method() !== "PATCH") {
+          await route.fallback();
+          return;
+        }
+        patchAttempts += 1;
+        if (injectedFailures === 0) {
+          injectedFailures += 1;
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({ detail: "Injected one-shot event PATCH failure" }),
+          });
+          return;
+        }
+        await route.continue();
+      });
+
+      const selected = row.getByRole("checkbox", { name: `Select ${alertTitle}` });
+      const assigneeDraft = row.getByLabel("Alert assignee");
+      await selected.check();
+      await assigneeDraft.fill("Draft owner remains local");
+      await row.getByRole("button", { name: "Ack", exact: true }).click();
+
+      await expect(row.getByRole("alert")).toContainText("Input was preserved.");
+      await expect(selected).toBeChecked();
+      await expect(assigneeDraft).toHaveValue("Draft owner remains local");
+      expect({ patchAttempts, injectedFailures }).toEqual({ patchAttempts: 1, injectedFailures: 1 });
+
+      const retryResponse = page.waitForResponse((response) =>
+        response.request().method() === "PATCH"
+        && new URL(response.url()).pathname === `/api/alerts/events/${eventId}`
+        && response.ok(),
+      );
+      await row.getByRole("button", { name: "Retry", exact: true }).click();
+      await retryResponse;
+      await expect(row).toContainText("Acknowledged");
+      await expect(selected).toBeChecked();
+      await expect(assigneeDraft).toHaveValue("Draft owner remains local");
+      expect({ patchAttempts, injectedFailures }).toEqual({ patchAttempts: 2, injectedFailures: 1 });
+
+      await page.reload();
+      row = page.locator(`[data-alert-event-id="${eventId}"]`);
+      await expect(row).toBeVisible({ timeout: 15000 });
+      await expect(row).toContainText("Acknowledged");
+    } finally {
+      const cleanupResponse = await request.patch(`/api/watch-rules/${createdRule.id}`, {
+        data: {
+          expected_version: createdRule.current_version,
+          patch: { enabled: false },
+        },
+      });
+      expect(cleanupResponse.ok(), await cleanupResponse.text()).toBeTruthy();
+    }
   });
 });

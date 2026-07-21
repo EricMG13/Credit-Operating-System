@@ -54,6 +54,16 @@ def _reset_route_policy(monkeypatch):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _enable_alert_rules_boundary(monkeypatch):
+    """Existing Task 5 route contracts explicitly exercise the flag-on seam."""
+    from config import get_settings
+
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", True
+    )
+
+
 def _create_payload(**overrides):
     payload = {
         "name": "QA gate watch",

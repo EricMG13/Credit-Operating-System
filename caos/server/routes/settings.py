@@ -121,6 +121,7 @@ async def read_settings(caller: CallerIdentity = Depends(get_identity)):
             "model_engine_v2_enabled": s.caos_model_engine_v2_enabled,
             "cp_4d_enabled": s.caos_cp_4d_enabled,
             "cp_2g_enabled": s.caos_cp_2g_enabled,
+            "alert_rules_v1_enabled": s.caos_alert_rules_v1_enabled,
         },
         "analyst": getattr(caller, "id", None),
     }

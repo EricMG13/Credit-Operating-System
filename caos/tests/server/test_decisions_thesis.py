@@ -22,6 +22,27 @@ def client():
         yield c
 
 
+_C3_RULE_BOUNDARY_TESTS = frozenset(
+    {
+        "test_visible_contextual_c3_alert_for_decision_issuer_can_reopen",
+        "test_c3_reopen_rejects_foreign_missing_malformed_and_hidden_keys_generically",
+    }
+)
+
+
+@pytest.fixture(autouse=True)
+def _enable_alert_rules_for_c3_boundaries(request, monkeypatch):
+    """Only decision tests that create C3 rules opt into the new seam."""
+    test_name = getattr(request.node, "originalname", request.node.name)
+    if test_name not in _C3_RULE_BOUNDARY_TESTS:
+        return
+    from config import get_settings
+
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", True
+    )
+
+
 async def _make_run(client, name: str, committee_status: str):
     issuer_id = client.post("/api/issuers/", json={"name": name}).json()["id"]
     from database import AsyncSessionLocal, Run
