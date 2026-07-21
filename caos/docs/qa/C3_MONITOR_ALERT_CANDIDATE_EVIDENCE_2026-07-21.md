@@ -1,7 +1,7 @@
 # C3 Monitor Alert Candidate Evidence — 2026-07-21
 
 **Evidence class:** CANDIDATE-LOCAL / OFFLINE ONLY<br>
-**C3 implementation:** `2736af768566c491e1211ee26d93401f914f929c`<br>
+**C3 code commits:** `2736af768566c491e1211ee26d93401f914f929c`, `901f0e65919a77cc32574b96adc16f3fd975d31b`<br>
 **Branch:** `codex/pd06-c3`<br>
 **CP-MON:** PROVISIONAL<br>
 **PD-06:** OPEN<br>
@@ -17,11 +17,12 @@ enterprise email delivery evidence.
 
 | Attribute | Exact candidate value |
 |---|---|
-| Implementation commit | `2736af768566c491e1211ee26d93401f914f929c` (`feat: gate C3 alert activation`) |
-| Commit time | `2026-07-21 22:59:20 +0100` |
+| Activation implementation | `2736af768566c491e1211ee26d93401f914f929c` (`feat: gate C3 alert activation`) |
+| Pre-body masking correction | `901f0e65919a77cc32574b96adc16f3fd975d31b` (`fix: mask disabled watch rules before parsing`) |
+| Code commit times | `2026-07-21 22:59:20 +0100`; `2026-07-21 23:37:29 +0100` |
 | Worktree | `/private/tmp/caos-pd06-c3` |
 | Application topology | One local FastAPI process serving the staged Next.js static export and API directly on `http://127.0.0.1:8000`; no Caddy, oauth2-proxy, load balancer, or second worker |
-| Browser database | SQLite via `sqlite+aiosqlite:////private/tmp/caos-c3-e2e.oXtDYj/e2e.db` |
+| Browser database | SQLite via `sqlite+aiosqlite:////private/tmp/caos-c3-e2e-fix.LNGdaD/e2e.db` |
 | Migration database | Disposable SQLite via `sqlite+aiosqlite:////private/tmp/caos-c3-migration.pjcmMw/rehearsal.db` |
 | Browser flags | `CAOS_ALERT_RULES_V1_ENABLED=true`, `CAOS_LINEAGE_V2_ENABLED=true`, `CAOS_MODEL_ENGINE_V2_ENABLED=true` |
 | Default/deploy flag | `CAOS_ALERT_RULES_V1_ENABLED=false` in settings, compose, and both environment examples |
@@ -50,7 +51,7 @@ evaluation, event-context, or delivery-intent evidence.
 
 | Boundary | Flag false | Flag true |
 |---|---|---|
-| `/api/watch-rules` router | Generic `404 Not Found` before rule quota or database dependency work | Task 5 scoped CRUD/manual evaluation contract remains active |
+| `/api/watch-rules` surface | Raw ASGI exact-prefix gate returns generic `404 Not Found` before body receive/limits, routing, rule quota, or database work; edge/CSRF policy remains outer | Task 5 scoped CRUD/manual evaluation contract remains active |
 | Completed-run trigger | First-statement no-op returning zero-count `evaluated` | Task 6 committed-output evaluation remains active |
 | Scheduled evaluation | First-statement no-op returning `no_claim` | Externally invoked one-shot durable claim/evaluation remains active |
 | Delivery dispatch | First-statement no-op returning `None` | Externally invoked one-shot rendered-intent dispatch remains active |
@@ -67,7 +68,7 @@ added.
 |---:|---|---|
 | 1 | Additive schema remains present independently of activation | PASS locally: `0066` at head; model/migration regression green |
 | 2 | Default-false configuration and settings disclosure | PASS: default/env parsing and `features.alert_rules_v1_enabled` false/true snapshots verified |
-| 3 | Flag-off route and runtime isolation | PASS: router methods are masked; exploding DB/quota/session/clock/registry sentinels remain untouched |
+| 3 | Flag-off route and runtime isolation | PASS: the exact-prefix ASGI gate masks malformed/invalid encoded bodies across all three body routes without consuming `receive` or entering the downstream app; DB/quota/session/clock/registry sentinels remain untouched |
 | 4 | Flag-off compatibility | PASS: legacy alert-event list, alert-state open/ack, and event resolve remain available |
 | 5 | Flag-on rule/evaluation seam | PASS: scoped create/get/manual evaluation and deterministic replay regression green |
 | 6 | Atomic in-app plus email-intent materialization | PASS locally: one persisted event/context and approved intents; email vocabulary remains `rendered_intent` / `not_sent` |
@@ -92,10 +93,18 @@ persisted controller, and phone/governance integration slices. Result:
 activation discovery/gating: missing availability, unused settings, or a
 watch-rule call occurring while activation was false/unverified.
 
+A later independent review exposed a framework-order gap in the initial route
+dependency: malformed JSON was decoded before dependencies and returned `422`
+instead of the required generic `404`. The focused regression was observed RED
+as **1 failed**. The provisional `PUT` probe in that run already returned `404`
+and was not part of the defect; the final regression is limited to the body
+decoding boundary.
+
 Focused GREEN after implementation:
 
 ```text
-server activation/settings: 17 passed
+server activation/settings before framework-order correction: 17 passed
+corrected activation suite: 22 passed
 frontend activation slice: 40 passed
 frontend Monitor/API regression at that checkpoint: 89 passed
 ```
@@ -121,10 +130,14 @@ PYTHONDONTWRITEBYTECODE=1 \
   caos/tests/server/test_alert_sinks.py \
   caos/tests/server/test_alert_dispatch.py \
   caos/tests/server/test_alert_triggers.py \
-  caos/tests/server/test_decisions_thesis.py
+  caos/tests/server/test_decisions_thesis.py \
+  caos/tests/server/test_request_limits.py \
+  caos/tests/server/test_security_headers.py \
+  caos/tests/server/test_csrf.py \
+  caos/tests/server/test_coverage_edges.py
 ```
 
-Result: **505 passed, 1 warning in 23.24s**. The sole warning is the inherited
+Result: **611 passed, 1 warning in 24.58s**. The sole warning is the inherited
 FastAPI TestClient `StarletteDeprecationWarning` concerning `httpx` integration.
 There were no skips in this matrix.
 
@@ -164,6 +177,13 @@ Static commands and results:
   caos/tests/server/test_watch_rule_routes.py
 # All checks passed!
 
+/Users/ericguei/Claude/Projects/Credit\ Operating\ System/caos/server/.venv311/bin/python \
+  -m ruff check \
+  caos/server/feature_gates.py \
+  caos/server/main.py \
+  caos/tests/server/test_alert_rules_activation.py
+# All checks passed after the pre-body correction.
+
 cd caos/frontend
 ./node_modules/.bin/tsc --noEmit
 ./node_modules/.bin/eslint src --max-warnings=0
@@ -197,7 +217,7 @@ frontend and the exact non-secret environment below:
 
 ```bash
 env \
-  DATABASE_URL=sqlite+aiosqlite:////private/tmp/caos-c3-e2e.oXtDYj/e2e.db \
+  DATABASE_URL=sqlite+aiosqlite:////private/tmp/caos-c3-e2e-fix.LNGdaD/e2e.db \
   CAOS_ALERT_RULES_V1_ENABLED=true \
   CAOS_LINEAGE_V2_ENABLED=true \
   CAOS_MODEL_ENGINE_V2_ENABLED=true \
@@ -210,19 +230,7 @@ the production edge. An earlier invocation correctly failed closed when a
 production-like session secret was combined with development mode; the corrected
 development-local invocation above was used for all reported browser evidence.
 
-Final focused C3 command, from `caos/frontend`:
-
-```bash
-env NODE_PATH=node_modules PLAYWRIGHT_BASE_URL=http://127.0.0.1:8000 \
-  npx playwright test ../tests/frontend/e2e/monitor_flow.spec.ts \
-  --grep 'C3 real API' \
-  --project=chromium --project=firefox --project=webkit \
-  --workers=1 --retries=0
-```
-
-Result: **3 passed in 5.9s**.
-
-Final complete Monitor command:
+Corrected-candidate complete Monitor command, from `caos/frontend`:
 
 ```bash
 env NODE_PATH=node_modules PLAYWRIGHT_BASE_URL=http://127.0.0.1:8000 \
@@ -231,7 +239,8 @@ env NODE_PATH=node_modules PLAYWRIGHT_BASE_URL=http://127.0.0.1:8000 \
   --workers=1 --retries=0
 ```
 
-Result: **15 passed in 11.7s**. The inherited `NO_COLOR` / `FORCE_COLOR`
+Result: **15 passed in 13.0s**. The three C3 real-API nodes are included, one
+per browser. The inherited `NO_COLOR` / `FORCE_COLOR`
 warning was informational. No retry was available to hide a failure.
 
 The C3 journey asserted:
@@ -257,8 +266,8 @@ env BASE=http://127.0.0.1:8000 \
   'ROUTES=/monitor?mode=live&dataset=alerts' \
   VIEWPORTS=1440x900,390x844 \
   'A11Y_READY_SELECTOR=[data-testid="monitor-persisted-ready"]' \
-  A11Y_RESULT_FILE=/private/tmp/c3-task8-monitor-real-axe.json \
-  SCREENSHOT_DIR=/private/tmp/c3-task8-monitor-real-axe \
+  A11Y_RESULT_FILE=/private/tmp/c3-task8-fix-monitor-real-axe.json \
+  SCREENSHOT_DIR=/private/tmp/c3-task8-fix-monitor-real-axe \
   node scripts/a11y-axe.mjs
 ```
 
@@ -266,8 +275,8 @@ Reduced-motion command was identical with:
 
 ```text
 REDUCED_MOTION=1
-A11Y_RESULT_FILE=/private/tmp/c3-task8-monitor-real-axe-reduced.json
-SCREENSHOT_DIR=/private/tmp/c3-task8-monitor-real-axe-reduced
+A11Y_RESULT_FILE=/private/tmp/c3-task8-fix-monitor-real-axe-reduced.json
+SCREENSHOT_DIR=/private/tmp/c3-task8-fix-monitor-real-axe-reduced
 ```
 
 Both matrices report:
@@ -291,12 +300,12 @@ Local artifact hashes captured after the run:
 
 | Local artifact | SHA-256 |
 |---|---|
-| `/private/tmp/c3-task8-monitor-real-axe.json` | `7452db872487db66437a7ce74c624b7223880860c8ac625d7679be2d36314d6b` |
-| `/private/tmp/c3-task8-monitor-real-axe-reduced.json` | `7452db872487db66437a7ce74c624b7223880860c8ac625d7679be2d36314d6b` |
-| normal 1440×900 screenshot | `5db3c264182aa5d3d7e5ac52875441676ecc8696d4ac46c2533894f7ee1612e1` |
-| normal 390×844 screenshot | `f6d0074693ab342d812df510f0dd7170456e755fe51c690c92a852d4c36df043` |
-| reduced 1440×900 screenshot | `5db3c264182aa5d3d7e5ac52875441676ecc8696d4ac46c2533894f7ee1612e1` |
-| reduced 390×844 screenshot | `5931118841a883bd15535701847bd8384e187ffb0deade76eb219c465cc9cdcf` |
+| `/private/tmp/c3-task8-fix-monitor-real-axe.json` | `e16bc0436c81af2586fe435413eb599609d7190155bc9df74fbf6928af65eb81` |
+| `/private/tmp/c3-task8-fix-monitor-real-axe-reduced.json` | `e16bc0436c81af2586fe435413eb599609d7190155bc9df74fbf6928af65eb81` |
+| normal 1440×900 screenshot | `cea8898a008e3fb28913e2e52c2d35c91bfb058aed44b2516dc92d243251e457` |
+| normal 390×844 screenshot | `aa250208932dc01a77cc1487b794845cff1e0bd3aa3c70f547ff2ffcb309bea9` |
+| reduced 1440×900 screenshot | `cea8898a008e3fb28913e2e52c2d35c91bfb058aed44b2516dc92d243251e457` |
+| reduced 390×844 screenshot | `99347bd62b4bd7232d84409497589a9f156ada864ca853b0d782a1ad0f2951bc` |
 
 These files remain local `/private/tmp` artifacts. Their hashes make this record
 checkable while the files exist; they do not make the evidence an immutable H0
@@ -373,9 +382,14 @@ files, 16 indexed changed symbols, 0 affected processes, LOW diff risk**. The
 index predates the new C3 symbols and has degraded semantic search due to a
 missing FTS layer, so focused regression and rendered evidence bound that gap.
 
+The pre-body correction's staged detection reported **4 changed files, 1 stale
+indexed touched symbol, 0 affected processes, LOW diff risk**. The new gate and
+tests were absent from the stale index and therefore remain UNKNOWN rather than
+being treated as a false safe zero.
+
 ## Critic and review disposition
 
-RT-2026-07-21-781 through RT-2026-07-21-787 are resolved in
+RT-2026-07-21-781 through RT-2026-07-21-788 are resolved in
 `.agent-reviews/redteam.md`: route ordering, first-statement no-ops, mixed-version
 settings compatibility, honest UI states, CI scoping, non-destructive rollback,
 and evidence truth are all encoded in tests or this record.
@@ -383,7 +397,8 @@ and evidence truth are all encoded in tests or this record.
 Independent server and frontend reviews returned CLEAN after the real-API E2E
 selector, acknowledged-state assertion, and cleanup assertion were corrected.
 Those corrections hardened the test and cleanup path; they did not broaden the
-runtime contract.
+runtime contract. A separate pre-body review also returned CLEAN after the
+malformed-body gap and associated evidence wording were corrected.
 
 ## Residual blockers and decision
 
