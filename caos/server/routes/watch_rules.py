@@ -50,6 +50,7 @@ from watch_rules import (
     WatchRuleConflictError,
     WatchRuleNotFoundError,
     WatchRuleValidationError,
+    _require_visible_scopes,
     _scope_for_caller,
     create_watch_rule,
     update_watch_rule,
@@ -169,7 +170,6 @@ class WatchRuleOut(_StrictModel):
     schedule_interval_seconds: int | None
     next_evaluation_at: AwareDatetime | None
     last_evaluated_at: AwareDatetime | None
-    claim_attempt_count: int
     config: RuleConfig
     created_at: AwareDatetime
     updated_at: AwareDatetime
@@ -208,7 +208,6 @@ def _rule_out(rule: WatchRule) -> WatchRuleOut:
         schedule_interval_seconds=rule.schedule_interval_seconds,
         next_evaluation_at=_utc(rule.next_evaluation_at),
         last_evaluated_at=_utc(rule.last_evaluated_at),
-        claim_attempt_count=rule.claim_attempt_count,
         config=config,
         created_at=_utc(rule.created_at),
         updated_at=_utc(rule.updated_at),
@@ -299,6 +298,7 @@ def _filter_fingerprint(
         "role": caller.role.strip().lower(),
         "tenant": tenant_id,
         "team": team_id,
+        "tenancy_enabled": tenancy_enabled(),
         "signal_type": signal_type,
         "enabled": enabled,
         "issuer_id": issuer_id,
@@ -379,6 +379,15 @@ async def create_rule(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_write_identity),
 ):
+    try:
+        await _require_visible_scopes(
+            db,
+            caller,
+            issuer_id=body.issuer_id,
+            portfolio_id=body.portfolio_id,
+        )
+    except WatchRuleNotFoundError:
+        raise HTTPException(404, "watch_rule_not_found") from None
     _rate_limit(caller, lane="write", maximum=_WRITE_LIMIT)
     try:
         rule = await create_watch_rule(db, caller, body)
@@ -464,8 +473,8 @@ async def patch_rule(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_write_identity),
 ):
-    _rate_limit(caller, lane="write", maximum=_WRITE_LIMIT)
     await _visible_rule(db, caller, rule_id, mutation=True)
+    _rate_limit(caller, lane="write", maximum=_WRITE_LIMIT)
     try:
         rule = await update_watch_rule(
             db,
@@ -490,8 +499,8 @@ async def evaluate_rule_manually(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_write_identity),
 ):
-    _rate_limit(caller, lane="evaluate", maximum=_EVALUATE_LIMIT)
     rule = await _visible_rule(db, caller, rule_id, mutation=True, lock=True)
+    _rate_limit(caller, lane="evaluate", maximum=_EVALUATE_LIMIT)
     if rule.signal_type in _UNAVAILABLE_SIGNALS:
         raise HTTPException(409, "source_unavailable")
     if not rule.enabled or rule.paused:

@@ -324,6 +324,158 @@ def test_contextual_alert_lists_and_patch_are_404_masked_across_named_teams(
         app.dependency_overrides.clear()
 
 
+def test_direct_c3_state_writes_require_visible_context_before_rate_limit(
+    client, monkeypatch
+):
+    import asyncio
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    import rate_limit
+    from config import get_settings
+    from database import AlertEvent, AsyncSessionLocal
+    from identity import CallerIdentity, get_identity
+    from main import app
+
+    def as_caller(user_id: str, team_id: str):
+        async def dependency():
+            return CallerIdentity(
+                id=user_id,
+                email=f"{user_id}@example.test",
+                full_name=user_id,
+                role="analyst",
+                source="profile",
+                team_id=team_id,
+            )
+
+        app.dependency_overrides[get_identity] = dependency
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "caos_tenancy_enabled", True)
+    rate_limit.reset()
+    try:
+        as_caller("state-owner-a", "state-team-a")
+        rule = client.post(
+            "/api/watch-rules",
+            json={
+                "name": "Direct state capability",
+                "signal_type": "qa_gate",
+                "enabled": True,
+                "paused": False,
+                "issuer_id": None,
+                "portfolio_id": None,
+                "schedule_kind": "event_driven",
+                "schedule_interval_seconds": None,
+                "next_evaluation_at": None,
+                "config": {
+                    "operator": "present",
+                    "threshold": None,
+                    "kind": "direct-state-capability",
+                    "title": "Direct state capability event",
+                    "impact": "Keep direct writes scoped.",
+                },
+            },
+        )
+        assert rule.status_code == 201, rule.text
+        evaluated = client.post(
+            f"/api/watch-rules/{rule.json()['id']}/evaluate",
+            json={
+                "source_identity": f"fact:direct-state:{uuid4()}",
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "numeric_value": None,
+                "categorical_value": "critical",
+                "detail": {"finding": "scoped"},
+                "source_artifact_refs": [],
+                "hop_count": 0,
+            },
+        )
+        assert evaluated.status_code == 200, evaluated.text
+        event_id = evaluated.json()["alert_event_id"]
+        own_event = next(
+            row
+            for row in client.get(
+                "/api/alerts/events", params={"kind": "direct-state-capability"}
+            ).json()
+            if row["id"] == event_id
+        )
+
+        rate_calls = []
+
+        def record_hit(key, **_kwargs):
+            rate_calls.append(key)
+            return True
+
+        monkeypatch.setattr(rate_limit, "hit", record_hit)
+        owner_write = client.post(
+            "/api/alerts/state",
+            json={"alert_key": own_event["alert_key"], "state": "ack"},
+        )
+        assert owner_write.status_code == 200, owner_write.text
+        assert len(rate_calls) == 1
+
+        rate_calls.clear()
+        as_caller("state-outsider-b", "state-team-b")
+        masked = client.post(
+            "/api/alerts/state",
+            json={
+                "alert_key": own_event["alert_key"],
+                "state": "resolved",
+                "resolution_note": "must not leak or mutate",
+            },
+        )
+        assert masked.status_code == 404
+        assert rate_calls == []
+
+        as_caller("state-owner-a", "state-team-a")
+        owner_rows = client.get(
+            "/api/alerts/state", params={"alert_key": own_event["alert_key"]}
+        ).json()
+        assert owner_rows[0]["state"] == "ack"
+        assert owner_rows[0]["resolution_note"] is None
+
+        rate_calls.clear()
+        monkeypatch.setattr(settings, "caos_tenancy_enabled", False)
+        unknown_c3 = client.post(
+            "/api/alerts/state",
+            json={"alert_key": f"c3:{'f' * 64}", "state": "ack"},
+        )
+        assert unknown_c3.status_code == 404
+        assert rate_calls == []
+
+        uncontexted_key = f"c3:{uuid4().hex}{uuid4().hex}"
+
+        async def seed_uncontexted_c3_event():
+            async with AsyncSessionLocal.begin() as session:
+                session.add(
+                    AlertEvent(
+                        id=str(uuid4()),
+                        alert_key=uncontexted_key,
+                        kind="uncontexted-c3-test",
+                        title="Uncontexted C3 event",
+                        impact="must remain immutable through direct state writes",
+                        evidence={},
+                        authority={},
+                    )
+                )
+
+        asyncio.run(seed_uncontexted_c3_event())
+        uncontexted_c3 = client.post(
+            "/api/alerts/state",
+            json={"alert_key": uncontexted_key, "state": "ack"},
+        )
+        assert uncontexted_c3.status_code == 404
+        assert rate_calls == []
+
+        legacy = client.post(
+            "/api/alerts/state",
+            json={"alert_key": f"legacy-direct:{uuid4()}", "state": "ack"},
+        )
+        assert legacy.status_code == 200, legacy.text
+        assert len(rate_calls) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_tenancy_on_legacy_alert_reads_require_a_visible_issuer_anchor(
     client, monkeypatch
 ):

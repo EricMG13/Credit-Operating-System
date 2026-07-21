@@ -114,6 +114,7 @@ def test_create_and_read_return_only_safe_operational_fields(client):
         "team_id_snapshot",
         "claim_token",
         "claim_expires_at",
+        "claim_attempt_count",
         "schedule_cursor",
     ):
         assert secret_field not in body
@@ -174,6 +175,98 @@ def test_viewer_is_rejected_before_rate_limit_consumption(client, monkeypatch):
     response = client.post("/api/watch-rules", json=_create_payload())
     assert response.status_code == 403
     assert calls == 0
+
+
+def test_scope_capabilities_precede_rate_limits_for_create_patch_and_evaluate(
+    client, monkeypatch
+):
+    from uuid import uuid4
+
+    import rate_limit
+    from config import get_settings
+    from database import AsyncSessionLocal, Issuer
+
+    foreign_issuer_id = str(uuid4())
+
+    async def seed_foreign_issuer():
+        async with AsyncSessionLocal.begin() as session:
+            session.add(
+                Issuer(
+                    id=foreign_issuer_id,
+                    name=f"Foreign issuer {foreign_issuer_id}",
+                    normalized_name=f"foreign issuer {foreign_issuer_id}",
+                    team_id="rate-team-b",
+                    uniqueness_scope="rate-team-b",
+                    created_by="seed",
+                )
+            )
+
+    asyncio.run(seed_foreign_issuer())
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
+    _as("rate-owner", team_id="rate-team-a")
+    owned = client.post("/api/watch-rules", json=_create_payload()).json()
+
+    calls = 0
+
+    def reject_if_called(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return False
+
+    monkeypatch.setattr(rate_limit, "hit", reject_if_called)
+
+    unauthorized_create = client.post(
+        "/api/watch-rules", json=_create_payload(issuer_id=foreign_issuer_id)
+    )
+    assert unauthorized_create.status_code == 404
+    assert calls == 0
+
+    _as("rate-outsider", team_id="rate-team-b")
+    foreign_patch = client.patch(
+        f"/api/watch-rules/{owned['id']}",
+        json={"expected_version": 1, "patch": {"name": "foreign edit"}},
+    )
+    assert foreign_patch.status_code == 404
+    assert calls == 0
+
+    foreign_evaluation = client.post(
+        f"/api/watch-rules/{owned['id']}/evaluate",
+        json=_manual_payload("fact:foreign-rate-order"),
+    )
+    assert foreign_evaluation.status_code == 404
+    assert calls == 0
+
+
+def test_authorized_mutations_consume_their_documented_rate_lanes(client, monkeypatch):
+    import rate_limit
+
+    hits = []
+
+    def record_hit(key, **_kwargs):
+        hits.append(key)
+        return True
+
+    monkeypatch.setattr(rate_limit, "hit", record_hit)
+    _as("lane-owner")
+    created = client.post("/api/watch-rules", json=_create_payload())
+    assert created.status_code == 201, created.text
+    rule_id = created.json()["id"]
+
+    patched = client.patch(
+        f"/api/watch-rules/{rule_id}",
+        json={"expected_version": 1, "patch": {"name": "Lane edit"}},
+    )
+    assert patched.status_code == 200, patched.text
+    evaluated = client.post(
+        f"/api/watch-rules/{rule_id}/evaluate",
+        json=_manual_payload("fact:authorized-rate-lanes"),
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    assert hits == [
+        "watch-rule:write:lane-owner",
+        "watch-rule:write:lane-owner",
+        "watch-rule:evaluate:lane-owner",
+    ]
 
 
 def test_named_team_reads_but_only_owner_or_admin_writes_and_lookup_is_masked(
@@ -418,3 +511,41 @@ def test_rule_collection_is_bounded_and_cursor_is_scope_and_filter_bound(client)
         ).status_code
         == 422
     )
+
+
+def test_rule_cursor_fingerprint_explicitly_binds_tenancy_mode(monkeypatch):
+    import routes.watch_rules as watch_rule_routes
+    from config import get_settings
+    from identity import CallerIdentity
+
+    caller = CallerIdentity(
+        id="fingerprint-user",
+        email="fingerprint@example.test",
+        full_name="Fingerprint User",
+        role="analyst",
+        source="profile",
+        team_id="fingerprint-team",
+    )
+    monkeypatch.setattr(
+        watch_rule_routes, "_scope_for_caller", lambda _caller: ("fixed", "fixed")
+    )
+    settings = get_settings()
+    monkeypatch.setattr(settings, "caos_tenancy_enabled", False)
+    disabled = watch_rule_routes._filter_fingerprint(
+        caller=caller,
+        signal_type=None,
+        enabled=None,
+        issuer_id=None,
+        portfolio_id=None,
+        name_prefix=None,
+    )
+    monkeypatch.setattr(settings, "caos_tenancy_enabled", True)
+    enabled = watch_rule_routes._filter_fingerprint(
+        caller=caller,
+        signal_type=None,
+        enabled=None,
+        issuer_id=None,
+        portfolio_id=None,
+        name_prefix=None,
+    )
+    assert disabled != enabled

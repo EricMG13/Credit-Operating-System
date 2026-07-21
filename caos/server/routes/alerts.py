@@ -251,6 +251,28 @@ def _alert_visibility_predicate(caller: CallerIdentity):
     return or_(contextual, legacy)
 
 
+async def _require_c3_state_capability(
+    db: AsyncSession, caller: CallerIdentity, alert_key: str
+) -> None:
+    """Require a real, visible context before mutating a C3 alert state."""
+    if not alert_key.startswith("c3:"):
+        return
+    event_id = await db.scalar(
+        select(AlertEvent.id)
+        .join(
+            AlertEventContext,
+            AlertEventContext.alert_event_id == AlertEvent.id,
+        )
+        .where(
+            AlertEvent.alert_key == alert_key,
+            _alert_visibility_predicate(caller),
+        )
+        .limit(1)
+    )
+    if event_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert event not found.")
+
+
 def _alert_event_out(row: AlertEvent, state_row: Optional[AlertState]) -> AlertEventOut:
     return AlertEventOut(
         id=row.id,
@@ -336,6 +358,7 @@ async def upsert_alert_state(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_write_identity),
 ):
+    await _require_c3_state_capability(db, caller, body.alert_key)
     if not rate_limit.hit(f"alert-state:{caller.id}", max_attempts=_WRITES_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Alert-state rate limit reached — try again in a minute.")
     if body.state not in _VALID_STATES:
