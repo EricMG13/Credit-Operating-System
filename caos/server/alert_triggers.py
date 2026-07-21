@@ -280,7 +280,8 @@ async def claim_scheduled_rule(
     rule_id: UUID | str | None = None,
 ) -> ScheduledRuleClaim | None:
     """Claim one due schedule row without committing the caller's transaction."""
-    if await reap_expired_fifth_claim(db, now=now, rule_id=rule_id) is not None:
+    reaped_id = await reap_expired_fifth_claim(db, now=now, rule_id=rule_id)
+    if reaped_id is not None and rule_id is not None:
         return None
     token = uuid4()
     result = await db.execute(

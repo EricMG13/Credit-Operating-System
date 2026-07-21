@@ -973,6 +973,44 @@ async def test_expired_fifth_claim_is_atomically_reaped_and_paused(
         assert _utc(row.last_evaluated_at) == exact_expiry
 
 
+@pytest.mark.asyncio
+async def test_global_worker_reaps_expired_fifth_then_claims_next_due_rule(
+    trigger_store,
+) -> None:
+    expired_id = await _seed_scheduled(
+        trigger_store,
+        due=NOW - timedelta(minutes=5),
+        attempts=5,
+        claim_token=str(uuid4()),
+        claim_expires_at=NOW,
+    )
+    due_id = await _seed_scheduled(
+        trigger_store,
+        due=NOW - timedelta(minutes=4),
+    )
+
+    async with trigger_store() as session:
+        async with session.begin():
+            claim = await claim_scheduled_rule(session, now=NOW)
+
+    assert claim is not None
+    assert str(claim.rule_id) == due_id
+    assert claim.attempt_count == 1
+    async with trigger_store() as verify:
+        expired = await verify.get(WatchRule, expired_id)
+        due = await verify.get(WatchRule, due_id)
+        assert expired is not None
+        assert expired.paused is True
+        assert expired.next_evaluation_at is None
+        assert expired.claim_token is None
+        assert expired.claim_expires_at is None
+        assert expired.claim_attempt_count == 5
+        assert _utc(expired.last_evaluated_at) == NOW
+        assert due is not None
+        assert due.claim_token == str(claim.claim_token)
+        assert _utc(due.claim_expires_at) == claim.claim_expires_at
+
+
 def _scheduled_observation(*, source_identity: str = "watch:fact:1"):
     correlation = uuid4()
     return SignalObservation(
