@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 SERVER_DIR = Path(__file__).resolve().parents[2] / "server"
 sys.path.insert(0, str(SERVER_DIR))
@@ -30,6 +33,84 @@ async def _make_run(client, name: str, committee_status: str):
         db.add(run)
         await db.commit()
         return issuer_id, run.id
+
+
+async def _make_decision(client, name: str):
+    issuer_id, run_id = await _make_run(client, name, "Committee Ready")
+    response = client.post("/api/decisions", json={
+        "issuer_id": issuer_id,
+        "run_id": run_id,
+        "action": "revisit",
+        "snapshot": {"thesis_md": f"{name} requires monitoring."},
+    })
+    assert response.status_code == 201, response.text
+    return issuer_id, response.json()
+
+
+async def _create_c3_alert(client, *, issuer_id: str, marker: str) -> str:
+    rule = client.post("/api/watch-rules", json={
+        "name": f"Decision reopen {marker}",
+        "signal_type": "qa_gate",
+        "enabled": True,
+        "paused": False,
+        "issuer_id": issuer_id,
+        "portfolio_id": None,
+        "schedule_kind": "event_driven",
+        "schedule_interval_seconds": None,
+        "next_evaluation_at": None,
+        "config": {
+            "operator": "present",
+            "threshold": None,
+            "kind": "decision-reopen-test",
+            "title": "Material change",
+            "impact": "Reconsider the active IC decision.",
+        },
+    })
+    assert rule.status_code == 201, rule.text
+    evaluated = client.post(
+        f"/api/watch-rules/{rule.json()['id']}/evaluate",
+        json={
+            "source_identity": f"test:decision-reopen:{marker}",
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "numeric_value": None,
+            "categorical_value": "critical",
+            "detail": {"marker": marker},
+            "source_artifact_refs": [f"test:decision-reopen:{marker}"],
+            "hop_count": 0,
+        },
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    assert evaluated.json()["alert_event_id"]
+
+    from database import AlertEvent, AlertEventContext, AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        event = await db.get(AlertEvent, evaluated.json()["alert_event_id"])
+        context = await db.scalar(
+            select(AlertEventContext).where(
+                AlertEventContext.alert_event_id == evaluated.json()["alert_event_id"]
+            )
+        )
+        assert event is not None
+        assert context is not None
+        assert context.issuer_id == issuer_id
+        return event.alert_key
+
+
+def _named_team_identity(user_id: str, team_id: str):
+    from identity import CallerIdentity
+
+    async def dependency():
+        return CallerIdentity(
+            id=user_id,
+            email=f"{user_id}@example.test",
+            full_name=user_id,
+            role="analyst",
+            source="profile",
+            team_id=team_id,
+        )
+
+    return dependency
 
 
 @pytest.mark.asyncio
@@ -99,6 +180,82 @@ async def test_decision_freezes_authoritative_snapshot_and_appends_thesis(client
     assert reopened["status"] == "reopened"
     assert reopened["snapshot_sha256"] == decision["snapshot_sha256"]
     assert len(client.get("/api/thesis", params={"issuer_id": issuer_id}).json()) == 2
+
+
+@pytest.mark.asyncio
+async def test_visible_contextual_c3_alert_for_decision_issuer_can_reopen(
+    client, monkeypatch
+):
+    from config import get_settings
+    from identity import get_identity
+    from main import app
+
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
+    app.dependency_overrides[get_identity] = _named_team_identity(
+        "local-dev", "decision-reopen-team-a"
+    )
+    try:
+        issuer_id, decision = await _make_decision(client, "C3 Reopen Match Co")
+        alert_key = await _create_c3_alert(
+            client, issuer_id=issuer_id, marker="matching-context"
+        )
+        response = client.post(
+            f"/api/decisions/{decision['id']}/reopen",
+            json={"trigger_alert_key": alert_key},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "reopened"
+    assert response.json()["reopen_alert_key"] == alert_key
+
+
+@pytest.mark.asyncio
+async def test_c3_reopen_rejects_foreign_missing_malformed_and_hidden_keys_generically(
+    client, monkeypatch
+):
+    issuer_id, decision = await _make_decision(client, "C3 Reopen Reject Co")
+    foreign_issuer_id, _ = await _make_run(
+        client, "C3 Reopen Foreign Co", "Committee Ready"
+    )
+    foreign_key = await _create_c3_alert(
+        client, issuer_id=foreign_issuer_id, marker="foreign-context"
+    )
+    hidden_key = await _create_c3_alert(
+        client, issuer_id=issuer_id, marker="hidden-context"
+    )
+    missing_key = f"c3:{hashlib.sha256(b'c3-decision-reopen-missing').hexdigest()}"
+    malformed_key = f"c3:bad:{issuer_id}:embedded-identity"
+
+    responses = [
+        client.post(
+            f"/api/decisions/{decision['id']}/reopen",
+            json={"trigger_alert_key": key},
+        )
+        for key in (foreign_key, missing_key, malformed_key)
+    ]
+
+    from config import get_settings
+    from identity import get_identity
+    from main import app
+
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
+    app.dependency_overrides[get_identity] = _named_team_identity(
+        "decision-reopen-team-a", "decision-reopen-team-a"
+    )
+    try:
+        responses.append(client.post(
+            f"/api/decisions/{decision['id']}/reopen",
+            json={"trigger_alert_key": hidden_key},
+        ))
+    finally:
+        app.dependency_overrides.clear()
+
+    assert [response.status_code for response in responses] == [422, 422, 422, 422]
+    assert len({response.text for response in responses}) == 1
+    assert responses[0].json()["detail"] == "Alert key does not belong to decision issuer"
+    assert client.get(f"/api/decisions/{decision['id']}").json()["status"] == "active"
 
 
 @pytest.mark.asyncio

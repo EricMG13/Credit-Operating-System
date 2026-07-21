@@ -3026,3 +3026,24 @@ if implementation creates parallel stores, merges workflow and credit events,
 lets a stub imply delivery, invents a vendor API, mutates the CRITICAL
 `AlertEvent` surface without additive compatibility proof, or treats fixture
 evidence as H0/live activation.
+
+## 2026-07-21 — C3 persisted-Monitor correction critic pass
+
+Decision under review: accept the Task 7 persisted Monitor interface and its
+decision-reopen integration as the sole Live alert authority before starting
+the default-off activation tranche.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-21-775 | Authorization reviewer | A C3 alert key is a hash and carries no issuer id, so the legacy substring check rejects valid governed alerts while malformed C3-like strings can evade a persistence/visibility check. | Critical | Resolved | Exact lowercase `c3:<64 hex>` keys now require a persisted `AlertEvent` joined to an `AlertEventContext`, matching both decision issuer fields and the caller visibility predicate. Missing, foreign, malformed, and hidden keys share one generic 422 response; legacy issuer-bearing keys retain compatibility. |
+| RT-2026-07-21-776 | Analysis-context reviewer | Treating artifact and Monitor surface selection as one whole-object write suppresses independent repair, cannot explicitly clear stale ids, and risks overwriting unrelated context fields. | Critical | Resolved | Selection sync now emits sparse independent patches, supports explicit `null`, fingerprints context revision/state, avoids replay after persistent failure, and has exact partial/null regressions. |
+| RT-2026-07-21-777 | Concurrency reviewer | A lifecycle 409 followed by blind Retry can replay a stale action; a sibling PATCH can also settle before, during, or after reconciliation and overwrite newer persisted lifecycle state or resolution notes. | Critical | Resolved | A global reload-authority barrier closes all writes, preserves the ready view and drafts, captures and drains pre-conflict PATCHes, fences request/epoch/unmount supersession, then issues the final authoritative GET. Successful reconciliation clears captured selection and requires fresh analyst intent; failed reconciliation keeps the barrier and reload control visible. |
+| RT-2026-07-21-778 | Selection-race reviewer | Rapid A→B selection can enqueue duplicate B analysis patches, while removal of a pending URL target can leave URL, artifact, and surface selections permanently stale. | High | Resolved | Per-context/event in-flight targets defer duplicate repairs with a guarded rerun, and ready authority reconciles pending requests before the observed-request shortcut. URL and both analysis targets clear exactly once when the target disappears. |
+| RT-2026-07-21-779 | Batch-workflow reviewer | The generic batch toolbar bypasses controller-level conflict reconciliation; concurrent batch failures can retain contradictory Retry copy under a global authority barrier, and clearing a pending batch can hide its outcome. | Critical | Resolved | The persisted batch toolbar delegates to `acknowledgeSelected`, normalizes both failure/barrier orderings to reload-and-review copy, suppresses blind Retry, and makes visible clear plus Escape inert while pending. Batch conflict success clears captured membership and demands a fresh selection. |
+| RT-2026-07-21-780 | Accessibility and mobile reviewer | A failed conflict refresh can unmount analyst input or leave no reachable reload action on phone when the current filtered event disappears. | High | Resolved | Preserve-ready refresh leaves draft controls mounted, desktop and phone render explicit reload-authority controls, and phone keeps the control above the empty filtered state. Final normal/reduced-motion axe matrices at 1440x900 and 390x844 report zero violations, scan/layout failures, clipping, target failures, or collisions. |
+
+Decision: accept the corrected Task 7 interface. Independent final review found
+no remaining Critical, High, Medium, or Low issue after all eight original
+defects and the follow-up ordering regressions were re-evaluated. Reopen if a
+mutation can publish across the reload-authority barrier, a C3 decision reopen
+does not prove visible issuer context, or any UI offers stale Retry authority.

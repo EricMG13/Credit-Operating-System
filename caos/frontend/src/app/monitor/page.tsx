@@ -4,7 +4,7 @@
 // events and watch rules; Reference replay/email examples remain a separate,
 // read-only surface and never claim live issuer authority.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { RequireAuth } from "@/components/shared/RequireAuth";
@@ -65,21 +65,89 @@ function resolveMonitorDataset(value: string | null, leadingDataset: string | un
   return "alerts";
 }
 
-function syncSelectedAlert(analysis: ReturnType<typeof useAnalysisContext>, eventId: string | null) {
-  const context = analysis.context;
-  if (!context || !eventId || context.artifacts.alert_event_id === eventId) return;
-  void analysis.patch({
-    artifacts: { ...context.artifacts, alert_event_id: eventId },
-    surface_state: { ...context.surface_state, monitor: { ...context.surface_state.monitor, active_id: eventId } },
-  }).catch(() => undefined);
+function syncSelectedAlert(
+  context: ReturnType<typeof useAnalysisContext>["context"],
+  patch: ReturnType<typeof useAnalysisContext>["patch"],
+  eventId: string | null,
+  lastAttempt: { current: string | null },
+  inFlightTargets: { current: Set<string> },
+  pendingSync: { current: boolean },
+  rerun: () => void,
+) {
+  if (!context) {
+    lastAttempt.current = null;
+    pendingSync.current = false;
+    return;
+  }
+  const artifactEventId = context.artifacts.alert_event_id;
+  const surfaceEventId = context.surface_state.monitor?.active_id;
+  const attempt = JSON.stringify({
+    contextId: context.id,
+    revision: context.revision,
+    eventId,
+    artifact: { defined: artifactEventId !== undefined, value: artifactEventId ?? null },
+    surface: { defined: surfaceEventId !== undefined, value: surfaceEventId ?? null },
+  });
+  const changes: Parameters<typeof patch>[0] = {};
+  if (artifactEventId !== eventId) changes.artifacts = { alert_event_id: eventId };
+  if (surfaceEventId !== eventId) changes.surface_state = { monitor: { active_id: eventId } };
+  if (!changes.artifacts && !changes.surface_state) {
+    lastAttempt.current = null;
+    return;
+  }
+  const target = JSON.stringify({ contextId: context.id, eventId });
+  if (inFlightTargets.current.has(target)) {
+    pendingSync.current = true;
+    return;
+  }
+  if (lastAttempt.current === attempt) return;
+  // Record before dispatch: mutation-state rerenders and a persistent rejection
+  // must not replay the same repair indefinitely.
+  lastAttempt.current = attempt;
+  inFlightTargets.current.add(target);
+  void patch(changes).catch(() => undefined).finally(() => {
+    inFlightTargets.current.delete(target);
+    if (!pendingSync.current) return;
+    pendingSync.current = false;
+    rerun();
+  });
 }
 
 function useMonitorSelection(controller: PersistedMonitorController, requested: string | null, analysis: ReturnType<typeof useAnalysisContext>, updateUrlState: MonitorUrlUpdater) {
   const { activeEventId: selected, setActiveEvent, status, visibleEvents } = controller;
+  const analysisContext = analysis.context;
+  const patchAnalysisContext = analysis.patch;
   const observedRequestRef = useRef(requested);
   const pendingRequestedRef = useRef<string | null>(null);
+  const lastAnalysisSyncAttemptRef = useRef<string | null>(null);
+  const analysisSyncTargetsRef = useRef(new Set<string>());
+  const analysisSyncPendingRef = useRef(false);
+  const analysisSyncMountedRef = useRef(true);
+  const [analysisSyncEpoch, setAnalysisSyncEpoch] = useState(0);
   useEffect(() => {
-    if (status !== "ready" || requested === observedRequestRef.current) return;
+    // React Strict Mode runs a development-only setup/cleanup/setup cycle.
+    // Re-arm on setup so a settled patch can still schedule its guarded rerun.
+    analysisSyncMountedRef.current = true;
+    return () => {
+      analysisSyncMountedRef.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (status !== "ready") return;
+    const pendingRequested = pendingRequestedRef.current;
+    if (pendingRequested) {
+      const requestStillCurrent = requested === pendingRequested;
+      const targetStillVisible = visibleEvents.some((event) => event.id === pendingRequested);
+      const targetSelected = selected === pendingRequested;
+      // A pending request is installed only after the prior effect has observed
+      // the URL. Seeing that same request again with another ready selection
+      // means controller authority settled somewhere else; normalize to it.
+      const selectionSettledAway = requested === observedRequestRef.current && !targetSelected;
+      if (!requestStillCurrent || !targetStillVisible || targetSelected || selectionSettledAway) {
+        pendingRequestedRef.current = null;
+      }
+    }
+    if (requested === observedRequestRef.current) return;
     observedRequestRef.current = requested;
     if (!requested || requested === selected) {
       pendingRequestedRef.current = null;
@@ -97,8 +165,22 @@ function useMonitorSelection(controller: PersistedMonitorController, requested: 
     if (pendingRequestedRef.current && pendingRequestedRef.current !== selected) return;
     pendingRequestedRef.current = null;
     updateUrlState({ selected }, "replace");
-    syncSelectedAlert(analysis, selected);
-  }, [analysis, requested, selected, status, updateUrlState]);
+  }, [requested, selected, status, updateUrlState]);
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (pendingRequestedRef.current && pendingRequestedRef.current !== selected) return;
+    syncSelectedAlert(
+      analysisContext,
+      patchAnalysisContext,
+      selected,
+      lastAnalysisSyncAttemptRef,
+      analysisSyncTargetsRef,
+      analysisSyncPendingRef,
+      () => {
+        if (analysisSyncMountedRef.current) setAnalysisSyncEpoch((current) => current + 1);
+      },
+    );
+  }, [analysisContext, analysisSyncEpoch, patchAnalysisContext, selected, status]);
 }
 
 function useMonitorInsight(contextId: string | null | undefined, selected: string | null) {
@@ -116,7 +198,7 @@ type MonitorDecisionInput = {
   status: PersistedLoadStatus;
   error: string | null;
   events: AlertEventDTO[];
-  retry: () => Promise<void>;
+  retry: () => Promise<unknown>;
 };
 
 function monitorDecisionAuthority(input: MonitorDecisionInput) {
@@ -227,6 +309,7 @@ function acknowledgeReason(view: MonitorViewProps) {
   if (view.dataMode === "reference") return "Reference replay is read-only.";
   if (view.controller?.status === "loading") return "Persisted alert list is still loading.";
   if (view.controller?.status === "error") return "Persisted alert list is unavailable; reload before acknowledging.";
+  if (view.controller?.requiresAuthoritativeReload) return "Persisted alert authority changed; reload before acknowledging.";
   if (view.controller?.batchPending) return "Batch acknowledgment is already in progress.";
   if (view.selectedAlertCount > 0) return null;
   if (view.controller?.events.length) return "Select persisted alerts in the worklist first.";

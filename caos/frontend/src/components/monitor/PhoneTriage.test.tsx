@@ -58,6 +58,12 @@ function Harness({ initialActive = null }: { initialActive?: string | null }) {
   );
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   getAlertEventPage.mockReset();
   getWatchRulePage.mockReset();
@@ -192,6 +198,83 @@ describe("PhoneTriage · persisted controller", () => {
     await waitFor(() => expect(assignee.value).toBe(""));
     expect(forbiddenDraft).not.toHaveBeenCalled();
     expect(forbiddenLegacyStates).not.toHaveBeenCalled();
+  });
+
+  it("reloads a phone lifecycle conflict before another action and never retries the stale transition", async () => {
+    const reload = deferred<{ items: AlertEventDTO[]; nextCursor: null }>();
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [persistedEvent()], nextCursor: null })
+      .mockReturnValueOnce(reload.promise);
+    patchAlertEvent
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: "Cannot move alert state backward: ack -> open." } } })
+      .mockResolvedValueOnce(persistedEvent({ state: "ack", assignee: "Sam" }));
+    render(<Harness />);
+    await screen.findByText("QA gate moved to blocked");
+
+    const assignee = screen.getByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(assignee, { target: { value: "Sam" } });
+    const assign = screen.getByRole("button", { name: "Assign" });
+    fireEvent.click(assign);
+
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(2));
+    expect(assign.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(assign);
+    expect(patchAlertEvent).toHaveBeenCalledTimes(1);
+
+    reload.resolve({ items: [persistedEvent({ state: "ack", assignee: "other.analyst" })], nextCursor: null });
+    expect(await screen.findByText(/Persisted events were reloaded/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByLabelText("Alert assignee")).toBe(assignee);
+    expect(assignee.value).toBe("Sam");
+
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "alert-1", "ack", { assignee: "Sam" }));
+  });
+
+  it("preserves phone input and exposes only persisted reload authority after conflict reconciliation fails", async () => {
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [persistedEvent()], nextCursor: null })
+      .mockRejectedValueOnce(new Error("phone reconciliation unavailable"))
+      .mockResolvedValueOnce({ items: [persistedEvent({ state: "ack", assignee: "other.analyst" })], nextCursor: null });
+    patchAlertEvent.mockRejectedValueOnce({ response: { status: 409, data: { detail: "Cannot move ack alert back to open." } } });
+    render(<Harness />);
+    await screen.findByText("QA gate moved to blocked");
+
+    const assignee = screen.getByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(assignee, { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+    expect(await screen.findByText(/authoritative reload could not be confirmed/i)).toBeTruthy();
+    expect(assignee.value).toBe("Sam");
+    expect(screen.getByRole("button", { name: "Assign" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reload persisted alerts" }));
+
+    expect(await screen.findByText(/Persisted events were reloaded/)).toBeTruthy();
+    expect(assignee.value).toBe("Sam");
+    expect(screen.getByRole("button", { name: "Assign" }).getAttribute("aria-disabled")).toBeNull();
+    expect(patchAlertEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps persisted reload authority reachable when the current phone filter has no event", async () => {
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [persistedEvent()], nextCursor: null })
+      .mockRejectedValueOnce(new Error("phone reconciliation unavailable"))
+      .mockResolvedValueOnce({ items: [persistedEvent({ state: "resolved", resolution_note: "Resolved elsewhere." })], nextCursor: null });
+    patchAlertEvent.mockRejectedValueOnce({ response: { status: 409, data: { detail: "Alert lifecycle changed." } } });
+    render(<Harness />);
+    await screen.findByText("QA gate moved to blocked");
+    fireEvent.change(screen.getByLabelText("Alert assignee"), { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    expect(await screen.findByText(/authoritative reload could not be confirmed/i)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Alert state filter"), { target: { value: "resolved" } });
+    expect(await screen.findByText("No resolved alerts to triage")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reload persisted alerts" }));
+
+    expect(await screen.findByText("resolved: Resolved elsewhere.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reload persisted alerts" })).toBeNull();
+    expect(patchAlertEvent).toHaveBeenCalledTimes(1);
   });
 
   it("resets evidence, input, failure, and retry identity when phone navigation changes events", async () => {

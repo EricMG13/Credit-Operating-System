@@ -55,9 +55,11 @@ function Harness() {
       <output data-testid="batch-state">{controller.batchPending ? "pending" : controller.batchError ?? "idle"}</output>
       <output data-testid="mutation-message">{controller.lastMutationMessage ?? "none"}</output>
       <button type="button" onClick={() => void controller.refresh()}>Reload controller</button>
+      <button type="button" onClick={() => void controller.refresh({ preserveReadyView: true })}>Reconcile controller</button>
       <button type="button" onClick={() => { const first = controller.events[0]; if (first) void controller.mutateEvent(first.id, "ack").catch(() => undefined); }}>Mutate first alert</button>
       <button type="button" onClick={() => { const first = controller.events[0]; if (first) void controller.mutateEvent(first.id, "resolved").catch(() => undefined); }}>Resolve first alert</button>
       <button type="button" onClick={() => { const first = controller.events[0]; if (first) void controller.mutateEvent(first.id, first.state, { assignee: "Analyst" }).catch(() => undefined); }}>Assign first alert</button>
+      <button type="button" onClick={() => { const second = controller.events[1]; if (second) void controller.mutateEvent(second.id, "ack").catch(() => undefined); }}>Mutate second alert</button>
       <button type="button" onClick={() => controller.events.forEach((item) => { if (item.state !== "resolved" && !controller.selectedIds.includes(item.id)) controller.toggleSelected(item.id); })}>Select active alerts</button>
       <button type="button" onClick={() => void controller.acknowledgeSelected().catch(() => undefined)}>Acknowledge controller batch</button>
       <AlertInbox controller={controller} />
@@ -175,6 +177,74 @@ describe("persisted Monitor controller", () => {
     });
   });
 
+  it("keeps the ready view mounted during reconciliation while fencing mutation authority", async () => {
+    const reconciliation = deferred<{ items: ReturnType<typeof event>[]; nextCursor: null }>();
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [event()], nextCursor: null })
+      .mockReturnValueOnce(reconciliation.promise);
+    patchAlertEvent.mockResolvedValue(event({ state: "ack", assignee: "Analyst" }));
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByTestId("controller-status").textContent).toBe("ready:1:0"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile controller" }));
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("controller-status").textContent).toBe("ready:1:0");
+    expect(screen.getAllByText("QA gate moved to blocked")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Mutate first alert" }));
+    expect(patchAlertEvent).not.toHaveBeenCalled();
+
+    reconciliation.resolve({ items: [event({ state: "ack", assignee: "other.analyst" })], nextCursor: null });
+    await waitFor(() => expect(screen.getByTestId("first-state").textContent).toBe("ack"));
+    expect(screen.getByTestId("controller-status").textContent).toBe("ready:1:0");
+
+    fireEvent.click(screen.getByRole("button", { name: "Assign first alert" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledWith("event-open", "ack", { assignee: "Analyst" }));
+  });
+
+  it("fails closed when a preserve-view reconciliation cannot establish authoritative state", async () => {
+    const failedReconciliation = deferred<{ items: ReturnType<typeof event>[]; nextCursor: null }>();
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [event()], nextCursor: null })
+      .mockReturnValueOnce(failedReconciliation.promise);
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByTestId("controller-status").textContent).toBe("ready:1:0"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile controller" }));
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Mutate first alert" }));
+    expect(patchAlertEvent).not.toHaveBeenCalled();
+
+    failedReconciliation.reject(new Error("authoritative reconciliation failed"));
+    await failedReconciliation.promise.catch(() => undefined);
+    await waitFor(() => expect(screen.getByTestId("controller-status").textContent).toBe("error:1:0"));
+    expect(screen.getAllByText("authoritative reconciliation failed")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Retry persisted alerts" })).toHaveLength(2);
+  });
+
+  it("does not let a superseded preserve-view reconciliation overwrite a newer full reload", async () => {
+    const staleReconciliation = deferred<{ items: ReturnType<typeof event>[]; nextCursor: null }>();
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [event()], nextCursor: null })
+      .mockReturnValueOnce(staleReconciliation.promise)
+      .mockResolvedValueOnce({ items: [event({ id: "event-new", title: "Newer full reload", state: "ack" })], nextCursor: null });
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByTestId("controller-status").textContent).toBe("ready:1:0"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile controller" }));
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Reload controller" }));
+    expect(await screen.findAllByText("Newer full reload")).toHaveLength(2);
+
+    await act(async () => {
+      staleReconciliation.resolve({ items: [event({ title: "Stale reconciliation" })], nextCursor: null });
+      await staleReconciliation.promise;
+    });
+    expect(screen.queryByText("Stale reconciliation")).toBeNull();
+    expect(screen.getByTestId("controller-status").textContent).toBe("ready:1:0");
+  });
+
   it("does not let a list snapshot that started before a mutation overwrite the new state", async () => {
     const stale = deferred<{ items: ReturnType<typeof event>[]; nextCursor: null }>();
     const mutation = deferred<ReturnType<typeof event>>();
@@ -238,6 +308,56 @@ describe("persisted Monitor controller", () => {
     firstPatch.reject(new Error("first alert unavailable"));
     await waitFor(() => expect(screen.getByTestId("batch-state").textContent).toContain("first alert unavailable"));
     expect(screen.getByTestId("controller-status").textContent).toBe("ready:2:2");
+  });
+
+  it("reconciles a batch lifecycle conflict and requires a fresh selection before another acknowledgment", async () => {
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [
+        event(),
+        event({ id: "event-two", alert_key: "c3:1212121212121212121212121212121212121212121212121212121212121212", title: "Concurrent batch sibling" }),
+      ], nextCursor: null })
+      .mockResolvedValueOnce({ items: [
+        event({ state: "resolved", resolution_note: "Resolved in another session." }),
+        event({ id: "event-two", alert_key: "c3:1212121212121212121212121212121212121212121212121212121212121212", title: "Concurrent batch sibling", state: "ack" }),
+      ], nextCursor: null });
+    patchAlertEvent
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: "Alert lifecycle changed." } } })
+      .mockResolvedValueOnce(event({ id: "event-two", title: "Concurrent batch sibling", state: "ack" }));
+    render(<Harness />);
+    await screen.findAllByText("Concurrent batch sibling");
+    fireEvent.click(screen.getByRole("button", { name: "Select active alerts" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Ack" })[0]!);
+
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByTestId("controller-status").textContent).toBe("ready:2:0"));
+    expect(screen.getByTestId("batch-state").textContent).toMatch(/reloaded.*fresh selection/i);
+    expect(screen.queryByRole("button", { name: "Retry acknowledgment" })).toBeNull();
+    expect(patchAlertEvent).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText("resolved: Resolved in another session.")).toHaveLength(1);
+  });
+
+  it("keeps a conflicted batch fenced behind persisted reload authority when reconciliation fails", async () => {
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [event()], nextCursor: null })
+      .mockRejectedValueOnce(new Error("reconciliation transport failed"))
+      .mockResolvedValueOnce({ items: [event({ state: "ack" })], nextCursor: null });
+    patchAlertEvent.mockRejectedValueOnce({ response: { status: 409, data: { detail: "Alert lifecycle changed." } } });
+    render(<Harness />);
+    await screen.findAllByText("QA gate moved to blocked");
+    fireEvent.click(screen.getByRole("button", { name: "Select active alerts" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Ack" })[0]!);
+
+    await waitFor(() => expect(screen.getByTestId("batch-state").textContent).toMatch(/authoritative reload.*required/i));
+    expect(screen.queryByRole("button", { name: "Retry acknowledgment" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Ack" }).every((button) => button.getAttribute("aria-disabled") === "true")).toBe(true);
+    const reloads = screen.getAllByRole("button", { name: "Reload persisted alerts" });
+    fireEvent.click(reloads[0]!);
+
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByTestId("controller-status").textContent).toBe("ready:1:0"));
+    await waitFor(() => expect(screen.getByTestId("batch-state").textContent).toBe("idle"));
+    expect(patchAlertEvent).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Retry acknowledgment" })).toBeNull();
   });
 
   it("rejects a conflicting same-alert intent instead of treating assignment as acknowledgment", async () => {
@@ -326,6 +446,12 @@ describe("persisted Monitor controller", () => {
     fireEvent.click(screen.getByRole("button", { name: "Acknowledge controller batch" }));
     await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId("batch-state").textContent).toBe("pending");
+    const clear = screen.getByRole("button", { name: "clear" });
+    expect(clear.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(clear);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByTestId("controller-status").textContent).toBe("ready:2:2");
+    expect(clear.isConnected).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Acknowledge controller batch" }));
     expect(patchAlertEvent).toHaveBeenCalledTimes(2);
 

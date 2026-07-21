@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AlertEventDTO } from "@/lib/api";
+import type { PersistedMonitorController } from "@/components/monitor/usePersistedMonitorController";
 import MonitorPage from "./page";
 
 const getAlertEventPage = vi.fn();
@@ -12,13 +13,20 @@ const patchAlertEvent = vi.fn();
 const forbiddenAutonomyDraft = vi.fn();
 const forbiddenLegacyStates = vi.fn();
 const analysisState = vi.hoisted(() => ({
-  context: null as null | { id: string; artifacts: Record<string, string>; surface_state: Record<string, Record<string, string>> },
+  context: null as null | {
+    id: string;
+    revision?: number;
+    artifacts: Record<string, string | null | undefined>;
+    surface_state: Record<string, { active_id?: string | null }>;
+  },
   patch: vi.fn(() => Promise.resolve()),
+  mutationState: "idle" as "idle" | "saving" | "error",
   listInsights: vi.fn(),
   createInsight: vi.fn(),
 }));
 const roleState = vi.hoisted(() => ({ role: "analyst" as "analyst" | "pm" | "qa" }));
 const modeState = vi.hoisted(() => ({ mode: "live" as "live" | "reference" }));
+const persistedControllerState = vi.hoisted(() => ({ current: null as PersistedMonitorController | null }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/monitor",
@@ -35,6 +43,15 @@ vi.mock("@/lib/data-mode", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/data-mode")>()),
   useDataMode: () => modeState.mode,
 }));
+vi.mock("@/components/monitor/usePersistedMonitorController", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/monitor/usePersistedMonitorController")>();
+  return {
+    ...actual,
+    usePersistedMonitorController: (...args: Parameters<typeof actual.usePersistedMonitorController>) => (
+      persistedControllerState.current ?? actual.usePersistedMonitorController(...args)
+    ),
+  };
+});
 vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/analysis-workbench")>()),
   analysisApi: {
@@ -47,7 +64,7 @@ vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
     patch: analysisState.patch,
     loading: false,
     error: null,
-    mutationState: "idle",
+    mutationState: analysisState.mutationState,
     mutationError: null,
     retryLastPatch: vi.fn(),
   }),
@@ -104,6 +121,46 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function controlledMonitorController(events: AlertEventDTO[], activeEventId: string | null): PersistedMonitorController {
+  const visibleEvents = events;
+  return {
+    status: "ready",
+    error: null,
+    events,
+    visibleEvents,
+    counts: {
+      open: events.filter((event) => event.state === "open").length,
+      ack: events.filter((event) => event.state === "ack").length,
+      resolved: events.filter((event) => event.state === "resolved").length,
+    },
+    filter: "all",
+    setFilter: vi.fn(),
+    activeEventId,
+    setActiveEvent: vi.fn(),
+    selectedIds: [],
+    toggleSelected: vi.fn(),
+    clearSelection: vi.fn(),
+    pendingIds: new Set<string>(),
+    mutateEvent: vi.fn(),
+    acknowledgeSelected: vi.fn(async () => undefined),
+    batchPending: false,
+    batchError: null,
+    batchErrorAction: null,
+    lastMutationMessage: null,
+    requiresAuthoritativeReload: false,
+    refresh: vi.fn(async () => true),
+    rules: {
+      status: "ready",
+      error: null,
+      rules: [],
+      refresh: vi.fn(async () => undefined),
+      create: vi.fn(),
+      update: vi.fn(),
+      reloadOne: vi.fn(),
+    },
+  } as PersistedMonitorController;
+}
+
 beforeEach(() => {
   getAlertEventPage.mockReset();
   getWatchRulePage.mockReset();
@@ -120,6 +177,8 @@ beforeEach(() => {
   getPortfolio.mockResolvedValue(EMPTY_PORTFOLIO);
   getDigest.mockResolvedValue(EMPTY_DIGEST);
   analysisState.context = null;
+  analysisState.mutationState = "idle";
+  persistedControllerState.current = null;
   roleState.role = "analyst";
   modeState.mode = "live";
   window.history.replaceState({}, "", "/monitor");
@@ -258,6 +317,206 @@ describe("Monitor · persisted decision and governance authority", () => {
       artifacts: expect.objectContaining({ alert_event_id: "alert-1" }),
     })));
     expect(window.location.search).toContain("selected=alert-1");
+  });
+
+  it("repairs the artifact and monitor surface selection independently once per context state", async () => {
+    const selected = persistedEvent({
+      id: "alert-2",
+      alert_key: "c3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      title: "Selected persisted alert",
+    });
+    getAlertEventPage.mockResolvedValue({ items: [selected], nextCursor: null });
+    analysisState.context = {
+      id: "ctx-independent",
+      revision: 7,
+      artifacts: { alert_event_id: "alert-2" },
+      surface_state: { monitor: { active_id: "stale-alert" } },
+    };
+    window.history.replaceState({}, "", "/monitor?selected=alert-2");
+
+    const view = render(<MonitorPage />);
+    await screen.findByTestId("monitor-persisted-ready");
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(1));
+    expect(analysisState.patch).toHaveBeenNthCalledWith(1, {
+      surface_state: { monitor: { active_id: "alert-2" } },
+    });
+
+    analysisState.mutationState = "saving";
+    analysisState.context = {
+      id: "ctx-independent",
+      revision: 7,
+      artifacts: { alert_event_id: "alert-2" },
+      surface_state: { monitor: { active_id: "stale-alert" } },
+    };
+    view.rerender(<MonitorPage />);
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(1));
+
+    analysisState.mutationState = "idle";
+    analysisState.context = {
+      id: "ctx-independent",
+      revision: 8,
+      artifacts: { alert_event_id: "stale-alert" },
+      surface_state: { monitor: { active_id: "alert-2" } },
+    };
+    view.rerender(<MonitorPage />);
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(2));
+    expect(analysisState.patch).toHaveBeenNthCalledWith(2, {
+      artifacts: { alert_event_id: "alert-2" },
+    });
+  });
+
+  it("clears both analysis selection targets to null exactly once when no event is selected", async () => {
+    analysisState.context = {
+      id: "ctx-clear",
+      revision: 3,
+      artifacts: { alert_event_id: "stale-alert" },
+      surface_state: { monitor: { active_id: "stale-alert" } },
+    };
+    getAlertEventPage.mockResolvedValue({ items: [], nextCursor: null });
+
+    const view = render(<MonitorPage />);
+    await screen.findByTestId("monitor-persisted-ready");
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(1));
+    expect(analysisState.patch).toHaveBeenCalledWith({
+      artifacts: { alert_event_id: null },
+      surface_state: { monitor: { active_id: null } },
+    });
+
+    analysisState.mutationState = "saving";
+    analysisState.context = {
+      id: "ctx-clear",
+      revision: 3,
+      artifacts: { alert_event_id: "stale-alert" },
+      surface_state: { monitor: { active_id: "stale-alert" } },
+    };
+    view.rerender(<MonitorPage />);
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not loop a failed selection repair but retries after a genuine context change", async () => {
+    analysisState.patch.mockRejectedValue(new Error("analysis persistence offline"));
+    analysisState.context = {
+      id: "ctx-failing",
+      revision: 11,
+      artifacts: {},
+      surface_state: {},
+    };
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+
+    const view = render(<MonitorPage />);
+    await screen.findByTestId("monitor-persisted-ready");
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(1));
+
+    analysisState.mutationState = "error";
+    analysisState.context = {
+      id: "ctx-failing",
+      revision: 11,
+      artifacts: {},
+      surface_state: {},
+    };
+    view.rerender(<MonitorPage />);
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(1));
+
+    analysisState.context = {
+      id: "ctx-reloaded",
+      revision: 1,
+      artifacts: {},
+      surface_state: {},
+    };
+    view.rerender(<MonitorPage />);
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(2));
+  });
+
+  it("defers a newer selection repair while the prior analysis patch is still in flight", async () => {
+    const firstPatch = deferred<void>();
+    const secondPatch = deferred<void>();
+    analysisState.patch
+      .mockReturnValueOnce(firstPatch.promise)
+      .mockReturnValueOnce(secondPatch.promise)
+      .mockResolvedValue(undefined);
+    analysisState.context = {
+      id: "ctx-rapid-selection",
+      revision: 1,
+      artifacts: {},
+      surface_state: {},
+    };
+    const second = persistedEvent({
+      id: "alert-2",
+      alert_key: "c3:abababababababababababababababababababababababababababababababab",
+      title: "Rapid second alert",
+    });
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent(), second], nextCursor: null });
+
+    const view = render(<MonitorPage />);
+    await screen.findByTestId("monitor-persisted-ready");
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Rapid second alert" }));
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      firstPatch.resolve(undefined);
+      await firstPatch.promise;
+      analysisState.context = {
+        id: "ctx-rapid-selection",
+        revision: 2,
+        artifacts: { alert_event_id: "alert-1" },
+        surface_state: { monitor: { active_id: "alert-1" } },
+      };
+      view.rerender(<MonitorPage />);
+      await Promise.resolve();
+    });
+
+    expect(analysisState.patch).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      analysisState.context = {
+        id: "ctx-rapid-selection",
+        revision: 3,
+        artifacts: { alert_event_id: "alert-2" },
+        surface_state: { monitor: { active_id: "alert-2" } },
+      };
+      view.rerender(<MonitorPage />);
+      secondPatch.resolve(undefined);
+      await secondPatch.promise;
+    });
+    expect(analysisState.patch).toHaveBeenCalledTimes(2);
+  });
+
+  it("clears a pending URL and analysis selection when authoritative refresh removes its target", async () => {
+    const first = persistedEvent();
+    const requested = persistedEvent({
+      id: "alert-2",
+      alert_key: "c3:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      title: "Pending requested alert",
+    });
+    analysisState.context = {
+      id: "ctx-pending-removal",
+      revision: 5,
+      artifacts: { alert_event_id: "alert-1" },
+      surface_state: { monitor: { active_id: "alert-1" } },
+    };
+    window.history.replaceState({}, "", "/monitor?selected=alert-1");
+    const initialController = controlledMonitorController([first, requested], "alert-1");
+    persistedControllerState.current = initialController;
+    const view = render(<MonitorPage />);
+    await screen.findByTestId("monitor-persisted-ready");
+
+    window.history.replaceState({}, "", "/monitor?selected=alert-2");
+    fireEvent(window, new PopStateEvent("popstate"));
+    await waitFor(() => expect(initialController.setActiveEvent).toHaveBeenCalledWith("alert-2"));
+    expect(new URL(window.location.href).searchParams.get("selected")).toBe("alert-2");
+
+    persistedControllerState.current = controlledMonitorController([], null);
+    view.rerender(<MonitorPage />);
+
+    await waitFor(() => expect(new URL(window.location.href).searchParams.get("selected")).toBeNull());
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(1));
+    expect(analysisState.patch).toHaveBeenCalledWith({
+      artifacts: { alert_event_id: null },
+      surface_state: { monitor: { active_id: null } },
+    });
+    view.rerender(<MonitorPage />);
+    await waitFor(() => expect(analysisState.patch).toHaveBeenCalledTimes(1));
   });
 
   it("normalizes a requested event hidden by the current filter to the visible active event", async () => {

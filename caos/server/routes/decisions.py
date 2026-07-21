@@ -6,6 +6,7 @@ import hashlib
 import json
 import base64
 import hmac
+import re
 from datetime import date, datetime, timezone
 from typing import Annotated, Dict, List, Literal, Optional, Union
 
@@ -17,10 +18,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
 from config import get_settings
-from database import Decision, DecisionVote, Issuer, ModuleOutput, Run, ThesisVersion, get_db
+from database import (
+    AlertEvent,
+    AlertEventContext,
+    Decision,
+    DecisionVote,
+    Issuer,
+    ModuleOutput,
+    Run,
+    ThesisVersion,
+    get_db,
+)
 from engine.report import assemble_report, committee_export_allowed
 from identity import CallerIdentity, get_identity, require_write_role
 from json_safety import require_bounded_json
+from routes.alerts import _alert_visibility_predicate
 from routes.thesis import ThesisVersionIn, create_thesis_version
 from tenancy import require_issuer, require_run_access, scope_issuers
 
@@ -28,6 +40,7 @@ router = APIRouter()
 
 _DECISION_MAX_PER_MINUTE = 20
 _MAX_CLIENT_SNAPSHOT_BYTES = 250 * 1024
+_C3_ALERT_KEY = re.compile(r"^c3:[0-9a-f]{64}$")
 
 
 class DecisionCreate(BaseModel):
@@ -378,7 +391,29 @@ async def reopen(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Decision not found")
     require_issuer(caller, await db.get(Issuer, row.issuer_id))
     require_write_role(caller)
-    if f":{row.issuer_id}:" not in body.trigger_alert_key:
+    if body.trigger_alert_key.startswith("c3:"):
+        event_id = None
+        if _C3_ALERT_KEY.fullmatch(body.trigger_alert_key):
+            event_id = await db.scalar(
+                select(AlertEvent.id)
+                .join(
+                    AlertEventContext,
+                    AlertEventContext.alert_event_id == AlertEvent.id,
+                )
+                .where(
+                    AlertEvent.alert_key == body.trigger_alert_key,
+                    AlertEvent.issuer_id == row.issuer_id,
+                    AlertEventContext.issuer_id == row.issuer_id,
+                    _alert_visibility_predicate(caller),
+                )
+                .limit(1)
+            )
+        if event_id is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "Alert key does not belong to decision issuer",
+            )
+    elif f":{row.issuer_id}:" not in body.trigger_alert_key:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Alert key does not belong to decision issuer")
     if row.status == "reopened":
         return await _out(db, row)

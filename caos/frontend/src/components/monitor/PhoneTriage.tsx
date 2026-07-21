@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActionReason } from "@/components/shared/ActionReason";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { IssuerLink } from "@/components/shared/IssuerLink";
@@ -10,6 +10,7 @@ import { getChunk, toErrorMessage, type AlertEventDTO } from "@/lib/api";
 import {
   alertIssuerLabel,
   explicitAlertChunkIds,
+  isAlertLifecycleConflict,
   type MonitorAlertFilter,
   type PersistedMonitorController,
 } from "./usePersistedMonitorController";
@@ -94,8 +95,26 @@ function TriageActions({ controller, event }: { controller: PersistedMonitorCont
   const [resolving, setResolving] = useState(false);
   const [resolutionNote, setResolutionNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const retryRef = useRef<{ action: () => Promise<unknown>; success?: () => void } | null>(null);
+  const actionPendingRef = useRef(false);
   const pending = controller.pendingIds.has(event.id);
+  const busyReason = reconciling
+    ? "Reloading persisted alert state"
+    : controller.requiresAuthoritativeReload
+      ? "Reload persisted alert state before another action"
+      : pending ? "Update in progress" : null;
+
+  useEffect(() => {
+    if (controller.requiresAuthoritativeReload) retryRef.current = null;
+  }, [controller.requiresAuthoritativeReload]);
+
+  useEffect(() => {
+    if (!conflict || controller.requiresAuthoritativeReload) return;
+    setConflict(false);
+    setError("Alert state changed in another session. Persisted events were reloaded; review the latest state before choosing another action");
+  }, [conflict, controller.requiresAuthoritativeReload]);
 
   const focusStableTarget = () => {
     window.setTimeout(() => {
@@ -104,16 +123,40 @@ function TriageActions({ controller, event }: { controller: PersistedMonitorCont
     }, 0);
   };
 
+  const reconcilePersistedState = async () => {
+    setConflict(true);
+    setReconciling(true);
+    setError("Alert state changed in another session. Reloading persisted events before another action");
+    try {
+      const reconciled = await controller.refresh({ preserveReadyView: true });
+      setConflict(!reconciled);
+      setError(reconciled
+        ? "Alert state changed in another session. Persisted events were reloaded; review the latest state before choosing another action"
+        : "Alert state changed in another session. An authoritative reload could not be confirmed; reload persisted alerts before choosing another action");
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   const perform = async (action: () => Promise<unknown>, success?: () => void) => {
-    if (pending) return;
+    if (actionPendingRef.current || pending || reconciling || controller.requiresAuthoritativeReload) return;
+    actionPendingRef.current = true;
     retryRef.current = { action, success };
     setError(null);
+    setConflict(false);
     try {
       await action();
       retryRef.current = null;
       success?.();
     } catch (reason) {
-      setError(toErrorMessage(reason, "Alert workflow update failed"));
+      if (isAlertLifecycleConflict(reason)) {
+        retryRef.current = null;
+        await reconcilePersistedState();
+      } else {
+        setError(toErrorMessage(reason, "Alert workflow update failed"));
+      }
+    } finally {
+      actionPendingRef.current = false;
     }
   };
   if (event.state === "resolved") return null;
@@ -122,22 +165,42 @@ function TriageActions({ controller, event }: { controller: PersistedMonitorCont
       <div className="flex min-w-0 max-w-full items-center gap-2">
         <span className="tabular text-caos-xs text-caos-muted shrink-0">{event.assignee || "unassigned"}</span>
         <input name="phone-alert-assignee" autoComplete="off" aria-label="Alert assignee" value={assignee} onChange={(change) => setAssignee(change.target.value)} placeholder="Assign to…" className={`${TOUCH} min-w-0 flex-1 tabular text-caos-md px-2 rounded border border-caos-border bg-transparent text-caos-text focus-ring caos-target`} />
-        <ActionReason type="button" reasonDisplay="hidden" reason={!assignee.trim() ? "Enter an assignee name first" : pending ? "Update in progress" : null} onClick={() => void perform(() => controller.mutateEvent(event.id, event.state, { assignee: assignee.trim() }), () => setAssignee(""))} className={`${TOUCH} px-3 rounded border border-caos-border text-caos-muted transition-caos focus-ring caos-target`}>Assign</ActionReason>
+        <ActionReason type="button" reasonDisplay="hidden" reason={!assignee.trim() ? "Enter an assignee name first" : busyReason} onClick={() => void perform(() => controller.mutateEvent(event.id, event.state, { assignee: assignee.trim() }), () => setAssignee(""))} className={`${TOUCH} px-3 rounded border border-caos-border text-caos-muted transition-caos focus-ring caos-target`}>Assign</ActionReason>
       </div>
       <div className="flex items-center gap-2">
-        <ActionReason type="button" reasonDisplay="hidden" reason={event.state === "ack" ? "Already acknowledged" : pending ? "Update in progress" : null} onClick={() => void perform(() => controller.mutateEvent(event.id, "ack"), controller.filter !== "all" && controller.filter !== "ack" ? focusStableTarget : undefined)} className={`${TOUCH} flex-1 tabular text-caos-md rounded border border-caos-border text-caos-muted transition-caos focus-ring caos-target`}>Ack</ActionReason>
-        <button type="button" onClick={() => setResolving(true)} className={`${TOUCH} flex-1 tabular text-caos-md rounded border border-caos-border text-caos-muted transition-caos focus-ring caos-target`}>Resolve</button>
+        <ActionReason type="button" reasonDisplay="hidden" reason={event.state === "ack" ? "Already acknowledged" : busyReason} onClick={() => void perform(() => controller.mutateEvent(event.id, "ack"), controller.filter !== "all" && controller.filter !== "ack" ? focusStableTarget : undefined)} className={`${TOUCH} flex-1 tabular text-caos-md rounded border border-caos-border text-caos-muted transition-caos focus-ring caos-target`}>Ack</ActionReason>
+        <ActionReason type="button" reasonDisplay="hidden" reason={busyReason} onClick={() => setResolving(true)} className={`${TOUCH} flex-1 tabular text-caos-md rounded border border-caos-border text-caos-muted transition-caos focus-ring caos-target`}>Resolve</ActionReason>
       </div>
-      {resolving ? <div className="flex min-w-0 max-w-full items-center gap-2"><input name="phone-alert-resolution-note" autoComplete="off" aria-label="Alert resolution note" value={resolutionNote} onChange={(change) => setResolutionNote(change.target.value)} placeholder="Resolution note (optional)…" autoFocus className={`${TOUCH} min-w-0 flex-1 tabular text-caos-md px-2 rounded border border-caos-border bg-transparent text-caos-text focus-ring caos-target`} /><ActionReason type="button" reasonDisplay="hidden" reason={pending ? "Update in progress" : null} onClick={() => void perform(() => controller.mutateEvent(event.id, "resolved", { resolutionNote: resolutionNote || undefined }), () => { setResolving(false); setResolutionNote(""); focusStableTarget(); })} className={`${TOUCH} px-3 rounded border border-caos-accent text-caos-accent transition-caos focus-ring caos-target`}>Confirm</ActionReason></div> : null}
-      {error ? <div role="alert" className="flex items-center gap-2 rounded border border-caos-critical/50 px-2 py-2 text-caos-xs text-caos-critical"><span className="flex-1">{error}. Input was preserved.</span><button type="button" className={`${TOUCH} px-2 rounded border border-caos-border focus-ring`} onClick={() => { const retry = retryRef.current; if (retry) void perform(retry.action, retry.success); }}>Retry</button></div> : null}
+      {resolving ? <div className="flex min-w-0 max-w-full items-center gap-2"><input name="phone-alert-resolution-note" autoComplete="off" aria-label="Alert resolution note" value={resolutionNote} onChange={(change) => setResolutionNote(change.target.value)} placeholder="Resolution note (optional)…" autoFocus className={`${TOUCH} min-w-0 flex-1 tabular text-caos-md px-2 rounded border border-caos-border bg-transparent text-caos-text focus-ring caos-target`} /><ActionReason type="button" reasonDisplay="hidden" reason={busyReason} onClick={() => void perform(() => controller.mutateEvent(event.id, "resolved", { resolutionNote: resolutionNote || undefined }), () => { setResolving(false); setResolutionNote(""); focusStableTarget(); })} className={`${TOUCH} px-3 rounded border border-caos-accent text-caos-accent transition-caos focus-ring caos-target`}>Confirm</ActionReason></div> : null}
+      {error ? <div role="alert" className="flex items-center gap-2 rounded border border-caos-critical/50 px-2 py-2 text-caos-xs text-caos-critical"><span className="flex-1">{error}. Input was preserved.</span>{!conflict && !controller.requiresAuthoritativeReload && retryRef.current ? <button type="button" className={`${TOUCH} px-2 rounded border border-caos-border focus-ring`} onClick={() => { const retry = retryRef.current; if (retry) void perform(retry.action, retry.success); }}>Retry</button> : null}</div> : null}
+    </div>
+  );
+}
+
+function PhoneReloadAuthority({ controller }: { controller: PersistedMonitorController }) {
+  const [reloading, setReloading] = useState(false);
+  if (!controller.requiresAuthoritativeReload) return null;
+  const reload = async () => {
+    if (reloading) return;
+    setReloading(true);
+    try {
+      await controller.refresh({ preserveReadyView: true });
+    } finally {
+      setReloading(false);
+    }
+  };
+  return (
+    <div role="alert" className="grid gap-2 rounded border border-caos-critical/50 px-2 py-2 text-caos-xs text-caos-critical">
+      <span>Persisted alert authority changed. Reload persisted events before any further workflow action.</span>
+      <ActionReason type="button" reasonDisplay="hidden" reason={reloading ? "Reloading persisted alerts" : null} onClick={() => void reload()} className={`${TOUCH} px-3 rounded border border-caos-critical text-caos-critical transition-caos focus-ring caos-target`}>Reload persisted alerts</ActionReason>
     </div>
   );
 }
 
 function PhoneTriageReady({ controller }: { controller: PersistedMonitorController }) {
   const current = currentEvent(controller);
-  if (!current) return <div data-testid="monitor-persisted-ready"><SurfaceState kind="empty" title={`No ${controller.filter === "all" ? "persisted" : controller.filter} alerts to triage`} detail="The persisted read completed; Reference fixtures remain separate." compact className="m-2" /></div>;
-  return <div data-testid="monitor-persisted-ready" className="flex-1 min-h-0 w-full min-w-0 max-w-full flex flex-col gap-3 overflow-y-auto p-3"><p role="status" aria-live="polite" className="sr-only">{controller.lastMutationMessage}</p><TriageNavigation controller={controller} current={current} /><TriageAlertCard key={`card-${current.id}`} event={current} /><TriageActions key={`actions-${current.id}`} controller={controller} event={current} /><a href={issuerHref(current)} className={`${TOUCH} flex max-w-full items-center justify-center gap-1.5 rounded border border-caos-border px-2 text-center text-caos-muted transition-caos focus-ring caos-target tabular text-caos-sm [overflow-wrap:anywhere]`}>Continue on desktop — open {alertIssuerLabel(current)} in Deep-Dive →</a></div>;
+  if (!current) return <div data-testid="monitor-persisted-ready" className="grid gap-2"><PhoneReloadAuthority controller={controller} /><SurfaceState kind="empty" title={`No ${controller.filter === "all" ? "persisted" : controller.filter} alerts to triage`} detail="The persisted read completed; Reference fixtures remain separate." compact className="m-2" /></div>;
+  return <div data-testid="monitor-persisted-ready" className="flex-1 min-h-0 w-full min-w-0 max-w-full flex flex-col gap-3 overflow-y-auto p-3"><p role="status" aria-live="polite" className="sr-only">{controller.lastMutationMessage}</p><PhoneReloadAuthority controller={controller} /><TriageNavigation controller={controller} current={current} /><TriageAlertCard key={`card-${current.id}`} event={current} /><TriageActions key={`actions-${current.id}`} controller={controller} event={current} /><a href={issuerHref(current)} className={`${TOUCH} flex max-w-full items-center justify-center gap-1.5 rounded border border-caos-border px-2 text-center text-caos-muted transition-caos focus-ring caos-target tabular text-caos-sm [overflow-wrap:anywhere]`}>Continue on desktop — open {alertIssuerLabel(current)} in Deep-Dive →</a></div>;
 }
 
 export function PhoneTriage({ controller }: { controller: PersistedMonitorController }) {
