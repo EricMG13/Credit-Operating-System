@@ -1,107 +1,41 @@
 "use client";
 
-// Monitor's live alert inbox — shares lib/alerts/inbox.ts derivation with
-// Command's RankedChanges so the two surfaces can never disagree about what
-// an alert says. Renders event → impact → owner → ack/assign/resolve. The
-// loop now ends at a real "Resolved" terminal state (G8) — resolved rows
-// collapse out of the active list into their own disclosure below, never
-// mixed back in with (or relabeled as) an open/acked row.
-//
-// When there is nothing live to show (loading, offline, or a settled empty
-// draft) this renders its own honest SurfaceState line instead of a row —
-// never a fabricated row, and never silent null either. The Monitor page's
-// demo tape sibling is a separate, user-toggled data source, not a fallback
-// for this component's state.
-
-import { useCallback, useEffect, useRef, useState } from "react";
-import { IssuerLink } from "@/components/shared/IssuerLink";
-import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
-import { SurfaceState } from "@/components/shared/SurfaceState";
-import { BatchBar } from "@/components/shared/BatchBar";
+import { useEffect, useRef, useState } from "react";
 import { ActionReason } from "@/components/shared/ActionReason";
+import { BatchBar } from "@/components/shared/BatchBar";
+import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
+import { IssuerLink } from "@/components/shared/IssuerLink";
+import { SurfaceState } from "@/components/shared/SurfaceState";
 import { SourceRef } from "@/components/ui/SourceRef";
-import { Dot, Tag } from "@/components/pipeline/atoms";
-import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
-import { draftToAlertRows, formatImpact, rowProvenance, type AlertRow } from "@/lib/alerts/inbox";
-import {
-  getAlertEvents,
-  getAlertStates,
-  getDecisions,
-  patchAlertEvent,
-  refreshAlertEvents,
-  reopenDecision,
-  setAlertState,
-  toErrorMessage,
-  getChunk,
-  type AlertEventDTO,
-  type AlertStateDTO,
-  type IcDecision,
-} from "@/lib/api";
+import { getChunk, getDecisions, reopenDecision, toErrorMessage, type AlertEventDTO, type IcDecision } from "@/lib/api";
 import type { ChunkDTO } from "@/lib/query/types";
+import {
+  alertIssuerLabel,
+  explicitAlertChunkIds,
+  type MonitorAlertFilter,
+  type PersistedMonitorController,
+} from "./usePersistedMonitorController";
 
-function eventState(event: AlertEventDTO): AlertStateDTO {
-  return {
-    id: event.id,
-    alert_key: event.alert_key,
-    state: event.state,
-    assignee: event.assignee,
-    note: event.note,
-    analyst_id: null,
-    created_at: event.created_at,
-    resolved_at: event.resolved_at,
-    resolution_note: event.resolution_note,
-  };
+const FILTERS: Array<{ value: MonitorAlertFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "open", label: "Open" },
+  { value: "ack", label: "Acknowledged" },
+  { value: "resolved", label: "Resolved" },
+];
+
+function stateLabel(state: AlertEventDTO["state"]): string {
+  if (state === "ack") return "Acknowledged";
+  if (state === "resolved") return "Resolved";
+  return "Open";
 }
 
-function ReopenDecision({ row }: { row: AlertRow }) {
-  const material = /covenant|rating/i.test([row.metric, row.event, row.reason].filter(Boolean).join(" "));
-  const [decision, setDecision] = useState<IcDecision | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!material || !row.issuerId) return;
-    let alive = true;
-    getDecisions(row.issuerId).then((rows) => {
-      if (alive) setDecision(rows.find((item) => item.status === "active") ?? null);
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, [material, row.issuerId]);
-  if (!decision || decision.status === "reopened") return null;
-  return (
-    <>
-    <ActionReason
-      reason={busy ? "Reopening…" : null}
-      onClick={async () => {
-        if (busy) return;
-        setBusy(true);
-        setError(null);
-        try { setDecision(await reopenDecision(decision.id, row.key)); }
-        catch (reason) { setError(toErrorMessage(reason, "IC decision was not reopened")); }
-        finally { setBusy(false); }
-      }}
-      className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-warning text-caos-warning transition-caos focus-ring aria-disabled:opacity-50 caos-target"
-    >
-      {busy ? "Reopening…" : error ? "Retry reopen" : "Reopen IC"}
-    </ActionReason>
-    {error ? <span role="alert" className="text-caos-2xs text-caos-critical">{error}</span> : null}
-    </>
-  );
-}
-
-/** A live alert may only promise click-to-source when it carries a persisted
- * chunk id that this client can actually resolve. Fact ids alone are retained
- * provenance, but this surface has no fact-detail endpoint, so they are an
- * explicit unavailable state rather than a source-looking dead control. */
-function AlertSource({ row }: { row: AlertRow }) {
-  const chunkId = row.evidence.chunkIds[0] ?? null;
+function AlertSource({ event }: { event: AlertEventDTO }) {
+  const chunkId = explicitAlertChunkIds(event)[0] ?? null;
   const [chunk, setChunk] = useState<ChunkDTO | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!chunkId) {
-    const reason = row.evidence.factIds.length
-      ? "Draft carries a fact identifier, but no persisted source chunk is available on this surface."
-      : "The autonomy draft did not carry a persisted source identifier.";
-    return <SourceRef source={{ state: "unavailable", reason }} />;
+    return <SourceRef source={{ state: "unavailable", reason: "No explicit persisted chunk id accompanies this alert event." }} />;
   }
   const open = async () => {
     if (loading || chunk) return;
@@ -117,337 +51,185 @@ function AlertSource({ row }: { row: AlertRow }) {
   };
   return (
     <div className="mt-1 grid gap-1">
-      <SourceRef source={{ state: "ready", id: chunkId, onOpen: () => void open() }}>
-        Open persisted source
-      </SourceRef>
+      <SourceRef className="inline-flex min-h-8 items-center caos-target" source={{ state: "ready", id: chunkId, onOpen: () => void open() }}>Open persisted source</SourceRef>
       {loading ? <span role="status" className="text-caos-2xs text-caos-muted">Loading source…</span> : null}
       {error ? <span role="alert" className="text-caos-2xs text-caos-warning">Source unavailable · {error}</span> : null}
-      {chunk ? <details className="text-caos-2xs text-caos-muted"><summary className="cursor-pointer focus-ring rounded">{chunk.doc} · source extract</summary><p className="mt-1 whitespace-pre-wrap leading-snug text-caos-text">{chunk.text}</p></details> : null}
+      {chunk ? <details className="text-caos-2xs text-caos-muted"><summary className="inline-flex min-h-8 cursor-pointer items-center focus-ring rounded caos-target">{chunk.doc} · source extract</summary><p className="mt-1 whitespace-pre-wrap leading-snug text-caos-text">{chunk.text}</p></details> : null}
     </div>
   );
 }
 
-function severityBand(value: number): "critical" | "high" | "medium" | "low" {
-  if (value >= 3) return "critical";
-  if (value >= 2) return "high";
-  if (value >= 1) return "medium";
-  return "low";
+function AlertStateMark({ state }: { state: AlertEventDTO["state"] }) {
+  const glyph = state === "resolved" ? "✓" : state === "ack" ? "◐" : "○";
+  const color = state === "resolved" || state === "ack" ? "var(--caos-success)" : "var(--caos-muted)";
+  return <span className="tabular text-caos-2xs uppercase tracking-wider ml-auto" style={{ color }}><span aria-hidden="true">{glyph} </span>{stateLabel(state)}</span>;
 }
 
-type RowProps = {
-  row: AlertRow;
-  state: AlertStateDTO | undefined;
-  selected: boolean;
-  onToggleSelect: () => void;
-  onAck: () => Promise<void>;
-  onAssign: (name: string) => Promise<void>;
-  onResolve: (note: string) => Promise<void>;
-};
-
-type PerformAlertAction = (action: () => Promise<void>, onSuccess?: () => void) => Promise<void>;
-
-function AlertRowHeader({ row, state, selected, onToggleSelect }: Pick<RowProps, "row" | "state" | "selected" | "onToggleSelect">) {
-  const resolved = state?.state === "resolved";
-  const acked = state?.state === "ack";
-  const impact = formatImpact(row);
-  const band = severityBand(row.severity);
-  const stateLabel = resolved ? "Resolved" : acked ? "Ack/assigned" : "Open";
-  const stateColor = resolved || acked ? "var(--caos-success)" : "var(--caos-muted)";
-  return (
-    <div className="flex items-center gap-2">
-      <input type="checkbox" name={`select-alert-${row.key}`} autoComplete="off" checked={selected} onChange={onToggleSelect} disabled={resolved} aria-label={`Select ${row.event}`} className="min-h-8 min-w-8 caos-target disabled:opacity-40" />
-      <ConclusionAuthority prov={rowProvenance(row)} />
-      <span className="inline-flex items-center gap-1" title={`Alert severity band: ${band}`}><Dot sev={band} glyph /><Tag sev={band}>{band}</Tag></span>
-      {impact ? <span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border whitespace-nowrap" title="Anomaly severity — standard deviations from the baseline/peer median (engine/anomaly.py's robust z-score / cusum run, never a fabricated bp figure)" style={{ color: "var(--caos-muted)", borderColor: "var(--caos-border)" }}>{impact}</span> : null}
-      <IssuerLink query={row.issuerName} title={`Open ${row.issuerName} profile`} className="tabular text-caos-md text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none">{row.issuerName}</IssuerLink>
-      <span className="tabular text-caos-2xs uppercase tracking-wider ml-auto" style={{ color: stateColor }}>{stateLabel}</span>
-    </div>
-  );
-}
-
-function AlertRowSummary({ row, state }: Pick<RowProps, "row" | "state">) {
-  return (
-    <>
-      <div className="text-caos-md text-caos-text leading-snug mt-1">{row.event}</div>
-      <div className="text-caos-xs text-caos-muted leading-snug mt-0.5">{row.reason}</div>
-      <AlertSource row={row} />
-      {state?.state === "resolved" && state.resolution_note ? <div className="text-caos-xs text-caos-muted leading-snug mt-0.5 italic">resolved: {state.resolution_note}</div> : null}
-    </>
-  );
-}
-
-function AssignmentActions({ state, value, pending, onChange, perform, onAssign, onAck }: {
-  state: AlertStateDTO | undefined;
-  value: string;
-  pending: boolean;
-  onChange: (value: string) => void;
-  perform: PerformAlertAction;
-  onAssign: RowProps["onAssign"];
-  onAck: RowProps["onAck"];
-}) {
-  const assignee = value.trim();
-  return (
-    <>
-      <span className="tabular text-caos-xs text-caos-muted">{state?.assignee || "unassigned"}</span>
-      <input name="alert-assignee" autoComplete="off" aria-label="Alert assignee" value={value} onChange={(event) => onChange(event.target.value)} placeholder="Assign to…" className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target" />
-      <ActionReason reason={!assignee ? "Enter a name to assign" : pending ? "Update in progress…" : null} onClick={() => void perform(() => onAssign(assignee), () => onChange(""))} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target">Assign</ActionReason>
-      <ActionReason reason={state?.state === "ack" ? "Already acknowledged" : pending ? "Update in progress…" : null} onClick={() => void perform(onAck)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target">Ack</ActionReason>
-    </>
-  );
-}
-
-function ResolutionActions({ active, note, pending, onActiveChange, onNoteChange, perform, onResolve }: {
-  active: boolean;
-  note: string;
-  pending: boolean;
-  onActiveChange: (active: boolean) => void;
-  onNoteChange: (note: string) => void;
-  perform: PerformAlertAction;
-  onResolve: RowProps["onResolve"];
-}) {
-  const reset = () => { onActiveChange(false); onNoteChange(""); };
-  if (!active) return <button type="button" onClick={() => onActiveChange(true)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring caos-target">Resolve</button>;
-  return (
-    <>
-      <input name="alert-resolution-note" autoComplete="off" aria-label="Alert resolution note" value={note} onChange={(event) => onNoteChange(event.target.value)} placeholder="Resolution note (optional)…" autoFocus className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target" />
-      <ActionReason reason={pending ? "Update in progress…" : null} onClick={() => void perform(() => onResolve(note), reset)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos focus-ring caos-target">Confirm resolve</ActionReason>
-      <button type="button" onClick={reset} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Cancel</button>
-    </>
-  );
-}
-
-function AlertRowActions({ row, state, onAck, onAssign, onResolve }: Pick<RowProps, "row" | "state" | "onAck" | "onAssign" | "onResolve">) {
-  const [assigneeInput, setAssigneeInput] = useState("");
-  const [resolving, setResolving] = useState(false);
-  const [resolveNote, setResolveNote] = useState("");
-  const [pending, setPending] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+function ReopenDecision({ event }: { event: AlertEventDTO }) {
+  const material = /covenant|rating/i.test([event.kind, event.title, event.impact].join(" "));
+  const [decision, setDecision] = useState<IcDecision | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(false);
-  const perform = async (action: () => Promise<void>, onSuccess?: () => void) => {
+
+  useEffect(() => {
+    if (!material || !event.issuer_id) return;
+    let alive = true;
+    void getDecisions(event.issuer_id).then((rows) => {
+      if (alive) setDecision(rows.find((item) => item.status === "active") ?? null);
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [event.issuer_id, material]);
+
+  if (!decision || decision.status === "reopened") return null;
+  const reopen = async () => {
     if (pendingRef.current) return;
     pendingRef.current = true;
-    setPending(true);
-    setActionError(null);
+    setBusy(true);
+    setError(null);
     try {
-      await action();
-      onSuccess?.();
+      setDecision(await reopenDecision(decision.id, event.alert_key));
     } catch (reason) {
-      setActionError(toErrorMessage(reason, "Alert workflow update failed"));
+      setError(toErrorMessage(reason, "IC decision was not reopened"));
     } finally {
       pendingRef.current = false;
-      setPending(false);
+      setBusy(false);
     }
   };
+  return <><ActionReason reason={busy ? "Reopening…" : null} onClick={() => void reopen()} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-warning text-caos-warning transition-caos focus-ring caos-target">{busy ? "Reopening…" : error ? "Retry reopen" : "Reopen IC"}</ActionReason>{error ? <span role="alert" className="text-caos-2xs text-caos-critical">{error}</span> : null}</>;
+}
+
+function AlertRowHeader({ event, controller }: { event: AlertEventDTO; controller: PersistedMonitorController }) {
+  const issuer = alertIssuerLabel(event);
+  const selected = controller.selectedIds.includes(event.id);
   return (
-    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-      <AssignmentActions state={state} value={assigneeInput} pending={pending} onChange={setAssigneeInput} perform={perform} onAssign={onAssign} onAck={onAck} />
-      <ResolutionActions active={resolving} note={resolveNote} pending={pending} onActiveChange={setResolving} onNoteChange={setResolveNote} perform={perform} onResolve={onResolve} />
-      <ReopenDecision row={row} />
-      {actionError ? <span role="alert" className="text-caos-2xs text-caos-critical">{actionError} — retry the same action.</span> : null}
+    <div className="flex items-center gap-2 flex-wrap">
+      <input
+        type="checkbox"
+        name={`select-alert-${event.id}`}
+        autoComplete="off"
+        checked={selected}
+        onChange={() => controller.toggleSelected(event.id)}
+        disabled={event.state === "resolved"}
+        aria-label={`Select ${event.title}`}
+        className="min-h-8 min-w-8 caos-target disabled:opacity-40"
+      />
+      <ConclusionAuthority prov={{ origin: "LIVE", method: "DERIVED", detail: "Persisted alert event." }} approval={null} />
+      <span className="tabular text-caos-2xs uppercase tracking-wider rounded border border-caos-border px-1.5 py-px text-caos-muted">{event.kind}</span>
+      {event.issuer_id ? (
+        <IssuerLink issuer={{ id: event.issuer_id }} title={`Open issuer ${event.issuer_id} profile`} className="inline-flex min-h-8 items-center tabular text-caos-sm text-caos-accent hover:text-caos-text transition-caos focus-ring rounded px-0.5 outline-none caos-target">{issuer}</IssuerLink>
+      ) : <span className="tabular text-caos-sm text-caos-muted">{issuer}</span>}
+      <AlertStateMark state={event.state} />
     </div>
   );
 }
 
-function Row(props: RowProps) {
+type AlertActionOptions = { assignee?: string; note?: string; resolutionNote?: string };
+
+function focusStableAlertTarget(eventId: string) {
+  window.setTimeout(() => {
+    const root = document.querySelector<HTMLElement>('[data-testid="monitor-persisted-ready"]');
+    if (!root) return;
+    const rows = Array.from(root.querySelectorAll<HTMLElement>("[data-alert-event-id]"));
+    const target = rows.find((row) => row.dataset.alertEventId === eventId)
+      ?? rows[0]
+      ?? root.querySelector<HTMLElement>('[aria-label="Show all alerts"]');
+    target?.focus();
+  }, 0);
+}
+
+function AlertRowActions({ event, controller }: { event: AlertEventDTO; controller: PersistedMonitorController }) {
+  const [assignee, setAssignee] = useState("");
+  const [resolving, setResolving] = useState(false);
+  const [resolutionNote, setResolutionNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const retryRef = useRef<null | { state: AlertEventDTO["state"]; options?: AlertActionOptions; success?: () => void }>(null);
+  const pending = controller.pendingIds.has(event.id);
+
+  const run = async (state: AlertEventDTO["state"], options?: AlertActionOptions, success?: () => void) => {
+    if (pending) return;
+    retryRef.current = { state, options, success };
+    setError(null);
+    try {
+      await controller.mutateEvent(event.id, state, options);
+      retryRef.current = null;
+      if (state === "resolved" || (controller.filter !== "all" && state !== controller.filter)) {
+        focusStableAlertTarget(event.id);
+      }
+      success?.();
+    } catch (reason) {
+      setError(toErrorMessage(reason, "Alert workflow update failed"));
+    }
+  };
+  const retry = () => {
+    const action = retryRef.current;
+    if (action) void run(action.state, action.options, action.success);
+  };
+
   return (
-    <div className="px-3 py-[6px] border-b border-caos-border/50">
-      <AlertRowHeader row={props.row} state={props.state} selected={props.selected} onToggleSelect={props.onToggleSelect} />
-      <AlertRowSummary row={props.row} state={props.state} />
-      {props.state?.state !== "resolved" ? <AlertRowActions row={props.row} state={props.state} onAck={props.onAck} onAssign={props.onAssign} onResolve={props.onResolve} /> : null}
+    <div className="mt-2 grid gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="tabular text-caos-xs text-caos-muted">{event.assignee || "unassigned"}</span>
+        <input name="alert-assignee" autoComplete="off" aria-label="Alert assignee" value={assignee} onChange={(change) => setAssignee(change.target.value)} placeholder="Assign to…" className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target" />
+        <ActionReason reason={!assignee.trim() ? "Enter a name to assign" : pending ? "Update in progress…" : null} onClick={() => void run(event.state, { assignee: assignee.trim() }, () => setAssignee(""))} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Assign</ActionReason>
+        <ActionReason reason={event.state === "ack" ? "Already acknowledged" : pending ? "Update in progress…" : null} onClick={() => void run("ack")} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Ack</ActionReason>
+        {!resolving ? <button type="button" onClick={() => setResolving(true)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Resolve</button> : null}
+        <ReopenDecision event={event} />
+      </div>
+      {resolving ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          <input name="alert-resolution-note" autoComplete="off" aria-label="Alert resolution note" value={resolutionNote} onChange={(change) => setResolutionNote(change.target.value)} placeholder="Resolution note (optional)…" autoFocus className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target" />
+          <ActionReason reason={pending ? "Update in progress…" : null} onClick={() => void run("resolved", { resolutionNote: resolutionNote || undefined }, () => { setResolving(false); setResolutionNote(""); })} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent transition-caos focus-ring caos-target">Confirm resolve</ActionReason>
+          <button type="button" onClick={() => { setResolving(false); setResolutionNote(""); }} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted transition-caos focus-ring caos-target">Cancel</button>
+        </div>
+      ) : null}
+      {error ? <div role="alert" className="flex items-center gap-2 text-caos-2xs text-caos-critical"><span>{error}. Input was preserved.</span><button type="button" onClick={retry} className="min-h-8 px-2 rounded border border-caos-border focus-ring caos-target">Retry</button></div> : null}
     </div>
   );
 }
 
-type PersistAlertState = (
-  key: string,
-  state: AlertStateDTO["state"],
-  opts?: { assignee?: string; note?: string; resolutionNote?: string },
-) => Promise<AlertStateDTO>;
-
-function ActiveInboxRow({
-  row,
-  state,
-  selected,
-  onToggleSelect,
-  persistState,
-  applyState,
-}: {
-  row: AlertRow;
-  state?: AlertStateDTO;
-  selected: boolean;
-  onToggleSelect: () => void;
-  persistState: PersistAlertState;
-  applyState: (key: string, next: AlertStateDTO) => void;
-}) {
+function AlertRow({ event, controller }: { event: AlertEventDTO; controller: PersistedMonitorController }) {
   return (
-    <Row
-      row={row}
-      state={state}
-      selected={selected}
-      onToggleSelect={onToggleSelect}
-      onAck={async () => applyState(row.key, await persistState(row.key, "ack"))}
-      onAssign={async (name) => applyState(
-        row.key,
-        await persistState(row.key, state?.state === "ack" ? "ack" : "open", { assignee: name }),
+    <article tabIndex={-1} aria-label={`Persisted alert ${event.title}`} className="px-3 py-2 border-b border-caos-border/50 focus-ring" data-alert-event-id={event.id}>
+      <AlertRowHeader event={event} controller={controller} />
+      <h3 className="text-caos-md text-caos-text leading-snug mt-1">{event.title}</h3>
+      <p className="text-caos-xs text-caos-muted leading-snug mt-0.5">{event.impact || "No persisted impact copy."}</p>
+      <AlertSource event={event} />
+      {event.state === "resolved" && event.resolution_note ? <p className="text-caos-xs text-caos-muted mt-1 italic">resolved: {event.resolution_note}</p> : null}
+      {event.state !== "resolved" ? <AlertRowActions event={event} controller={controller} /> : null}
+    </article>
+  );
+}
+
+function AlertFilters({ controller }: { controller: PersistedMonitorController }) {
+  const total = controller.events.length;
+  return (
+    <div className="flex items-center gap-1 border-b border-caos-border px-2 py-1.5 flex-wrap">
+      <span className="mr-2 tabular text-caos-xs text-caos-muted">{total} persisted alert{total === 1 ? "" : "s"}</span>
+      {FILTERS.map(({ value, label }) => {
+        const count = value === "all" ? total : controller.counts[value];
+        return <button key={value} type="button" aria-pressed={controller.filter === value} aria-label={`Show ${label.toLowerCase()} alerts`} onClick={() => controller.setFilter(value)} className="min-h-8 rounded border border-caos-border px-2 tabular text-caos-xs text-caos-muted aria-pressed:border-caos-accent aria-pressed:text-caos-accent transition-caos focus-ring caos-target">{label} {count}</button>;
+      })}
+    </div>
+  );
+}
+
+function AlertInboxReady({ controller }: { controller: PersistedMonitorController }) {
+  return (
+    <div data-testid="monitor-persisted-ready">
+      <p role="status" aria-live="polite" className="sr-only">{controller.lastMutationMessage}</p>
+      <AlertFilters controller={controller} />
+      {controller.batchError ? <div role="alert" className="flex items-center gap-2 border-b border-caos-border px-3 py-2 text-caos-xs text-caos-critical"><span>{controller.batchError}</span><button type="button" onClick={() => void controller.acknowledgeSelected().catch(() => undefined)} className="min-h-8 px-2 rounded border border-caos-border focus-ring caos-target">Retry acknowledgment</button></div> : null}
+      <BatchBar selected={controller.selectedIds} onClear={controller.clearSelection} itemLabel="alert" actions={[{ id: "ack", label: "Ack", run: async (id) => { await controller.mutateEvent(id, "ack"); } }]} />
+      {controller.visibleEvents.length ? controller.visibleEvents.map((event) => <AlertRow key={event.id} event={event} controller={controller} />) : (
+        <SurfaceState kind="empty" title={controller.events.length ? `No ${controller.filter} alerts` : "No persisted alerts observed"} detail="The persisted alert-event read completed; Reference fixtures remain separate." compact className="m-2" />
       )}
-      onResolve={async (note) => applyState(
-        row.key,
-        await persistState(row.key, "resolved", { resolutionNote: note || undefined }),
-      )}
-    />
-  );
-}
-
-const noAlertAction = async () => {};
-
-function ResolvedInbox({
-  rows,
-  states,
-  open,
-  onOpenChange,
-}: {
-  rows: AlertRow[];
-  states: Map<string, AlertStateDTO>;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  if (!rows.length) return null;
-  return (
-    <div className="border-t border-caos-border/50">
-      <button type="button" onClick={() => onOpenChange(!open)} aria-expanded={open} className="w-full flex items-center gap-2 px-3 min-h-8 tabular text-caos-2xs uppercase tracking-widest text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">
-        {open ? "− " : "+ "}Resolved ({rows.length})
-      </button>
-      {open ? rows.map((row) => <Row key={row.key} row={row} state={states.get(row.key)} selected={false} onToggleSelect={noAlertAction} onAck={noAlertAction} onAssign={noAlertAction} onResolve={noAlertAction} />) : null}
     </div>
   );
 }
 
-function AlertInboxContent({
-  rows,
-  states,
-  selected,
-  mutationError,
-  resolvedOpen,
-  setSelected,
-  setResolvedOpen,
-  persistState,
-  applyState,
-}: {
-  rows: AlertRow[];
-  states: Map<string, AlertStateDTO>;
-  selected: string[];
-  mutationError: string | null;
-  resolvedOpen: boolean;
-  setSelected: (selected: string[]) => void;
-  setResolvedOpen: (open: boolean) => void;
-  persistState: PersistAlertState;
-  applyState: (key: string, next: AlertStateDTO) => void;
-}) {
-  const activeRows = rows.filter((row) => states.get(row.key)?.state !== "resolved");
-  const resolvedRows = rows.filter((row) => states.get(row.key)?.state === "resolved");
-  const toggleSelect = (key: string) => setSelected(
-    selected.includes(key) ? selected.filter((selectedKey) => selectedKey !== key) : [...selected, key],
-  );
-  return (
-    <div>
-      {mutationError ? <p role="alert" className="border-b border-caos-border px-3 py-2 text-caos-xs text-caos-critical">{mutationError}. Selection was preserved; retry Ack.</p> : null}
-      <BatchBar selected={selected} onClear={() => setSelected([])} itemLabel="alert" actions={[{ id: "ack", label: "Ack", run: async (key) => applyState(key, await persistState(key, "ack")) }]} />
-      {activeRows.map((row) => <ActiveInboxRow key={row.key} row={row} state={states.get(row.key)} selected={selected.includes(row.key)} onToggleSelect={() => toggleSelect(row.key)} persistState={persistState} applyState={applyState} />)}
-      <ResolvedInbox rows={resolvedRows} states={states} open={resolvedOpen} onOpenChange={setResolvedOpen} />
-    </div>
-  );
-}
-
-const alertInboxState = (loading: boolean, offline: boolean, rowCount: number) => {
-  if (loading) return <SurfaceState kind="loading" title="Loading alert inbox" compact className="m-2" />;
-  if (offline) return <SurfaceState kind="offline" title="Autonomy engine unreachable" detail="No draft data to show." compact className="m-2" />;
-  return rowCount === 0
-    ? <SurfaceState kind="empty" title="No live alerts" detail="Nothing routed from the autonomy draft." compact className="m-2" />
-    : null;
-};
-
-export function AlertInbox() {
-  const { draft, loading, offline } = useAutonomyDraft();
-  const [states, setStates] = useState<Map<string, AlertStateDTO>>(new Map());
-  const [events, setEvents] = useState<Map<string, AlertEventDTO>>(new Map());
-  const [selected, setSelected] = useState<string[]>([]);
-  const [resolvedOpen, setResolvedOpen] = useState(false);
-  const [mutationError, setMutationError] = useState<string | null>(null);
-  const ackSelectedPending = useRef(false);
-
-  const rows = draft ? draftToAlertRows(draft) : [];
-
-  useEffect(() => {
-    if (rows.length === 0) return;
-    let alive = true;
-    Promise.all([
-      getAlertStates(),
-      refreshAlertEvents().catch(() => getAlertEvents()),
-    ])
-      .then(([list, durable]) => {
-        if (!alive) return;
-        const durableByKey = new Map(durable.map((event) => [event.alert_key, event]));
-        setEvents(durableByKey);
-        setStates(new Map([
-          ...list.map((state) => [state.alert_key, state] as const),
-          ...durable.map((event) => [event.alert_key, eventState(event)] as const),
-        ]));
-      })
-      .catch(() => {
-        // enrichment only — an unreachable alerts route just shows unassigned/open.
-      });
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.generated_at]);
-
-  const applyState = (key: string, next: AlertStateDTO) => setStates((m) => new Map(m).set(key, next));
-
-  const persistState = useCallback(async (
-    key: string,
-    state: AlertStateDTO["state"],
-    opts?: { assignee?: string; note?: string; resolutionNote?: string },
-  ) => {
-    const event = events.get(key);
-    if (!event) return opts ? setAlertState(key, state, opts) : setAlertState(key, state);
-    const next = await patchAlertEvent(event.id, state, opts);
-    setEvents((current) => new Map(current).set(key, next));
-    return eventState(next);
-  }, [events]);
-
-  useEffect(() => {
-    const acknowledgeSelected = () => {
-      // Custom events are synchronous: two rapid dispatches arrive before the
-      // first render can disable anything. Claim the batch in a ref before any
-      // await so each selected event produces at most one durable transition.
-      if (ackSelectedPending.current || selected.length === 0) return;
-      ackSelectedPending.current = true;
-      setMutationError(null);
-      void Promise.all(selected.map(async (key) => applyState(key, await persistState(key, "ack"))))
-        .then(() => setSelected([]))
-        .catch((reason) => setMutationError(toErrorMessage(reason, "Selected alerts were not acknowledged")))
-        .finally(() => { ackSelectedPending.current = false; });
-    };
-    window.addEventListener("caos:monitor-ack-selected", acknowledgeSelected);
-    return () => window.removeEventListener("caos:monitor-ack-selected", acknowledgeSelected);
-  }, [persistState, selected]);
-
-  useEffect(() => {
-    const first = selected[0] ? events.get(selected[0]) : null;
-    window.dispatchEvent(new CustomEvent("caos:monitor-selection", {
-      detail: { count: selected.length, eventId: first?.id ?? null },
-    }));
-  }, [events, selected]);
-
-  // Loading / offline / genuinely-empty are three different facts and must
-  // read as three different things — the demo tape rendered as this panel's
-  // sibling (Monitor page.tsx) is a separate data source gated on a user
-  // toggle, not a fallback for this component's own state, so a silent
-  // `return null` across all three used to leave the live lane's status
-  // unstated regardless of which of the three was actually true. Never
-  // fabricates a row here — only an honest status line for THIS component.
-  const stateSurface = alertInboxState(loading, offline, rows.length);
-  if (stateSurface) return stateSurface;
-  return <AlertInboxContent rows={rows} states={states} selected={selected} mutationError={mutationError} resolvedOpen={resolvedOpen} setSelected={setSelected} setResolvedOpen={setResolvedOpen} persistState={persistState} applyState={applyState} />;
+export function AlertInbox({ controller }: { controller: PersistedMonitorController }) {
+  if (controller.status === "loading") return <SurfaceState kind="loading" title="Loading persisted alert events" compact className="m-2" />;
+  if (controller.status === "error") return <SurfaceState kind="unavailable" title="Persisted alert events unavailable" detail={controller.error ?? undefined} primaryAction={<button type="button" onClick={() => void controller.refresh()} className="min-h-8 rounded border border-caos-border px-2 text-caos-xs text-caos-muted focus-ring caos-target">Retry persisted alerts</button>} compact className="m-2" />;
+  return <AlertInboxReady controller={controller} />;
 }

@@ -1,22 +1,29 @@
 // @vitest-environment jsdom
-// G6: Monitor swaps its whole workspace body for PhoneTriage at the mobile
-// breakpoint — the dense EmailIntel/AlertInbox/Governance layout never
-// renders below 768px, and PhoneTriage never renders above it.
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { AlertEventDTO } from "@/lib/api";
 import MonitorPage from "./page";
 
 let mockBreakpoint: "wide" | "desktop" | "tablet" | "mobile" = "wide";
+const getAlertEventPage = vi.fn();
+const getWatchRulePage = vi.fn();
+const getPortfolio = vi.fn();
+const getDigest = vi.fn();
+const forbiddenAutonomyDraft = vi.fn();
+const forbiddenLegacyStates = vi.fn();
 const analysisState = vi.hoisted(() => ({ loading: false, patch: vi.fn() }));
 const modeState = vi.hoisted(() => ({ mode: "live" as "live" | "reference" }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/monitor",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 vi.mock("@/components/shared/RequireAuth", () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+vi.mock("@/components/shared/RoleViewProvider", () => ({
+  useRoleView: () => ({ roleView: "analyst", setRoleView: vi.fn(), ready: true }),
 }));
 vi.mock("@/lib/useBreakpoint", () => ({
   useBreakpoint: () => ({ breakpoint: mockBreakpoint, hydrated: true }),
@@ -40,59 +47,108 @@ vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
-  getAutonomyDraft: vi.fn().mockRejectedValue(new Error("network error")),
-  getAlertStates: vi.fn().mockRejectedValue(new Error("network error")),
-  getPortfolio: vi.fn().mockRejectedValue(new Error("network error")),
-  getDigest: vi.fn().mockRejectedValue(new Error("network error")),
+  getAlertEventPage: (...args: unknown[]) => getAlertEventPage(...args),
+  getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
+  getPortfolio: (...args: unknown[]) => getPortfolio(...args),
+  getDigest: (...args: unknown[]) => getDigest(...args),
+  getAutonomyDraft: (...args: unknown[]) => forbiddenAutonomyDraft(...args),
+  getAlertStates: (...args: unknown[]) => forbiddenLegacyStates(...args),
 }));
 
-afterEach(() => {
-  cleanup();
-  vi.clearAllMocks();
+function persistedEvent(): AlertEventDTO {
+  return {
+    id: "phone-alert-1",
+    alert_key: "c3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    issuer_id: "issuer-phone",
+    run_id: "run-phone",
+    kind: "qa_change",
+    title: "Phone and desktop share this persisted event",
+    impact: "Review the governed QA evidence.",
+    evidence: { observed_at: "2026-07-20T12:00:00Z" },
+    authority: { watch_rule_id: "rule-phone", rule_version: 1 },
+    state: "open",
+    assignee: null,
+    note: null,
+    resolved_at: null,
+    resolution_note: null,
+    created_at: "2026-07-20T12:01:00Z",
+    updated_at: "2026-07-20T12:01:00Z",
+  };
+}
+
+function setNarrowMedia(matches: boolean) {
+  window.matchMedia = vi.fn().mockImplementation(() => ({
+    matches,
+    media: "(max-width: 1099px)",
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+}
+
+beforeEach(() => {
+  getAlertEventPage.mockReset();
+  getWatchRulePage.mockReset();
+  getPortfolio.mockReset();
+  getDigest.mockReset();
+  forbiddenAutonomyDraft.mockReset();
+  forbiddenLegacyStates.mockReset();
+  analysisState.patch.mockReset().mockResolvedValue(undefined);
+  getAlertEventPage.mockResolvedValue({ items: [], nextCursor: null });
+  getWatchRulePage.mockResolvedValue({ items: [], nextCursor: null });
+  getPortfolio.mockResolvedValue({ rows: [], issuer_count: 0, covered_count: 0 });
+  getDigest.mockResolvedValue({ as_of: null, coverage: { issuers: 0 }, stale_threshold_days: 30, stale: [], warf: null, warf_band: null, ccc_watch: [], qa: {}, activity_24h: {} });
   mockBreakpoint = "wide";
   analysisState.loading = false;
   modeState.mode = "live";
   window.history.replaceState({}, "", "/monitor");
+  setNarrowMedia(false);
 });
 
-describe("Monitor · phone triage breakpoint gate (G6)", () => {
-  it("keeps phone triage primary while context and governance remain available as drawers", async () => {
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+describe("Monitor · phone persisted triage gate", () => {
+  it("renders the same persisted event in the phone title, card, toolbar, decision, and context drawer", async () => {
     mockBreakpoint = "mobile";
-    window.matchMedia = vi.fn().mockImplementation(() => ({
-      matches: true,
-      media: "(max-width: 899px)",
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    }));
+    setNarrowMedia(true);
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+
     render(<MonitorPage />);
-    await waitFor(() => expect(screen.getByText("Autonomy engine unreachable")).toBeTruthy()); // PhoneTriage's offline state
+
+    expect(await screen.findByTestId("monitor-persisted-ready")).toBeTruthy();
+    expect(screen.getByText("Alert triage · persisted events")).toBeTruthy();
+    expect(screen.getAllByText("Phone and desktop share this persisted event")).toHaveLength(2);
+    expect(screen.getByText("1 persisted alert")).toBeTruthy();
+    expect(screen.getByLabelText("Decision header").textContent).toContain("Phone and desktop share this persisted event");
     expect(screen.queryByText("Email Intelligence · CP-MON intake")).toBeNull();
-    expect(screen.queryByText("Governance summary")).toBeNull();
-    expect(screen.queryByRole("tab", { name: "Email intake" })).toBeNull();
     expect(screen.getByRole("button", { name: "Open context drawer" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open evidence inspector drawer" }));
-    expect(await screen.findByText("Governance summary")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open context drawer" }));
+    expect(await screen.findByText("Persisted alerts by workflow state")).toBeTruthy();
+    expect(getAlertEventPage).toHaveBeenCalledOnce();
+    expect(getWatchRulePage).toHaveBeenCalledOnce();
+    expect(forbiddenAutonomyDraft).not.toHaveBeenCalled();
+    expect(forbiddenLegacyStates).not.toHaveBeenCalled();
   });
 
-  it("mounts the desktop workspace, never PhoneTriage, at wider breakpoints", async () => {
+  it("renders an honest persisted-event outage on phone without fabricating Reference or autonomy content", async () => {
+    mockBreakpoint = "mobile";
+    setNarrowMedia(true);
+    getAlertEventPage.mockRejectedValueOnce(new Error("persisted event service offline"));
+
+    render(<MonitorPage />);
+
+    expect(await screen.findByText("Persisted alert events unavailable")).toBeTruthy();
+    expect(screen.getAllByText("persisted event service offline").length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText(/Seeded replay/)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/autonomy/i);
+  });
+
+  it("keeps Reference desktop tabs inert until context bootstrap settles and never mounts phone authority", () => {
     modeState.mode = "reference";
     mockBreakpoint = "desktop";
-    window.matchMedia = vi.fn().mockImplementation(() => ({
-      matches: false,
-      media: "(max-width: 899px)",
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    }));
-    render(<MonitorPage />);
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Email intake" })).toBeTruthy());
-    expect(screen.getByText("Reference scope")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Email intake" }));
-    expect(screen.getByText("Email Intelligence · CP-MON intake")).toBeTruthy();
-  });
-
-  it("keeps dataset tabs inert until analysis-context bootstrap settles", () => {
-    modeState.mode = "reference";
-    window.history.replaceState({}, "", "/monitor");
     analysisState.loading = true;
     const { rerender } = render(<MonitorPage />);
 
@@ -100,6 +156,9 @@ describe("Monitor · phone triage breakpoint gate (G6)", () => {
     expect(email.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(email);
     expect(screen.getByRole("tab", { name: "Replay" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByTestId("monitor-persisted-ready")).toBeNull();
+    expect(getAlertEventPage).not.toHaveBeenCalled();
+    expect(getWatchRulePage).not.toHaveBeenCalled();
 
     analysisState.loading = false;
     rerender(<MonitorPage />);

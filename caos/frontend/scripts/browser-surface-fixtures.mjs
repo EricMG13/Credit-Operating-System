@@ -63,6 +63,52 @@ const decisionItem = {
   reopen_alert_key: null, created_at: '2026-07-13T10:00:00Z', votes: [],
 };
 
+const persistedAlertEvent = {
+  id: 'alert-event-1',
+  alert_key: 'c3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+  issuer_id: 'iss-1',
+  run_id: 'run-1',
+  kind: 'qa_gate',
+  title: 'Liquidity evidence requires review',
+  impact: 'Review the governed liquidity evidence before committee clearance.',
+  evidence: {
+    observed_at: '2026-07-20T09:00:00Z',
+    source_artifact_refs: ['run:run-1'],
+  },
+  authority: { watch_rule_id: '7f9e2d1c-4b3a-4e65-9d87-1a2b3c4d5e6f', rule_version: 1 },
+  state: 'open',
+  assignee: null,
+  note: null,
+  resolved_at: null,
+  resolution_note: null,
+  created_at: '2026-07-20T09:01:00Z',
+  updated_at: '2026-07-20T09:01:00Z',
+};
+
+const persistedWatchRule = {
+  id: '7f9e2d1c-4b3a-4e65-9d87-1a2b3c4d5e6f',
+  name: 'Liquidity evidence gate',
+  signal_type: 'qa_gate',
+  enabled: true,
+  paused: false,
+  issuer_id: 'iss-1',
+  portfolio_id: null,
+  current_version: 1,
+  schedule_kind: 'event_driven',
+  schedule_interval_seconds: null,
+  next_evaluation_at: null,
+  last_evaluated_at: '2026-07-20T09:00:00Z',
+  config: {
+    operator: 'present',
+    threshold: null,
+    kind: 'qa_gate',
+    title: 'Liquidity evidence requires review',
+    impact: 'Review the governed liquidity evidence before committee clearance.',
+  },
+  created_at: '2026-07-20T08:55:00Z',
+  updated_at: '2026-07-20T09:00:00Z',
+};
+
 function agendaOperation(method, path) {
   const resource = path.endsWith('/finalize') ? 'finalize' : path.endsWith('/agenda') ? 'agenda' : 'item';
   return `${method}:${resource}`;
@@ -209,6 +255,32 @@ export async function installSurfaceStubs(target, identity) {
   const fulfillAlertStates = (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   await target.route('**/api/alerts/state', fulfillAlertStates);
   await target.route('**/api/alerts/state?**', fulfillAlertStates);
+  const fulfillAlertEvents = (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const url = new URL(route.request().url());
+    const matches = !url.searchParams.has('cursor')
+      && (!url.searchParams.has('state') || url.searchParams.get('state') === persistedAlertEvent.state)
+      && (!url.searchParams.has('issuer_id') || url.searchParams.get('issuer_id') === persistedAlertEvent.issuer_id)
+      && (!url.searchParams.has('kind') || url.searchParams.get('kind') === persistedAlertEvent.kind);
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(matches ? [persistedAlertEvent] : []),
+    });
+  };
+  await target.route('**/api/alerts/events', fulfillAlertEvents);
+  await target.route('**/api/alerts/events?**', fulfillAlertEvents);
+  const fulfillWatchRules = (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const url = new URL(route.request().url());
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(url.searchParams.has('cursor') ? [] : [persistedWatchRule]),
+    });
+  };
+  await target.route('**/api/watch-rules', fulfillWatchRules);
+  await target.route('**/api/watch-rules?**', fulfillWatchRules);
   const portfolioBoard = {
     rows: [{ issuer_id: 'iss-1', name: 'VMO2', ticker: 'VMO2', sector: 'Telecom', run_id: 'run-1', qa_status: 'Passed', committee_status: 'Committee Ready', as_of: '2026-06-30', metrics: {}, rv_recommendation: null, rv_percentile: null, downside_fragility: null, gaps: [] }],
     issuer_count: 1, covered_count: 1,

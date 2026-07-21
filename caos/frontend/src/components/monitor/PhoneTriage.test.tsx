@@ -1,23 +1,73 @@
 // @vitest-environment jsdom
-// G6: phone triage — one alert at a time, ack/assign/resolve, prev/next, and
-// a desktop handoff. Shares the same autonomy draft + alert_states mutation
-// contract as AlertInbox, so the two can never disagree about an alert.
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { AlertEventDTO } from "@/lib/api";
 import { PhoneTriage } from "./PhoneTriage";
+import { usePersistedMonitorController } from "./usePersistedMonitorController";
 
-const getAutonomyDraft = vi.fn();
-const getAlertStates = vi.fn();
-const setAlertState = vi.fn();
+const getAlertEventPage = vi.fn();
+const getWatchRulePage = vi.fn();
+const getChunk = vi.fn();
+const patchAlertEvent = vi.fn();
+const forbiddenDraft = vi.fn();
+const forbiddenLegacyStates = vi.fn();
 
-vi.mock("@/lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/api")>();
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
+  getAlertEventPage: (...args: unknown[]) => getAlertEventPage(...args),
+  getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
+  getChunk: (...args: unknown[]) => getChunk(...args),
+  patchAlertEvent: (...args: unknown[]) => patchAlertEvent(...args),
+  getAutonomyDraft: (...args: unknown[]) => forbiddenDraft(...args),
+  getAlertStates: (...args: unknown[]) => forbiddenLegacyStates(...args),
+}));
+
+function persistedEvent(overrides: Partial<AlertEventDTO> = {}): AlertEventDTO {
   return {
-    ...actual,
-    getAutonomyDraft: (...a: unknown[]) => getAutonomyDraft(...a),
-    getAlertStates: (...a: unknown[]) => getAlertStates(...a),
-    setAlertState: (...a: unknown[]) => setAlertState(...a),
+    id: "alert-1",
+    alert_key: "c3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    issuer_id: "issuer-17",
+    run_id: "run-17",
+    kind: "qa_change",
+    title: "QA gate moved to blocked",
+    impact: "Review the governed evidence before committee.",
+    evidence: { observed_at: "2026-07-20T10:00:00Z" },
+    authority: { watch_rule_id: "rule-1", rule_version: 2 },
+    state: "open",
+    assignee: null,
+    note: null,
+    resolved_at: null,
+    resolution_note: null,
+    created_at: "2026-07-20T10:01:00Z",
+    updated_at: "2026-07-20T10:01:00Z",
+    ...overrides,
   };
+}
+
+function Harness({ initialActive = null }: { initialActive?: string | null }) {
+  const controller = usePersistedMonitorController(initialActive);
+  return (
+    <>
+      <output data-testid="active">{controller.activeEventId ?? "none"}</output>
+      <output data-testid="batch">{controller.selectedIds.join(",") || "none"}</output>
+      <button type="button" onClick={() => {
+        if (controller.activeEventId) controller.toggleSelected(controller.activeEventId);
+      }}>Toggle active for batch</button>
+      <PhoneTriage controller={controller} />
+    </>
+  );
+}
+
+beforeEach(() => {
+  getAlertEventPage.mockReset();
+  getWatchRulePage.mockReset();
+  getChunk.mockReset();
+  patchAlertEvent.mockReset();
+  forbiddenDraft.mockReset();
+  forbiddenLegacyStates.mockReset();
+  getAlertEventPage.mockResolvedValue({ items: [], nextCursor: null });
+  getWatchRulePage.mockResolvedValue({ items: [], nextCursor: null });
+  getChunk.mockResolvedValue({ id: "chunk-default", text: "Persisted evidence." });
 });
 
 afterEach(() => {
@@ -25,261 +75,165 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const TWO_ROW_DRAFT = {
-  status: "draft", ai_generated: true, ratified: false, export_allowed: false,
-  marking: "AI-GENERATED, UNRATIFIED", generated_at: "2026-07-12T09:00:00Z",
-  sections: [
-    {
-      issuer_id: "EG", issuer_name: "EG Group", max_severity: 0.9,
-      claims: [], deterministic_bullets: [
-        { kind: "ts-jump", severity: 0.9, metric: "dm", direction: "up", chunk_id: null, context: {} },
+describe("PhoneTriage · persisted controller", () => {
+  it("distinguishes an unavailable persisted read from a settled empty worklist", async () => {
+    getAlertEventPage.mockRejectedValueOnce(new Error("network error"));
+    const unavailable = render(<Harness />);
+    expect(await screen.findByText("Persisted alert events unavailable")).toBeTruthy();
+    expect(screen.getByText("network error")).toBeTruthy();
+    expect(screen.queryByText(/autonomy/i)).toBeNull();
+    unavailable.unmount();
+
+    getAlertEventPage.mockResolvedValueOnce({ items: [], nextCursor: null });
+    render(<Harness />);
+    expect(await screen.findByText("No persisted alerts to triage")).toBeTruthy();
+  });
+
+  it("shows one persisted event at a time and keeps navigation separate from batch selection", async () => {
+    getAlertEventPage.mockResolvedValue({
+      items: [
+        persistedEvent(),
+        persistedEvent({ id: "alert-2", issuer_id: null, title: "Unscoped covenant event", kind: "covenant" }),
       ],
-      exhibit: [],
-    },
-    {
-      issuer_id: "QLMH", issuer_name: "Quill Media", max_severity: 0.4,
-      claims: [], deterministic_bullets: [
-        { kind: "cusum-shift", severity: 0.4, metric: "revenue", direction: "down", chunk_id: null, context: {} },
-      ],
-      exhibit: [],
-    },
-  ],
-  summary: { n_sections: 2, n_claims: 0, n_deterministic_bullets: 2, n_anomalies: 2 },
-  refreshing: false,
-};
+      nextCursor: null,
+    });
+    render(<Harness />);
 
-const EMPTY_DRAFT = {
-  status: "draft", ai_generated: true, ratified: false, export_allowed: false,
-  marking: "AI-GENERATED, UNRATIFIED", sections: [],
-  summary: { n_sections: 0, n_claims: 0, n_deterministic_bullets: 0, n_anomalies: 0 },
-  refreshing: false,
-};
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
-}
-
-describe("PhoneTriage", () => {
-  it("shows an honest offline state, never a fabricated card, and never mislabels a real outage as DEMO content", async () => {
-    getAutonomyDraft.mockRejectedValue(new Error("network error"));
-    render(<PhoneTriage />);
-    await waitFor(() => expect(screen.getByText("Autonomy engine unreachable")).toBeTruthy());
-    expect(screen.queryByText(/^DEMO$/)).toBeNull();
-  });
-
-  it("shows an honest empty state on a settled empty draft", async () => {
-    getAutonomyDraft.mockResolvedValue(EMPTY_DRAFT);
-    render(<PhoneTriage />);
-    await waitFor(() => expect(screen.getByText("No alerts to triage")).toBeTruthy());
-  });
-
-  it("renders an empty draft without an optional marking", async () => {
-    const draft = { ...EMPTY_DRAFT } as Partial<typeof EMPTY_DRAFT>;
-    delete draft.marking;
-    getAutonomyDraft.mockResolvedValue(draft);
-    render(<PhoneTriage />);
-    await screen.findByText("No alerts to triage");
-  });
-
-  it("shows one alert at a time, ranked by severity, with a real impact figure and a desktop handoff", async () => {
-    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
-    getAlertStates.mockResolvedValue([]);
-    render(<PhoneTriage />);
-    await waitFor(() => expect(screen.getByText("EG Group")).toBeTruthy());
+    expect(await screen.findByText("QA gate moved to blocked")).toBeTruthy();
     expect(screen.getByText("1 of 2")).toBeTruthy();
-    expect(screen.getByText("0.9σ")).toBeTruthy();
-    expect(screen.queryByText("Quill Media")).toBeNull(); // only one card visible at a time
-    expect(screen.getByRole("link", { name: /Continue on desktop — open EG Group in Deep-Dive/ })).toBeTruthy();
+    expect(screen.queryByText("Unscoped covenant event")).toBeNull();
+    expect(screen.getByTestId("batch").textContent).toBe("none");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next alert" }));
+    expect(await screen.findByText("Unscoped covenant event")).toBeTruthy();
+    expect(screen.getByTestId("active").textContent).toBe("alert-2");
+    expect(screen.getByTestId("batch").textContent).toBe("none");
+    expect(screen.getByText("Unscoped alert")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Toggle active for batch" }));
+    expect(screen.getByTestId("batch").textContent).toBe("alert-2");
   });
 
-  it("falls back to the issuer name and suppresses a non-finite impact", async () => {
-    const draft = {
-      ...TWO_ROW_DRAFT,
-      sections: [{
-        ...TWO_ROW_DRAFT.sections[0],
-        issuer_id: null,
-        deterministic_bullets: [{
-          ...TWO_ROW_DRAFT.sections[0].deterministic_bullets[0],
-          severity: Number.NaN,
-        }],
-      }],
-      summary: { ...TWO_ROW_DRAFT.summary, n_sections: 1, n_deterministic_bullets: 1, n_anomalies: 1 },
-    };
-    getAutonomyDraft.mockResolvedValue(draft);
-    getAlertStates.mockResolvedValue([]);
-    render(<PhoneTriage />);
-
-    await screen.findByText("EG Group");
-    expect(screen.queryByText(/σ$/)).toBeNull();
-    expect(screen.getByRole("link", { name: /Continue on desktop/ }).getAttribute("href"))
-      .toBe("/deepdive?issuer=EG%20Group");
-  });
-
-  it("sorts defensively when persisted alert states are unknown", async () => {
-    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
-    getAlertStates.mockResolvedValue([
-      {
-        id: "unknown-eg", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "unknown",
-        assignee: null, note: null, analyst_id: null, created_at: null, resolved_at: null, resolution_note: null,
-      },
-      {
-        id: "unknown-qlmh", alert_key: "2026-07-12T09:00:00Z:QLMH:cusum-shift:revenue", state: "unknown",
-        assignee: null, note: null, analyst_id: null, created_at: null, resolved_at: null, resolution_note: null,
-      },
-    ]);
-    render(<PhoneTriage />);
-    await screen.findByText("EG Group");
-    expect(screen.getByText("Open")).toBeTruthy();
-  });
-
-  it("prev/next walk the queue and clamp at the boundaries", async () => {
-    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
-    getAlertStates.mockResolvedValue([]);
-    render(<PhoneTriage />);
-    await waitFor(() => expect(screen.getByText("EG Group")).toBeTruthy());
-
-    const prev = screen.getByRole("button", { name: "Previous alert" });
-    const next = screen.getByRole("button", { name: "Next alert" });
-    expect(prev.getAttribute("aria-disabled")).toBe("true");
-
-    fireEvent.click(next);
-    await waitFor(() => expect(screen.getByText("Quill Media")).toBeTruthy());
-    expect(next.getAttribute("aria-disabled")).toBe("true");
-
-    fireEvent.click(screen.getByRole("button", { name: "Previous alert" }));
-    await waitFor(() => expect(screen.getByText("EG Group")).toBeTruthy());
-  });
-
-  it("Ack, Assign, and Resolve all work from the card, and a resolved card drops its action row", async () => {
-    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
-    getAlertStates.mockResolvedValue([]);
-    setAlertState.mockResolvedValue({
-      id: "1", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "resolved",
-      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
-      resolved_at: "2026-07-12T09:10:00Z", resolution_note: "Reviewed, no action needed.",
+  it("hydrates a resolved deep link without granting it batch-action authority", async () => {
+    getAlertEventPage.mockResolvedValue({
+      items: [
+        persistedEvent(),
+        persistedEvent({ id: "alert-resolved", title: "Resolved persisted event", state: "resolved", resolution_note: "Reviewed." }),
+      ],
+      nextCursor: null,
     });
-    render(<PhoneTriage />);
-    await waitFor(() => expect(screen.getByText("EG Group")).toBeTruthy());
+    render(<Harness initialActive="alert-resolved" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
-    fireEvent.change(screen.getByLabelText("Alert resolution note"), {
-      target: { value: "Reviewed, no action needed." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
-
-    await waitFor(() =>
-      expect(setAlertState).toHaveBeenCalledWith(
-        "2026-07-12T09:00:00Z:EG:ts-jump:dm", "resolved", { resolutionNote: "Reviewed, no action needed." },
-      ),
-    );
-    await waitFor(() => expect(screen.getByText("Resolved")).toBeTruthy());
-    expect(screen.getByText("resolved: Reviewed, no action needed.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Ack" })).toBeNull(); // action row gone once resolved
+    expect(await screen.findByText("Resolved persisted event")).toBeTruthy();
+    expect(screen.getByTestId("active").textContent).toBe("alert-resolved");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle active for batch" }));
+    expect(screen.getByTestId("batch").textContent).toBe("none");
+    expect(screen.queryByRole("button", { name: "Ack" })).toBeNull();
   });
 
-  it("acknowledges and assigns both open and acknowledged alerts", async () => {
-    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
-    getAlertStates.mockResolvedValue([]);
-    const key = "2026-07-12T09:00:00Z:EG:ts-jump:dm";
-    setAlertState.mockImplementation(async (
-      alertKey: string,
-      state: "open" | "ack" | "resolved",
-      options?: { assignee?: string },
-    ) => ({
-      id: `${state}-${options?.assignee ?? "none"}`,
-      alert_key: alertKey,
-      state,
-      assignee: options?.assignee ?? null,
-      note: null,
-      analyst_id: "a1",
-      created_at: "2026-07-12T09:05:00Z",
-      resolved_at: null,
-      resolution_note: null,
-    }));
-    render(<PhoneTriage />);
-    await screen.findByText("EG Group");
+  it("acknowledges, assigns, and resolves through the persisted event endpoint with phone-sized targets", async () => {
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent({ evidence: { chunk_id: "chunk-phone" } })], nextCursor: null });
+    patchAlertEvent.mockImplementation(async (
+      id: string,
+      state: AlertEventDTO["state"],
+      options?: { assignee?: string; resolutionNote?: string },
+    ) => persistedEvent({ id, state, assignee: options?.assignee ?? null, resolution_note: options?.resolutionNote ?? null }));
+    render(<Harness />);
+    await screen.findByText("QA gate moved to blocked");
 
     const assignee = screen.getByLabelText("Alert assignee");
     fireEvent.change(assignee, { target: { value: "Sam" } });
     fireEvent.click(screen.getByRole("button", { name: "Assign" }));
-    await waitFor(() => expect(setAlertState).toHaveBeenNthCalledWith(1, key, "open", { assignee: "Sam" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(1, "alert-1", "open", { assignee: "Sam" }));
     expect(await screen.findByText("Sam")).toBeTruthy();
-    expect((assignee as HTMLInputElement).value).toBe("");
 
     fireEvent.click(screen.getByRole("button", { name: "Ack" }));
-    await waitFor(() => expect(setAlertState).toHaveBeenNthCalledWith(2, key, "ack"));
-    expect(await screen.findByText("Ack/assigned")).toBeTruthy();
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "alert-1", "ack", undefined));
+    expect(await screen.findByText("Acknowledged")).toBeTruthy();
 
-    fireEvent.change(assignee, { target: { value: "Alex" } });
-    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
-    await waitFor(() => expect(setAlertState).toHaveBeenNthCalledWith(3, key, "ack", { assignee: "Alex" }));
-    expect(await screen.findByText("Alex")).toBeTruthy();
-  });
-
-  it("guards a rapid duplicate acknowledgement while the first mutation is pending", async () => {
-    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
-    getAlertStates.mockResolvedValue([]);
-    const pending = deferred<{
-      id: string; alert_key: string; state: "ack"; assignee: null; note: null;
-      analyst_id: string; created_at: string; resolved_at: null; resolution_note: null;
-    }>();
-    setAlertState.mockReturnValue(pending.promise);
-    render(<PhoneTriage />);
-    await screen.findByText("EG Group");
-
-    const ack = screen.getByRole("button", { name: "Ack" });
-    act(() => {
-      fireEvent.click(ack);
-      fireEvent.click(ack);
-    });
-    expect(setAlertState).toHaveBeenCalledTimes(1);
-
-    await act(async () => pending.resolve({
-      id: "ack-1", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "ack",
-      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
-      resolved_at: null, resolution_note: null,
-    }));
-  });
-
-  it("submits an omitted resolution note as undefined", async () => {
-    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
-    getAlertStates.mockResolvedValue([]);
-    setAlertState.mockResolvedValue({
-      id: "resolved-empty", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "resolved",
-      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
-      resolved_at: "2026-07-12T09:10:00Z", resolution_note: null,
-    });
-    render(<PhoneTriage />);
-    await screen.findByText("EG Group");
+    for (const target of screen.getAllByRole("button").concat(screen.getAllByRole("link"))) {
+      if (target.textContent === "Toggle active for batch") continue;
+      expect(target.className).toContain("min-h-11");
+    }
+    expect(screen.getByLabelText("Alert state filter").className).toContain("min-h-11");
 
     fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await waitFor(() => expect(setAlertState).toHaveBeenCalledWith(
-      "2026-07-12T09:00:00Z:EG:ts-jump:dm", "resolved", { resolutionNote: undefined },
-    ));
+    fireEvent.change(screen.getByLabelText("Alert resolution note"), { target: { value: "Reviewed." } });
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    confirm.focus();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(3, "alert-1", "resolved", { resolutionNote: "Reviewed." }));
+    expect(await screen.findByText("Resolved")).toBeTruthy();
+    const article = screen.getByRole("article", { name: "Persisted alert QA gate moved to blocked" });
+    await waitFor(() => expect(document.activeElement).toBe(article));
+    expect(screen.getByText("QA gate moved to blocked resolved. Persisted workflow state updated.").getAttribute("role")).toBe("status");
   });
 
-  it("preserves a failed resolution note and retries the exact mutation", async () => {
-    getAutonomyDraft.mockResolvedValue(TWO_ROW_DRAFT);
-    getAlertStates.mockResolvedValue([]);
-    setAlertState.mockRejectedValueOnce(new Error("resolve unavailable")).mockResolvedValueOnce({
-      id: "1", alert_key: "2026-07-12T09:00:00Z:EG:ts-jump:dm", state: "resolved",
-      assignee: null, note: null, analyst_id: "a1", created_at: "2026-07-12T09:05:00Z",
-      resolved_at: "2026-07-12T09:10:00Z", resolution_note: "Keep this note",
-    });
-    render(<PhoneTriage />);
-    await screen.findByText("EG Group");
-    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
-    const note = screen.getByLabelText("Alert resolution note") as HTMLInputElement;
-    fireEvent.change(note, { target: { value: "Keep this note" } });
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+  it("preserves failed mutation input, fences rapid duplicates, and retries the same intent", async () => {
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+    patchAlertEvent
+      .mockRejectedValueOnce(new Error("optimistic conflict"))
+      .mockResolvedValueOnce(persistedEvent({ assignee: "Sam" }));
+    render(<Harness />);
+    await screen.findByText("QA gate moved to blocked");
 
-    expect((await screen.findByRole("alert")).textContent).toContain("resolve unavailable");
-    expect(note.value).toBe("Keep this note");
+    const assignee = screen.getByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(assignee, { target: { value: "Sam" } });
+    const assign = screen.getByRole("button", { name: "Assign" });
+    fireEvent.click(assign);
+    fireEvent.click(assign);
+    expect(await screen.findByText(/optimistic conflict.*Input was preserved/)).toBeTruthy();
+    expect(patchAlertEvent).toHaveBeenCalledTimes(1);
+    expect(assignee.value).toBe("Sam");
+
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(setAlertState).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByText("Resolved")).toBeTruthy());
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Sam")).toBeTruthy();
+    await waitFor(() => expect(assignee.value).toBe(""));
+    expect(forbiddenDraft).not.toHaveBeenCalled();
+    expect(forbiddenLegacyStates).not.toHaveBeenCalled();
+  });
+
+  it("resets evidence, input, failure, and retry identity when phone navigation changes events", async () => {
+    const second = persistedEvent({
+      id: "alert-2",
+      alert_key: "c3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      issuer_id: "issuer-22",
+      title: "Second phone event",
+      evidence: { chunk_id: "chunk-b" },
+    });
+    getAlertEventPage.mockResolvedValue({
+      items: [persistedEvent({ evidence: { chunk_id: "chunk-a" } }), second],
+      nextCursor: null,
+    });
+    getChunk
+      .mockResolvedValueOnce({ id: "chunk-a", text: "Evidence for alert A only." })
+      .mockResolvedValueOnce({ id: "chunk-b", text: "Evidence for alert B only." });
+    patchAlertEvent
+      .mockRejectedValueOnce(new Error("alert A assignment failed"))
+      .mockResolvedValueOnce(second);
+    render(<Harness />);
+    await screen.findByText("QA gate moved to blocked");
+
+    fireEvent.click(screen.getByText("Open persisted source"));
+    expect(await screen.findByText("Evidence for alert A only.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Alert assignee"), { target: { value: "Analyst A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    expect(await screen.findByText(/alert A assignment failed.*Input was preserved/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next alert" }));
+    expect(await screen.findByText("Second phone event")).toBeTruthy();
+    expect(screen.queryByText("Evidence for alert A only.")).toBeNull();
+    expect(screen.queryByText(/alert A assignment failed/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect((screen.getByLabelText("Alert assignee") as HTMLInputElement).value).toBe("");
+
+    fireEvent.click(screen.getByText("Open persisted source"));
+    expect(await screen.findByText("Evidence for alert B only.")).toBeTruthy();
+    expect(getChunk).toHaveBeenNthCalledWith(2, "chunk-b");
+    fireEvent.change(screen.getByLabelText("Alert assignee"), { target: { value: "Analyst B" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "alert-2", "open", { assignee: "Analyst B" }));
   });
 });

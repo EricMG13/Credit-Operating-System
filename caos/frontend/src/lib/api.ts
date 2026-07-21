@@ -1478,10 +1478,56 @@ export interface AlertEventDTO {
   created_at: string;
   updated_at: string;
 }
+
+export interface AlertEventPageDTO {
+  items: AlertEventDTO[];
+  nextCursor: string | null;
+}
+
+export interface AlertEventPageRequest {
+  state?: AlertEventDTO["state"];
+  issuerId?: string;
+  kind?: string;
+  limit?: number;
+  cursor?: string;
+  signal?: AbortSignal;
+}
+
+function nextCursor(headers: Record<string, unknown>): string | null {
+  const value = headers["x-next-cursor"] ?? headers["X-Next-Cursor"];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 export const refreshAlertEvents = (): Promise<AlertEventDTO[]> =>
   api.post("/api/alerts/refresh").then((r) => r.data);
+
+export const getAlertEventPage = ({
+  state,
+  issuerId,
+  kind,
+  limit = 200,
+  cursor,
+  signal,
+}: AlertEventPageRequest = {}): Promise<AlertEventPageDTO> =>
+  api.get<AlertEventDTO[]>("/api/alerts/events", {
+    params: {
+      ...(state ? { state } : {}),
+      ...(issuerId ? { issuer_id: issuerId } : {}),
+      ...(kind ? { kind } : {}),
+      limit,
+      ...(cursor ? { cursor } : {}),
+    },
+    signal,
+  }).then((response) => ({
+    items: response.data,
+    nextCursor: nextCursor(response.headers as Record<string, unknown>),
+  }));
+
+// Compatibility export for consumers that intentionally own only one bounded
+// page. Monitor uses getAlertEventPage and drains the signed cursor itself so
+// its counts and filters cannot silently truncate persisted authority.
 export const getAlertEvents = (state?: AlertEventDTO["state"]): Promise<AlertEventDTO[]> =>
-  api.get("/api/alerts/events", { params: state ? { state } : {} }).then((r) => r.data);
+  getAlertEventPage({ state }).then((page) => page.items);
 export const patchAlertEvent = (
   id: string,
   state: AlertEventDTO["state"],
@@ -1493,3 +1539,89 @@ export const patchAlertEvent = (
     note: opts?.note,
     resolution_note: opts?.resolutionNote,
   }).then((r) => r.data);
+
+export type WatchRuleSignal =
+  | "run_finding"
+  | "qa_gate"
+  | "covenant"
+  | "edgar_filing"
+  | "market_move"
+  | "cp1b_monitoring"
+  | "cp1c_peer_outlier"
+  | "news";
+
+export type WatchRuleOperator = "present" | "eq" | "gt" | "gte" | "lt" | "lte";
+export type WatchRuleSchedule = "event_driven" | "interval" | "edgar";
+
+export interface WatchRuleConfigDTO {
+  operator: WatchRuleOperator;
+  threshold: string | number | null;
+  kind: string;
+  title: string;
+  impact: string;
+}
+
+export interface WatchRuleDTO {
+  id: string;
+  name: string;
+  signal_type: WatchRuleSignal;
+  enabled: boolean;
+  paused: boolean;
+  issuer_id: string | null;
+  portfolio_id: string | null;
+  current_version: number;
+  schedule_kind: WatchRuleSchedule;
+  schedule_interval_seconds: number | null;
+  next_evaluation_at: string | null;
+  last_evaluated_at: string | null;
+  config: WatchRuleConfigDTO;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WatchRuleWriteDTO {
+  name: string;
+  signal_type: WatchRuleSignal;
+  enabled: boolean;
+  paused: boolean;
+  issuer_id: string | null;
+  portfolio_id: string | null;
+  schedule_kind: WatchRuleSchedule;
+  schedule_interval_seconds: number | null;
+  next_evaluation_at: string | null;
+  config: WatchRuleConfigDTO;
+}
+
+export interface WatchRulePageDTO {
+  items: WatchRuleDTO[];
+  nextCursor: string | null;
+}
+
+export const getWatchRulePage = ({
+  limit = 100,
+  cursor,
+  signal,
+}: { limit?: number; cursor?: string; signal?: AbortSignal } = {}): Promise<WatchRulePageDTO> =>
+  api.get<WatchRuleDTO[]>("/api/watch-rules", {
+    params: { limit, ...(cursor ? { cursor } : {}) },
+    signal,
+  }).then((response) => ({
+    items: response.data,
+    nextCursor: nextCursor(response.headers as Record<string, unknown>),
+  }));
+
+export const getWatchRule = (id: string): Promise<WatchRuleDTO> =>
+  api.get<WatchRuleDTO>(`/api/watch-rules/${encodeURIComponent(id)}`).then((response) => response.data);
+
+export const createWatchRule = (body: WatchRuleWriteDTO): Promise<WatchRuleDTO> =>
+  api.post<WatchRuleDTO>("/api/watch-rules", body).then((response) => response.data);
+
+export const updateWatchRule = (
+  id: string,
+  expectedVersion: number,
+  patch: WatchRuleWriteDTO,
+): Promise<WatchRuleDTO> =>
+  api.patch<WatchRuleDTO>(`/api/watch-rules/${encodeURIComponent(id)}`, {
+    expected_version: expectedVersion,
+    patch,
+  }).then((response) => response.data);
