@@ -93,6 +93,130 @@ def test_flag_off_masks_every_watch_rule_route_before_validation_quota_or_db(
     assert calls == {"db": 0, "rate_limit": 0}
 
 
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/api/watch-rules"),
+        ("PATCH", "/api/watch-rules/not-a-rule-id"),
+        ("POST", "/api/watch-rules/not-a-rule-id/evaluate"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("content", "content_type"),
+    [
+        ("{", "application/json"),
+        (b'{"name":"\xff"}', "application/json"),
+        ("{", "application/problem+json"),
+    ],
+)
+def test_flag_off_masks_watch_rules_before_body_decode(
+    client, monkeypatch, method, path, content, content_type
+) -> None:
+    _set_flag(monkeypatch, False)
+
+    response = client.request(
+        method,
+        path,
+        content=content,
+        headers={"Content-Type": content_type},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+
+@pytest.mark.asyncio
+async def test_flag_off_gate_skips_receive_and_preserves_prefix_boundaries(
+    monkeypatch,
+) -> None:
+    from feature_gates import AlertRulesActivationGateMiddleware
+
+    calls = {"app": 0, "receive": 0}
+    messages: list[dict] = []
+
+    async def downstream(_scope, _receive, send) -> None:
+        calls["app"] += 1
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async def forbidden_receive():
+        calls["receive"] += 1
+        raise AssertionError("activation gate consumed the request body")
+
+    async def capture(message) -> None:
+        messages.append(message)
+
+    gate = AlertRulesActivationGateMiddleware(downstream)
+    scope = {"type": "http", "method": "POST", "path": "/api/watch-rules"}
+
+    _set_flag(monkeypatch, False)
+    await gate(scope, forbidden_receive, capture)
+
+    assert calls == {"app": 0, "receive": 0}
+    assert messages[0]["status"] == 404
+    assert messages[1]["body"] == b'{"detail":"Not Found"}'
+
+    for path in ("/api/watch-rules-x", "/api/alerts/events"):
+        messages.clear()
+        await gate({**scope, "path": path}, forbidden_receive, capture)
+        assert messages[0]["status"] == 204
+
+    _set_flag(monkeypatch, True)
+    messages.clear()
+    await gate(scope, forbidden_receive, capture)
+
+    assert calls == {"app": 3, "receive": 0}
+    assert messages[0]["status"] == 204
+
+
+def test_flag_off_mask_precedes_request_body_limits(client, monkeypatch) -> None:
+    from request_limits import JSON_BODY_LIMIT_BYTES
+
+    headers = {
+        "Content-Type": "application/json",
+        "Content-Length": str(JSON_BODY_LIMIT_BYTES + 1),
+    }
+    _set_flag(monkeypatch, False)
+    disabled = client.post("/api/watch-rules", content="{}", headers=headers)
+
+    _set_flag(monkeypatch, True)
+    enabled = client.post("/api/watch-rules", content="{}", headers=headers)
+
+    assert disabled.status_code == 404
+    assert disabled.json() == {"detail": "Not Found"}
+    assert enabled.status_code == 413
+    assert enabled.json() == {"detail": "Request body too large."}
+
+
+def test_global_csrf_and_edge_policy_remain_outside_flag_off_mask(
+    client, monkeypatch
+) -> None:
+    from config import get_settings
+
+    _set_flag(monkeypatch, False)
+    csrf_rejected = client.post(
+        "/api/watch-rules",
+        content="{",
+        headers={
+            "Content-Type": "application/json",
+            "Host": "caos.example",
+            "Sec-Fetch-Site": "cross-site",
+        },
+    )
+
+    current = get_settings()
+    monkeypatch.setattr(current, "environment", "production")
+    monkeypatch.setattr(current, "edge_proxy_secret", "edge-secret")
+    edge_rejected = client.get("/api/watch-rules")
+
+    assert csrf_rejected.status_code == 403
+    assert csrf_rejected.json() == {"detail": "Cross-site API mutation rejected."}
+    assert edge_rejected.status_code == 401
+    assert edge_rejected.json() == {
+        "detail": "Request did not carry a valid edge credential."
+    }
+
+
 @pytest.mark.asyncio
 async def test_flag_off_completed_run_trigger_is_a_side_effect_free_noop(
     monkeypatch,

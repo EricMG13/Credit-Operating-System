@@ -39,6 +39,7 @@ from csrf import csrf_rejection
 from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
+from feature_gates import AlertRulesActivationGateMiddleware
 from routes import analysis, analysis_insights, alerts, auth, chat, committee, decisions, digest, edgar, health, ingestion, issuers, market_import, model_v2, model_workbook as model_workbook_routes, models, notifications, opinions, portfolio, portfolios, qa, query, reports, research, runs, rv, scenario, sector, settings as settings_routes, sponsors, thesis, autonomy, watch_rules
 from research_executor import get_research_executor
 from research_report_executor import get_report_executor
@@ -252,6 +253,11 @@ app.add_middleware(
     RequestBodyLimitMiddleware,
     default_limit_bytes=settings.max_upload_mb * 1024 * 1024,
 )
+# Registered after request limiting so the default-off response cannot be
+# displaced by a declared or streamed body rejection. HTTPPolicyMiddleware is
+# registered later and remains outermost for edge/CSRF policy, headers, and
+# access telemetry.
+app.add_middleware(AlertRulesActivationGateMiddleware)
 
 # ─── Security headers ───────────────────────────────────────────────────────
 # Applied to every response (API + static).
