@@ -7,9 +7,10 @@ import copy
 import hashlib
 import json
 import logging
-from inspect import Parameter, signature
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from inspect import Parameter, signature
+from types import SimpleNamespace
 from typing import get_type_hints
 from uuid import UUID, uuid4
 
@@ -20,7 +21,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import alert_dispatch
-from alert_contracts import AlertCandidate, SubjectScope
+from alert_contracts import AlertCandidate, SignalObservation, SubjectScope
 from alert_dispatch import (
     MaterializationError,
     claim_delivery_intent,
@@ -30,6 +31,7 @@ from alert_dispatch import (
     materialize_alert,
     record_delivery_failure,
 )
+from alert_evaluation import evaluate_rule, observation_key as task3_observation_key
 from alert_sinks import AlertSink, EmailSink, InAppSink, sink_idempotency_key
 from database import (
     AlertDeliveryIntent,
@@ -48,6 +50,12 @@ from database import (
     WatchRuleEvaluation,
     WatchRuleVersion,
 )
+from watch_rules import (
+    SHARED_TEAM_ID,
+    SHARED_TENANT_ID,
+    UNASSIGNED_TEAM_ID,
+    UNASSIGNED_TENANT_ID,
+)
 
 
 NOW = datetime(2026, 7, 20, 12, tzinfo=timezone.utc)
@@ -55,8 +63,49 @@ RULE_ID = UUID("00000000-0000-0000-0000-000000000201")
 EVALUATION_ID = UUID("00000000-0000-0000-0000-000000000202")
 CORRELATION_ID = UUID("00000000-0000-0000-0000-000000000203")
 ROOT_ID = UUID("00000000-0000-0000-0000-000000000204")
-OBSERVATION_KEY = "b" * 64
 SOURCE_IDENTITY = "source:governed:secret-fact"
+RULE_CONFIG = {
+    "operator": "eq",
+    "threshold": "critical",
+    "kind": "credit_change",
+    "title": "QA gate changed",
+    "impact": "Review the governed evidence.",
+}
+RULE_VERSION_FIXTURE = SimpleNamespace(
+    watch_rule_id=str(RULE_ID),
+    version=1,
+    signal_type="qa_gate",
+    config_json=RULE_CONFIG,
+)
+DEFAULT_SCOPE = SubjectScope(tenant_id="tenant-a", issuer_id=None, portfolio_id=None)
+
+
+def _observation(
+    *,
+    scope: SubjectScope = DEFAULT_SCOPE,
+    detail: dict | None = None,
+    artifact_refs: tuple[str, ...] = ("artifact:governed:1",),
+) -> SignalObservation:
+    return SignalObservation(
+        signal_type="qa_gate",
+        subject_scope=scope,
+        source_identity=SOURCE_IDENTITY,
+        observed_at=NOW,
+        numeric_value=None,
+        categorical_value="critical",
+        detail=detail if detail is not None else {"finding": "secret-content"},
+        source_artifact_refs=artifact_refs,
+        correlation_id=CORRELATION_ID,
+        correlation_root_id=ROOT_ID,
+        hop_count=1,
+    )
+
+
+def _task3_key(scope: SubjectScope = DEFAULT_SCOPE) -> str:
+    return task3_observation_key(RULE_VERSION_FIXTURE, _observation(scope=scope))
+
+
+OBSERVATION_KEY = _task3_key()
 
 
 def _utc(value: datetime) -> datetime:
@@ -71,9 +120,7 @@ def _candidate(**overrides: object) -> AlertCandidate:
         "observation_key": OBSERVATION_KEY,
         "alert_key": f"c3:{OBSERVATION_KEY}",
         "signal_type": "qa_gate",
-        "subject_scope": SubjectScope(
-            tenant_id="tenant-a", issuer_id=None, portfolio_id=None
-        ),
+        "subject_scope": DEFAULT_SCOPE,
         "issuer_id": None,
         "portfolio_id": None,
         "run_id": None,
@@ -99,7 +146,29 @@ def _candidate(**overrides: object) -> AlertCandidate:
         "hop_count": 1,
     }
     payload.update(overrides)
+    scope = SubjectScope.model_validate(payload["subject_scope"])
+    key = str(overrides.get("observation_key", _task3_key(scope)))
+    payload["observation_key"] = key
+    if "alert_key" not in overrides:
+        payload["alert_key"] = f"c3:{key}"
+    if "authority" not in overrides:
+        payload["authority"] = {
+            "observation_key": key,
+            "source_identity": SOURCE_IDENTITY,
+            "watch_rule_id": str(RULE_ID),
+            "rule_version": 1,
+        }
     return AlertCandidate.model_validate(payload)
+
+
+def _task3_candidate(observation: SignalObservation) -> AlertCandidate:
+    decision = evaluate_rule(
+        RULE_VERSION_FIXTURE,
+        observation,
+        evaluation_id=EVALUATION_ID,
+    )
+    assert decision.outcome == "matched" and decision.candidate is not None
+    return decision.candidate
 
 
 def _sinks():
@@ -169,6 +238,48 @@ async def _add_issuer_run(
     await session.flush()
 
 
+async def _add_portfolio_run(
+    session,
+    *,
+    portfolio_id: str,
+    portfolio_team: str | None,
+    issuer_id: str,
+    issuer_team: str | None,
+    run_id: str,
+    held: bool = True,
+) -> None:
+    session.add(
+        Portfolio(
+            id=portfolio_id,
+            name=f"Portfolio {portfolio_id}",
+            created_by="alice",
+            team_id=portfolio_team,
+            created_at=NOW,
+            updated_at=NOW,
+        )
+    )
+    await session.flush()
+    await _add_issuer_run(
+        session,
+        issuer_id=issuer_id,
+        run_id=run_id,
+        team_id=issuer_team,
+        portfolio_id=portfolio_id,
+    )
+    if held:
+        session.add(
+            PortfolioPosition(
+                id=str(uuid4()),
+                portfolio_id=portfolio_id,
+                issuer_id=issuer_id,
+                borrower_name=f"Issuer {issuer_id}",
+                par_usd=1_000_000,
+                created_at=NOW,
+            )
+        )
+        await session.flush()
+
+
 async def _set_evaluation_scope(
     session,
     *,
@@ -177,13 +288,15 @@ async def _set_evaluation_scope(
     run_id: str,
 ) -> None:
     evaluation = await session.get(WatchRuleEvaluation, str(EVALUATION_ID))
+    scope = SubjectScope(
+        tenant_id=evaluation.tenant_id,
+        issuer_id=issuer_id,
+        portfolio_id=portfolio_id,
+    )
     evaluation.issuer_id = issuer_id
     evaluation.portfolio_id = portfolio_id
-    evaluation.subject_scope_json = {
-        "tenant_id": "tenant-a",
-        "issuer_id": issuer_id,
-        "portfolio_id": portfolio_id,
-    }
+    evaluation.subject_scope_json = scope.model_dump(mode="json")
+    evaluation.observation_key = _task3_key(scope)
     evaluation.detail_json = {"finding": "secret-content", "run_id": run_id}
     rule = await session.get(WatchRule, str(RULE_ID))
     rule.issuer_id = issuer_id
@@ -191,13 +304,17 @@ async def _set_evaluation_scope(
 
 
 def _scoped_candidate(
-    *, issuer_id: str | None, portfolio_id: str | None, run_id: str
+    *,
+    issuer_id: str | None,
+    portfolio_id: str | None,
+    run_id: str,
+    tenant_id: str = "tenant-a",
 ) -> AlertCandidate:
     evidence = copy.deepcopy(_candidate().evidence)
     evidence["detail"]["run_id"] = run_id
     return _candidate(
         subject_scope=SubjectScope(
-            tenant_id="tenant-a",
+            tenant_id=tenant_id,
             issuer_id=issuer_id,
             portfolio_id=portfolio_id,
         ),
@@ -215,7 +332,15 @@ def _candidate_evidence(**overrides: object) -> dict:
 
 
 @pytest_asyncio.fixture
-async def alert_store(tmp_path):
+async def alert_store(tmp_path, request):
+    tenancy = getattr(request, "param", {})
+    tenant_id = tenancy.get("tenant_id", "tenant-a")
+    team_id = tenancy.get("team_id", "desk-a")
+    fixture_scope = SubjectScope(
+        tenant_id=tenant_id,
+        issuer_id=None,
+        portfolio_id=None,
+    )
     engine = create_async_engine(
         f"sqlite+aiosqlite:///{tmp_path / 'alerts.db'}",
         connect_args={"timeout": 10},
@@ -256,9 +381,9 @@ async def alert_store(tmp_path):
         session.add(
             WatchRule(
                 id=str(RULE_ID),
-                tenant_id="tenant-a",
+                tenant_id=tenant_id,
                 owner_user_id="alice",
-                team_id_snapshot="desk-a",
+                team_id_snapshot=team_id,
                 issuer_id=None,
                 portfolio_id=None,
                 name="QA watch",
@@ -274,13 +399,7 @@ async def alert_store(tmp_path):
                 claim_expires_at=None,
                 last_evaluated_at=None,
                 claim_attempt_count=0,
-                config_json={
-                    "operator": "eq",
-                    "threshold": "critical",
-                    "kind": "credit_change",
-                    "title": "QA gate changed",
-                    "impact": "Review the governed evidence.",
-                },
+                config_json=dict(RULE_CONFIG),
                 created_at=NOW,
                 updated_at=NOW,
             )
@@ -292,15 +411,9 @@ async def alert_store(tmp_path):
                 watch_rule_id=str(RULE_ID),
                 version=1,
                 owner_user_id="alice",
-                team_id_snapshot="desk-a",
+                team_id_snapshot=team_id,
                 signal_type="qa_gate",
-                config_json={
-                    "operator": "eq",
-                    "threshold": "critical",
-                    "kind": "credit_change",
-                    "title": "QA gate changed",
-                    "impact": "Review the governed evidence.",
-                },
+                config_json=dict(RULE_CONFIG),
                 created_at=NOW,
             )
         )
@@ -308,21 +421,17 @@ async def alert_store(tmp_path):
         session.add(
             WatchRuleEvaluation(
                 id=str(EVALUATION_ID),
-                tenant_id="tenant-a",
+                tenant_id=tenant_id,
                 owner_user_id="alice",
-                team_id_snapshot="desk-a",
+                team_id_snapshot=team_id,
                 issuer_id=None,
                 portfolio_id=None,
                 watch_rule_id=str(RULE_ID),
                 rule_version=1,
                 signal_type="qa_gate",
-                subject_scope_json={
-                    "tenant_id": "tenant-a",
-                    "issuer_id": None,
-                    "portfolio_id": None,
-                },
+                subject_scope_json=fixture_scope.model_dump(mode="json"),
                 source_identity=SOURCE_IDENTITY,
-                observation_key=OBSERVATION_KEY,
+                observation_key=_task3_key(fixture_scope),
                 outcome="observed",
                 correlation_id=str(CORRELATION_ID),
                 correlation_root_id=str(ROOT_ID),
@@ -568,6 +677,22 @@ async def test_materialization_rejects_candidate_presentation_or_authority_drift
 
 
 @pytest.mark.asyncio
+async def test_materialization_binds_persisted_and_candidate_keys_to_task3_derivation(
+    alert_store,
+) -> None:
+    forged_key = "f" * 64
+    async with alert_store.begin() as session:
+        evaluation = await session.get(WatchRuleEvaluation, str(EVALUATION_ID))
+        evaluation.observation_key = forged_key
+    candidate = _candidate(observation_key=forged_key)
+    with pytest.raises(MaterializationError, match="candidate_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(session, candidate, _sinks(), now=NOW)
+    async with alert_store() as verify:
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 0
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "evidence",
     [
@@ -600,17 +725,63 @@ async def test_materialization_rejects_noncanonical_or_drifted_evidence(
 
 
 @pytest.mark.asyncio
-async def test_materialization_accepts_the_exact_task3_detail_omission_marker(
+async def test_materialization_rejects_detail_omission_below_task3_threshold(
     alert_store,
 ) -> None:
     evidence = _candidate_evidence(
         detail=_omission_marker({"finding": "secret-content"})
     )
+    with pytest.raises(MaterializationError, match="candidate_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(
+                session, _candidate(evidence=evidence), _sinks(), now=NOW
+            )
+
+
+@pytest.mark.asyncio
+async def test_materialization_accepts_detail_omission_only_above_task3_threshold(
+    alert_store,
+) -> None:
+    detail = {"blob": "x" * 65_450}
+    candidate = _task3_candidate(_observation(detail=detail))
+    assert candidate.evidence["detail"] == _omission_marker(detail)
+    assert isinstance(candidate.evidence["source_artifact_refs"], list)
     async with alert_store.begin() as session:
-        result = await materialize_alert(
-            session, _candidate(evidence=evidence), _sinks(), now=NOW
-        )
-    assert result.event.evidence["detail"] == evidence["detail"]
+        evaluation = await session.get(WatchRuleEvaluation, str(EVALUATION_ID))
+        evaluation.detail_json = detail
+    async with alert_store.begin() as session:
+        result = await materialize_alert(session, candidate, _sinks(), now=NOW)
+    assert result.event.evidence == candidate.evidence
+
+
+@pytest.mark.asyncio
+async def test_materialization_accepts_exact_task3_artifact_omission_threshold(
+    alert_store,
+) -> None:
+    artifact_refs = tuple("\x00" * 512 for _ in range(64))
+    candidate = _task3_candidate(_observation(artifact_refs=artifact_refs))
+    artifact_marker = candidate.evidence["source_artifact_refs"]
+    assert artifact_marker == _omission_marker(list(artifact_refs), count=64)
+    assert candidate.evidence["detail"] == _omission_marker(
+        {"finding": "secret-content"}
+    )
+    async with alert_store.begin() as session:
+        result = await materialize_alert(session, candidate, _sinks(), now=NOW)
+    assert result.event.evidence == candidate.evidence
+
+
+@pytest.mark.asyncio
+async def test_materialization_rejects_impossible_artifact_marker_byte_size(
+    alert_store,
+) -> None:
+    artifact_refs = tuple("\x00" * 512 for _ in range(64))
+    genuine = _task3_candidate(_observation(artifact_refs=artifact_refs))
+    evidence = copy.deepcopy(genuine.evidence)
+    evidence["source_artifact_refs"]["canonical_bytes"] = 3075 * 64 + 2
+    forged = genuine.model_copy(update={"evidence": evidence})
+    with pytest.raises(MaterializationError, match="candidate_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(session, forged, _sinks(), now=NOW)
 
 
 @pytest.mark.asyncio
@@ -729,35 +900,15 @@ async def test_portfolio_scoped_run_requires_a_position_for_its_issuer(
     alert_store, held
 ) -> None:
     async with alert_store.begin() as session:
-        session.add(
-            Portfolio(
-                id="portfolio-a",
-                name="Portfolio A",
-                created_by="alice",
-                team_id="desk-a",
-                created_at=NOW,
-                updated_at=NOW,
-            )
-        )
-        await session.flush()
-        await _add_issuer_run(
+        await _add_portfolio_run(
             session,
-            issuer_id="issuer-held" if held else "issuer-not-held",
-            run_id="run-portfolio",
             portfolio_id="portfolio-a",
+            portfolio_team="desk-a",
+            issuer_id="issuer-held" if held else "issuer-not-held",
+            issuer_team="desk-a",
+            run_id="run-portfolio",
+            held=held,
         )
-        if held:
-            session.add(
-                PortfolioPosition(
-                    id=str(uuid4()),
-                    portfolio_id="portfolio-a",
-                    issuer_id="issuer-held",
-                    borrower_name="Held issuer",
-                    par_usd=1_000_000,
-                    created_at=NOW,
-                )
-            )
-            await session.flush()
         await _set_evaluation_scope(
             session,
             issuer_id=None,
@@ -802,6 +953,125 @@ async def test_scope_less_run_requires_shared_or_same_frozen_team(
         async with alert_store.begin() as session:
             result = await materialize_alert(session, candidate, _sinks(), now=NOW)
         assert result.event.run_id == "run-team-scope"
+    else:
+        with pytest.raises(MaterializationError, match="run_scope_mismatch"):
+            async with alert_store.begin() as session:
+                await materialize_alert(session, candidate, _sinks(), now=NOW)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "alert_store,scope_kind,issuer_team,portfolio_team,allowed",
+    [
+        (
+            {"tenant_id": SHARED_TENANT_ID, "team_id": SHARED_TEAM_ID},
+            "issuer",
+            "desk-real",
+            None,
+            True,
+        ),
+        (
+            {"tenant_id": "tenant-a", "team_id": "desk-a"},
+            "portfolio",
+            "desk-a",
+            None,
+            False,
+        ),
+        (
+            {"tenant_id": "tenant-a", "team_id": "desk-a"},
+            "portfolio",
+            "desk-a",
+            "desk-b",
+            False,
+        ),
+        (
+            {"tenant_id": UNASSIGNED_TENANT_ID, "team_id": UNASSIGNED_TEAM_ID},
+            "issuer",
+            None,
+            None,
+            True,
+        ),
+        (
+            {"tenant_id": UNASSIGNED_TENANT_ID, "team_id": UNASSIGNED_TEAM_ID},
+            "issuer",
+            "desk-a",
+            None,
+            False,
+        ),
+        (
+            {"tenant_id": UNASSIGNED_TENANT_ID, "team_id": UNASSIGNED_TEAM_ID},
+            "portfolio",
+            None,
+            None,
+            True,
+        ),
+        (
+            {"tenant_id": UNASSIGNED_TENANT_ID, "team_id": UNASSIGNED_TEAM_ID},
+            "portfolio",
+            None,
+            "desk-a",
+            False,
+        ),
+        (
+            {"tenant_id": SHARED_TENANT_ID, "team_id": UNASSIGNED_TEAM_ID},
+            "issuer",
+            None,
+            None,
+            False,
+        ),
+        (
+            {"tenant_id": UNASSIGNED_TENANT_ID, "team_id": SHARED_TEAM_ID},
+            "issuer",
+            None,
+            None,
+            False,
+        ),
+    ],
+    indirect=["alert_store"],
+)
+async def test_run_scope_applies_frozen_tenancy_sentinel_matrix(
+    alert_store,
+    scope_kind,
+    issuer_team,
+    portfolio_team,
+    allowed,
+) -> None:
+    portfolio_id = "portfolio-matrix" if scope_kind == "portfolio" else None
+    async with alert_store.begin() as session:
+        if portfolio_id is None:
+            await _add_issuer_run(
+                session,
+                issuer_id="issuer-matrix",
+                run_id="run-matrix",
+                team_id=issuer_team,
+            )
+        else:
+            await _add_portfolio_run(
+                session,
+                portfolio_id=portfolio_id,
+                portfolio_team=portfolio_team,
+                issuer_id="issuer-matrix",
+                issuer_team=issuer_team,
+                run_id="run-matrix",
+            )
+        await _set_evaluation_scope(
+            session,
+            issuer_id=None,
+            portfolio_id=portfolio_id,
+            run_id="run-matrix",
+        )
+        evaluation = await session.get(WatchRuleEvaluation, str(EVALUATION_ID))
+        tenant_id = evaluation.tenant_id
+    candidate = _scoped_candidate(
+        issuer_id=None,
+        portfolio_id=portfolio_id,
+        run_id="run-matrix",
+        tenant_id=tenant_id,
+    )
+    if allowed:
+        async with alert_store.begin() as session:
+            result = await materialize_alert(session, candidate, _sinks(), now=NOW)
+        assert result.event.run_id == "run-matrix"
     else:
         with pytest.raises(MaterializationError, match="run_scope_mismatch"):
             async with alert_store.begin() as session:

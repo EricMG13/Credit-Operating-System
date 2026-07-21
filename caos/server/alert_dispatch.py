@@ -32,11 +32,18 @@ from database import (
     WatchRuleEvaluation,
     WatchRuleVersion,
 )
-from watch_rules import RuleConfig
+from watch_rules import (
+    SHARED_TEAM_ID,
+    SHARED_TENANT_ID,
+    UNASSIGNED_TEAM_ID,
+    UNASSIGNED_TENANT_ID,
+    RuleConfig,
+)
 
 
 _LEASE_DURATION = timedelta(minutes=5)
 _MACHINE_ERROR = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_MAX_EVIDENCE_BYTES = 64 * 1024
 _EVIDENCE_KEYS = frozenset(
     {
         "source_identity",
@@ -182,11 +189,15 @@ def _artifact_marker_is_well_formed(value: object) -> bool:
     count = value.get("count")
     size = value.get("canonical_bytes")
     digest = value.get("sha256")
+    minimum_size = 3 * count + 1 if isinstance(count, int) else 0
+    maximum_size = 3075 * count + 1 if isinstance(count, int) else 0
     return all(
         (
             value.get("omitted") is True,
             isinstance(count, int) and not isinstance(count, bool) and 1 <= count <= 64,
-            isinstance(size, int) and not isinstance(size, bool) and size >= 2,
+            isinstance(size, int)
+            and not isinstance(size, bool)
+            and minimum_size <= size <= maximum_size,
             isinstance(digest, str)
             and re.fullmatch(r"[0-9a-f]{64}", digest) is not None,
         )
@@ -205,12 +216,6 @@ def _validated_observation_from_evidence(
     evaluation: WatchRuleEvaluation,
     candidate: AlertCandidate,
 ) -> tuple[SignalObservation, bool] | None:
-    """Validate Task 3 evidence and reconstruct every persisted observation field.
-
-    The bool records whether artifact references were present and therefore can be
-    compared exactly. A canonical omission marker is shape-validated only because
-    the frozen evaluation schema intentionally does not retain the original list.
-    """
     evidence = candidate.evidence
     if not isinstance(evidence, dict) or set(evidence) != _EVIDENCE_KEYS:
         return None
@@ -231,25 +236,47 @@ def _validated_observation_from_evidence(
         return None
 
     detail = evidence.get("detail")
-    if detail != evaluation.detail_json and detail != _omission_marker(
-        evaluation.detail_json
-    ):
+    detail_marker = _omission_marker(evaluation.detail_json)
+    detail_is_omitted = detail == detail_marker
+    if detail != evaluation.detail_json and not detail_is_omitted:
         return None
 
     artifact_value = evidence.get("source_artifact_refs")
     artifacts_recoverable = isinstance(artifact_value, list)
     if artifacts_recoverable:
+        original_evidence = dict(evidence)
+        original_evidence["detail"] = evaluation.detail_json
+        original_size = len(_canonical_bytes(original_evidence))
+        if detail_is_omitted:
+            if (
+                original_size <= _MAX_EVIDENCE_BYTES
+                or len(_canonical_bytes(evidence)) > _MAX_EVIDENCE_BYTES
+            ):
+                return None
+        elif original_size > _MAX_EVIDENCE_BYTES:
+            return None
         artifact_refs: tuple[str, ...] = tuple(artifact_value)
     elif _artifact_marker_is_well_formed(artifact_value):
+        if not detail_is_omitted:
+            return None
         probe = dict(evidence)
         probe["source_artifact_refs"] = []
         empty_list_bytes = len(_canonical_bytes([]))
-        full_evidence_bytes = (
+        detail_stage_bytes = (
             len(_canonical_bytes(probe))
             - empty_list_bytes
             + artifact_value["canonical_bytes"]
         )
-        if full_evidence_bytes <= 64 * 1024:
+        probe["detail"] = evaluation.detail_json
+        original_evidence_bytes = (
+            len(_canonical_bytes(probe))
+            - empty_list_bytes
+            + artifact_value["canonical_bytes"]
+        )
+        if (
+            original_evidence_bytes <= _MAX_EVIDENCE_BYTES
+            or detail_stage_bytes <= _MAX_EVIDENCE_BYTES
+        ):
             return None
         artifact_refs = ()
     else:
@@ -309,7 +336,10 @@ def _candidate_matches_evaluation(
             evaluation.subject_scope_json == scope,
             evaluation.issuer_id == candidate.issuer_id,
             evaluation.portfolio_id == candidate.portfolio_id,
-            evaluation.observation_key == candidate.observation_key,
+            evaluation.observation_key
+            == candidate.observation_key
+            == expected.observation_key,
+            candidate.alert_key == expected.alert_key,
             evaluation.correlation_id == str(candidate.correlation_id),
             evaluation.correlation_root_id == str(candidate.correlation_root_id),
             evaluation.hop_count == candidate.hop_count,
@@ -323,16 +353,13 @@ def _candidate_matches_evaluation(
             candidate.title == config.title == expected.title,
             candidate.impact == config.impact == expected.impact,
             candidate.run_id == expected.run_id,
-            candidate.authority == expected_authority,
+            candidate.authority == expected_authority == expected.authority,
         )
     )
     if not identity_matches:
         return False
     if artifacts_recoverable:
-        expected_evidence = dict(expected.evidence)
-        if candidate.evidence["detail"] == _omission_marker(evaluation.detail_json):
-            expected_evidence["detail"] = _omission_marker(evaluation.detail_json)
-        return candidate.evidence == expected_evidence
+        return candidate.evidence == expected.evidence
     # Task 3 may replace the source-artifact list with a digest marker only after
     # detail omission. Its original list is not persisted, so exact digest
     # provenance is unrecoverable; all remaining evidence is checked exactly.
@@ -442,8 +469,25 @@ async def _validate_run_scope(
     if row is None:
         raise MaterializationError("run_not_found")
     run, issuer = row
+    tenant_id = evaluation.tenant_id
     team_id = evaluation.team_id_snapshot
-    if issuer.team_id not in {None, team_id}:
+    if (tenant_id, team_id) == (SHARED_TENANT_ID, SHARED_TEAM_ID):
+        tenancy_mode = "shared"
+    elif (tenant_id, team_id) == (UNASSIGNED_TENANT_ID, UNASSIGNED_TEAM_ID):
+        tenancy_mode = "unassigned"
+    elif tenant_id in {SHARED_TENANT_ID, UNASSIGNED_TENANT_ID} or team_id in {
+        SHARED_TEAM_ID,
+        UNASSIGNED_TEAM_ID,
+    }:
+        raise MaterializationError("run_scope_mismatch")
+    else:
+        tenancy_mode = "named"
+    issuer_team_allowed = (
+        tenancy_mode == "shared"
+        or (tenancy_mode == "unassigned" and issuer.team_id is None)
+        or (tenancy_mode == "named" and issuer.team_id in {None, team_id})
+    )
+    if not issuer_team_allowed:
         raise MaterializationError("run_scope_mismatch")
     if evaluation.issuer_id is not None:
         if run.issuer_id != evaluation.issuer_id:
@@ -451,9 +495,14 @@ async def _validate_run_scope(
         return
     if evaluation.portfolio_id is not None:
         portfolio = await db.get(Portfolio, evaluation.portfolio_id)
+        portfolio_team_allowed = portfolio is not None and (
+            tenancy_mode == "shared"
+            or (tenancy_mode == "unassigned" and portfolio.team_id is None)
+            or (tenancy_mode == "named" and portfolio.team_id == team_id)
+        )
         if (
             portfolio is None
-            or portfolio.team_id not in {None, team_id}
+            or not portfolio_team_allowed
             or run.portfolio_id != evaluation.portfolio_id
         ):
             raise MaterializationError("run_scope_mismatch")
