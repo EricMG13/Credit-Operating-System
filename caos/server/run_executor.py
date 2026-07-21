@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, or_, select, update
 
+from alert_triggers import trigger_completed_run
 from config import get_settings
 from database import AsyncSessionLocal, Run, engine
 from engine import budget
@@ -133,6 +134,14 @@ async def execute_run_by_id(
             await _emit_terminal_notification(session, run)
             await session.commit()
             committed = True
+            try:
+                await trigger_completed_run(run_id)
+            except Exception:  # noqa: BLE001 — derived alert work cannot alter the run
+                logger.warning(
+                    "post-commit alert trigger failed run_id=%s "
+                    "trigger_kind=run_completed status=complete",
+                    run_id,
+                )
             await _maybe_export_to_vault(session, run_id)
         except asyncio.CancelledError:
             # Shutdown cancellation. CancelledError is BaseException, not Exception,
