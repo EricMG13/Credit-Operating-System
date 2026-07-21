@@ -2,25 +2,32 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Protocol, TypeAlias
 from uuid import UUID, uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import Select, and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import OperationalError
 
-from alert_contracts import AlertCandidate, SinkIntent, SinkResult
-from alert_sinks import AlertSink, DeliveryEnvelope, sink_idempotency_key
+from alert_contracts import AlertCandidate, SignalObservation, SinkIntent, SinkResult
+from alert_evaluation import evaluate_rule
+from alert_sinks import AlertSink, Channel, DeliveryEnvelope, sink_idempotency_key
 from database import (
     AlertDeliveryIntent,
     AlertEvent,
     AlertEventContext,
+    Issuer,
+    Portfolio,
+    PortfolioPosition,
     Run,
     WatchRuleEvaluation,
     WatchRuleVersion,
@@ -30,6 +37,33 @@ from watch_rules import RuleConfig
 
 _LEASE_DURATION = timedelta(minutes=5)
 _MACHINE_ERROR = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_EVIDENCE_KEYS = frozenset(
+    {
+        "source_identity",
+        "observed_at",
+        "numeric_value",
+        "categorical_value",
+        "source_artifact_refs",
+        "detail",
+    }
+)
+
+# The frozen evaluation row does not retain these original observation fields.
+# We can re-run the rule decision and validate their bounded wire shape, but cannot
+# prove their historical value identity against storage after Task 3 returns.
+UNRECOVERABLE_EVIDENCE_FIELDS = frozenset(
+    {"numeric_value", "categorical_value", "source_artifact_refs"}
+)
+
+
+class AsyncSessionFactory(Protocol):
+    """Callable that creates one async context-managed database session."""
+
+    def __call__(self) -> AsyncSession: ...
+
+
+SinkRegistryKey: TypeAlias = Channel | tuple[Channel, str]
+SinkRegistry: TypeAlias = Mapping[SinkRegistryKey, AlertSink]
 
 
 class MaterializationError(Exception):
@@ -65,13 +99,39 @@ def _aware_utc(value: datetime, *, label: str) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def _insert_for(db: AsyncSession, model):
-    dialect = db.get_bind().dialect.name
+def _insert_for_dialect(dialect: str, model):
     if dialect == "postgresql":
         return postgresql_insert(model)
     if dialect == "sqlite":
         return sqlite_insert(model)
     raise MaterializationError("unsupported_database")
+
+
+def alert_event_upsert_statement(dialect: str, values: Mapping[str, object]):
+    """Build the production conflict-safe alert-event insertion."""
+    return (
+        _insert_for_dialect(dialect, AlertEvent)
+        .values(**dict(values))
+        .on_conflict_do_nothing(index_elements=["alert_key"])
+    )
+
+
+def alert_context_upsert_statement(dialect: str, values: Mapping[str, object]):
+    """Build the production conflict-safe evaluation-context insertion."""
+    return (
+        _insert_for_dialect(dialect, AlertEventContext)
+        .values(**dict(values))
+        .on_conflict_do_nothing()
+    )
+
+
+def alert_intent_upsert_statement(dialect: str, values: Mapping[str, object]):
+    """Build the production conflict-safe destination-intent insertion."""
+    return (
+        _insert_for_dialect(dialect, AlertDeliveryIntent)
+        .values(**dict(values))
+        .on_conflict_do_nothing()
+    )
 
 
 def _deduplicated_sinks(sinks: Sequence[AlertSink]) -> tuple[AlertSink, ...]:
@@ -87,6 +147,131 @@ def _deduplicated_sinks(sinks: Sequence[AlertSink]) -> tuple[AlertSink, ...]:
             raise MaterializationError("conflicting_sink_configuration")
         unique[key] = sink
     return tuple(unique[key] for key in sorted(unique))
+
+
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def _omission_marker(value: object, *, count: int | None = None) -> dict[str, object]:
+    canonical = _canonical_bytes(value)
+    marker: dict[str, object] = {
+        "omitted": True,
+        "canonical_bytes": len(canonical),
+        "sha256": hashlib.sha256(canonical).hexdigest(),
+    }
+    if count is not None:
+        marker["count"] = count
+    return marker
+
+
+def _artifact_marker_is_well_formed(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "omitted",
+        "count",
+        "canonical_bytes",
+        "sha256",
+    }:
+        return False
+    count = value.get("count")
+    size = value.get("canonical_bytes")
+    digest = value.get("sha256")
+    return all(
+        (
+            value.get("omitted") is True,
+            isinstance(count, int) and not isinstance(count, bool) and 1 <= count <= 64,
+            isinstance(size, int) and not isinstance(size, bool) and size >= 2,
+            isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest) is not None,
+        )
+    )
+
+
+def _persisted_utc(value: datetime) -> datetime:
+    if not isinstance(value, datetime):
+        raise ValueError("persisted timestamp is invalid")
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _validated_observation_from_evidence(
+    evaluation: WatchRuleEvaluation,
+    candidate: AlertCandidate,
+) -> tuple[SignalObservation, bool] | None:
+    """Validate Task 3 evidence and reconstruct every persisted observation field.
+
+    The bool records whether artifact references were present and therefore can be
+    compared exactly. A canonical omission marker is shape-validated only because
+    the frozen evaluation schema intentionally does not retain the original list.
+    """
+    evidence = candidate.evidence
+    if not isinstance(evidence, dict) or set(evidence) != _EVIDENCE_KEYS:
+        return None
+    if evidence.get("source_identity") != evaluation.source_identity:
+        return None
+    observed_at = evidence.get("observed_at")
+    if not isinstance(observed_at, str):
+        return None
+    try:
+        parsed_observed_at = datetime.fromisoformat(observed_at)
+    except ValueError:
+        return None
+    if parsed_observed_at.tzinfo is None:
+        return None
+    if parsed_observed_at.astimezone(timezone.utc) != _persisted_utc(
+        evaluation.evaluated_at
+    ):
+        return None
+
+    detail = evidence.get("detail")
+    if detail != evaluation.detail_json and detail != _omission_marker(
+        evaluation.detail_json
+    ):
+        return None
+
+    artifact_value = evidence.get("source_artifact_refs")
+    artifacts_recoverable = isinstance(artifact_value, list)
+    if artifacts_recoverable:
+        artifact_refs: tuple[str, ...] = tuple(artifact_value)
+    elif _artifact_marker_is_well_formed(artifact_value):
+        probe = dict(evidence)
+        probe["source_artifact_refs"] = []
+        empty_list_bytes = len(_canonical_bytes([]))
+        full_evidence_bytes = (
+            len(_canonical_bytes(probe))
+            - empty_list_bytes
+            + artifact_value["canonical_bytes"]
+        )
+        if full_evidence_bytes <= 64 * 1024:
+            return None
+        artifact_refs = ()
+    else:
+        return None
+
+    try:
+        observation = SignalObservation(
+            signal_type=evaluation.signal_type,
+            subject_scope=evaluation.subject_scope_json,
+            source_identity=evaluation.source_identity,
+            observed_at=parsed_observed_at,
+            numeric_value=evidence.get("numeric_value"),
+            categorical_value=evidence.get("categorical_value"),
+            detail=evaluation.detail_json,
+            source_artifact_refs=artifact_refs,
+            correlation_id=UUID(evaluation.correlation_id),
+            correlation_root_id=UUID(evaluation.correlation_root_id),
+            hop_count=evaluation.hop_count,
+        )
+    except (TypeError, ValueError, ValidationError):
+        return None
+    return observation, artifacts_recoverable
 
 
 def _candidate_matches_evaluation(
@@ -105,14 +290,15 @@ def _candidate_matches_evaluation(
         "watch_rule_id": evaluation.watch_rule_id,
         "rule_version": evaluation.rule_version,
     }
-    evidence_source = candidate.evidence.get("source_identity")
-    detail_run_id = evaluation.detail_json.get("run_id")
-    expected_run_id = (
-        detail_run_id
-        if isinstance(detail_run_id, str) and len(detail_run_id) <= 64
-        else None
-    )
-    return all(
+    reconstructed = _validated_observation_from_evidence(evaluation, candidate)
+    if reconstructed is None:
+        return False
+    observation, artifacts_recoverable = reconstructed
+    decision = evaluate_rule(version, observation, evaluation_id=UUID(evaluation.id))
+    expected = decision.candidate
+    if decision.outcome != "matched" or expected is None:
+        return False
+    identity_matches = all(
         (
             evaluation.id == str(candidate.evaluation_id),
             evaluation.tenant_id == candidate.subject_scope.tenant_id,
@@ -133,12 +319,32 @@ def _candidate_matches_evaluation(
             version.owner_user_id == evaluation.owner_user_id,
             version.team_id_snapshot == evaluation.team_id_snapshot,
             version.signal_type == evaluation.signal_type,
-            candidate.kind == config.kind,
-            candidate.title == config.title,
-            candidate.impact == config.impact,
-            candidate.run_id == expected_run_id,
+            candidate.kind == config.kind == expected.kind,
+            candidate.title == config.title == expected.title,
+            candidate.impact == config.impact == expected.impact,
+            candidate.run_id == expected.run_id,
             candidate.authority == expected_authority,
-            evidence_source == evaluation.source_identity,
+        )
+    )
+    if not identity_matches:
+        return False
+    if artifacts_recoverable:
+        expected_evidence = dict(expected.evidence)
+        if candidate.evidence["detail"] == _omission_marker(evaluation.detail_json):
+            expected_evidence["detail"] = _omission_marker(evaluation.detail_json)
+        return candidate.evidence == expected_evidence
+    # Task 3 may replace the source-artifact list with a digest marker only after
+    # detail omission. Its original list is not persisted, so exact digest
+    # provenance is unrecoverable; all remaining evidence is checked exactly.
+    return all(
+        (
+            candidate.evidence["source_identity"]
+            == expected.evidence["source_identity"],
+            candidate.evidence["observed_at"] == expected.evidence["observed_at"],
+            candidate.evidence["numeric_value"] == expected.evidence["numeric_value"],
+            candidate.evidence["categorical_value"]
+            == expected.evidence["categorical_value"],
+            candidate.evidence["detail"] == _omission_marker(evaluation.detail_json),
         )
     )
 
@@ -221,6 +427,48 @@ def _intent_matches(
     )
 
 
+async def _validate_run_scope(
+    db: AsyncSession,
+    evaluation: WatchRuleEvaluation,
+    run_id: str,
+) -> None:
+    row = (
+        await db.execute(
+            select(Run, Issuer)
+            .join(Issuer, Issuer.id == Run.issuer_id)
+            .where(Run.id == run_id)
+        )
+    ).one_or_none()
+    if row is None:
+        raise MaterializationError("run_not_found")
+    run, issuer = row
+    team_id = evaluation.team_id_snapshot
+    if issuer.team_id not in {None, team_id}:
+        raise MaterializationError("run_scope_mismatch")
+    if evaluation.issuer_id is not None:
+        if run.issuer_id != evaluation.issuer_id:
+            raise MaterializationError("run_scope_mismatch")
+        return
+    if evaluation.portfolio_id is not None:
+        portfolio = await db.get(Portfolio, evaluation.portfolio_id)
+        if (
+            portfolio is None
+            or portfolio.team_id not in {None, team_id}
+            or run.portfolio_id != evaluation.portfolio_id
+        ):
+            raise MaterializationError("run_scope_mismatch")
+        position_exists = await db.scalar(
+            select(PortfolioPosition.id)
+            .where(
+                PortfolioPosition.portfolio_id == evaluation.portfolio_id,
+                PortfolioPosition.issuer_id == run.issuer_id,
+            )
+            .limit(1)
+        )
+        if position_exists is None:
+            raise MaterializationError("run_scope_mismatch")
+
+
 async def materialize_alert(
     db: AsyncSession,
     candidate: AlertCandidate,
@@ -231,6 +479,13 @@ async def materialize_alert(
     """Insert or get the event/context/destinations in the caller's transaction."""
     if not isinstance(candidate, AlertCandidate):
         raise MaterializationError("invalid_candidate")
+    # Own and revalidate the complete nested candidate before the first await.
+    # Callers can otherwise mutate Pydantic's nested dict/list references while
+    # this coroutine is suspended on its initial database read.
+    try:
+        candidate = AlertCandidate.model_validate_json(candidate.model_dump_json())
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise MaterializationError("invalid_candidate") from exc
     normalized_now = _aware_utc(now, label="now")
     unique_sinks = _deduplicated_sinks(sinks)
     row = (
@@ -251,8 +506,8 @@ async def materialize_alert(
     evaluation, version = row
     if not _candidate_matches_evaluation(evaluation, version, candidate):
         raise MaterializationError("candidate_mismatch")
-    if candidate.run_id is not None and await db.get(Run, candidate.run_id) is None:
-        raise MaterializationError("run_not_found")
+    if candidate.run_id is not None:
+        await _validate_run_scope(db, evaluation, candidate.run_id)
 
     evaluation.outcome = "matched"
     event_values = {
@@ -270,11 +525,8 @@ async def materialize_alert(
         "created_at": normalized_now,
         "updated_at": normalized_now,
     }
-    await db.execute(
-        _insert_for(db, AlertEvent)
-        .values(**event_values)
-        .on_conflict_do_nothing(index_elements=["alert_key"])
-    )
+    dialect = db.get_bind().dialect.name
+    await db.execute(alert_event_upsert_statement(dialect, event_values))
     event = await db.scalar(
         select(AlertEvent)
         .where(AlertEvent.alert_key == candidate.alert_key)
@@ -302,11 +554,7 @@ async def materialize_alert(
         "context_json": _context_payload(candidate),
         "created_at": normalized_now,
     }
-    await db.execute(
-        _insert_for(db, AlertEventContext)
-        .values(**context_values)
-        .on_conflict_do_nothing()
-    )
+    await db.execute(alert_context_upsert_statement(dialect, context_values))
     context = await db.scalar(
         select(AlertEventContext)
         .where(AlertEventContext.alert_event_id == event.id)
@@ -340,11 +588,7 @@ async def materialize_alert(
             "created_at": normalized_now,
             "updated_at": normalized_now,
         }
-        await db.execute(
-            _insert_for(db, AlertDeliveryIntent)
-            .values(**intent_values)
-            .on_conflict_do_nothing()
-        )
+        await db.execute(alert_intent_upsert_statement(dialect, intent_values))
         intent = await db.scalar(
             select(AlertDeliveryIntent)
             .where(
@@ -395,6 +639,105 @@ def delivery_claim_select(now: datetime) -> Select:
         )
         .limit(1)
         .with_for_update(skip_locked=True)
+    )
+
+
+def delivery_claim_update_statement(
+    intent_id: str,
+    *,
+    now: datetime,
+    token: str,
+    expires_at: datetime,
+):
+    """Build the tokenized, bounded-attempt claim transition."""
+    normalized_now = _aware_utc(now, label="now")
+    normalized_expiry = _aware_utc(expires_at, label="expires_at")
+    return (
+        update(AlertDeliveryIntent)
+        .execution_options(synchronize_session=False)
+        .where(
+            AlertDeliveryIntent.id == intent_id,
+            _eligible(normalized_now),
+            AlertDeliveryIntent.attempt_count < AlertDeliveryIntent.max_attempts,
+        )
+        .values(
+            status="leased",
+            attempt_count=AlertDeliveryIntent.attempt_count + 1,
+            lease_token=token,
+            lease_expires_at=normalized_expiry,
+            rendered_intent=None,
+            not_sent_reason=None,
+            updated_at=normalized_now,
+        )
+        .returning(AlertDeliveryIntent.id)
+    )
+
+
+def _owned_lease_predicates(lease: DeliveryLease, now: datetime) -> tuple:
+    return (
+        AlertDeliveryIntent.id == str(lease.intent_id),
+        AlertDeliveryIntent.status == "leased",
+        AlertDeliveryIntent.lease_token == str(lease.lease_token),
+        AlertDeliveryIntent.lease_expires_at > now,
+        AlertDeliveryIntent.channel == lease.channel,
+        AlertDeliveryIntent.destination_ref == lease.destination_ref,
+        AlertDeliveryIntent.attempt_count == lease.attempt_count,
+        AlertDeliveryIntent.max_attempts == lease.max_attempts,
+        AlertDeliveryIntent.correlation_root_id == str(lease.correlation_root_id),
+    )
+
+
+def delivery_completion_update_statement(
+    lease: DeliveryLease,
+    result: SinkIntent,
+    *,
+    now: datetime,
+):
+    """Build the full-identity conditional terminal completion."""
+    normalized_now = _aware_utc(now, label="now")
+    return (
+        update(AlertDeliveryIntent)
+        .execution_options(synchronize_session=False)
+        .where(*_owned_lease_predicates(lease, normalized_now))
+        .values(
+            status=result.status,
+            rendered_intent=result.rendered_intent,
+            not_sent_reason=result.not_sent_reason,
+            lease_token=None,
+            lease_expires_at=None,
+            updated_at=normalized_now,
+        )
+        .returning(AlertDeliveryIntent.id)
+    )
+
+
+def delivery_failure_update_statement(
+    lease: DeliveryLease,
+    *,
+    now: datetime,
+    error_class: str,
+):
+    """Build the full-identity retry or terminal failure transition."""
+    normalized_now = _aware_utc(now, label="now")
+    safe_class = _safe_error_class(error_class)
+    terminal = lease.attempt_count >= lease.max_attempts
+    values: dict[str, Any] = {
+        "status": "not_sent" if terminal else "pending",
+        "rendered_intent": None,
+        "not_sent_reason": f"render_error:{safe_class}" if terminal else None,
+        "lease_token": None,
+        "lease_expires_at": None,
+        "updated_at": normalized_now,
+    }
+    if not terminal:
+        delay = min(300, 30 * (2 ** (lease.attempt_count - 1)))
+        values["available_at"] = normalized_now + timedelta(seconds=delay)
+    return (
+        update(AlertDeliveryIntent)
+        .execution_options(synchronize_session=False)
+        .where(*_owned_lease_predicates(lease, normalized_now))
+        .values(**values)
+        .returning(AlertDeliveryIntent.id)
     )
 
 
@@ -517,23 +860,12 @@ async def claim_delivery_intent(
         if selected is None:
             return None
         intent_id = await db.scalar(
-            update(AlertDeliveryIntent)
-            .execution_options(synchronize_session=False)
-            .where(
-                AlertDeliveryIntent.id == selected.id,
-                _eligible(normalized_now),
-                AlertDeliveryIntent.attempt_count < AlertDeliveryIntent.max_attempts,
+            delivery_claim_update_statement(
+                selected.id,
+                now=normalized_now,
+                token=token,
+                expires_at=expires_at,
             )
-            .values(
-                status="leased",
-                attempt_count=AlertDeliveryIntent.attempt_count + 1,
-                lease_token=token,
-                lease_expires_at=expires_at,
-                rendered_intent=None,
-                not_sent_reason=None,
-                updated_at=normalized_now,
-            )
-            .returning(AlertDeliveryIntent.id)
         )
     elif dialect == "sqlite":
         intent_id = await _claim_id_sqlite(
@@ -601,28 +933,11 @@ async def complete_delivery_intent(
         return False
     _validate_sink_intent(lease, result, intent)
     completed_id = await db.scalar(
-        update(AlertDeliveryIntent)
-        .execution_options(synchronize_session=False)
-        .where(
-            AlertDeliveryIntent.id == str(lease.intent_id),
-            AlertDeliveryIntent.status == "leased",
-            AlertDeliveryIntent.lease_token == str(lease.lease_token),
-            AlertDeliveryIntent.lease_expires_at > normalized_now,
-            AlertDeliveryIntent.channel == lease.channel,
-            AlertDeliveryIntent.destination_ref == lease.destination_ref,
-            AlertDeliveryIntent.attempt_count == lease.attempt_count,
-            AlertDeliveryIntent.max_attempts == lease.max_attempts,
-            AlertDeliveryIntent.correlation_root_id == str(lease.correlation_root_id),
+        delivery_completion_update_statement(
+            lease,
+            result,
+            now=normalized_now,
         )
-        .values(
-            status=result.status,
-            rendered_intent=result.rendered_intent,
-            not_sent_reason=result.not_sent_reason,
-            lease_token=None,
-            lease_expires_at=None,
-            updated_at=normalized_now,
-        )
-        .returning(AlertDeliveryIntent.id)
     )
     return completed_id is not None
 
@@ -644,42 +959,17 @@ async def record_delivery_failure(
 ) -> bool:
     """Release an owned attempt to retry or terminal not-sent state."""
     normalized_now = _aware_utc(now, label="now")
-    safe_class = _safe_error_class(error_class)
-    terminal = lease.attempt_count >= lease.max_attempts
-    values: dict[str, Any] = {
-        "status": "not_sent" if terminal else "pending",
-        "rendered_intent": None,
-        "not_sent_reason": f"render_error:{safe_class}" if terminal else None,
-        "lease_token": None,
-        "lease_expires_at": None,
-        "updated_at": normalized_now,
-    }
-    if not terminal:
-        delay = min(300, 30 * (2 ** (lease.attempt_count - 1)))
-        values["available_at"] = normalized_now + timedelta(seconds=delay)
     released_id = await db.scalar(
-        update(AlertDeliveryIntent)
-        .execution_options(synchronize_session=False)
-        .where(
-            AlertDeliveryIntent.id == str(lease.intent_id),
-            AlertDeliveryIntent.status == "leased",
-            AlertDeliveryIntent.lease_token == str(lease.lease_token),
-            AlertDeliveryIntent.lease_expires_at > normalized_now,
-            AlertDeliveryIntent.channel == lease.channel,
-            AlertDeliveryIntent.destination_ref == lease.destination_ref,
-            AlertDeliveryIntent.attempt_count == lease.attempt_count,
-            AlertDeliveryIntent.max_attempts == lease.max_attempts,
-            AlertDeliveryIntent.correlation_root_id == str(lease.correlation_root_id),
+        delivery_failure_update_statement(
+            lease,
+            now=normalized_now,
+            error_class=error_class,
         )
-        .values(**values)
-        .returning(AlertDeliveryIntent.id)
     )
     return released_id is not None
 
 
-def _registry_sink(
-    registry: Mapping[Any, AlertSink], lease: DeliveryLease
-) -> AlertSink | None:
+def _registry_sink(registry: SinkRegistry, lease: DeliveryLease) -> AlertSink | None:
     sink = registry.get((lease.channel, lease.destination_ref))
     if sink is None:
         sink = registry.get(lease.channel)
@@ -687,8 +977,8 @@ def _registry_sink(
 
 
 async def dispatch_once(
-    session_factory,
-    sink_registry: Mapping[Any, AlertSink],
+    session_factory: AsyncSessionFactory,
+    sink_registry: SinkRegistry,
     clock: Callable[[], datetime],
 ) -> SinkResult | None:
     """Claim, render outside storage, then conditionally finish in two transactions."""
@@ -747,12 +1037,21 @@ async def dispatch_once(
 
 
 __all__ = [
+    "AsyncSessionFactory",
     "DeliveryLease",
     "MaterializationError",
     "MaterializedAlert",
+    "SinkRegistry",
+    "UNRECOVERABLE_EVIDENCE_FIELDS",
+    "alert_context_upsert_statement",
+    "alert_event_upsert_statement",
+    "alert_intent_upsert_statement",
     "claim_delivery_intent",
     "complete_delivery_intent",
+    "delivery_claim_update_statement",
     "delivery_claim_select",
+    "delivery_completion_update_statement",
+    "delivery_failure_update_statement",
     "dispatch_once",
     "materialize_alert",
     "record_delivery_failure",

@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import ClassVar, Literal
 from uuid import UUID
 
@@ -14,6 +16,37 @@ from alert_contracts import SinkIntent
 
 Channel = Literal["in_app", "email"]
 _IDEMPOTENCY_VERSION = "c3-delivery-v1"
+
+
+class _FrozenList(tuple):
+    """Immutable JSON-array snapshot with ordinary JSON equality semantics."""
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, (list, tuple)):
+            return tuple.__eq__(self, tuple(other))
+        return False
+
+    __hash__ = None
+
+
+def _freeze_json(value: object) -> object:
+    """Own and recursively freeze one JSON-compatible value."""
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {str(key): _freeze_json(item) for key, item in value.items()}
+        )
+    if isinstance(value, (list, tuple)):
+        return _FrozenList(_freeze_json(item) for item in value)
+    return value
+
+
+def _thaw_json(value: object) -> object:
+    """Return a fresh mutable JSON tree for one renderer invocation."""
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw_json(item) for item in value]
+    return value
 
 
 def _bounded_utf8(value: object, *, maximum: int, label: str) -> str:
@@ -63,8 +96,8 @@ class DeliveryEnvelope:
     kind: str
     title: str
     impact: str
-    evidence: dict
-    authority: dict
+    evidence: Mapping[str, object]
+    authority: Mapping[str, object]
 
     def __post_init__(self) -> None:
         if self.channel not in {"in_app", "email"}:
@@ -81,6 +114,12 @@ class DeliveryEnvelope:
             or not 1 <= self.attempt_count <= 5
         ):
             raise ValueError("attempt_count must be 1..5")
+        if not isinstance(self.evidence, Mapping) or not isinstance(
+            self.authority, Mapping
+        ):
+            raise TypeError("evidence and authority must be mappings")
+        object.__setattr__(self, "evidence", _freeze_json(self.evidence))
+        object.__setattr__(self, "authority", _freeze_json(self.authority))
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,8 +194,8 @@ class EmailSink(AlertSink):
                 "subject": envelope.title,
                 "body": envelope.impact,
                 "credit_kind": envelope.kind,
-                "evidence": envelope.evidence,
-                "authority": envelope.authority,
+                "evidence": _thaw_json(envelope.evidence),
+                "authority": _thaw_json(envelope.authority),
             },
         )
 

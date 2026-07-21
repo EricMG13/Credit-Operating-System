@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
+import json
 import logging
+from inspect import Parameter, signature
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from typing import get_type_hints
 from uuid import UUID, uuid4
 
 import pytest
@@ -14,6 +19,7 @@ from sqlalchemy import event, func, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import alert_dispatch
 from alert_contracts import AlertCandidate, SubjectScope
 from alert_dispatch import (
     MaterializationError,
@@ -34,6 +40,8 @@ from database import (
     Base,
     Issuer,
     NotificationEvent,
+    Portfolio,
+    PortfolioPosition,
     Run,
     SectorTaxonomy,
     WatchRule,
@@ -72,7 +80,14 @@ def _candidate(**overrides: object) -> AlertCandidate:
         "kind": "credit_change",
         "title": "QA gate changed",
         "impact": "Review the governed evidence.",
-        "evidence": {"source_identity": SOURCE_IDENTITY, "finding": "secret-content"},
+        "evidence": {
+            "source_identity": SOURCE_IDENTITY,
+            "observed_at": NOW.isoformat(),
+            "numeric_value": None,
+            "categorical_value": "critical",
+            "source_artifact_refs": ["artifact:governed:1"],
+            "detail": {"finding": "secret-content"},
+        },
         "authority": {
             "observation_key": OBSERVATION_KEY,
             "source_identity": SOURCE_IDENTITY,
@@ -92,6 +107,111 @@ def _sinks():
         InAppSink(destination_ref="inbox-primary", max_attempts=3),
         EmailSink(destination_ref="email-route-primary", max_attempts=5),
     )
+
+
+def _omission_marker(value: object, *, count: int | None = None) -> dict:
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    marker = {
+        "omitted": True,
+        "canonical_bytes": len(canonical),
+        "sha256": hashlib.sha256(canonical).hexdigest(),
+    }
+    if count is not None:
+        marker["count"] = count
+    return marker
+
+
+async def _add_issuer(
+    session,
+    *,
+    issuer_id: str,
+    team_id: str | None = "desk-a",
+) -> None:
+    session.add(
+        Issuer(
+            id=issuer_id,
+            name=f"Issuer {issuer_id}",
+            normalized_name=f"issuer {issuer_id}",
+            team_id=team_id,
+            uniqueness_scope=team_id or "shared",
+            created_by="alice",
+            created_at=NOW,
+        )
+    )
+    await session.flush()
+
+
+async def _add_issuer_run(
+    session,
+    *,
+    issuer_id: str,
+    run_id: str,
+    team_id: str | None = "desk-a",
+    portfolio_id: str | None = None,
+) -> None:
+    await _add_issuer(session, issuer_id=issuer_id, team_id=team_id)
+    session.add(
+        Run(
+            id=run_id,
+            issuer_id=issuer_id,
+            status="complete",
+            analyst_id="alice",
+            portfolio_id=portfolio_id,
+            created_at=NOW,
+        )
+    )
+    await session.flush()
+
+
+async def _set_evaluation_scope(
+    session,
+    *,
+    issuer_id: str | None,
+    portfolio_id: str | None,
+    run_id: str,
+) -> None:
+    evaluation = await session.get(WatchRuleEvaluation, str(EVALUATION_ID))
+    evaluation.issuer_id = issuer_id
+    evaluation.portfolio_id = portfolio_id
+    evaluation.subject_scope_json = {
+        "tenant_id": "tenant-a",
+        "issuer_id": issuer_id,
+        "portfolio_id": portfolio_id,
+    }
+    evaluation.detail_json = {"finding": "secret-content", "run_id": run_id}
+    rule = await session.get(WatchRule, str(RULE_ID))
+    rule.issuer_id = issuer_id
+    rule.portfolio_id = portfolio_id
+
+
+def _scoped_candidate(
+    *, issuer_id: str | None, portfolio_id: str | None, run_id: str
+) -> AlertCandidate:
+    evidence = copy.deepcopy(_candidate().evidence)
+    evidence["detail"]["run_id"] = run_id
+    return _candidate(
+        subject_scope=SubjectScope(
+            tenant_id="tenant-a",
+            issuer_id=issuer_id,
+            portfolio_id=portfolio_id,
+        ),
+        issuer_id=issuer_id,
+        portfolio_id=portfolio_id,
+        run_id=run_id,
+        evidence=evidence,
+    )
+
+
+def _candidate_evidence(**overrides: object) -> dict:
+    evidence = copy.deepcopy(_candidate().evidence)
+    evidence.update(overrides)
+    return evidence
 
 
 @pytest_asyncio.fixture
@@ -115,6 +235,8 @@ async def alert_store(tmp_path):
                 sync,
                 tables=[
                     Issuer.__table__,
+                    Portfolio.__table__,
+                    PortfolioPosition.__table__,
                     Run.__table__,
                     SectorTaxonomy.__table__,
                     AnalysisContextRecord.__table__,
@@ -153,8 +275,8 @@ async def alert_store(tmp_path):
                 last_evaluated_at=None,
                 claim_attempt_count=0,
                 config_json={
-                    "operator": "present",
-                    "threshold": None,
+                    "operator": "eq",
+                    "threshold": "critical",
                     "kind": "credit_change",
                     "title": "QA gate changed",
                     "impact": "Review the governed evidence.",
@@ -173,8 +295,8 @@ async def alert_store(tmp_path):
                 team_id_snapshot="desk-a",
                 signal_type="qa_gate",
                 config_json={
-                    "operator": "present",
-                    "threshold": None,
+                    "operator": "eq",
+                    "threshold": "critical",
                     "kind": "credit_change",
                     "title": "QA gate changed",
                     "impact": "Review the governed evidence.",
@@ -410,12 +532,18 @@ async def test_unknown_candidate_run_id_fails_closed_before_legacy_fk_insert(
 ) -> None:
     async with alert_store.begin() as session:
         evaluation = await session.get(WatchRuleEvaluation, str(EVALUATION_ID))
-        evaluation.detail_json = {"run_id": "missing-run"}
+        evaluation.detail_json = {
+            "finding": "secret-content",
+            "run_id": "missing-run",
+        }
     with pytest.raises(MaterializationError, match="run_not_found"):
         async with alert_store.begin() as session:
+            evidence = _candidate_evidence(
+                detail={"finding": "secret-content", "run_id": "missing-run"}
+            )
             await materialize_alert(
                 session,
-                _candidate(run_id="missing-run"),
+                _candidate(run_id="missing-run", evidence=evidence),
                 _sinks(),
                 now=NOW,
             )
@@ -437,6 +565,247 @@ async def test_materialization_rejects_candidate_presentation_or_authority_drift
             await materialize_alert(session, candidate, _sinks(), now=NOW)
     async with alert_store() as verify:
         assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        _candidate_evidence(extra="forged"),
+        _candidate_evidence(observed_at=(NOW + timedelta(seconds=1)).isoformat()),
+        _candidate_evidence(detail={"finding": "forged"}),
+        _candidate_evidence(
+            source_artifact_refs={
+                "omitted": True,
+                "count": 1,
+                "canonical_bytes": 12,
+            }
+        ),
+        _candidate_evidence(
+            detail=_omission_marker({"finding": "secret-content"}),
+            source_artifact_refs=_omission_marker(["artifact:governed:1"], count=1),
+        ),
+    ],
+)
+async def test_materialization_rejects_noncanonical_or_drifted_evidence(
+    alert_store, evidence
+) -> None:
+    with pytest.raises(MaterializationError, match="candidate_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(
+                session, _candidate(evidence=evidence), _sinks(), now=NOW
+            )
+    async with alert_store() as verify:
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 0
+
+
+@pytest.mark.asyncio
+async def test_materialization_accepts_the_exact_task3_detail_omission_marker(
+    alert_store,
+) -> None:
+    evidence = _candidate_evidence(
+        detail=_omission_marker({"finding": "secret-content"})
+    )
+    async with alert_store.begin() as session:
+        result = await materialize_alert(
+            session, _candidate(evidence=evidence), _sinks(), now=NOW
+        )
+    assert result.event.evidence["detail"] == evidence["detail"]
+
+
+@pytest.mark.asyncio
+async def test_reconstructed_rule_decision_rejects_unmatched_forged_value(
+    alert_store,
+) -> None:
+    evidence = _candidate_evidence(categorical_value="warning")
+    with pytest.raises(MaterializationError, match="candidate_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(
+                session, _candidate(evidence=evidence), _sinks(), now=NOW
+            )
+
+
+@pytest.mark.asyncio
+async def test_candidate_nested_mutation_before_call_is_revalidated(
+    alert_store,
+) -> None:
+    candidate = _candidate()
+    candidate.evidence["detail"]["finding"] = "forged-after-construction"
+    with pytest.raises(MaterializationError, match="candidate_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(session, candidate, _sinks(), now=NOW)
+
+
+@pytest.mark.asyncio
+async def test_candidate_is_owned_before_first_await_and_cannot_drift(
+    alert_store,
+) -> None:
+    candidate = _candidate()
+    engine = alert_store.kw["bind"]
+    mutated = False
+
+    def mutate_candidate(
+        _connection, _cursor, _statement, _parameters, _context, _many
+    ):
+        nonlocal mutated
+        if not mutated:
+            mutated = True
+            candidate.evidence["detail"]["finding"] = "mutated-during-first-await"
+            candidate.authority["source_identity"] = "mutated-during-first-await"
+
+    event.listen(engine.sync_engine, "before_cursor_execute", mutate_candidate)
+    try:
+        async with alert_store.begin() as session:
+            result = await materialize_alert(session, candidate, _sinks(), now=NOW)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", mutate_candidate)
+
+    assert mutated is True
+    assert result.event.evidence["detail"] == {"finding": "secret-content"}
+    assert result.event.authority["source_identity"] == SOURCE_IDENTITY
+
+
+def test_frozen_evaluation_schema_explicitly_marks_unrecoverable_evidence_fields() -> (
+    None
+):
+    assert alert_dispatch.UNRECOVERABLE_EVIDENCE_FIELDS == frozenset(
+        {"numeric_value", "categorical_value", "source_artifact_refs"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_issuer_scoped_run_with_same_issuer_materializes(alert_store) -> None:
+    async with alert_store.begin() as session:
+        await _add_issuer_run(session, issuer_id="issuer-a", run_id="run-same-issuer")
+        await _set_evaluation_scope(
+            session,
+            issuer_id="issuer-a",
+            portfolio_id=None,
+            run_id="run-same-issuer",
+        )
+    async with alert_store.begin() as session:
+        result = await materialize_alert(
+            session,
+            _scoped_candidate(
+                issuer_id="issuer-a", portfolio_id=None, run_id="run-same-issuer"
+            ),
+            _sinks(),
+            now=NOW,
+        )
+    assert (result.event.issuer_id, result.event.run_id) == (
+        "issuer-a",
+        "run-same-issuer",
+    )
+
+
+@pytest.mark.asyncio
+async def test_issuer_scoped_run_with_cross_issuer_is_rejected(alert_store) -> None:
+    async with alert_store.begin() as session:
+        await _add_issuer(session, issuer_id="issuer-a")
+        await _add_issuer_run(session, issuer_id="issuer-b", run_id="run-cross-issuer")
+        await _set_evaluation_scope(
+            session,
+            issuer_id="issuer-a",
+            portfolio_id=None,
+            run_id="run-cross-issuer",
+        )
+    with pytest.raises(MaterializationError, match="run_scope_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(
+                session,
+                _scoped_candidate(
+                    issuer_id="issuer-a",
+                    portfolio_id=None,
+                    run_id="run-cross-issuer",
+                ),
+                _sinks(),
+                now=NOW,
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("held", [True, False])
+async def test_portfolio_scoped_run_requires_a_position_for_its_issuer(
+    alert_store, held
+) -> None:
+    async with alert_store.begin() as session:
+        session.add(
+            Portfolio(
+                id="portfolio-a",
+                name="Portfolio A",
+                created_by="alice",
+                team_id="desk-a",
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.flush()
+        await _add_issuer_run(
+            session,
+            issuer_id="issuer-held" if held else "issuer-not-held",
+            run_id="run-portfolio",
+            portfolio_id="portfolio-a",
+        )
+        if held:
+            session.add(
+                PortfolioPosition(
+                    id=str(uuid4()),
+                    portfolio_id="portfolio-a",
+                    issuer_id="issuer-held",
+                    borrower_name="Held issuer",
+                    par_usd=1_000_000,
+                    created_at=NOW,
+                )
+            )
+            await session.flush()
+        await _set_evaluation_scope(
+            session,
+            issuer_id=None,
+            portfolio_id="portfolio-a",
+            run_id="run-portfolio",
+        )
+    candidate = _scoped_candidate(
+        issuer_id=None, portfolio_id="portfolio-a", run_id="run-portfolio"
+    )
+    if held:
+        async with alert_store.begin() as session:
+            result = await materialize_alert(session, candidate, _sinks(), now=NOW)
+        assert result.event.run_id == "run-portfolio"
+    else:
+        with pytest.raises(MaterializationError, match="run_scope_mismatch"):
+            async with alert_store.begin() as session:
+                await materialize_alert(session, candidate, _sinks(), now=NOW)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("issuer_team", ["desk-a", "desk-b"])
+async def test_scope_less_run_requires_shared_or_same_frozen_team(
+    alert_store, issuer_team
+) -> None:
+    async with alert_store.begin() as session:
+        await _add_issuer_run(
+            session,
+            issuer_id=f"issuer-{issuer_team}",
+            run_id="run-team-scope",
+            team_id=issuer_team,
+        )
+        await _set_evaluation_scope(
+            session,
+            issuer_id=None,
+            portfolio_id=None,
+            run_id="run-team-scope",
+        )
+    candidate = _scoped_candidate(
+        issuer_id=None, portfolio_id=None, run_id="run-team-scope"
+    )
+    if issuer_team == "desk-a":
+        async with alert_store.begin() as session:
+            result = await materialize_alert(session, candidate, _sinks(), now=NOW)
+        assert result.event.run_id == "run-team-scope"
+    else:
+        with pytest.raises(MaterializationError, match="run_scope_mismatch"):
+            async with alert_store.begin() as session:
+                await materialize_alert(session, candidate, _sinks(), now=NOW)
 
 
 @pytest.mark.asyncio
@@ -797,3 +1166,102 @@ def test_postgresql_claim_compiles_for_update_skip_locked() -> None:
         )
     ).upper()
     assert "FOR UPDATE SKIP LOCKED" in compiled
+
+
+@pytest.mark.asyncio
+async def test_postgresql_compiles_the_exact_production_upsert_and_transition_builders(
+    alert_store,
+) -> None:
+    event_builder = getattr(alert_dispatch, "alert_event_upsert_statement")
+    context_builder = getattr(alert_dispatch, "alert_context_upsert_statement")
+    intent_builder = getattr(alert_dispatch, "alert_intent_upsert_statement")
+    claim_builder = getattr(alert_dispatch, "delivery_claim_update_statement")
+    completion_builder = getattr(alert_dispatch, "delivery_completion_update_statement")
+    failure_builder = getattr(alert_dispatch, "delivery_failure_update_statement")
+
+    upserts = {
+        "event": event_builder(
+            "postgresql",
+            {"id": str(uuid4()), "alert_key": f"c3:{OBSERVATION_KEY}"},
+        ),
+        "context": context_builder(
+            "postgresql",
+            {
+                "id": str(uuid4()),
+                "alert_event_id": str(uuid4()),
+                "watch_rule_evaluation_id": str(EVALUATION_ID),
+            },
+        ),
+        "intent": intent_builder(
+            "postgresql",
+            {
+                "id": str(uuid4()),
+                "alert_event_context_id": str(uuid4()),
+                "channel": "email",
+                "destination_ref": "opaque",
+            },
+        ),
+    }
+    compiled_upserts = {
+        name: str(statement.compile(dialect=postgresql.dialect())).upper()
+        for name, statement in upserts.items()
+    }
+    assert "ON CONFLICT (ALERT_KEY) DO NOTHING" in compiled_upserts["event"]
+    assert "ON CONFLICT DO NOTHING" in compiled_upserts["context"]
+    assert "ON CONFLICT DO NOTHING" in compiled_upserts["intent"]
+
+    await _materialize_committed(
+        alert_store,
+        sinks=(EmailSink(destination_ref="only", max_attempts=5),),
+    )
+    async with alert_store.begin() as session:
+        lease = await claim_delivery_intent(session, now=NOW)
+    assert lease is not None
+    terminal = EmailSink(destination_ref="only").render(lease.envelope)
+    transitions = {
+        "claim": claim_builder(
+            str(lease.intent_id),
+            now=NOW,
+            token=str(uuid4()),
+            expires_at=NOW + timedelta(minutes=5),
+        ),
+        "completion": completion_builder(lease, terminal, now=NOW),
+        "failure": failure_builder(lease, now=NOW, error_class="RenderFailure"),
+    }
+    compiled = {
+        name: str(statement.compile(dialect=postgresql.dialect())).upper()
+        for name, statement in transitions.items()
+    }
+    assert "ATTEMPT_COUNT=(ALERT_DELIVERY_INTENTS.ATTEMPT_COUNT +" in compiled["claim"]
+    assert "RETURNING ALERT_DELIVERY_INTENTS.ID" in compiled["claim"]
+    for required in (
+        "STATUS",
+        "AVAILABLE_AT",
+        "ATTEMPT_COUNT",
+        "MAX_ATTEMPTS",
+        "LEASE_TOKEN",
+        "LEASE_EXPIRES_AT",
+    ):
+        assert required in compiled["claim"]
+    for transition in ("completion", "failure"):
+        for required in (
+            "LEASE_TOKEN",
+            "LEASE_EXPIRES_AT",
+            "STATUS",
+            "CHANNEL",
+            "DESTINATION_REF",
+            "ATTEMPT_COUNT",
+            "MAX_ATTEMPTS",
+            "CORRELATION_ROOT_ID",
+        ):
+            assert required in compiled[transition]
+        assert "RETURNING ALERT_DELIVERY_INTENTS.ID" in compiled[transition]
+
+
+def test_dispatch_public_orchestration_annotations_are_precise() -> None:
+    hints = get_type_hints(dispatch_once)
+    assert hints["session_factory"] is alert_dispatch.AsyncSessionFactory
+    assert hints["sink_registry"] == alert_dispatch.SinkRegistry
+    parameters = signature(dispatch_once).parameters
+    assert parameters["session_factory"].annotation is not Parameter.empty
+    assert parameters["sink_registry"].annotation is not Parameter.empty

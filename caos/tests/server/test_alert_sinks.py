@@ -35,8 +35,15 @@ def _envelope(*, channel: str = "email", destination_ref: str = "desk-primary"):
         kind="credit_change",
         title="Leverage moved above policy",
         impact="Review the governed credit evidence.",
-        evidence={"metric": "net_leverage", "value": 5.2},
-        authority={"observation_key": "a" * 64},
+        evidence={
+            "metric": "net_leverage",
+            "value": 5.2,
+            "nested": {"sources": ["fact-a", {"fact": "fact-b"}]},
+        },
+        authority={
+            "observation_key": "a" * 64,
+            "nested": {"approvals": ["qa"]},
+        },
     )
 
 
@@ -99,6 +106,49 @@ def test_delivery_envelope_is_immutable_and_rejects_key_or_channel_mismatch() ->
         replace(envelope, idempotency_key="0" * 64)
     with pytest.raises(ValueError, match="channel"):
         _envelope(channel="sms")
+
+
+def test_delivery_envelope_recursively_owns_and_freezes_provenance() -> None:
+    evidence = {
+        "metric": "net_leverage",
+        "nested": {"sources": ["fact-a", {"fact": "fact-b"}]},
+    }
+    authority = {
+        "observation_key": "a" * 64,
+        "nested": {"approvals": ["qa"]},
+    }
+    envelope = replace(_envelope(), evidence=evidence, authority=authority)
+
+    evidence["metric"] = "mutated-after-construction"
+    evidence["nested"]["sources"].append("late-source")
+    authority["nested"]["approvals"].append("late-approval")
+
+    for mutation in (
+        lambda: envelope.evidence.__setitem__("new", "value"),
+        lambda: envelope.evidence["nested"].__setitem__("new", "value"),
+        lambda: envelope.evidence["nested"]["sources"].append("value"),
+        lambda: envelope.evidence["nested"]["sources"][1].__setitem__(
+            "fact", "changed"
+        ),
+        lambda: envelope.authority.__setitem__("new", "value"),
+        lambda: envelope.authority["nested"].__setitem__("new", "value"),
+        lambda: envelope.authority["nested"]["approvals"].append("value"),
+    ):
+        with pytest.raises((AttributeError, TypeError)):
+            mutation()
+
+    sink = EmailSink(destination_ref="desk-primary")
+    first = sink.render(envelope)
+    second = sink.render(envelope)
+    assert first == second
+    assert first.rendered_intent["evidence"] == {
+        "metric": "net_leverage",
+        "nested": {"sources": ["fact-a", {"fact": "fact-b"}]},
+    }
+    assert first.rendered_intent["authority"] == {
+        "observation_key": "a" * 64,
+        "nested": {"approvals": ["qa"]},
+    }
 
 
 def test_in_app_render_is_deterministic_internal_reference_without_destination() -> (
