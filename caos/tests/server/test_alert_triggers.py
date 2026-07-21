@@ -19,6 +19,7 @@ from alert_dispatch import MaterializationError
 from alert_triggers import (
     APPROVED_TRIGGER_SINKS,
     SCHEDULE_FAILURE_BACKOFF_SECONDS,
+    ScheduledRuleClaim,
     claim_scheduled_rule,
     complete_scheduled_rule,
     evaluate_scheduled_rule,
@@ -29,17 +30,26 @@ from alert_triggers import (
 from alert_sinks import EmailSink, InAppSink
 from config import get_settings
 from database import (
+    Analyst,
     AlertDeliveryIntent,
     AlertEvent,
     AlertEventContext,
     AlertState,
     Base,
     Issuer,
+    Portfolio,
+    PortfolioPosition,
     QAFinding,
     Run,
     WatchRule,
     WatchRuleEvaluation,
     WatchRuleVersion,
+)
+from watch_rules import (
+    SHARED_TEAM_ID,
+    SHARED_TENANT_ID,
+    UNASSIGNED_TEAM_ID,
+    UNASSIGNED_TENANT_ID,
 )
 
 
@@ -307,6 +317,254 @@ async def test_completed_run_evaluates_only_rules_visible_to_the_run_team(
 
 
 @pytest.mark.asyncio
+async def test_portfolio_scoped_rule_snapshot_requires_exact_current_book_visibility(
+    trigger_store,
+) -> None:
+    async with trigger_store() as session:
+        session.add_all(
+            [
+                Issuer(
+                    id="issuer-book",
+                    name="Book Issuer",
+                    normalized_name="book issuer",
+                    team_id=None,
+                    uniqueness_scope="shared",
+                    created_by="seed",
+                    created_at=NOW,
+                ),
+                Portfolio(
+                    id="portfolio-a",
+                    name="Portfolio A",
+                    team_id="desk-a",
+                    created_by="alice",
+                    created_at=NOW,
+                    updated_at=NOW,
+                ),
+            ]
+        )
+        await session.flush()
+        session.add(
+            PortfolioPosition(
+                portfolio_id="portfolio-a",
+                issuer_id="issuer-book",
+                borrower_name="Book Issuer",
+                par_usd=1_000_000,
+                created_at=NOW,
+            )
+        )
+        await _add_rule(
+            session,
+            portfolio_id="portfolio-a",
+            tenant_id="desk-a",
+            team_id="desk-a",
+        )
+        await _add_rule(
+            session,
+            portfolio_id="portfolio-a",
+            tenant_id="desk-b",
+            team_id="desk-b",
+        )
+        run = Run(
+            issuer_id="issuer-book",
+            portfolio_id="portfolio-a",
+            analyst_id="missing-profile",
+            status="complete",
+            qa_status="critical",
+            completed_at=NOW,
+            created_at=NOW,
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    result = await trigger_completed_run(run_id, session_factory=trigger_store)
+    assert result.observations == 1
+    assert result.materialized == 1
+
+
+@pytest.mark.asyncio
+async def test_shared_issuer_allows_each_valid_named_rule_snapshot_without_profile(
+    trigger_store,
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-shared",
+                name="Shared Issuer",
+                normalized_name="shared issuer",
+                team_id=None,
+                uniqueness_scope="shared",
+                created_by="seed",
+                created_at=NOW,
+            )
+        )
+        await _add_rule(
+            session, issuer_id="issuer-shared", tenant_id="desk-a", team_id="desk-a"
+        )
+        await _add_rule(
+            session, issuer_id="issuer-shared", tenant_id="desk-b", team_id="desk-b"
+        )
+        run = Run(
+            issuer_id="issuer-shared",
+            analyst_id="proxy-principal-with-no-profile",
+            status="complete",
+            qa_status="critical",
+            completed_at=NOW,
+            created_at=NOW,
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    result = await trigger_completed_run(run_id, session_factory=trigger_store)
+    assert result.observations == 2
+    assert result.materialized == 2
+
+
+@pytest.mark.asyncio
+async def test_unassigned_snapshot_requires_teamless_resources_and_malformed_fails_closed(
+    trigger_store,
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-unassigned",
+                name="Unassigned Issuer",
+                normalized_name="unassigned issuer",
+                team_id=None,
+                uniqueness_scope="shared",
+                created_by="seed",
+                created_at=NOW,
+            )
+        )
+        await _add_rule(
+            session,
+            issuer_id="issuer-unassigned",
+            tenant_id=UNASSIGNED_TENANT_ID,
+            team_id=UNASSIGNED_TEAM_ID,
+        )
+        await _add_rule(
+            session,
+            issuer_id="issuer-unassigned",
+            tenant_id=UNASSIGNED_TENANT_ID,
+            team_id="desk-a",
+        )
+        run = Run(
+            issuer_id="issuer-unassigned",
+            analyst_id="missing-profile",
+            status="complete",
+            qa_status="critical",
+            completed_at=NOW,
+            created_at=NOW,
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    result = await trigger_completed_run(run_id, session_factory=trigger_store)
+    assert result.observations == 1
+    assert result.materialized == 1
+
+
+@pytest.mark.asyncio
+async def test_analyst_team_change_does_not_reclassify_rule_snapshot_replay(
+    trigger_store,
+) -> None:
+    async with trigger_store() as session:
+        session.add_all(
+            [
+                Analyst(
+                    id="analyst-replay",
+                    name="Replay Analyst",
+                    email="replay@example.test",
+                    role="analyst",
+                    team_id="desk-a",
+                    created_at=NOW - timedelta(days=2),
+                ),
+                Issuer(
+                    id="issuer-replay",
+                    name="Replay Issuer",
+                    normalized_name="replay issuer",
+                    team_id="desk-a",
+                    uniqueness_scope="desk-a",
+                    created_by="analyst-replay",
+                    created_at=NOW - timedelta(days=2),
+                ),
+            ]
+        )
+        await _add_rule(session, issuer_id="issuer-replay")
+        run = Run(
+            issuer_id="issuer-replay",
+            analyst_id="analyst-replay",
+            status="complete",
+            qa_status="critical",
+            completed_at=NOW,
+            created_at=NOW,
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    first = await trigger_completed_run(run_id, session_factory=trigger_store)
+    async with trigger_store() as session:
+        analyst = await session.get(Analyst, "analyst-replay")
+        assert analyst is not None
+        analyst.team_id = "desk-b"
+        await session.commit()
+    replay = await trigger_completed_run(run_id, session_factory=trigger_store)
+
+    assert first.materialized == 1
+    assert replay.observations == 1
+    assert replay.materialized == 0
+    async with trigger_store() as verify:
+        assert (
+            await verify.scalar(select(func.count()).select_from(WatchRuleEvaluation))
+            == 1
+        )
+
+
+@pytest.mark.asyncio
+async def test_tenancy_off_selects_only_shared_rule_snapshots(
+    trigger_store, monkeypatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", False)
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-shared-mode",
+                name="Shared Mode Issuer",
+                normalized_name="shared mode issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW,
+            )
+        )
+        await _add_rule(
+            session,
+            issuer_id="issuer-shared-mode",
+            tenant_id=SHARED_TENANT_ID,
+            team_id=SHARED_TEAM_ID,
+        )
+        await _add_rule(session, issuer_id="issuer-shared-mode")
+        run = Run(
+            issuer_id="issuer-shared-mode",
+            analyst_id="alice",
+            status="complete",
+            qa_status="critical",
+            completed_at=NOW,
+            created_at=NOW,
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    result = await trigger_completed_run(run_id, session_factory=trigger_store)
+    assert result.observations == 1
+    assert result.materialized == 1
+
+
+@pytest.mark.asyncio
 async def test_run_trigger_failure_preserves_terminal_status_and_vault_continuation(
     trigger_store, monkeypatch, caplog
 ) -> None:
@@ -367,6 +625,120 @@ async def test_run_trigger_failure_preserves_terminal_status_and_vault_continuat
     assert "secret observation content" not in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_run_trigger_cancellation_attempts_vault_once_then_propagates(
+    trigger_store, monkeypatch
+) -> None:
+    import run_executor
+
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-cancel",
+                name="Issuer Cancel",
+                normalized_name="issuer cancel",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW,
+            )
+        )
+        run = Run(
+            issuer_id="issuer-cancel",
+            analyst_id="alice",
+            status="running",
+            created_at=NOW,
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    async def finish(_session, run):
+        run.status = "complete"
+        run.completed_at = NOW
+
+    async def no_notification(_session, _run):
+        return None
+
+    async def cancel_trigger(_run_id):
+        raise asyncio.CancelledError
+
+    vault_calls: list[str] = []
+
+    async def record_vault(_session, vault_run_id):
+        vault_calls.append(vault_run_id)
+
+    monkeypatch.setattr(run_executor, "AsyncSessionLocal", trigger_store)
+    monkeypatch.setattr(run_executor, "execute_run", finish)
+    monkeypatch.setattr(run_executor, "_emit_terminal_notification", no_notification)
+    monkeypatch.setattr(run_executor, "trigger_completed_run", cancel_trigger)
+    monkeypatch.setattr(run_executor, "_maybe_export_to_vault", record_vault)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_executor.execute_run_by_id(run_id)
+
+    async with trigger_store() as verify:
+        persisted = await verify.get(Run, run_id)
+        assert persisted is not None and persisted.status == "complete"
+    assert vault_calls == [run_id]
+
+
+@pytest.mark.asyncio
+async def test_vault_cancellation_after_trigger_still_preserves_complete_run(
+    trigger_store, monkeypatch
+) -> None:
+    import run_executor
+
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-vault-cancel",
+                name="Issuer Vault Cancel",
+                normalized_name="issuer vault cancel",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW,
+            )
+        )
+        run = Run(
+            issuer_id="issuer-vault-cancel",
+            analyst_id="alice",
+            status="running",
+            created_at=NOW,
+        )
+        session.add(run)
+        await session.commit()
+        run_id = run.id
+
+    async def finish(_session, run):
+        run.status = "complete"
+        run.completed_at = NOW
+
+    async def no_op(*_args):
+        return None
+
+    vault_calls: list[str] = []
+
+    async def cancel_vault(_session, vault_run_id):
+        vault_calls.append(vault_run_id)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(run_executor, "AsyncSessionLocal", trigger_store)
+    monkeypatch.setattr(run_executor, "execute_run", finish)
+    monkeypatch.setattr(run_executor, "_emit_terminal_notification", no_op)
+    monkeypatch.setattr(run_executor, "trigger_completed_run", no_op)
+    monkeypatch.setattr(run_executor, "_maybe_export_to_vault", cancel_vault)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_executor.execute_run_by_id(run_id)
+
+    async with trigger_store() as verify:
+        persisted = await verify.get(Run, run_id)
+        assert persisted is not None and persisted.status == "complete"
+    assert vault_calls == [run_id]
+
+
 def test_only_approved_intent_sinks_are_configured() -> None:
     assert APPROVED_TRIGGER_SINKS == (
         EmailSink(destination_ref="owner-email-route", max_attempts=5),
@@ -388,6 +760,16 @@ def test_postgresql_claim_sql_is_atomic_returning_and_skip_locked() -> None:
     assert "FOR UPDATE SKIP LOCKED" in sql
     assert "RETURNING" in sql
     assert "CLAIM_ATTEMPT_COUNT=(WATCH_RULES.CLAIM_ATTEMPT_COUNT + 1)" in sql
+
+    reap_sql = str(
+        alert_triggers.schedule_reap_update_statement(NOW).compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    ).upper()
+    assert reap_sql.startswith("UPDATE WATCH_RULES SET")
+    assert "FOR UPDATE SKIP LOCKED" in reap_sql
+    assert "CLAIM_ATTEMPT_COUNT = 5" in reap_sql
+    assert "RETURNING" in reap_sql
 
 
 async def _seed_scheduled(
@@ -564,6 +946,33 @@ async def test_failure_backoff_is_exact_and_fifth_failure_pauses(
         assert row.claim_token is None and row.claim_expires_at is None
 
 
+@pytest.mark.asyncio
+async def test_expired_fifth_claim_is_atomically_reaped_and_paused(
+    trigger_store,
+) -> None:
+    rule_id = await _seed_scheduled(trigger_store, attempts=4)
+    async with trigger_store() as session:
+        async with session.begin():
+            fifth = await claim_scheduled_rule(session, now=NOW, rule_id=rule_id)
+    assert fifth is not None and fifth.attempt_count == 5
+
+    exact_expiry = NOW + timedelta(minutes=5)
+    async with trigger_store() as session:
+        async with session.begin():
+            replacement = await claim_scheduled_rule(
+                session, now=exact_expiry, rule_id=rule_id
+            )
+    assert replacement is None
+    async with trigger_store() as verify:
+        row = await verify.get(WatchRule, rule_id)
+        assert row is not None
+        assert row.paused is True
+        assert row.next_evaluation_at is None
+        assert row.claim_attempt_count == 5
+        assert row.claim_token is None and row.claim_expires_at is None
+        assert _utc(row.last_evaluated_at) == exact_expiry
+
+
 def _scheduled_observation(*, source_identity: str = "watch:fact:1"):
     correlation = uuid4()
     return SignalObservation(
@@ -583,6 +992,104 @@ def _scheduled_observation(*, source_identity: str = "watch:fact:1"):
 
 
 @pytest.mark.asyncio
+async def test_reclaimed_worker_cannot_materialize_after_lease_expiry(
+    trigger_store, monkeypatch
+) -> None:
+    rule_id = await _seed_scheduled(trigger_store)
+    expiry = NOW + timedelta(minutes=5)
+    original_fence = getattr(alert_triggers, "_lock_owned_scheduled_claim", None)
+    replacement_claims: list[ScheduledRuleClaim] = []
+
+    async def reclaim_before_fence(db, claim, *, now):
+        async with trigger_store() as replacement_db:
+            async with replacement_db.begin():
+                replacement = await claim_scheduled_rule(
+                    replacement_db, now=expiry, rule_id=rule_id
+                )
+        assert replacement is not None and replacement.attempt_count == 2
+        replacement_claims.append(replacement)
+        assert original_fence is not None
+        return await original_fence(db, claim, now=now)
+
+    monkeypatch.setattr(
+        alert_triggers,
+        "_lock_owned_scheduled_claim",
+        reclaim_before_fence,
+        raising=False,
+    )
+    result = await evaluate_scheduled_rule(
+        session_factory=trigger_store,
+        now=NOW,
+        clock=lambda: expiry,
+        rule_id=rule_id,
+        trigger_kind="scheduled_watchlist",
+        observation=_scheduled_observation(source_identity="watch:stale-worker"),
+    )
+
+    assert result.status == "lease_lost"
+    assert len(replacement_claims) == 1
+    async with trigger_store() as verify:
+        row = await verify.get(WatchRule, rule_id)
+        assert row is not None
+        assert row.claim_token == str(replacement_claims[0].claim_token)
+        assert (
+            await verify.scalar(select(func.count()).select_from(WatchRuleEvaluation))
+            == 0
+        )
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 0
+
+
+def test_next_interval_slot_fails_bounded_near_datetime_max() -> None:
+    near_max = datetime.max.replace(tzinfo=timezone.utc) - timedelta(seconds=30)
+    claim = ScheduledRuleClaim(
+        rule_id=uuid4(),
+        claim_token=uuid4(),
+        claim_expires_at=datetime.max.replace(tzinfo=timezone.utc),
+        scheduled_for=near_max,
+        schedule_kind="interval",
+        schedule_interval_seconds=60,
+        signal_type="qa_gate",
+        rule_version=1,
+        attempt_count=1,
+    )
+    with pytest.raises(OverflowError, match="future interval slot"):
+        alert_triggers._next_interval_slot(
+            claim, datetime.max.replace(tzinfo=timezone.utc) - timedelta(seconds=1)
+        )
+
+
+@pytest.mark.asyncio
+async def test_completion_overflow_routes_fifth_attempt_to_durable_pause(
+    trigger_store, monkeypatch
+) -> None:
+    rule_id = await _seed_scheduled(trigger_store, attempts=4)
+
+    async def overflow_completion(*_args, **_kwargs):
+        raise OverflowError("no representable future interval slot")
+
+    monkeypatch.setattr(
+        alert_triggers, "complete_scheduled_rule", overflow_completion
+    )
+    result = await evaluate_scheduled_rule(
+        session_factory=trigger_store,
+        now=NOW,
+        clock=lambda: NOW,
+        rule_id=rule_id,
+        trigger_kind="scheduled_watchlist",
+        observation=_scheduled_observation(source_identity="watch:overflow"),
+    )
+
+    assert result.status == "failed"
+    async with trigger_store() as verify:
+        row = await verify.get(WatchRule, rule_id)
+        assert row is not None
+        assert row.paused is True
+        assert row.next_evaluation_at is None
+        assert row.claim_attempt_count == 5
+        assert row.claim_token is None and row.claim_expires_at is None
+
+
+@pytest.mark.asyncio
 async def test_supported_scheduled_observation_uses_pipeline_then_completes(
     trigger_store,
 ) -> None:
@@ -590,6 +1097,7 @@ async def test_supported_scheduled_observation_uses_pipeline_then_completes(
     result = await evaluate_scheduled_rule(
         session_factory=trigger_store,
         now=NOW,
+        clock=lambda: NOW,
         rule_id=rule_id,
         trigger_kind="scheduled_watchlist",
         observation=_scheduled_observation(),
@@ -609,6 +1117,47 @@ async def test_supported_scheduled_observation_uses_pipeline_then_completes(
 
 
 @pytest.mark.asyncio
+async def test_scheduled_success_uses_fresh_clock_for_each_fence_and_completion(
+    trigger_store,
+) -> None:
+    rule_id = await _seed_scheduled(trigger_store)
+    ticks = iter(
+        (
+            NOW + timedelta(seconds=1),
+            NOW + timedelta(seconds=2),
+            NOW + timedelta(seconds=3),
+        )
+    )
+    calls: list[datetime] = []
+
+    def advancing_clock() -> datetime:
+        value = next(ticks)
+        calls.append(value)
+        return value
+
+    result = await evaluate_scheduled_rule(
+        session_factory=trigger_store,
+        now=NOW,
+        clock=advancing_clock,
+        rule_id=rule_id,
+        trigger_kind="scheduled_watchlist",
+        observation=_scheduled_observation(source_identity="watch:fresh-clock"),
+    )
+
+    assert result.status == "completed"
+    assert calls == [
+        NOW + timedelta(seconds=1),
+        NOW + timedelta(seconds=2),
+        NOW + timedelta(seconds=3),
+    ]
+    async with trigger_store() as verify:
+        row = await verify.get(WatchRule, rule_id)
+        assert row is not None
+        assert _utc(row.last_evaluated_at) == NOW + timedelta(seconds=3)
+        assert _utc(row.next_evaluation_at) == NOW + timedelta(minutes=1)
+
+
+@pytest.mark.asyncio
 async def test_scheduled_materialization_failure_rolls_back_and_records_backoff(
     trigger_store, monkeypatch
 ) -> None:
@@ -621,6 +1170,7 @@ async def test_scheduled_materialization_failure_rolls_back_and_records_backoff(
     result = await evaluate_scheduled_rule(
         session_factory=trigger_store,
         now=NOW,
+        clock=lambda: NOW,
         rule_id=rule_id,
         trigger_kind="scheduled_watchlist",
         observation=_scheduled_observation(source_identity="watch:fact:rollback"),
@@ -652,6 +1202,7 @@ async def test_unavailable_scheduled_sources_fail_durably_without_fabrication(
     result = await evaluate_scheduled_rule(
         session_factory=trigger_store,
         now=NOW,
+        clock=lambda: NOW,
         rule_id=rule_id,
         trigger_kind=(
             "scheduled_edgar" if schedule_kind == "edgar" else "scheduled_watchlist"
@@ -680,6 +1231,7 @@ async def test_wrong_scheduled_trigger_kind_and_reserved_news_never_fabricate(
     result = await evaluate_scheduled_rule(
         session_factory=trigger_store,
         now=NOW,
+        clock=lambda: NOW,
         rule_id=rule_id,
         trigger_kind="scheduled_edgar",
         observation=_scheduled_observation(),
@@ -700,6 +1252,7 @@ async def test_wrong_scheduled_trigger_kind_and_reserved_news_never_fabricate(
     news_result = await evaluate_scheduled_rule(
         session_factory=trigger_store,
         now=NOW,
+        clock=lambda: NOW,
         rule_id=news_id,
         trigger_kind="scheduled_watchlist",
         observation=None,

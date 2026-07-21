@@ -134,8 +134,16 @@ async def execute_run_by_id(
             await _emit_terminal_notification(session, run)
             await session.commit()
             committed = True
+            trigger_cancelled = False
             try:
                 await trigger_completed_run(run_id)
+            except asyncio.CancelledError:
+                trigger_cancelled = True
+                logger.warning(
+                    "post-commit alert trigger cancelled run_id=%s "
+                    "trigger_kind=run_completed status=complete",
+                    run_id,
+                )
             except Exception:  # noqa: BLE001 — derived alert work cannot alter the run
                 logger.warning(
                     "post-commit alert trigger failed run_id=%s "
@@ -143,6 +151,8 @@ async def execute_run_by_id(
                     run_id,
                 )
             await _maybe_export_to_vault(session, run_id)
+            if trigger_cancelled:
+                raise asyncio.CancelledError
         except asyncio.CancelledError:
             # Shutdown cancellation. CancelledError is BaseException, not Exception,
             # so the guard below would miss it and strand the run in 'running'

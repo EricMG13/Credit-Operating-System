@@ -9,6 +9,7 @@ authority.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Protocol
@@ -22,11 +23,11 @@ from alert_dispatch import materialize_alert
 from alert_evaluation import claim_rule_evaluation, evaluate_rule
 from alert_sinks import EmailSink, InAppSink
 from database import (
-    Analyst,
     AlertEventContext,
     AsyncSessionLocal,
     Issuer,
     Portfolio,
+    PortfolioPosition,
     QAFinding,
     Run,
     WatchRule,
@@ -54,10 +55,23 @@ _UNAVAILABLE_SCHEDULED_SIGNALS = frozenset(
     {"edgar_filing", "market_move", "news"}
 )
 _CURSOR_UNCHANGED = object()
+_RESERVED_TENANT_IDS = frozenset({SHARED_TENANT_ID, UNASSIGNED_TENANT_ID})
+_RESERVED_TEAM_IDS = frozenset({SHARED_TEAM_ID, UNASSIGNED_TEAM_ID})
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+Clock = Callable[[], datetime]
 
 
 class AsyncSessionFactory(Protocol):
     def __call__(self) -> AsyncSession: ...
+
+
+class _ScheduleLeaseLost(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +160,63 @@ def _eligible_schedule_claim(now: datetime):
     )
 
 
+def _expired_fifth_claim(now: datetime):
+    return and_(
+        WatchRule.enabled.is_(True),
+        WatchRule.paused.is_(False),
+        WatchRule.schedule_kind.in_(("interval", "edgar")),
+        WatchRule.claim_attempt_count == 5,
+        WatchRule.claim_token.is_not(None),
+        WatchRule.claim_expires_at <= now,
+    )
+
+
+def schedule_reap_update_statement(
+    now: datetime, *, rule_id: UUID | str | None = None
+) -> Update:
+    """Build the atomic terminal transition for an expired fifth lease."""
+    normalized_now = _aware_utc(now, label="now")
+    candidate = (
+        select(WatchRule.id)
+        .where(_expired_fifth_claim(normalized_now))
+        .order_by(WatchRule.claim_expires_at, WatchRule.id)
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    )
+    normalized_rule_id = _rule_id(rule_id)
+    if normalized_rule_id is not None:
+        candidate = candidate.where(WatchRule.id == normalized_rule_id)
+    return (
+        update(WatchRule)
+        .where(
+            WatchRule.id == candidate.scalar_subquery(),
+            _expired_fifth_claim(normalized_now),
+        )
+        .values(
+            paused=True,
+            next_evaluation_at=None,
+            claim_token=None,
+            claim_expires_at=None,
+            last_evaluated_at=normalized_now,
+            updated_at=normalized_now,
+        )
+        .returning(WatchRule.id)
+    )
+
+
+async def reap_expired_fifth_claim(
+    db: AsyncSession,
+    *,
+    now: datetime,
+    rule_id: UUID | str | None = None,
+) -> UUID | None:
+    """Pause one expired attempt-five row without committing the transaction."""
+    reaped_id = await db.scalar(
+        schedule_reap_update_statement(now, rule_id=rule_id)
+    )
+    return UUID(str(reaped_id)) if reaped_id is not None else None
+
+
 def schedule_claim_select(
     now: datetime, *, rule_id: UUID | str | None = None
 ) -> Select:
@@ -209,6 +280,8 @@ async def claim_scheduled_rule(
     rule_id: UUID | str | None = None,
 ) -> ScheduledRuleClaim | None:
     """Claim one due schedule row without committing the caller's transaction."""
+    if await reap_expired_fifth_claim(db, now=now, rule_id=rule_id) is not None:
+        return None
     token = uuid4()
     result = await db.execute(
         schedule_claim_update_statement(now, claim_token=token, rule_id=rule_id)
@@ -268,7 +341,13 @@ def _next_interval_slot(claim: ScheduledRuleClaim, now: datetime) -> datetime:
     )
     interval_microseconds = claim.schedule_interval_seconds * 1_000_000
     slots = elapsed_microseconds // interval_microseconds + 1
-    return base + slots * interval
+    try:
+        future = base + slots * interval
+    except OverflowError as exc:
+        raise OverflowError("no representable future interval slot") from exc
+    if future <= now:
+        raise OverflowError("no representable future interval slot")
+    return future
 
 
 def _owned_claim_predicates(claim: ScheduledRuleClaim, now: datetime) -> tuple:
@@ -278,6 +357,32 @@ def _owned_claim_predicates(claim: ScheduledRuleClaim, now: datetime) -> tuple:
         WatchRule.claim_expires_at > now,
         WatchRule.claim_attempt_count == claim.attempt_count,
     )
+
+
+async def _lock_owned_scheduled_claim(
+    db: AsyncSession,
+    claim: ScheduledRuleClaim,
+    *,
+    now: datetime,
+) -> bool:
+    """Fence side effects behind the current unexpired durable lease.
+
+    The conditional no-op update acquires a write lock until the caller's
+    transaction ends on PostgreSQL and SQLite. Rechecking it after materializing
+    also rolls the transaction back if the lease expired while work ran.
+    """
+    normalized_now = _aware_utc(now, label="now")
+    owned_id = await db.scalar(
+        update(WatchRule)
+        .where(*_owned_claim_predicates(claim, normalized_now))
+        .values(claim_token=WatchRule.claim_token)
+        .returning(WatchRule.id)
+    )
+    return owned_id is not None
+
+
+def _clock_now(clock: Clock) -> datetime:
+    return _aware_utc(clock(), label="clock result")
 
 
 async def complete_scheduled_rule(
@@ -329,7 +434,10 @@ async def fail_scheduled_rule(
         values.update(paused=True, next_evaluation_at=None)
     else:
         delay = SCHEDULE_FAILURE_BACKOFF_SECONDS[claim.attempt_count - 1]
-        values["next_evaluation_at"] = normalized_now + timedelta(seconds=delay)
+        try:
+            values["next_evaluation_at"] = normalized_now + timedelta(seconds=delay)
+        except OverflowError:
+            values.update(paused=True, next_evaluation_at=None)
     failed_id = await db.scalar(
         update(WatchRule)
         .where(*_owned_claim_predicates(claim, normalized_now))
@@ -348,13 +456,21 @@ async def _finish_schedule_failure(
 ) -> bool:
     async with session_factory() as db:
         async with db.begin():
-            return await fail_scheduled_rule(db, claim, now=now, cursor=cursor)
+            if await fail_scheduled_rule(db, claim, now=now, cursor=cursor):
+                return True
+            if claim.attempt_count != 5:
+                return False
+            reaped = await reap_expired_fifth_claim(
+                db, now=now, rule_id=claim.rule_id
+            )
+            return reaped == claim.rule_id
 
 
 async def evaluate_scheduled_rule(
     *,
     session_factory: AsyncSessionFactory = AsyncSessionLocal,
     now: datetime,
+    clock: Clock = _now,
     rule_id: UUID | str | None = None,
     trigger_kind: Literal["scheduled_edgar", "scheduled_watchlist"] | None = None,
     observation: SignalObservation | None = None,
@@ -378,7 +494,7 @@ async def evaluate_scheduled_rule(
     )
     if trigger_kind is not None and trigger_kind != expected_kind:
         owned = await _finish_schedule_failure(
-            session_factory, claim, now=normalized_now, cursor=cursor
+            session_factory, claim, now=_clock_now(clock), cursor=cursor
         )
         return ScheduledEvaluationResult(
             status="invalid_trigger" if owned else "lease_lost",
@@ -386,7 +502,7 @@ async def evaluate_scheduled_rule(
         )
     if claim.signal_type in _UNAVAILABLE_SCHEDULED_SIGNALS:
         owned = await _finish_schedule_failure(
-            session_factory, claim, now=normalized_now, cursor=cursor
+            session_factory, claim, now=_clock_now(clock), cursor=cursor
         )
         return ScheduledEvaluationResult(
             status="source_unavailable" if owned else "lease_lost",
@@ -394,7 +510,7 @@ async def evaluate_scheduled_rule(
         )
     if observation is None:
         owned = await _finish_schedule_failure(
-            session_factory, claim, now=normalized_now, cursor=cursor
+            session_factory, claim, now=_clock_now(clock), cursor=cursor
         )
         return ScheduledEvaluationResult(
             status="missing_observation" if owned else "lease_lost",
@@ -405,12 +521,17 @@ async def evaluate_scheduled_rule(
     try:
         async with session_factory() as evaluation_db:
             async with evaluation_db.begin():
+                evaluation_now = _clock_now(clock)
+                if not await _lock_owned_scheduled_claim(
+                    evaluation_db, claim, now=evaluation_now
+                ):
+                    raise _ScheduleLeaseLost
                 trigger = EvaluationTrigger(
                     trigger_kind=expected_kind,
                     trigger_identity=observation.source_identity,
                     watch_rule_id=claim.rule_id,
                     rule_version=claim.rule_version,
-                    occurred_at=normalized_now,
+                    occurred_at=evaluation_now,
                     scheduled_for=claim.scheduled_for,
                     correlation_id=observation.correlation_id,
                     correlation_root_id=observation.correlation_root_id,
@@ -458,8 +579,19 @@ async def evaluate_scheduled_rule(
                             evaluation_db,
                             decision.candidate,
                             APPROVED_TRIGGER_SINKS,
-                            now=normalized_now,
+                            now=evaluation_now,
                         )
+                if not await _lock_owned_scheduled_claim(
+                    evaluation_db, claim, now=_clock_now(clock)
+                ):
+                    raise _ScheduleLeaseLost
+    except _ScheduleLeaseLost:
+        owned = await _finish_schedule_failure(
+            session_factory, claim, now=_clock_now(clock), cursor=cursor
+        )
+        return ScheduledEvaluationResult(
+            status="failed" if owned else "lease_lost", rule_id=claim.rule_id
+        )
     except Exception:  # noqa: BLE001 - rollback, then persist only safe retry state
         logger.warning(
             "scheduled alert evaluation failed rule_id=%s trigger_kind=%s status=failed",
@@ -467,22 +599,82 @@ async def evaluate_scheduled_rule(
             expected_kind,
         )
         owned = await _finish_schedule_failure(
-            session_factory, claim, now=normalized_now, cursor=cursor
+            session_factory, claim, now=_clock_now(clock), cursor=cursor
         )
         return ScheduledEvaluationResult(
             status="failed" if owned else "lease_lost", rule_id=claim.rule_id
         )
 
-    async with session_factory() as completion_db:
-        async with completion_db.begin():
-            owned = await complete_scheduled_rule(
-                completion_db, claim, now=normalized_now, cursor=cursor
-            )
+    try:
+        async with session_factory() as completion_db:
+            async with completion_db.begin():
+                owned = await complete_scheduled_rule(
+                    completion_db, claim, now=_clock_now(clock), cursor=cursor
+                )
+    except Exception:  # noqa: BLE001 - convert completion faults into durable retry
+        logger.warning(
+            "scheduled alert completion failed rule_id=%s "
+            "trigger_kind=%s status=failed",
+            claim.rule_id,
+            expected_kind,
+        )
+        owned = await _finish_schedule_failure(
+            session_factory, claim, now=_clock_now(clock), cursor=cursor
+        )
+        return ScheduledEvaluationResult(
+            status="failed" if owned else "lease_lost", rule_id=claim.rule_id
+        )
     return ScheduledEvaluationResult(
         status="completed" if owned else "lease_lost",
         rule_id=claim.rule_id,
         outcome=outcome,
     )
+
+
+def _rule_resource_visibility(
+    *,
+    issuer_team_id: str | None,
+    portfolio_team_id: str | None,
+    portfolio_position_exists: bool,
+):
+    """Apply the same persisted rule-snapshot modes as materialization.
+
+    The rule's immutable tenant/team stamps are the principal. Current resource
+    rows only answer whether that principal may see the run; they never supply or
+    rewrite the principal, and mutable Analyst membership is intentionally absent.
+    """
+    unscoped_portfolio = WatchRule.portfolio_id.is_(None)
+    scoped_portfolio_exists = and_(
+        WatchRule.portfolio_id.is_not(None), portfolio_position_exists
+    )
+    shared = and_(
+        WatchRule.tenant_id == SHARED_TENANT_ID,
+        WatchRule.team_id_snapshot == SHARED_TEAM_ID,
+        or_(unscoped_portfolio, scoped_portfolio_exists),
+    )
+    unassigned = and_(
+        WatchRule.tenant_id == UNASSIGNED_TENANT_ID,
+        WatchRule.team_id_snapshot == UNASSIGNED_TEAM_ID,
+        issuer_team_id is None,
+        or_(
+            unscoped_portfolio,
+            and_(scoped_portfolio_exists, portfolio_team_id is None),
+        ),
+    )
+    named = and_(
+        WatchRule.tenant_id == WatchRule.team_id_snapshot,
+        ~WatchRule.tenant_id.in_(tuple(_RESERVED_TENANT_IDS)),
+        ~WatchRule.team_id_snapshot.in_(tuple(_RESERVED_TEAM_IDS)),
+        or_(issuer_team_id is None, WatchRule.team_id_snapshot == issuer_team_id),
+        or_(
+            unscoped_portfolio,
+            and_(
+                scoped_portfolio_exists,
+                WatchRule.team_id_snapshot == portfolio_team_id,
+            ),
+        ),
+    )
+    return or_(shared, unassigned, named)
 
 
 async def _completed_run_snapshot(
@@ -506,28 +698,49 @@ async def _completed_run_snapshot(
                 (),
             )
         observed_at = run.completed_at or run.created_at
+        issuer = await db.get(Issuer, run.issuer_id)
+        if issuer is None:
+            return (
+                _RunSnapshot(
+                    run_id=run.id,
+                    issuer_id=run.issuer_id,
+                    portfolio_id=run.portfolio_id,
+                    qa_status=run.qa_status,
+                    observed_at=_persisted_utc(observed_at),
+                ),
+                [],
+                (),
+            )
+        portfolio = (
+            await db.get(Portfolio, run.portfolio_id)
+            if run.portfolio_id is not None
+            else None
+        )
+        portfolio_position_exists = False
+        if portfolio is not None:
+            portfolio_position_exists = (
+                await db.scalar(
+                    select(PortfolioPosition.id)
+                    .where(
+                        PortfolioPosition.portfolio_id == portfolio.id,
+                        PortfolioPosition.issuer_id == run.issuer_id,
+                    )
+                    .limit(1)
+                )
+                is not None
+            )
         if tenancy_enabled():
-            analyst = (
-                await db.get(Analyst, run.analyst_id)
-                if run.analyst_id is not None
-                else None
+            visibility = _rule_resource_visibility(
+                issuer_team_id=issuer.team_id,
+                portfolio_team_id=(portfolio.team_id if portfolio is not None else None),
+                portfolio_position_exists=portfolio_position_exists,
             )
-            issuer = await db.get(Issuer, run.issuer_id)
-            portfolio = (
-                await db.get(Portfolio, run.portfolio_id)
-                if run.portfolio_id is not None
-                else None
-            )
-            team_id = (
-                (analyst.team_id if analyst is not None else None)
-                or (portfolio.team_id if portfolio is not None else None)
-                or (issuer.team_id if issuer is not None else None)
-            )
-            tenant_id = team_id or UNASSIGNED_TENANT_ID
-            team_snapshot = team_id or UNASSIGNED_TEAM_ID
         else:
-            tenant_id = SHARED_TENANT_ID
-            team_snapshot = SHARED_TEAM_ID
+            visibility = and_(
+                WatchRule.tenant_id == SHARED_TENANT_ID,
+                WatchRule.team_id_snapshot == SHARED_TEAM_ID,
+                or_(WatchRule.portfolio_id.is_(None), portfolio_position_exists),
+            )
         rules = list(
             (
                 await db.execute(
@@ -537,8 +750,7 @@ async def _completed_run_snapshot(
                         WatchRule.paused.is_(False),
                         WatchRule.schedule_kind == "event_driven",
                         WatchRule.signal_type.in_(tuple(_RUN_SIGNAL_TYPES)),
-                        WatchRule.tenant_id == tenant_id,
-                        WatchRule.team_id_snapshot == team_snapshot,
+                        visibility,
                         or_(
                             WatchRule.issuer_id.is_(None),
                             WatchRule.issuer_id == run.issuer_id,
