@@ -24,6 +24,7 @@ _OBSERVATION_KEY_VERSION = "c3-observation-v1"
 _UNAVAILABLE_SIGNALS = frozenset({"edgar_filing", "market_move", "news"})
 _CATEGORICAL_SIGNALS = frozenset({"run_finding", "qa_gate"})
 _NUMERIC_SIGNALS = frozenset({"covenant", "cp1b_monitoring", "cp1c_peer_outlier"})
+_MAX_EVIDENCE_BYTES = 64 * 1024
 
 
 class EvaluationClaimError(Exception):
@@ -124,6 +125,51 @@ def _categorical_match(
     return value == threshold, None
 
 
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def _omission_marker(value: object, *, count: int | None = None) -> dict:
+    canonical = _canonical_bytes(value)
+    marker = {
+        "omitted": True,
+        "canonical_bytes": len(canonical),
+        "sha256": hashlib.sha256(canonical).hexdigest(),
+    }
+    if count is not None:
+        marker["count"] = count
+    return marker
+
+
+def _bounded_evidence(observation: SignalObservation) -> dict:
+    evidence = {
+        "source_identity": observation.source_identity,
+        "observed_at": observation.observed_at.isoformat(),
+        "numeric_value": observation.numeric_value,
+        "categorical_value": observation.categorical_value,
+        "source_artifact_refs": list(observation.source_artifact_refs),
+        "detail": observation.detail,
+    }
+    if len(_canonical_bytes(evidence)) <= _MAX_EVIDENCE_BYTES:
+        return evidence
+
+    evidence["detail"] = _omission_marker(observation.detail)
+    if len(_canonical_bytes(evidence)) <= _MAX_EVIDENCE_BYTES:
+        return evidence
+
+    evidence["source_artifact_refs"] = _omission_marker(
+        list(observation.source_artifact_refs),
+        count=len(observation.source_artifact_refs),
+    )
+    return evidence
+
+
 def evaluate_rule(
     rule_version,
     observation: SignalObservation,
@@ -175,7 +221,7 @@ def evaluate_rule(
         if isinstance(detail_run_id, str) and len(detail_run_id) <= 64
         else None
     )
-    evidence = observation.model_dump(mode="json")
+    evidence = _bounded_evidence(observation)
     authority = {
         "observation_key": key,
         "source_identity": observation.source_identity,
@@ -265,6 +311,8 @@ async def claim_rule_evaluation(
                 WatchRule.id == str(trigger.watch_rule_id),
                 WatchRule.tenant_id == observation.subject_scope.tenant_id,
             )
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).one_or_none()
     if row is None:

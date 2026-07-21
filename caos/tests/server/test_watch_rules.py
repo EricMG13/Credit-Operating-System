@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -197,6 +197,70 @@ def test_signal_operator_vocabulary_is_enforced() -> None:
         ).config.threshold
         == 4.0
     )
+
+
+def test_numeric_signal_rejects_eq_string_threshold_at_create_validation() -> None:
+    with pytest.raises(ValidationError, match="numeric signals require"):
+        _command(
+            signal_type="covenant",
+            config=_config(operator="eq", threshold="4"),
+        )
+    assert (
+        _command(
+            signal_type="qa_gate",
+            config=_config(operator="eq", threshold="critical"),
+        ).config.threshold
+        == "critical"
+    )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"enabled": "false"},
+        {"paused": "true"},
+        {
+            "schedule_kind": "interval",
+            "schedule_interval_seconds": "60",
+            "next_evaluation_at": NOW,
+        },
+        {
+            "schedule_kind": "interval",
+            "schedule_interval_seconds": 60,
+            "next_evaluation_at": "2026-07-20T12:00:00Z",
+        },
+    ],
+)
+def test_create_command_rejects_coercive_scalar_inputs(overrides) -> None:
+    with pytest.raises(ValidationError):
+        _command(**overrides)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"enabled": "false"},
+        {"paused": "true"},
+        {"schedule_interval_seconds": "60"},
+        {"next_evaluation_at": "2026-07-20T12:00:00Z"},
+    ],
+)
+def test_update_patch_rejects_coercive_scalar_inputs(payload) -> None:
+    with pytest.raises(ValidationError):
+        UpdateWatchRulePatch.model_validate(payload)
+
+
+def test_internal_models_still_accept_real_typed_values() -> None:
+    command = _command(
+        signal_type="covenant",
+        schedule_kind="interval",
+        schedule_interval_seconds=60,
+        next_evaluation_at=NOW,
+        config=_config(operator="eq", threshold=4),
+    )
+    assert command.enabled is True
+    assert command.schedule_interval_seconds == 60
+    assert command.config.threshold == 4.0
 
 
 @pytest.mark.parametrize(
@@ -475,3 +539,79 @@ async def test_update_preserves_schedule_invariants_without_partial_mutation(
         )
         assert updated.current_version == 2
         assert updated.next_evaluation_at == NOW
+
+
+@pytest.mark.asyncio
+async def test_numeric_signal_rejects_eq_string_threshold_on_merged_update(
+    rule_db, monkeypatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", False)
+    async with rule_db() as session:
+        rule = await create_watch_rule(
+            session,
+            _caller(),
+            _command(
+                signal_type="covenant",
+                config=_config(operator="present"),
+            ),
+        )
+        await session.commit()
+        with pytest.raises(WatchRuleValidationError, match="numeric signals require"):
+            await update_watch_rule(
+                session,
+                _caller(),
+                rule.id,
+                1,
+                UpdateWatchRulePatch(config=_config(operator="eq", threshold="4")),
+            )
+        assert rule.current_version == 1
+        assert (
+            await session.scalar(
+                select(func.count())
+                .select_from(WatchRuleVersion)
+                .where(WatchRuleVersion.watch_rule_id == rule.id)
+            )
+            == 1
+        )
+
+
+@pytest.mark.asyncio
+async def test_fresh_session_name_patch_normalizes_sqlite_scheduled_datetime(
+    rule_db, monkeypatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", False)
+    offset_time = datetime(
+        2026,
+        7,
+        20,
+        12,
+        tzinfo=timezone(timedelta(hours=5, minutes=30)),
+    )
+    expected_utc = datetime(2026, 7, 20, 6, 30, tzinfo=timezone.utc)
+    async with rule_db() as creator:
+        rule = await create_watch_rule(
+            creator,
+            _caller(),
+            _command(
+                schedule_kind="interval",
+                schedule_interval_seconds=60,
+                next_evaluation_at=offset_time,
+            ),
+        )
+        assert rule.next_evaluation_at == expected_utc
+        await creator.commit()
+        rule_id = rule.id
+
+    async with rule_db() as fresh:
+        reloaded = await fresh.get(WatchRule, rule_id)
+        assert reloaded.next_evaluation_at is not None
+        assert reloaded.next_evaluation_at.tzinfo is None  # SQLite driver behavior
+        updated = await update_watch_rule(
+            fresh,
+            _caller(),
+            rule_id,
+            1,
+            UpdateWatchRulePatch(name="Renamed schedule"),
+        )
+        assert updated.current_version == 2
+        assert updated.next_evaluation_at == expected_utc

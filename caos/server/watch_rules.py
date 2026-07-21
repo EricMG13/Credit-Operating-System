@@ -81,12 +81,17 @@ def _canonical_config(config: "RuleConfig") -> dict:
 
 
 class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        strict=True,
+        str_strip_whitespace=True,
+    )
 
 
 class RuleConfig(_StrictModel):
     operator: Operator
-    threshold: str | float | None = None
+    threshold: str | int | float | None = None
     kind: str = Field(min_length=1, max_length=64)
     title: str = Field(min_length=1, max_length=240)
     impact: str = Field(max_length=4000)
@@ -130,6 +135,13 @@ def _validate_signal_config(
         )
     if signal_type in _CATEGORICAL_SIGNALS and config.operator not in {"present", "eq"}:
         raise ValueError(f"{signal_type} does not support operator {config.operator}")
+    if signal_type in _NUMERIC_SIGNALS and config.operator != "present":
+        if isinstance(config.threshold, (str, bool)) or not is_finite_number(
+            config.threshold
+        ):
+            raise ValueError(
+                "numeric signals require a finite non-boolean numeric threshold"
+            )
     if (
         signal_type
         not in _CATEGORICAL_SIGNALS | _NUMERIC_SIGNALS | _UNAVAILABLE_SIGNALS
@@ -182,6 +194,11 @@ class CreateWatchRuleCommand(_StrictModel):
             raise ValueError("schedule_interval_seconds must be an integer")
         return value
 
+    @field_validator("next_evaluation_at")
+    @classmethod
+    def _normalize_next_evaluation_at(cls, value: datetime | None) -> datetime | None:
+        return value.astimezone(timezone.utc) if value is not None else None
+
     @model_validator(mode="after")
     def _valid_rule_state(self) -> "CreateWatchRuleCommand":
         _validate_signal_config(self.signal_type, self.config, self.enabled)
@@ -213,6 +230,11 @@ class UpdateWatchRulePatch(_StrictModel):
         if isinstance(value, bool):
             raise ValueError("schedule_interval_seconds must be an integer")
         return value
+
+    @field_validator("next_evaluation_at")
+    @classmethod
+    def _normalize_next_evaluation_at(cls, value: datetime | None) -> datetime | None:
+        return value.astimezone(timezone.utc) if value is not None else None
 
     @model_validator(mode="after")
     def _validate_intrinsic_patch_state(self) -> "UpdateWatchRulePatch":
@@ -342,6 +364,16 @@ def _merged_command(
     schedule_kind = value("schedule_kind")
     interval = value("schedule_interval_seconds")
     next_at = value("next_evaluation_at")
+    if (
+        next_at is not None
+        and "next_evaluation_at" not in changed
+        and next_at.tzinfo is None
+    ):
+        # SQLite reloads timezone-aware DateTime columns as naive values. This is
+        # trusted persisted state, not caller input; storage is normalized to UTC.
+        next_at = next_at.replace(tzinfo=timezone.utc)
+    elif next_at is not None:
+        next_at = next_at.astimezone(timezone.utc)
     if schedule_kind == "event_driven":
         interval = None
         next_at = None

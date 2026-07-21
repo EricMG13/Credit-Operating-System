@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -191,6 +193,70 @@ def test_matched_candidate_uses_immutable_presentation_and_observation_provenanc
         "source_identity": observation.source_identity,
         "watch_rule_id": str(RULE_ID),
         "rule_version": 7,
+    }
+
+
+def test_near_limit_observation_builds_deterministic_bounded_evidence() -> None:
+    detail = {"payload": "x" * 65_000}
+    artifact_refs = tuple(f"artifact:{index:02d}:" + "a" * 500 for index in range(64))
+    observation = _observation(detail=detail).model_copy(
+        update={"source_artifact_refs": artifact_refs}
+    )
+    evaluation_id = uuid4()
+
+    first = evaluate_rule(_version(), observation, evaluation_id=evaluation_id)
+    second = evaluate_rule(_version(), observation, evaluation_id=evaluation_id)
+
+    assert first == second
+    assert first.outcome == "matched" and first.candidate is not None
+    evidence = first.candidate.evidence
+    canonical_evidence = json.dumps(
+        evidence,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    canonical_detail = json.dumps(
+        detail,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    assert len(canonical_evidence) <= 64 * 1024
+    assert evidence["source_identity"] == observation.source_identity
+    assert evidence["categorical_value"] == observation.categorical_value
+    assert evidence["observed_at"] == observation.observed_at.isoformat()
+    assert evidence["source_artifact_refs"] == list(artifact_refs)
+    assert evidence["detail"] == {
+        "omitted": True,
+        "canonical_bytes": len(canonical_detail),
+        "sha256": hashlib.sha256(canonical_detail).hexdigest(),
+    }
+
+
+def test_multibyte_artifact_provenance_uses_a_deterministic_digest_marker() -> None:
+    artifact_refs = tuple("🔥" * 512 for _ in range(64))
+    payload = _observation().model_dump()
+    payload["source_artifact_refs"] = artifact_refs
+    observation = SignalObservation.model_validate(payload)
+    canonical_refs = json.dumps(
+        list(artifact_refs),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+
+    decision = evaluate_rule(_version(), observation, evaluation_id=uuid4())
+
+    assert decision.outcome == "matched" and decision.candidate is not None
+    assert decision.candidate.evidence["source_artifact_refs"] == {
+        "omitted": True,
+        "count": 64,
+        "canonical_bytes": len(canonical_refs),
+        "sha256": hashlib.sha256(canonical_refs).hexdigest(),
     }
 
 
@@ -475,6 +541,45 @@ async def test_claim_rejects_disabled_or_paused_rules(
             )
         assert (
             await session.scalar(select(func.count()).select_from(WatchRuleEvaluation))
+            == 0
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("patch", [{"enabled": False}, {"paused": True}])
+async def test_claim_refreshes_stale_cached_rule_before_inactive_check(
+    claim_store, patch
+) -> None:
+    sessions, rule_id = claim_store
+    observation = _claim_observation(source_identity=f"qa:stale:{next(iter(patch))}")
+    async with sessions() as stale, sessions() as updater:
+        cached = await stale.get(WatchRule, rule_id)
+        assert cached.enabled is True and cached.paused is False
+        await update_watch_rule(
+            updater,
+            CallerIdentity(
+                id="alice",
+                email="alice@example.test",
+                full_name="Alice",
+                team_id="desk-a",
+            ),
+            rule_id,
+            1,
+            UpdateWatchRulePatch.model_validate(patch),
+        )
+        await updater.commit()
+
+        with pytest.raises(EvaluationClaimError, match="watch_rule_inactive"):
+            await claim_rule_evaluation(
+                stale,
+                _trigger(cached, observation, version=1),
+                observation,
+            )
+        await stale.rollback()
+
+    async with sessions() as verify:
+        assert (
+            await verify.scalar(select(func.count()).select_from(WatchRuleEvaluation))
             == 0
         )
 
