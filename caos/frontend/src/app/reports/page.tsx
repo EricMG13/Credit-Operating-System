@@ -360,11 +360,14 @@ function ReportStudioWorkspace({ issuerId, isReference }: { issuerId: string; is
     };
   }, []);
 
+  const reportParamAvailable = Boolean(
+    reportParam && reports.some((report) => report.id === reportParam),
+  );
   useEffect(() => {
-    if (reportParam && reports.some((report) => report.id === reportParam)) {
+    if (reportParam && reportParamAvailable) {
       setActiveId(reportParam);
     }
-  }, [reportParam, reports]);
+  }, [reportParam, reportParamAvailable]);
 
   // Consolidate persisted settings into a single effect block
   useEffect(() => {

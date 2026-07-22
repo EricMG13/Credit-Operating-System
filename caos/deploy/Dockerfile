@@ -2,7 +2,8 @@
 #
 # CAOS single-process image: builds the Next.js static export, then bakes it
 # into the FastAPI server so one container serves /api + the UI at /.
-# Build context is the caos/ dir (see deploy/docker-compose.yml).
+# Build context is the repository root. The deny-by-default /.dockerignore is
+# the build-input API (see deploy/docker-compose.yml).
 
 # ─── Stage 1: build the Next.js static export (output: "export" → ./out) ─────
 # Base images pinned by digest for reproducibility (#24); the tag is kept for
@@ -10,9 +11,9 @@
 #   docker buildx imagetools inspect node:24-slim --format '{{.Manifest.Digest}}'
 FROM node:24-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS frontend
 WORKDIR /frontend
-COPY frontend/package.json frontend/package-lock.json ./
+COPY caos/frontend/package.json caos/frontend/package-lock.json ./
 RUN npm ci
-COPY frontend/ ./
+COPY caos/frontend/ ./
 RUN npm run build
 
 # ─── Stage 2: Python runtime (FastAPI + static UI) ──────────────────────────
@@ -49,16 +50,28 @@ RUN apt-get update \
 # The app shells out to markitdown via CAOS_MARKITDOWN_CMD; this 3.14 runtime
 # installs the CLI straight onto PATH (/usr/local/bin/markitdown). [pdf] not
 # [all] — PDF pilot; xlsx falls back to the built-in openpyxl path.
-COPY server/requirements.lock ./
+COPY caos/server/requirements.lock ./
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
-# App source, then the built UI from stage 1 (served by StaticFiles at /).
-COPY server/ ./
+# App source, immutable runtime resources, then the built UI from stage 1
+# (served by StaticFiles at /). The two external paths are the exact paths
+# resolved by engine.synth/prompt_bundles and routes.rv respectively.
+COPY caos/server/ ./
+COPY --chown=0:0 ["Modular OS", "/Modular OS"]
+COPY --chown=0:0 caos/frontend/src/lib/command/market-data.json \
+  /frontend/src/lib/command/market-data.json
+COPY --chown=0:0 caos/deploy/verify_image_resources.py \
+  /app/verify_image_resources.py
 COPY --from=frontend /frontend/out ./static
 
 # Drop root.
 RUN useradd -m -u 10001 caos && chown -R caos:caos /app
 USER caos
+
+# Run through the production Python consumers as the final runtime UID. This
+# validates prompt presence/fingerprints, both manifest-backed bundles, and the
+# RV JSON at its consumer-resolved path before an image can finish building.
+RUN python verify_image_resources.py
 
 EXPOSE 8000
 

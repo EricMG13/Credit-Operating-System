@@ -42,19 +42,20 @@ The canonical status and evidence-boundary report is
 [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](qa/reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md),
 with the current route/platform/custody inventory in
 [APPLICATION_SURFACE_MATRIX_2026-07-20.csv](qa/APPLICATION_SURFACE_MATRIX_2026-07-20.csv).
-The application files are commit-pinned at `codex/112@f4c790f4`, but no clean,
-reconciled, digest-addressed H0 release image exists. The branch was one commit
-behind and 63 ahead of `origin/main` at audit time; the audit-document changes
-were not part of the application commit.
+The current PD-01/PD-04/PD-05/PD-10 execution is based on
+`codex/112@66e8bbfb3dae11c7427ac101aa4d184d467f0ed0` plus its reviewed working-tree
+delta. No clean, reconciled, digest-addressed H0 release image exists. The branch
+is one commit behind and 70 ahead of `origin/main`; the working-tree delta is not yet a
+release artifact.
 
 | Check | Current evidence | Status |
 |---|---|---|
-| Frontend compile/regression | eslint, strict TypeScript, production export of 18 business page endpoints, **1,833 tests / 263 files** | PASS; one test used configured Vitest retry, so final no-retry proof remains open |
+| Frontend compile/regression | eslint, strict TypeScript through the production build, export of 18 business page endpoints, **1,750 tests / 593 suites with `--retry=0`** | **PASS** on the current working tree; 103 dead-subject tests removed and accounted for |
 | Server regression | **2,594 passed / 15 skipped** restricted aggregate; all nine AV tests pass unrestricted, making effective current evidence **2,601 / 15** | PASS for current snapshot |
-| Rendered accessibility/layout | 18 routes × desktop/390px, real axe, no scan errors | **BLOCKED** — two serious target-size nodes and two narrow-layout failures |
-| Three-browser workflow inventory | 2026-07-19 seal: **165 passed** across 14 specs without retry | Historical defect-closure evidence; newer production files require candidate rerun |
-| Feature/control inventory | 683 features, 710 UI controls, 173 AST handler rows, 17 processes; 683 features link to direct automation | Strong structural map; 1,207 Designed and 388 suite-evidence scenarios prevent an all-effects-tested claim |
-| Code relevance | backend Vulture clean; **17 frontend reachability candidates** | Owner disposition required; do not delete automatically |
+| Rendered accessibility/layout | 18 routes × desktop/390px, real axe; separate coarse-pointer, reduced-motion, and native 200% zoom checks | **PASS** on the current working tree — zero axe nodes, scan errors, clipped controls, or layout failures |
+| Three-browser workflow inventory | Historical seal: **165 passed** across 14 specs. Current collection: **189 nodes across 16 specs**; the routed-concept cases passed **15/15** and the root/shared-boundary recovery cases passed **6/6** across Chromium/Firefox/WebKit without retry | Fixture-backed route and shipped-boundary deltas are green; complete real-API H0 rerun remains required |
+| Feature/control inventory | Rebuilt tracker: 683 features, 692 current UI controls, 173 AST handler rows, 17 processes; 683 features link to direct automation | Strong structural map; 983 Designed and 377 suite-evidence scenarios prevent an all-effects-tested claim; dated surface matrix needs post-cleanup regeneration |
+| Code relevance | backend Vulture clean; frontend graph reaches **262/263 production files from 27 roots** | **PASS:** 16 dead modules removed; sole residual is the retained color-policy test seam; rerun Fallow on controlled H0 host |
 | Capacity | three post-fix 300-user PG/two-worker passes, zero failures, aggregate p95 46/120/35 ms | Strong headroom/fix evidence; target 15-principal heavy/fault run remains open |
 | Data/vault | original bytes in vault; structured work product in Postgres; drafts/preferences in browser; logs/backups in operator stores | **BLOCKED** — target encryption, governance, freshness/alerting, and remote-only recovery proof absent |
 
@@ -62,21 +63,25 @@ were not part of the application commit.
 
 | ID | Blocking condition | Completion gate |
 |---|---|---|
-| **PD-01** | No canonical release image; branch reconciliation and digest/schema/config/flag/SBOM provenance are open | Clean H0 candidate tied to commit and image digest, schema head, config fingerprint, flags, final SBOM/scan |
-| **PD-02** | Sealed 165-case E2E predates current production changes; five routed concepts lack dedicated journeys; one current unit test used retry | L27 all primary/affected journeys green in Chromium, Firefox, and WebKit without retry |
-| **PD-03** | Tracker predates current files and includes 1,207 Designed plus 388 suite-evidence scenarios | L23 regenerate candidate route/nav/API/process/control/tracker parity and execute every release-required scenario |
-| **PD-04** | 17 frontend reachability candidates have no owner disposition | L24 remove/restore/retain decision plus green lint/type/unit/build/affected E2E |
-| **PD-05** | Shared/root and six segment error surfaces lack injected-browser equivalence and context-preservation proof | L27 deliberate boundary/equivalence map plus named failure, preserved state, safe retry/no duplicate effect |
-| **PD-06** | Reference/manual/enterprise seams remain in analytical modules, Monitor/email, market data, and providers | Promise-to-runtime map, honest unavailable/reference state, enabled-seam activation/failure evidence |
+| **PD-01** | **RESOURCE DEFECT CLOSED on the current working tree:** the app image now bakes the governed `/Modular OS` subset and RV JSON through a measured 3.88 MB deny-by-default context; its UID-10001 consumer probe validates prompt fingerprint `15bdcbc3628d`, both specialized bundles, and 588 RV rows. PD-01 remains open because no clean canonical release image or digest/schema/config/flag/SBOM provenance exists | Repeat the fail-closed image contract after branch reconciliation, then bind clean H0 to commit and image digest, schema head, config fingerprint, flags, final SBOM/scan |
+| **PD-02** | Historical 165-case seal predates current production changes. The routed-concept and boundary-recovery deltas now pass fixture-backed contracts 21/21 across all engines, but the complete 189-node inventory is not bound to real H0 API/data | L27 complete candidate green in Chromium, Firefox, and WebKit without retry against frozen H0 API/data, including affected states |
+| **PD-03** | Exact tracker is rebuilt, but 983 Designed plus 377 suite-evidence scenarios remain and the dated surface matrix predates the 692-control post-cleanup inventory | L23 regenerate candidate route/nav/API/process/control/tracker parity and execute every release-required scenario |
+| **PD-04** | **CLOSED on the current working tree:** 16 dead modules removed; one policy test seam retained with rationale; graph is 262/263 from 27 roots | Rerun native graph and controlled-host Fallow against frozen H0; reopen on a new or unexplained candidate |
+| **PD-05** | **CLOSED on the current working tree:** test-only exact-cardinality chunk rewriting reaches the shipped root/global boundary and the shared segment boundary used by all six routed segment error files; 6/6 no-retry executions preserve path, mode, authentication, analysis context, draft payload, source preference, and analyst edits, with zero failure-time writes and exactly one recovery autosave | Rerun the same fail-closed boundary proof against frozen H0; reopen if the boundary delegation map, compiled sentinels, state preservation, or mutation ledger changes |
+| **PD-06** | The [promise-to-runtime map](qa/PROMISE_TO_RUNTIME_MAP.md) is checked in and the C3/C5 implementation plans are drafted, but CP-SR/CP-MON runtime work, CP-RENDER equivalence proof, CP-EXTRACT disposition, and enabled-seam evidence remain open | Execute the mapped closures; preserve honest unavailable/reference states; archive activation and failure evidence for every enabled seam |
 | **PD-07** | 300-user fix evidence is not the immutable target's authenticated heavy-operation/fault profile | L25 exact image, 15 principals, target data, jobs/uploads/provider faults, queue/pool/memory/isolation/recovery telemetry |
 | **PD-08** | At-rest encryption, record governance, paired-backup freshness/alerting, and off-host recovery are not proven on target | E8/G8/G9 + L22/L26 encrypted target/off-host custody, policy, alarms, remote-only restore |
 | **PD-09** | Final audit evidence is not tied to released bytes | One archived digest-addressed H0/H1/H2 evidence bundle and signed decision |
-| **PD-10** | Current 390px axe/layout matrix is red; frontend no-retry stability is open | Zero axe/layout/clipping/scan failures at required desktop, 390px/coarse pointer, reduced motion, native 200% zoom; no-retry pass |
+| **PD-10** | **CLOSED on the current working tree:** the required viewport/capability matrix is zero-finding and all current 1,750 frontend tests pass with retries disabled | Rerun against frozen H0 for PD-02/PD-09 binding; reopen on regression |
 
-**Release order:** fix PD-10 and disposition PD-04; close the missing
-journey/recovery/seam work; reconcile and freeze H0; regenerate L23 and execute
-L27 against the exact image; execute L25/L26 on the target-shaped host; archive
-PD-09; then decide go/no-go. PD-01/02/03/06/07/08/09/10 are non-waivable.
+**Release order:** carry the green routed-contract and boundary-recovery deltas
+into the remaining seam work while retaining the PD-01 resource contract and
+PD-04/PD-05/PD-10 as
+frozen-candidate regression gates; reconcile and freeze H0;
+regenerate L23/L24 and execute L27 against the exact image; execute L25/L26 on
+the target-shaped host; archive PD-09; then decide go/no-go.
+PD-01/02/03/06/07/08/09 remain open and non-waivable; PD-04/PD-05/PD-10 are
+satisfied on the working tree and must remain green on H0.
 
 ### 2026-07-18 final closure audit — historical baseline (superseded)
 
@@ -871,6 +876,11 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   For each module, either implement and register it, or name the live service
   that fully owns the same user-visible contract and remove or redirect the
   spec-only route promise. A label or reference synthesis is not equivalent.
+  **2026-07-20 planning checkpoint:** the current-truth
+  [promise-to-runtime map](qa/PROMISE_TO_RUNTIME_MAP.md) is now checked in.
+  It deliberately leaves C13 and PD-06 open: CP-SR/CP-MON are blocked,
+  CP-RENDER is provisional pending an explicit equivalent-service decision and
+  production-data proof, and CP-EXTRACT is a retirement candidate.
   *(2026-07-15: two map entries are now writable — **CP-RENDER**: the live
   Report Studio composition path (`routes/reports.py` preview/versions/export
   from run + model checkpoint, UW-09 FIXED) is the equivalent-service

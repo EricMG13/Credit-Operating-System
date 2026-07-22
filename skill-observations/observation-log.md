@@ -165,3 +165,38 @@ full multi-hundred-row CAOS defect ledger exceeded the renderer's maximum image
 height even though workbook import and formula inspection succeeded. Document a
 bounded head-plus-tail pattern so visual QA remains deterministic without
 silently omitting the newest validation and defect records.
+
+## 2026-07-20 — fallow — OPEN
+
+The skill requires Fallow but offers only global install or `npx` when the CLI
+is absent. In a managed pre-deployment review, the one-off `npx` path was
+correctly rejected because it would download and execute third-party package
+code outside the sandbox, while no MCP tool or vendored binary was available.
+Add a no-download fallback that composes repository-native entry-point tracing,
+direct import/re-export checks, framework dynamic-load review, and test/runtime
+evidence; distinguish this lower-confidence disposition from a completed
+Fallow scan instead of implying the workflow is blocked or inviting policy
+circumvention.
+
+## 2026-07-20 — deployments-cicd — OPEN
+
+The generically named deployment skill is entirely Vercel-specific, including
+its commands, environment variables, promotion model, and troubleshooting
+matrix. It provides no routing or safe fallback for a self-hosted Docker/
+Compose deployment such as CAOS. Add a platform-detection preflight and a
+Docker path covering deny-by-default build contexts, immutable image digests,
+in-image/runtime-user probes, SBOM and vulnerability gates, Compose validation,
+promotion by exact digest, rollback, and post-start health/log inspection;
+otherwise the skill name overpromises broader CI/CD applicability.
+
+## 2026-07-22 — refresh-preview — OPEN
+
+The skill correctly requires a fixed QA `SESSION_SECRET`, but its launch guidance
+does not account for the current `require_sane_environment` guard: a custom
+non-default secret under `ENVIRONMENT=development` now fails closed as a
+production-secret/dev-identity contradiction. Document the valid development
+choice (`dev-insecure-session-secret`, which is still fixed across restarts), or
+provide the complete non-development secret set when production-parity identity
+is intended. Also warn that an existing `caos_qa.db` can be migration-drifted;
+preserve it and use a fresh isolated QA database rather than deleting or stamping
+the schema during a preview refresh.

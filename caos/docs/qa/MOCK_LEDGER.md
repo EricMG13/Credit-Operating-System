@@ -5,9 +5,9 @@
 > retains per-result LIVE/DEMO/REFERENCE authority; Deep-Dive, Reports, and
 > Issuers keep visibly labelled reference/demo paths. This improves truth
 > disclosure but does not activate licensed market data, enterprise email, or
-> spec-only analytical modules. The current frontend walk reports 17
-> reachability candidates, including the superseded Command RV/dislocation
-> stack and several query/shared support paths; L24 must disposition each row.
+> spec-only analytical modules. PD-04 removed 16 superseded/test-only modules,
+> including the old Command RV/dislocation stack; the current 262/263 walk has
+> one intentional test-support seam (`color-literal-policy.ts`).
 > No all-clear follows from visible labels alone: L9/L23/L27 must rescan and
 > exercise the exact H0 image. Current status:
 > [PRE_DEPLOYMENT_UPDATE_2026-07-20.md](reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md).
@@ -15,7 +15,7 @@
 > **2026-07-18 reconciliation — historical baseline:** the original 2026-07-12 table is retained as
 > history, but several ownership rows have moved. The current main Command
 > datasets use live portfolio/context APIs; the old `SectorRV`/
-> `ActionableDislocations` stack is a reachability candidate and `/sector-rv`
+> `ActionableDislocations` stack was removed under PD-04 and `/sector-rv`
 > now renders the API-backed `RVScreenerWorkbench` with explicit
 > LIVE/DEMO/REFERENCE authority. Monitor remains intentionally hybrid: live
 > alert/governance rows lead, while CP-MON email/replay content is an explicitly
@@ -30,10 +30,10 @@
 
 | Surface/module | Current disposition | Release consequence |
 |---|---|---|
-| Command portfolio/changes | Live `portfolioLabApi`, analysis context, digest, and governance sources; no Sample Sleeve import in the route | Old C2 sample-sleeve row is closed; current Command handoff E2E is red and blocks L27 |
-| `components/command/SectorRV.tsx` + `ActionableDislocations.tsx` + `lib/command/dislocations.ts` | Not reached from current runtime roots; superseded by `RVScreenerWorkbench` candidate | L24 owner disposition; do not count old labelled sample as a live surface |
+| Command portfolio/changes | Live `portfolioLabApi`, analysis context, digest, and governance sources; no Sample Sleeve import in the route | Old C2 sample-sleeve row is closed; current Command plus routed portfolio/decision/sponsor contracts are green on the working tree, while frozen-H0 L27 integration remains open |
+| Removed Command `SectorRV` + `ActionableDislocations` + `lib/command/dislocations.ts` cluster | Deleted under PD-04 after direct/dynamic reference and LOW-impact review; `/sector-rv` continues to mount `RVScreenerWorkbench` | Closed as dead-code disposition; do not count the historical labelled sample as a live surface |
 | Monitor email/replay | Still consumes `simAlertsToday`, `CRITICAL_ALERTS`, `EmailIntel`, and the shared sim behind an explicit demo disclosure; live alert inbox/governance is separate | Acceptable only as labelled sample until C3 enterprise email/CP-MON seam closes |
-| Sector RV current route | API-backed workbench; per-result authority emits LIVE/DEMO/REFERENCE | C5 still owns licensed/current market activation and target entitlements; add dedicated E2E |
+| Sector RV current route | API-backed workbench; per-result authority emits LIVE/DEMO/REFERENCE | Dedicated route-contract E2E is green on the working tree; C5 still owns licensed/current market activation and target entitlements |
 | Report Studio | Live run/model/report services coexist with explicit Atlas Forge bespoke-tab/template fixtures; CP-RENDER module is not issuer-specific | C13 must freeze the equivalent-service map and prove live issuer publish/export |
 | Deep-Dive rails | Non-reference issuers fail unavailable rather than receive ATLF CP-0/CP-5B rail fixtures | Honest behavior; runtime/equivalent-service gap remains visible and tracked |
 | Issuers | `DEMO_UNIVERSE` remains a labelled demo/search fallback | Production demo seed remains forbidden; L23 verifies empty real workspace behavior |
@@ -62,9 +62,7 @@ MED notes, not silent mocks.
 | `lib/command/rvdata.ts` (+ `market-data.json`) | RV_SOURCE, RV_FILE_LABEL, RV_AS_OF, RV_SECTORS, INDEX_STATS, BUCKETS | Sector RV |
 | `lib/pipeline/data.ts` | MODULES, SIM_PLAN, DRIVERS, EDGES, LAYERS, NODE_QA, NODE_LIMITS, NODE_REQS, RUN_MODES | Pipeline, Deep-Dive |
 | `lib/reports/deal.ts` | DEAL, DOCS, DEBATE, DEBATE_6E, COVENANTS, CAPACITY, CAPSTACK, RECOVERY, SIZING, TRIGGERS, MODULE_NAMES | Deep-Dive bespoke tabs, Reports |
-| `lib/command/coverage.ts` | ATLF_COVERAGE_ROW | Command coverage |
 | `lib/issuers.ts` | DEMO_UNIVERSE | Issuers directory, profile-overlay resolver |
-| `lib/command/stats.ts` | PORTFOLIO_AVG_DM(_LABEL) | Command posture |
 | `lib/pipeline/sim.ts` / `sim-engine.ts` | useSimRun, useSharedDayRun | Pipeline/Deep-Dive/Monitor replay theater |
 
 ## Burndown rows (by surface)

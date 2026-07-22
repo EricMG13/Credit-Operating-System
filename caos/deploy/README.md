@@ -53,6 +53,10 @@ curl -s https://$CAOS_DOMAIN/api/health
 # identity must be 401 (run against the app container directly, not the domain).
 docker compose exec app python -c "import urllib.request as u; \
   print(u.urlopen('http://127.0.0.1:8000/api/auth/me').status)"   # → HTTPError 401
+
+# Immutable runtime resources resolve through their production consumers.
+docker compose exec app python verify_image_resources.py
+# → non-noprompts fingerprint, CP-2G/CP-4D bundle hashes, and RV row/hash evidence
 ```
 
 In the browser, confirm: empty issuer registry (demo seed off), an upload

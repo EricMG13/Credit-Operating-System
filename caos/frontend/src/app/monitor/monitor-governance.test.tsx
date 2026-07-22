@@ -306,8 +306,8 @@ describe("Monitor · DecisionHeader + Governance (G4/G5)", () => {
     expect(screen.getByRole("tab", { name: "Email intake" })).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "Governance" })).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Email intake" }));
-    expect(screen.getByText("Email Intelligence · CP-MON intake")).toBeTruthy();
-    expect(screen.getByText("Showing 8 of 105 today · sample")).toBeTruthy();
+    expect(await screen.findByText("Email Intelligence · CP-MON intake")).toBeTruthy();
+    expect(await screen.findByText("Showing 8 of 105 today · sample")).toBeTruthy();
     expect(screen.queryByLabelText("Decision header")).toBeNull();
     expect(document.body.textContent).not.toContain("LEAKED LIVE ISSUER");
     expect(document.body.textContent).not.toContain("LEAKED LIVE CLAIM");

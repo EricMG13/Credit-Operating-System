@@ -14,7 +14,6 @@ vi.mock("./AnalystBadge", () => ({ AnalystBadge: () => <span>analyst badge</span
 vi.mock("./AskShell", () => ({ AskUtility: () => <button type="button" aria-label="Ask CAOS">Ask</button> }));
 vi.mock("./RoleViewProvider", () => ({ useRoleView: () => ({ roleView: role.value, setRoleView: vi.fn(), ready: true }) }));
 
-import { EvidenceInspector } from "./EvidenceInspector";
 import { WorkflowRail } from "./WorkflowRail";
 import { DataModeMarker, OpenReferenceExample } from "./DataMode";
 import { NAV_GROUPS } from "@/lib/nav";
@@ -91,31 +90,4 @@ describe("shared workspace shell", () => {
     await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
   });
 
-  it("renders populated and empty evidence states", () => {
-    const provenance = { origin: "LIVE" as const, method: "DERIVED" as const, freshness: "STALE" as const, detail: "Ledger" };
-    const { rerender } = render(
-      <EvidenceInspector
-        title="Claim register"
-        provenance={provenance}
-        approval="RATIFIED"
-        asOf="17 Jul 2026"
-        claims={[
-          { id: "C1", text: "Leverage increased", source: "10-Q", state: "current" },
-          { id: "C2", text: "Liquidity tightened" },
-        ]}
-        consumers={["Model", "Report"]}
-        glossary={[{ term: "RCF", definition: "Revolving credit facility" }]}
-        className="custom-inspector"
-      />,
-    );
-    expect(screen.getByRole("complementary", { name: "Claim register" }).className).toContain("custom-inspector");
-    expect(screen.getByText("10-Q · current")).toBeTruthy();
-    expect(screen.getByText("Source unavailable")).toBeTruthy();
-    expect(screen.getByText("Model · Report")).toBeTruthy();
-    expect(screen.getByText("Revolving credit facility")).toBeTruthy();
-
-    rerender(<EvidenceInspector provenance={provenance} asOf="now" />);
-    expect(screen.getByText("No claim selected.")).toBeTruthy();
-    expect(screen.queryByText("Downstream consumers")).toBeNull();
-  });
 });

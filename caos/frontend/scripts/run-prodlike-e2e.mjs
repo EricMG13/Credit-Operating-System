@@ -153,6 +153,7 @@ const lanes = [
       "login_flow.spec.ts",
       "monitor_flow.spec.ts",
       "query_flow.spec.ts",
+      "recovery_flow.spec.ts",
     ],
   },
   {
@@ -167,6 +168,15 @@ const lanes = [
     ],
   },
   {
+    email: "e2e-inventory-c@firm.test",
+    name: "E2E Inventory C",
+    specs: [
+      "pipeline_flow.spec.ts",
+      "routed_concepts_flow.spec.ts",
+      "sector_flow.spec.ts",
+    ],
+  },
+  {
     // seed_qa_scale.py --with-workflow-fixture binds the canonical CP-1 run to
     // this explicit fictional analyst so Model Engine v2 ownership stays real.
     email: "e2e-model@firm.test",
@@ -176,6 +186,24 @@ const lanes = [
 ];
 
 const projects = ["chromium", "firefox", "webkit"];
+
+function assertLaneManifestComplete() {
+  const specDir = path.resolve(frontendDir, "../tests/frontend/e2e");
+  const discovered = readdirSync(specDir)
+    .filter((name) => name.endsWith("_flow.spec.ts") || name.endsWith("_run.spec.ts"))
+    .sort();
+  const assigned = lanes.flatMap((lane) => lane.specs);
+  const duplicates = [...new Set(assigned.filter((name, index) => assigned.indexOf(name) !== index))].sort();
+  const missing = discovered.filter((name) => !assigned.includes(name));
+  const unknown = [...new Set(assigned.filter((name) => !discovered.includes(name)))].sort();
+  if (duplicates.length === 0 && missing.length === 0 && unknown.length === 0) return;
+  throw new Error(
+    "Production-like E2E lane manifest is incomplete. "
+    + `Missing: ${missing.join(", ") || "none"}; `
+    + `duplicates: ${duplicates.join(", ") || "none"}; `
+    + `unknown: ${unknown.join(", ") || "none"}.`,
+  );
+}
 
 function identityForProject(lane, project) {
   // Inventory journeys mutate the analyst's active context, report defaults,
@@ -195,6 +223,7 @@ function identityForProject(lane, project) {
 // frontendDir is derived from this checked-in runner's import.meta.url.
 // fallow-ignore-next-line security-sink -- Playwright CLI path is anchored to this checked-in runner directory.
 const playwrightCli = path.join(frontendDir, "node_modules", "@playwright", "test", "cli.js");
+assertLaneManifestComplete();
 await assertLiveCspMatchesStaticExport();
 for (const [laneIndex, lane] of lanes.entries()) {
   for (const [projectIndex, project] of projects.entries()) {
@@ -213,6 +242,7 @@ for (const [laneIndex, lane] of lanes.entries()) {
           NODE_PATH: path.join(frontendDir, "node_modules"),
           E2E_FORWARDED_EMAIL: identity.email,
           E2E_ANALYST_NAME: identity.name,
+          E2E_ONLY_PROJECT: project,
           // RFC 5737 documentation addresses isolate the real per-source
           // throttle while the shared 30/minute credential backstop remains.
           E2E_CLIENT_IP: `192.0.2.${laneIndex * projects.length + projectIndex + 1}`,

@@ -3,7 +3,9 @@
  * profile cookie to one storageState file per browser project. The app gates
  * pages behind a signed-in profile; distinct project principals prevent one
  * engine's durable workspace mutations from changing the next engine's initial
- * state. Three setup logins remain below the 10/min/IP login rate limit.
+ * state. Direct suite runs authenticate all configured projects; the
+ * production-like runner constrains setup to its one selected project so each
+ * lane invocation consumes one login rather than three.
  */
 import { request, type FullConfig } from "@playwright/test";
 import fs from "node:fs";
@@ -38,7 +40,14 @@ function projectClientIp(project: string) {
 export default async function globalSetup(config: FullConfig) {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:8000";
   const edgeSecret = process.env.E2E_EDGE_PROXY_SECRET;
-  for (const project of config.projects) {
+  const onlyProject = process.env.E2E_ONLY_PROJECT;
+  const projects = onlyProject
+    ? config.projects.filter((project) => project.name === onlyProject)
+    : config.projects;
+  if (onlyProject && projects.length !== 1) {
+    throw new Error(`E2E_ONLY_PROJECT must match exactly one configured project: ${onlyProject}`);
+  }
+  for (const project of projects) {
     const identity = projectIdentity(project.name);
     const clientIp = projectClientIp(project.name);
     const statePath = projectStatePath(project.name);

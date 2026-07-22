@@ -283,6 +283,26 @@ body :is(button, a, input, select, textarea):focus-visible {
   }
 }
 
+/* A native phone-sized fine-pointer viewport is also the shape exposed by
+   browser emulation and some high-zoom desktop windows. The identity band was
+   sharing one clipped row with status, utilities and the primary action, so
+   only a sliver of the current-workflow target remained clickable. Give the
+   navigation its own row while preserving the action row and DOM order. */
+@media (max-width: 480px) and (pointer: fine) {
+  .caos-subheader:has(.caos-compact-nav) {
+    height: auto;
+    min-height: 44px;
+    flex-wrap: wrap;
+    align-content: center;
+    row-gap: 4px;
+    padding-block: 4px;
+  }
+  .caos-subheader:has(.caos-compact-nav) .caos-subheader-identity {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+}
+
 /* At the smallest supported tablet width, keep the two required navigation
    labels (Workflows + current workflow) ahead of redundant page identity text.
    The document h1 remains available to assistive technology and the current
@@ -951,6 +971,46 @@ button.rd-cite:focus-visible { outline: 2px solid var(--paper-link); outline-off
   .rd-paper:not(.rd-editing).rd-model-appendix .rd-lbl0 { font-size: 5.4px; }
 }
 
+/* Native 200% browser zoom presents a narrow fine-pointer CSS viewport. The
+   filed-preview density above is appropriate on a full desk, but carrying its
+   5–9px type into that viewport defeats the proofing floor even though the
+   browser scales the pixels. Restore the authored screen sizes for readable
+   inspection; the report preview remains its own horizontal scroll region. */
+@media screen and (max-width: 767px) and (pointer: fine) {
+  .rd-paper:not(.rd-editing) .rd-mast-brand { font-size: 12px; }
+  .rd-paper:not(.rd-editing) .rd-mark { font-size: 10px; }
+  .rd-paper:not(.rd-editing) .rd-mast-meta { font-size: 10px; }
+  .rd-paper:not(.rd-editing) .rd-subtitle { font-size: 10px; }
+  .rd-paper:not(.rd-editing) .rd-h { font-size: 12px; }
+  .rd-paper:not(.rd-editing) .rd-h-sub { font-size: 10px; }
+  .rd-paper:not(.rd-editing) .rd-table thead th,
+  .rd-paper:not(.rd-editing) .rd-table tbody :is(th, td),
+  .rd-paper:not(.rd-editing) .rd-num { font-size: 11px; }
+  .rd-paper:not(.rd-editing) .rd-table tr.rd-it :is(th, td),
+  .rd-paper:not(.rd-editing) .rd-table tr.rd-it :is(th, td).rd-num { font-size: 11px; }
+  .rd-paper:not(.rd-editing) .rd-lbl0,
+  .rd-paper:not(.rd-editing) .rd-note,
+  .rd-paper:not(.rd-editing) .rd-srcline,
+  .rd-paper:not(.rd-editing) .rd-sources-h,
+  .rd-paper:not(.rd-editing) .rd-cite-chip,
+  .rd-paper:not(.rd-editing) .rd-foot,
+  .rd-paper:not(.rd-editing) .rd-colophon,
+  .rd-paper:not(.rd-editing) .rd-sources li { font-size: 10px; }
+  .rd-paper:not(.rd-editing) .rd-prow,
+  .rd-paper:not(.rd-editing) .rd-subhead,
+  .rd-paper:not(.rd-editing) .rd-body,
+  .rd-paper:not(.rd-editing) .rd-lblock,
+  .rd-paper:not(.rd-editing) .rd-list li { font-size: 12px; }
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-subtitle,
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-h span:first-child,
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-h-sub,
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-table thead th,
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-table tbody :is(th, td),
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-num,
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-table tr.rd-b :is(th, td),
+  .rd-paper:not(.rd-editing).rd-model-appendix .rd-lbl0 { font-size: 10px; }
+}
+
 .rd-wm { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 4; }
 .rd-wm svg { display: block; overflow: hidden; }
 .rd-wm text { transform: rotate(-16deg); transform-box: fill-box; transform-origin: center; fill: color-mix(in srgb, var(--paper-watermark) 18%, transparent); font-family: var(--font-mono), monospace; font-size: 26px; font-weight: 700; letter-spacing: 0.32em; white-space: nowrap; }
@@ -1450,7 +1510,13 @@ button.rd-revert-dot:focus-visible {
   .persona-workbench__drawer-triggers { padding-block: var(--space-micro); }
   .caos-persona-route .persona-workbench__composition { overflow-y: auto; }
   .caos-persona-route .persona-workbench__slot--decision { flex: none; }
-  .caos-persona-route .persona-workbench__slot--primary { min-height: 420px; flex: none; overflow-x: hidden; }
+  .caos-persona-route .persona-workbench__slot--primary {
+    min-height: 420px;
+    flex: none;
+    inline-size: 100%;
+    max-inline-size: 100%;
+    overflow-x: hidden;
+  }
 
   /* Deep-Dive keeps the complete evidence → analysis → decision workflow on
      narrow screens. Sequence the three panes vertically instead of replacing

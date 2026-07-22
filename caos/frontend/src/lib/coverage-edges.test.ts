@@ -1,14 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PortfolioRowDTO, FreshnessEvaluation } from "@/lib/api";
-import { parseCitations } from "@/lib/citations";
-import { rollupRunToCells, STATUS_RANK, worstStatus } from "@/lib/command/coverage";
 import { liveGaps } from "@/lib/command/gaps";
 import { liveMixedOrigin } from "@/lib/command/mixedOrigin";
-import { trimmedMeanBps } from "@/lib/command/stats";
 import { cp2bToDownside } from "@/lib/engine/downsidePathway";
 import { cp1ToAnchor } from "@/lib/engine/modelAnchor";
-import type { ModuleDetailDTO, RunSummaryDTO } from "@/lib/engine/types";
+import type { ModuleDetailDTO } from "@/lib/engine/types";
 import {
   freshnessDetail,
   worstFreshness,
@@ -86,36 +83,11 @@ const freshness = (
 
 afterEach(() => {
   vi.restoreAllMocks();
-  STATUS_RANK.fresh = 4;
   delete (globalThis as { window?: unknown }).window;
   localStorage.clear();
 });
 
 describe("coverage edge contracts", () => {
-  it("exercises defensive parser and robust-statistic guards", () => {
-    const nativeExec = RegExp.prototype.exec;
-    let injected = false;
-    vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (this: RegExp, input: string): RegExpExecArray | null {
-      if (this.source === String.raw`\[\[cite:(\d+)\]\]` && !injected) {
-        injected = true;
-        return Object.assign(["", "1"], {
-          index: 0,
-          input,
-          groups: undefined,
-        }) as unknown as RegExpExecArray;
-      }
-      return nativeExec.call(this, input);
-    });
-    expect(parseCitations("x")).toEqual([
-      { type: "cite", index: 1, raw: "" },
-      { type: "text", value: "x" },
-    ]);
-
-    vi.restoreAllMocks();
-    vi.spyOn(Number, "isFinite").mockReturnValue(true);
-    expect(trimmedMeanBps([Number.NaN])).toBeNull();
-  });
-
   it("preserves nested preferences when present and initializes invalid nests", () => {
     expect(writeWarnOnUnsavedLeave({ model_builder: null }, false)).toEqual({
       model_builder: { warn_on_unsaved_leave: false },
@@ -166,36 +138,6 @@ describe("coverage edge contracts", () => {
       fragility: "LOW",
       scenarios: { unexpected: true },
     }))).toBeNull();
-  });
-
-  it("covers unknown coverage statuses and untouched engine modules", () => {
-    expect(worstStatus({ L1: "mystery" })).toBe("fresh");
-    STATUS_RANK.fresh = undefined as unknown as number;
-    expect(worstStatus({ L1: "blocked" })).toBe("blocked");
-
-    const run = {
-      id: "run-1",
-      issuer_id: "issuer-1",
-      status: "completed",
-      qa_status: "",
-      committee_status: "",
-      as_of_date: null,
-      model_id: null,
-      prompt_version: null,
-      error: null,
-      modules: undefined,
-    } as unknown as RunSummaryDTO;
-    expect(rollupRunToCells(run)).toEqual({});
-
-    run.modules = [{
-      module_id: "UNROUTED",
-      module_name: "Unrouted",
-      qa_status: "Pass",
-      committee_status: "Cleared",
-      confidence: "High",
-      validation_status: "Pass",
-    }];
-    expect(rollupRunToCells(run)).toEqual({});
   });
 
   it("selects a first freshness item and formats every timestamp fallback", () => {

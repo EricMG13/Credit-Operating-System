@@ -42,8 +42,8 @@ services:
 
   app:
     build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+      context: ../..
+      dockerfile: caos/deploy/Dockerfile
     restart: unless-stopped
     depends_on:
       db:

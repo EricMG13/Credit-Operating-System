@@ -19,29 +19,38 @@ analytical-methodology prose, not code, and is out of scope.
 
 ## Health snapshot
 
-Application snapshot: `codex/112@f4c790f4`. Frontend: eslint ✓ · strict
-`tsc --noEmit` ✓ · production export of **18 business page endpoints** ✓ ·
-**1,833 Vitest tests / 263 files ✓** (one freshness-transition case required
-the configured retry). Server: **2,594 passed / 15 skipped** in the restricted
+Application snapshot: `codex/112@66e8bbfb3dae` plus the reviewed PD-01/PD-04/PD-05/PD-10
+working-tree delta. Frontend: eslint ✓ · strict TypeScript through production
+build ✓ · export of **18 business page endpoints** ✓ · **1,750/1,750 Vitest
+tests with retries disabled ✓**. Server: **2,594 passed / 15 skipped** in the restricted
 aggregate; the seven socket-denied ClamAV cases are covered by a nine-case
 unrestricted AV rerun, giving effective current evidence of **2,601 passed /
 15 skipped**. Backend Vulture is clean at ≥80% confidence; the refreshed
-frontend dependency walk has **17 reachability candidates** requiring owner
-disposition.
+frontend graph reaches **262/263 production files from 27 roots** after removing
+16 dead modules. The sole residual is the intentionally retained color-policy
+test-support seam.
 
-The quality workbook sealed on 2026-07-19 maps **683 canonical features**,
-**4,917 cases**, **4,638 executed automation nodes**, **710 UI controls**,
+The rebuilt current quality workbook maps **683 canonical features**,
+**4,930 cases**, **4,601 executed automation nodes**, **692 UI controls**,
 **173 AST handler rows**, and **17 business processes**. All 683 features link
-to direct automation, but the status mix is **3,060 direct passes**, **388
-suite-evidence**, **1,207 Designed**, and **262 N/A**. Its three-browser run
-sealed **165 passed nodes across 14 specs without retry**, closing the older
-125/15/1 defects for that snapshot. Production files in `f4c790f4` are newer,
-so the seal is not current-candidate release proof; five routed business
-concepts also lack dedicated E2E specs.
+to direct automation, but the status mix is **3,308 direct passes**, **377
+suite-evidence**, **983 Designed**, and **262 N/A**. The browser inventory now
+collects **189 nodes across 16 specs**: the routed-concept delta passes 15/15
+and the root/shared-boundary recovery delta passes 6/6 across Chromium,
+Firefox, and WebKit without retry. This remains current-working-tree evidence,
+not a frozen-candidate release seal.
 
-Current rendered evidence is **red**: the 18-route × desktop/390px real-axe
-matrix has no scan errors but reports two serious target-size nodes and two
-narrow-layout failures. Capacity evidence is much stronger: after a measured
+The known application-image resource defect is closed on this tree. A real
+multi-stage image builds from a fresh-builder 3.88 MB deny-by-default context;
+its UID-10001 consumer probe loads methodology fingerprint `15bdcbc3628d`, both
+governed specialized bundles, and 588 RV rows from the exact runtime path. This
+is not yet H0: the diagnostic local image is not reconciled, registry-addressed,
+SBOM-scanned release evidence.
+
+Current rendered evidence is **green on the working tree**: the 18-route ×
+desktop/390px real-axe matrix plus coarse-pointer, reduced-motion, and native
+200% zoom checks have zero axe, scan, clipping, or layout findings. Capacity
+evidence is much stronger: after a measured
 320-user latency fault and middleware/pool remediation, three 300-user
 Postgres/two-worker repetitions completed with zero failures and aggregate
 p95 46/120/35 ms. This strongly supports that 15 mixed users are below the
@@ -57,11 +66,13 @@ list-form), Alembic chain linear, `tsconfig` strict.
 **Verdict:** a well-built, substantially mapped codebase with no newly
 confirmed security/engine P0 in this reconciliation, but **NO-GO for
 pre-deployment release today**. PD-01…PD-10 in
-[PRE_DEPLOYMENT_PLAN.md](PRE_DEPLOYMENT_PLAN.md) block release: canonical image
-provenance, current no-retry browser proof, candidate surface/scenario parity,
-17 code-relevance dispositions, recovery equivalence, live/reference seam
-truth, target capacity, encryption/governance/off-host recovery,
-evidence-to-artifact integrity, and the current accessibility/layout failures.
+[PRE_DEPLOYMENT_PLAN.md](PRE_DEPLOYMENT_PLAN.md) governs release. PD-01/02/03/
+06/07/08/09 remain open: canonical image provenance and frozen-candidate
+browser proof, candidate surface/scenario parity, live/reference seam truth,
+target capacity, encryption/governance/off-host recovery, and evidence-to-
+artifact integrity. PD-04 relevance, PD-05 boundary recovery, and PD-10
+accessibility/layout are closed on the working tree and remain required
+regression gates for the frozen candidate.
 
 > **Status (as of the shipped engine):** the engine now wires **21 implemented
 > modules** (+ 4 spec-only) per [`registry.py`](../server/engine/registry.py) — the

@@ -1249,7 +1249,9 @@ All local builds use the repository root as context. Delete `caos/.dockerignore`
 
 # Frontend dependency manifests and production build inputs only.
 !caos/
+caos/**
 !caos/frontend/
+caos/frontend/**
 !caos/frontend/package.json
 !caos/frontend/package-lock.json
 !caos/frontend/next.config.js
@@ -1258,6 +1260,7 @@ All local builds use the repository root as context. Delete `caos/.dockerignore`
 !caos/frontend/tsconfig.json
 !caos/frontend/next-env.d.ts
 !caos/frontend/src/
+caos/frontend/src/**
 !caos/frontend/src/**
 caos/frontend/src/**/__tests__/**
 caos/frontend/src/**/*.test.*
@@ -1267,22 +1270,28 @@ caos/frontend/src/.impeccable/**
 # Server dependency lock and runtime Python/data only. No tests, scripts,
 # checked-in static build, local data, env files, caches, or virtualenvs.
 !caos/server/
+caos/server/**
 !caos/server/requirements.lock
 !caos/server/*.py
 !caos/server/alembic.ini
 !caos/server/deepresearch_demo.md
 !caos/server/engine/
+caos/server/engine/**
 !caos/server/engine/**/*.py
 !caos/server/routes/
+caos/server/routes/**
 !caos/server/routes/**/*.py
 !caos/server/migrations/
+caos/server/migrations/**
 !caos/server/migrations/**/*.py
 !caos/server/vendor/
+caos/server/vendor/**
 !caos/server/vendor/**/*.py
 
 # Backup scripts are image inputs. Other deploy config remains bind-mounted
 # directly by Compose and does not need to enter a build context.
 !caos/deploy/
+caos/deploy/**
 !caos/deploy/backup.sh
 !caos/deploy/restore_drill.sh
 
@@ -1290,16 +1299,28 @@ caos/frontend/src/.impeccable/**
 # bundles, and their shared governance preamble. Re-include directory parents
 # before files because Docker ignore traversal is parent-sensitive.
 !Modular OS/
+Modular OS/**
 !Modular OS/*/
+Modular OS/*/**
 !Modular OS/*/*_ACTIVE_PROMPT.md
+!Modular OS/CP-4D/
 !Modular OS/CP-4D/**
+!Modular OS/CP-2G/
 !Modular OS/CP-2G/**
 !Modular OS/KNOWLEDGE SOURCES/
+Modular OS/KNOWLEDGE SOURCES/**
 !Modular OS/KNOWLEDGE SOURCES/00_GOVERNANCE/
+Modular OS/KNOWLEDGE SOURCES/00_GOVERNANCE/**
 !Modular OS/KNOWLEDGE SOURCES/00_GOVERNANCE/CP-COMMON_PREAMBLE.md
 ```
 
 Important consequences:
+
+- Every re-included parent is immediately re-excluded with `parent/**` before
+  exact descendants are opened. Without that second line, a real BuildKit
+  transfer can reopen the entire parent despite the leading `**` deny. The
+  2026-07-20 negative control transferred 4.86 GB before this correction and
+  3.88 MB from a fresh builder after it.
 
 - `frontend/src/**` is required for `next build`; none of it reaches the final runtime except `out/` and the one RV JSON file explicitly copied.
 - Root `**` denies `.git`, `.github`, `.env*`, keys, certificates, `node_modules`, `.next*`, `out`, coverage, tests, `.venv*`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `server/data`, checked-in `server/static`, local databases, docs, and agent/tooling folders without depending on a fragile list of secret filename patterns.

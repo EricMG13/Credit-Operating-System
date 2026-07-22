@@ -9,7 +9,6 @@ vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }));
 import ReportBody from "@/components/research/ReportBody";
 import { AiModeToggle } from "./AiModeToggle";
 import { FirstRunHint } from "./FirstRunHint";
-import { RecoveryState } from "./RecoveryState";
 import { RouteHeading } from "./RouteHeading";
 
 afterEach(() => {
@@ -20,33 +19,6 @@ afterEach(() => {
 });
 
 describe("recovery and small shared surfaces", () => {
-  it("renders preserved fallback authority and invokes recovery actions", () => {
-    const retry = vi.fn();
-    const escalate = vi.fn();
-    render(
-      <RecoveryState
-        title="Data unavailable"
-        detail="The live endpoint failed."
-        preservedWork="Draft thesis"
-        fallback={{ provenance: { origin: "REFERENCE", asOf: "old" }, approval: "DRAFT", asOf: "17 Jul" }}
-        onRetry={retry}
-        retryLabel="Try again"
-        onEscalate={escalate}
-        escalationLabel="Route to QA"
-      />,
-    );
-    expect(screen.getByText("Preserved: Draft thesis")).toBeTruthy();
-    expect(screen.getByLabelText(/Origin REFERENCE/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    fireEvent.click(screen.getByRole("button", { name: "Route to QA" }));
-    expect(retry).toHaveBeenCalled();
-    expect(escalate).toHaveBeenCalled();
-
-    cleanup();
-    render(<RecoveryState title="Empty recovery" detail="No actions" />);
-    expect(screen.queryByRole("button")).toBeNull();
-  });
-
   it("persists, suppresses, and gracefully degrades first-run hints", async () => {
     const { rerender } = render(<FirstRunHint id="one" className="hint-class">Use the evidence rail.</FirstRunHint>);
     expect(await screen.findByText("Use the evidence rail.")).toBeTruthy();

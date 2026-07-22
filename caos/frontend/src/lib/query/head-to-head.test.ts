@@ -1,11 +1,10 @@
-// C7 — head-to-head issuer comparison walk. Covers all three registration
-// points (per the Query design mandates): questions.ts, views.ts, synthesis.ts.
+// C7 — head-to-head issuer comparison walk. Covers the mounted view registry
+// and synthesis behavior.
 
 import { describe, expect, it } from "vitest";
-import { QUESTIONS, ENGINE_NOTES, questionFor } from "./questions";
 import { nativeView, viewsFor } from "./views";
 import { synthesize } from "./synthesis";
-import type { GraphResult, GraphNode, Capability } from "./graph";
+import type { GraphResult, GraphNode } from "./graph";
 
 const node = (id: string, kind: string, extra: Partial<GraphNode> = {}): GraphNode => ({
   id, label: id, kind, x: 0.5, y: 0.5, ...extra,
@@ -17,14 +16,6 @@ const base = (over: Partial<GraphResult>): GraphResult => ({
 });
 
 describe("head-to-head registration", () => {
-  it("questions.ts carries a phrased question and an engine note", () => {
-    expect(QUESTIONS["head-to-head"]).toBeDefined();
-    expect(QUESTIONS["head-to-head"].q.length).toBeGreaterThan(0);
-    expect(ENGINE_NOTES["head-to-head"]).toBeDefined();
-    const cap: Capability = { id: "head-to-head", label: "Head-to-head comparison", mode: "concentration", enabled: true, reason: null };
-    expect(questionFor(cap)).toBe(QUESTIONS["head-to-head"].q);
-  });
-
   it("views.ts opens table-native, graph one click away — same shape as covenant-register", () => {
     expect(nativeView("head-to-head", "concentration")).toBe("rv");
     expect(viewsFor("head-to-head", "concentration")).toEqual(["rv", "graph"]);

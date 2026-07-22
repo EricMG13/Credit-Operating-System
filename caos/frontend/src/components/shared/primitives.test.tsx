@@ -6,7 +6,6 @@ import { Panel } from "./Panel";
 import { SectionHeader } from "./SectionHeader";
 import { StatusGlyph } from "./StatusGlyph";
 import { RailShell } from "./RailShell";
-import { FlashOnChange } from "./FlashOnChange";
 import { ScopeToggle } from "./ScopeToggle";
 import { FilterHeader, updateColumnFilter } from "./TableColumnFilter";
 
@@ -238,25 +237,6 @@ describe("FilterHeader", () => {
     // Clicking All should call onChange with undefined
     fireEvent.click(screen.getByRole("button", { name: "All" }));
     expect(onChange).toHaveBeenCalledWith("sector", undefined);
-  });
-});
-
-describe("FlashOnChange", () => {
-  it("flashes only when the value changes, then clears", () => {
-    vi.useFakeTimers();
-    try {
-      const { rerender, container } = render(<FlashOnChange value={1}>v</FlashOnChange>);
-      const span = () => container.querySelector("span") as HTMLElement;
-      expect(span().className).not.toContain("caos-flash"); // initial render: no flash
-
-      rerender(<FlashOnChange value={2}>v</FlashOnChange>);
-      expect(span().className).toContain("caos-flash"); // value changed → flashing
-
-      act(() => { vi.advanceTimersByTime(600); });
-      expect(span().className).not.toContain("caos-flash"); // flash cleared
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 
