@@ -55,3 +55,14 @@ is [RELEASE_DECISION_RECORD.md](release/strict-h0-3b66da67adea/RELEASE_DECISION_
 PD-01's freeze row now reads on `3b66da67`. Main-branch CI was red from the
 `548660de` freeze commit until this fix (manifest fingerprint hex tripping
 `generic-api-key`) — restored green.
+
+Second addendum, same day: **H7's mechanics are now rehearsed** — timed
+digest-pinned deploy, forced-abort of a fail-closed bad cutover, and a
+36-second rollback to the last-good digest with the pre-cutover state
+verified present ([H7_CUTOVER_REHEARSAL_2026-07-22.md](H7_CUTOVER_REHEARSAL_2026-07-22.md));
+and **H6's machine-checkable cases are executed live** on the digest (EICAR
+inside a valid PDF → named 422 rejection, non-PDF 400, ghost-issuer 404,
+tampered cookie 401, empty/vendor-down/fault rows) with the three persona
+walkthroughs left for target sign-off
+([H6_UAT_MATRIX_2026-07-22.md](H6_UAT_MATRIX_2026-07-22.md)). Both rows'
+residuals are now purely names, target repetition, and signatures.
