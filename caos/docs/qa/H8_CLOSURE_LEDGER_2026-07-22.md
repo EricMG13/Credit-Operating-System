@@ -38,3 +38,20 @@ work remains).
 
 **Zero OPEN rows.** Every remaining row is an owner/target action with its
 artifact ready. The program's CAOS-side pre-deployment work is complete.
+
+## Addendum — candidate re-frozen at `3b66da67` (same day)
+
+The vault-init fix and the gitleaks manifest-allowlist fix are config-only
+deltas; the release candidate advanced `cda106dc` → **`3b66da67`** with the
+**same app image digest** `sha256:882efb398526…`. New strict manifest (zero
+failures, clean tree == origin/main, CI 29934546964 green on the exact
+commit):
+[strict-h0-3b66da67adea](release/strict-h0-3b66da67adea/RELEASE_MANIFEST.json)
+— its digest override now pins `app` **and** `vault-init`; the rescan shows an
+identical 387-finding/66-no-fix profile, so
+[SCAN_DISPOSITION.md](release/strict-h0-3b66da67adea/SCAN_DISPOSITION.md)
+carries over (owner signature still the residual). The PD-09 bundle skeleton
+is [RELEASE_DECISION_RECORD.md](release/strict-h0-3b66da67adea/RELEASE_DECISION_RECORD.md);
+PD-01's freeze row now reads on `3b66da67`. Main-branch CI was red from the
+`548660de` freeze commit until this fix (manifest fingerprint hex tripping
+`generic-api-key`) — restored green.

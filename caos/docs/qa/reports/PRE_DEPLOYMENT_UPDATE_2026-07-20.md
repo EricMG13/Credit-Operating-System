@@ -513,3 +513,19 @@ PD-01, PD-02, PD-03, PD-06, PD-07, PD-08, and PD-09 remain open and
 non-waivable. The PD-01 resource contract plus PD-04, PD-05, and PD-10 are
 satisfied on the working tree but remain non-waivable regression gates for the
 frozen candidate.
+
+### Execution delta — candidate re-frozen `3b66da67` 2026-07-22 (config-only)
+
+L25's vault-init fix and the gitleaks manifest-allowlist fix moved the
+candidate tip `cda106dc` → `ddb15f31` → **`3b66da67`** (image digest
+unchanged: no image-input file changed). CI 29934546964 is green on the exact
+new tip — including the full three-browser matrix, the image resource probe,
+and the previously-red security job (the `548660de` manifest's fingerprint
+hashes had tripped `generic-api-key`, breaking main CI since the freeze; the
+allowlist now covers generated hash-only release manifests). Strict manifest
+regenerated from a clean worktree:
+[strict-h0-3b66da67adea](../release/strict-h0-3b66da67adea/RELEASE_MANIFEST.json)
+(zero strict failures; override pins `app` + `vault-init`; identical Trivy
+profile so the scan disposition carries over; decision-record skeleton in the
+same directory). PD-01 is closed on `3b66da67` modulo the signature; PD-09
+needs only the owner's signed decision on the assembled bundle.
