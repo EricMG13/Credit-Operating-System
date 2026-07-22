@@ -38,4 +38,10 @@ paths = [
   # Phase 2 signed-preview tests use an explicit synthetic session secret long
   # enough to exercise the production token contract. It is fixture data only.
   '''caos/tests/server/test_market_xlsx_commit\.py''',
+  # H0 release manifests (build_release_manifest.py output): the config
+  # fingerprint maps tracked non-secret deploy files to their sha256 digests,
+  # so lines like `"oauth2-proxy.cfg": "<64-hex>"` false-positive the
+  # generic-api-key rule. The generator writes digests of *tracked, non-secret*
+  # files only — real secrets never enter a manifest by construction.
+  '''caos/docs/qa/release/.*/RELEASE_MANIFEST\.json''',
 ]
