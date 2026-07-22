@@ -222,7 +222,9 @@ export function ExportPanel({ rep, omitCount, editCount, runId, liveHeldReason }
   const held = isReportHeld(rep, liveHeldReason);
   const rows: [string, string][] = [
     ["Format", "PDF · US Letter / XLSX"],
-    ["Renderer", "CP-RENDER v2.2"],
+    // Report Studio IS the CP-RENDER service (PD-06 equivalence decision,
+    // 2026-07-22); no versioned engine module exists to stamp here.
+    ["Renderer", "Report Studio · CP-RENDER"],
     // "Orphaned" (a citation referenced in the body with no matching source)
     // is not computed anywhere in this pipeline — asserting "0" claimed an
     // audit that never ran. Report only what citeCount actually counts: the

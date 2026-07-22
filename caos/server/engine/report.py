@@ -2,9 +2,13 @@
 
 The export gate is the point where the CP-5 decision gets teeth: a run is only
 exportable as a committee pack when its rolled-up ``committee_status`` is
-"Committee Ready". A Restricted or Blocked run is refused. This is a stand-in
-for the full CP-RENDER infrastructure module (later tier); for now it produces a
-structured summary and, crucially, enforces the gate.
+"Committee Ready". A Restricted or Blocked run is refused. Together with Report
+Studio's immutable, hash-verified, source-manifest-bound report versions
+(routes/reports.py), this IS the render service: the corpus CP-RENDER promise is
+satisfied by this equivalent service, not by a later engine module (PD-06
+decision 2026-07-22 — see engine/registry.py documented omissions and
+caos/docs/qa/PROMISE_TO_RUNTIME_MAP.md). It produces a structured summary and,
+crucially, enforces the gate.
 """
 
 from __future__ import annotations

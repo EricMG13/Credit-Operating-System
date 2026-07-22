@@ -48,9 +48,10 @@ def test_full_run_when_all_sources_present():
     plan = build_route_plan(_cp0())
     assert plan.gate_status == FULL_RUN
     # Every *implemented* module routes Full Run and executes. The spec-only corpus
-    # modules (CP-SR/CP-MON L7, CP-RENDER/CP-EXTRACT Infra) are registered so the
-    # route plan reflects the full corpus mesh honestly: they surface as
-    # Not Implemented and are excluded from the execution order. (engine item #8)
+    # modules (CP-SR/CP-MON L7) are registered so the route plan reflects the
+    # corpus mesh honestly: they surface as Not Implemented and are excluded from
+    # the execution order. (engine item #8; CP-DB/CP-RENDER/CP-EXTRACT are
+    # documented registry omissions — see engine/registry.py, PD-06 2026-07-22.)
     for r in plan.readiness:
         mid = r.module_id
         if REGISTRY[mid].implemented:
@@ -60,8 +61,12 @@ def test_full_run_when_all_sources_present():
             assert plan.verdict(mid) == NOT_IMPLEMENTED, mid
             assert mid not in plan.execution_order
     spec_only = {mid for mid, s in REGISTRY.items() if not s.implemented}
-    assert spec_only == {"CP-SR", "CP-MON", "CP-RENDER", "CP-EXTRACT"}
+    assert spec_only == {"CP-SR", "CP-MON"}
     assert {r.module_id for r in plan.readiness if r.readiness == NOT_IMPLEMENTED} == spec_only
+    # Documented omissions never enter the registry or a route plan.
+    for omitted in ("CP-DB", "CP-RENDER", "CP-EXTRACT"):
+        assert omitted not in REGISTRY
+        assert omitted not in {r.module_id for r in plan.readiness}
     # CP-X advertises the routed modules to downstream, excluding CP-0 itself.
     routed = plan.routed_module_ids()
     assert "CP-0" not in routed and "CP-1" in routed

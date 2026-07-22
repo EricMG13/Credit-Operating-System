@@ -34,7 +34,7 @@
 | Removed Command `SectorRV` + `ActionableDislocations` + `lib/command/dislocations.ts` cluster | Deleted under PD-04 after direct/dynamic reference and LOW-impact review; `/sector-rv` continues to mount `RVScreenerWorkbench` | Closed as dead-code disposition; do not count the historical labelled sample as a live surface |
 | Monitor email/replay | Still consumes `simAlertsToday`, `CRITICAL_ALERTS`, `EmailIntel`, and the shared sim behind an explicit demo disclosure; live alert inbox/governance is separate | Acceptable only as labelled sample until C3 enterprise email/CP-MON seam closes |
 | Sector RV current route | API-backed workbench; per-result authority emits LIVE/DEMO/REFERENCE | Dedicated route-contract E2E is green on the working tree; C5 still owns licensed/current market activation and target entitlements |
-| Report Studio | Live run/model/report services coexist with explicit Atlas Forge bespoke-tab/template fixtures; CP-RENDER module is not issuer-specific | C13 must freeze the equivalent-service map and prove live issuer publish/export |
+| Report Studio | Live run/model/report services coexist with explicit Atlas Forge bespoke-tab/template fixtures; CP-RENDER equivalent-service decision recorded 2026-07-22 (Report Studio IS the render service — PROMISE_TO_RUNTIME_MAP.md, registry documented omission) | Equivalent-service map frozen; live issuer publish/export browser proof remains open at H0 |
 | Deep-Dive rails | Non-reference issuers fail unavailable rather than receive ATLF CP-0/CP-5B rail fixtures | Honest behavior; runtime/equivalent-service gap remains visible and tracked |
 | Issuers | `DEMO_UNIVERSE` remains a labelled demo/search fallback | Production demo seed remains forbidden; L23 verifies empty real workspace behavior |
 

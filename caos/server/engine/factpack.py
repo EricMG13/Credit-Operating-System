@@ -44,7 +44,7 @@ _FACT_AREAS: Tuple[Tuple[str, str, str], ...] = (
      r"traces its (?:roots|history)"),
 )
 
-_DOWNSTREAM = ["CP-2", "CP-RENDER"]
+_DOWNSTREAM = ["CP-2"]
 
 
 def scan_facts(chunks: List[Tuple[str, str]]) -> List[dict]:

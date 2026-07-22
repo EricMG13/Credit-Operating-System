@@ -398,13 +398,15 @@ async def synthesize_debate(module_id: str, upstream: Dict[str, ModulePayload]) 
         bull, bear = _ic_signals(upstream)
         verdict = _ic_verdict(bull, bear)
         name, owned = "ICDebateChallenge", "ic_debate_challenge"
-        consumers = ["CP-6E", "CP-RENDER", "CP-EXTRACT"]
+        consumers = ["CP-6E"]
         headline = verdict["lean"]
     else:  # CP-6E
         bull, bear = _portfolio_signals(upstream)
         verdict = _sizing_verdict(bull, bear)
         name, owned = "PortfolioDebateChallenge", "portfolio_debate_challenge"
-        consumers = ["CP-RENDER", "CP-EXTRACT"]
+        # Committee export is the Report Studio service, not a routed module
+        # (engine/registry.py documented omissions, PD-06 2026-07-22).
+        consumers = []
         headline = verdict["sizing_posture"]
 
     debater = get_debater()

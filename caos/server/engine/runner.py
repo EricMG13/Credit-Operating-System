@@ -948,5 +948,7 @@ async def _persist_cp5(
                 for f in findings
             ],
         },
-        downstream_consumers=["CP-RENDER", "CP-EXTRACT"],
+        # Committee export is the Report Studio service, not a routed module
+        # (engine/registry.py documented omissions, PD-06 2026-07-22).
+        downstream_consumers=[],
     ))

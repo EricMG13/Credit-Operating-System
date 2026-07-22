@@ -39,6 +39,23 @@ This closes **PD-10 on the current working tree**. It does not substitute
 for PD-02's final three-browser journey seal or PD-09's digest-bound archive,
 and it must be rerun after H0 is frozen.
 
+### Execution delta — PD-06 CP-RENDER/CP-EXTRACT dispositions executed 2026-07-22
+
+The two Infra promise dispositions directed by RT-2026-07-20-772 were executed
+on the reconciled tree (post-`a3cd4350`). CP-RENDER is recorded as satisfied by
+the Report Studio equivalent service — the committee export gate
+(`engine/report.py`) plus immutable, document-hash-verified,
+source-manifest-bound report versions (`routes/reports.py`) — and CP-EXTRACT is
+architecturally retired. Both specs were removed from the module registry as
+documented omissions under the CP-DB precedent, every production
+`downstream_consumers` stamp naming them was cleaned
+(runner/debate/covenants/coststructure/factpack), and the planner/engine
+contract tests now assert plan-absence plus the honest-404 module API. The
+implementation critic pass is RT-2026-07-22-775…779. The operative promise map
+([PROMISE_TO_RUNTIME_MAP.md](../PROMISE_TO_RUNTIME_MAP.md)) is updated;
+**PD-06 remains OPEN** on CP-SR, CP-MON/C3, C5, seam-activation evidence, and
+the H0 production-data browser export leg of the CP-RENDER verification.
+
 ### Execution delta — five routed-concept contracts green on 2026-07-20
 
 Decisions, Portfolios, Issuer Profile, Sector RV, and Sponsors now have five
@@ -295,7 +312,7 @@ remains non-waivable.
 | **PD-03** | Exact tracker rebuild is current, but 983 scenarios remain Designed, 377 rely on suite evidence, and the dated application-surface matrix predates the post-cleanup 692-control inventory | L23 regenerate route/nav/API/process/control/tracker/evidence parity from the candidate and execute all release-required scenarios |
 | **PD-04** | **CLOSED on the current working tree:** 16 dead modules removed; one policy test seam retained with rationale; graph is 262/263 from 27 roots | Rerun native graph and controlled-host Fallow against frozen H0; reopen on a new or unexplained candidate |
 | **PD-05** | **CLOSED on the current working tree:** the shipped root/global boundary and shared segment boundary delegated by all six segment error files pass 6/6 injected-browser executions with named failure, preserved authenticated analyst/context/draft state, zero failure-time writes, and exactly one recovery autosave | Repeat the same fail-closed proof on frozen H0; reopen on boundary-map, compiled-sentinel, state-preservation, or mutation-ledger drift |
-| **PD-06** | The [promise-to-runtime map](../PROMISE_TO_RUNTIME_MAP.md) and C3/C5 pickup plans now exist, but CP-SR/CP-MON runtime work, CP-RENDER equivalence proof, CP-EXTRACT disposition, licensed market data, email, and provider activation evidence remain open | Execute the mapped closures; keep unavailable/reference states honest; capture activation and failure evidence for every enabled seam |
+| **PD-06** | The [promise-to-runtime map](../PROMISE_TO_RUNTIME_MAP.md) and C3/C5 pickup plans exist. **2026-07-22: CP-EXTRACT retirement and the CP-RENDER equivalent-service decision are executed** (registry omissions, provenance cleanup, contract tests — RT-2026-07-22-775…779). CP-SR/CP-MON runtime work, licensed market data, email, provider activation evidence, and the H0 browser leg of CP-RENDER verification remain open | Execute the remaining mapped closures; keep unavailable/reference states honest; capture activation and failure evidence for every enabled seam |
 | **PD-07** | Strong local 300-user evidence is not bound to the target image/host or simultaneous authenticated heavy work | L25 exact image with 15 principals, target-size data, heavy-operation overlap, slow/429/529/storage faults, queue/pool/memory/isolation/recovery telemetry |
 | **PD-08** | Target at-rest encryption, record governance, paired-backup freshness/alerting, and off-host recovery are unproven | E8/G8/G9 + L22/L26: approved custody policy, encrypted target/off-host stores, alarms, and remote-only restore |
 | **PD-09** | Final evidence is not bound to released bytes | Archive one digest-addressed H0/H1/H2 evidence bundle and signed decision record |

@@ -1,8 +1,8 @@
 # Promise-to-Runtime Map
 
 **Gate:** PD-06 / C13  
-**As of:** 2026-07-20  
-**Disposition:** OPEN — NO-GO
+**As of:** 2026-07-22 (CP-RENDER/CP-EXTRACT dispositions executed; first mapped 2026-07-20)  
+**Disposition:** OPEN — NO-GO (CP-SR, CP-MON/C3, C5, and seam activation evidence remain open)
 
 This is the operative map for reconciling named Credit Prompt modules with
 callable production behavior. It records current truth; it does not close
@@ -33,8 +33,8 @@ adjacent workflows do not by themselves constitute runtime implementation.
 |---|---|---|---|
 | CP-SR | BLOCKED | The sector-review route persists versioned partial/reference reviews. All six dimensions remain unavailable, missing dependencies are retained, and ready publication is unreachable. | Implement the separately planned asynchronous, source-backed sector-review service; prove complete dimension synthesis, comparables, recovery, ratification, and production-data publication. |
 | CP-MON | BLOCKED | Watchtower and autonomy worklists provide adjacent monitoring behavior, and alert-event lifecycle APIs exist. There is no complete watch-rule evaluator, durable delivery sink, scheduler claim model, briefing, or single persisted Monitor authority. | Execute the C3 Monitor and alert seam plan, preserving existing AlertEvent compatibility; prove deterministic evaluation, scoped event access, durable delivery, failure handling, and production-data Monitor parity. |
-| CP-RENDER | PROVISIONAL | Report Studio already freezes exact run/model/source manifests and produces immutable JSON, XLSX, and PDF versions. The registry still marks CP-RENDER unimplemented, its module route returns unavailable, and some UI provenance stamps imply the module exists. | Decide and document Report Studio as the equivalent service or implement the module; redirect or retire the obsolete promise, clean up provenance claims, and pass production-data browser export evidence. |
-| CP-EXTRACT | RETIRE-CANDIDATE | No CP-EXTRACT runtime exists. Current PDF/XLSX ingestion does not implement the promised canonical DOCX appendix parser. The server is JSON-native. | Explicitly retire or redirect the promise to the supported ingestion contract, or define and implement a future adapter. Do not label the existing ingestion path as equivalent without contract parity. |
+| CP-RENDER | RESOLVED (equivalent service; H0 browser evidence outstanding) | **Decision recorded 2026-07-22:** Report Studio IS the render service. Evidence: the committee export gate (`engine/report.py`) refuses non-Committee-Ready runs; published versions are immutable, document-hash-verified, and bound to an approved analyst-owned source manifest (`routes/reports.py`); the module registry documents CP-RENDER as a deliberate omission (CP-DB precedent) instead of a pending build; engine payloads no longer stamp CP-RENDER as a downstream consumer; the module API stays honestly unavailable (`test_engine`: `/modules/CP-RENDER` → 404, plan-absence asserted). Red-team: RT-2026-07-20-772, RT-2026-07-22-775…779. | Production-data browser export evidence on frozen H0 (retained in the contract-evidence list below). Reopen if any surface reintroduces a CP-RENDER runtime claim. |
+| CP-EXTRACT | RETIRED (2026-07-22) | **Retirement decision recorded 2026-07-22:** the server is JSON-native and no application document boundary uses the promised canonical DOCX appendix parser. Registry spec and all production `downstream_consumers` stamps removed; documented omission at `engine/registry.py`; plan-absence and honest-404 asserted in `test_planner`/`test_engine`. Upload extraction remains under its real PDF/XLSX ingestion contract and is explicitly NOT labeled equivalent. Red-team: RT-2026-07-20-772, RT-2026-07-22-775…779. | None for the promise itself. A future adapter must register as a new module through the normal registry mechanism with its own contract evidence. |
 
 CP-DB is deliberately infrastructure, not an executable analytical module:
 SQLAlchemy, Postgres, and Alembic provide the persistence seam. It should be
@@ -73,8 +73,12 @@ Before PD-06 can close, the release record must include:
 - [ ] C3 Monitor and alert seam implemented and verified.
 - [ ] C5 market-data provider chain implemented and verified.
 - [ ] CP-SR implementation plan written and executed.
-- [ ] CP-RENDER equivalent-service decision recorded and verified.
-- [ ] CP-EXTRACT retirement or replacement decision recorded.
+- [ ] CP-RENDER equivalent-service decision recorded and verified — decision,
+      registry omission, provenance cleanup, and contract tests landed
+      2026-07-22; verification completes with the H0 production-data browser
+      export evidence below.
+- [x] CP-EXTRACT retirement or replacement decision recorded (2026-07-22:
+      retired; registry spec and production consumer stamps removed).
 - [ ] Model-provider activation evidence recorded for every enabled target.
 - [ ] No UI, API, or provenance stamp overstates an unavailable seam.
 - [ ] PD-06 evidence links added to the pre-deployment release record.

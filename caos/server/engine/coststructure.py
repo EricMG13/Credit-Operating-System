@@ -37,7 +37,7 @@ async def synthesize_cost_structure(issuer_name: str, retrieve) -> ModulePayload
             },
             confidence="Insufficient Information",
             limitation_flags=["No energy cost-structure disclosure in ingested sources."],
-            downstream_consumers=["CP-RENDER"],
+            downstream_consumers=[],
         )
 
     value, chunk_id, _doc = derived
@@ -51,7 +51,7 @@ async def synthesize_cost_structure(issuer_name: str, retrieve) -> ModulePayload
             "method": "extracted_from_disclosure",
         },
         confidence="High",
-        downstream_consumers=["CP-RENDER"],
+        downstream_consumers=[],
         claims=[
             ClaimSpec(
                 claim_id="C-CS1",

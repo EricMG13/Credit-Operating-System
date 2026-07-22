@@ -3144,3 +3144,24 @@ if implementation creates parallel stores, merges workflow and credit events,
 lets a stub imply delivery, invents a vendor API, mutates the CRITICAL
 `AlertEvent` surface without additive compatibility proof, or treats fixture
 evidence as H0/live activation.
+
+## 2026-07-22 — PD-06 CP-RENDER/CP-EXTRACT disposition execution critic pass
+
+Decision under review: execute the RT-2026-07-20-772 dispositions on the
+reconciled tree — retire CP-EXTRACT (remove its registry spec and production
+consumer stamps) and record Report Studio as CP-RENDER's equivalent service
+(remove its spec under the CP-DB documented-omission precedent, clean consumer
+stamps, cite run/version/export evidence in the promise map). CP-SR/CP-MON
+spec-only honesty is untouched.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-22-775 | Corpus-fidelity reviewer | Removing the two Infra nodes stops the live route plan from mirroring the corpus mesh (engine item #8 "full-mesh honesty"). | High | Resolve via the CP-DB precedent | Mesh honesty means honest about what the engine will run. CP-DB is already a documented omission because the DB stack IS its implementation; Report Studio IS CP-RENDER's implementation and CP-EXTRACT is architecturally retired (RT-772). Both omissions are documented at the registry with dated rationale; the corpus mesh remains fully documented in Modular OS and the seeded Pipeline reference DAG (spec-truth per MOCK_LEDGER). |
+| RT-2026-07-22-776 | API-contract reviewer | Consumers may depend on the four Not-Implemented readiness rows in run payloads. | Medium | Resolve with evidence | Frontend renders readiness rows per-item with no pinned count and has zero live references to the two IDs (only seeded mock + a type). `_coverage` counts `implemented` only; `DECLARATION_INDEX` orders persisted outputs only. Contract tests updated to assert documented absence; full server suite gates the change. |
+| RT-2026-07-22-777 | Evidence reviewer | An equivalence decision without cited runtime evidence repeats the overclaim RT-772 warned against. | Critical | Resolve in the promise map | The map cites Report Studio's committee gate (engine/report.py), immutable versions with stored document-hash verification and approved source-manifest binding (routes/reports.py), the honest-unavailable API contract test (test_engine: /modules/CP-RENDER → 404), and the browser report flow. Production-data browser export evidence on frozen H0 explicitly remains open — the decision is recorded, not the H0 proof. |
+| RT-2026-07-22-778 | Parallel-work reviewer | The C3 worktree (CP-MON runtime build) will also edit the registry and the spec-only test pin — merge conflict risk. | Medium | Accept, bounded | Edits are confined to the Infra spec block, consumer-stamp literals, and one assert line; any conflict is line-local and semantically trivial (both sides shrink the same set). Commit message flags the seam for the C3 owner. |
+| RT-2026-07-22-779 | Lineage reviewer | Emptying `downstream_consumers` loses the true fact that CP-5/CP-6E output feeds committee export. | Low | Resolve by naming the service where it is owned | The real consumer is the Report Studio export service, which module-ID vocabulary cannot express without inventing a token the graph would treat as a module. querygraph never rendered these edges (consumers draw only when present in the run). The service relationship is recorded at engine/report.py, the registry omission note, and the promise map. |
+
+Decision: proceed. Reopen if any suite or golden pins the removed rows, or if
+the C3 tranche lands a conflicting registry shape first (rebase and re-verify
+rather than force-merge).

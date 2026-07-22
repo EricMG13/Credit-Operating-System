@@ -359,7 +359,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
             owned_object="covenant_capacity_calculation",
             runtime_output={"calculations": [], "note": reason},
             confidence="Insufficient Information", limitation_flags=[reason],
-            downstream_consumers=["CP-6A", "CP-6E", "CP-RENDER"],
+            downstream_consumers=["CP-6A", "CP-6E"],
         )
 
     # Leverage lets us *compute* capacity/headroom; without it we still surface the
@@ -600,7 +600,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
         runtime_output=runtime_output,
         confidence="High",
         limitation_flags=limitations,
-        downstream_consumers=["CP-6A", "CP-6E", "CP-RENDER"],
+        downstream_consumers=["CP-6A", "CP-6E"],
         claims=claims,
     )
 

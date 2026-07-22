@@ -367,9 +367,13 @@ def test_cpx_route_plan_persisted(client, atlf_run):
         assert by_mod[mid]["readiness"] == "Full Run", mid
     # The spec-only corpus modules are routed and shown as Not Implemented (the
     # full-mesh honesty fix, engine item #8) but never executed. (engine item #8)
-    for mid in ("CP-SR", "CP-MON", "CP-RENDER", "CP-EXTRACT"):
+    for mid in ("CP-SR", "CP-MON"):
         assert by_mod[mid]["readiness"] == "Not Implemented", mid
-    # A spec-only node the route plan never executes has no output row.
+    # Documented registry omissions (PD-06 2026-07-22): CP-RENDER is satisfied
+    # by the Report Studio service and CP-EXTRACT is retired — absent from the
+    # plan entirely, and still honestly unavailable at the module API.
+    for mid in ("CP-DB", "CP-RENDER", "CP-EXTRACT"):
+        assert mid not in by_mod, mid
     assert client.get(f"/api/runs/{atlf_run['id']}/modules/CP-RENDER").status_code == 404
     # CP-X is an orchestration record, not gated content.
     assert detail["qa_status"] == "Passed" and detail["owned_object"] == "route_plan"

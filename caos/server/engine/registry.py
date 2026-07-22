@@ -18,19 +18,34 @@ Two populations:
     and the adjusted-EBITDA bridge it used to own is folded into CP-1.
   - **Spec-only** modules (``implemented=False``) are the rest of the designed
     graph that have no synthesizer wired in the engine yet: the corpus L7 modules
-    (CP-SR SectorReview, CP-MON CreditPulse) and the Infra modules (CP-RENDER,
-    CP-EXTRACT) named in the CP-X route graph. CP-X routes to them and the planner
+    (CP-SR SectorReview, CP-MON CreditPulse). CP-X routes to them and the planner
     marks them ``Not Implemented`` (engine.planner) so the route plan reflects the
     corpus mesh honestly; they are never executed and never counted in the QA
-    roll-up. Their ``owned_object`` is not validated by the one-owner check (that
-    only runs over implemented modules), so where the corpus pins one we use it
-    (sector_review, signal_register) and otherwise a sensible canonical name.
+    roll-up. Their ``owned_object`` is the corpus-pinned name (sector_review,
+    signal_register) and is not validated by the one-owner check (that only runs
+    over implemented modules).
 
-    One corpus route-graph node is deliberately NOT registered: **CP-DB** (the
-    persistence layer) — the database/Alembic stack IS its implementation, and
-    it is neither routable nor executable as a module, so listing it would put a
-    permanently-dead node in every route plan. Named here so the omission is a
-    documented decision, not a silent gap (audit 2026-07-10 SPEC-4).
+    Three corpus route-graph nodes are deliberately NOT registered:
+
+      - **CP-DB** (persistence) — the database/Alembic stack IS its
+        implementation; neither routable nor executable as a module
+        (audit 2026-07-10 SPEC-4).
+      - **CP-RENDER** (render) — Report Studio IS its implementation: the
+        committee export gate (engine/report.py) plus immutable, hash-verified,
+        source-manifest-bound report versions (routes/reports.py).
+        Equivalent-service decision recorded 2026-07-22 under PD-06
+        (RT-2026-07-20-772, RT-2026-07-22-775…779;
+        caos/docs/qa/PROMISE_TO_RUNTIME_MAP.md).
+      - **CP-EXTRACT** (appendix extraction) — architecturally retired
+        2026-07-22: the server is JSON-native and no application document
+        boundary uses the promised DOCX appendix parser; upload extraction lives
+        under the real ingestion contract (same decision record). A future
+        adapter would register here as a new module through the normal
+        mechanism.
+
+    Listing any of them would put a permanently-dead node in every route plan
+    and imply a pending engine build that is not planned. Named here so each
+    omission is a documented decision, not a silent gap.
 
 Layer ordering (Active Prompt / REF_CP-X_02): L0 -> Orch -> L1 -> L2 -> L3 ->
 L4 -> L5/L6 -> Infra. CP-X (Orch) is the router itself, and the QA-phase
@@ -216,19 +231,15 @@ _SPECS: Tuple[ModuleSpec, ...] = (
     # (Modular OS/CP-X/SYSTEM_REFERENCE.md "Route Graph — All Modules") rather than
     # silently omitting them. implemented=False ⇒ never executed, never QA-counted.
     # Deps are declared-before (so the ordering invariant holds) and faithful to the
-    # corpus: L7 sector/monitor read the analytical synthesis; Infra runs after all.
+    # corpus: L7 sector/monitor read the analytical synthesis.
     # ── L7 — sector / monitoring ────────────────────────────────────────────
     ModuleSpec("CP-SR", "SectorReview", "L7", "sector_review",
                depends_on=("CP-2",), implemented=False),
     ModuleSpec("CP-MON", "CreditPulse", "L7", "signal_register",
                depends_on=("CP-2",), implemented=False),
-    # ── Infra — render / extract (run after all analytical modules) ──────────
-    # No owned_object const in the corpus schema for these; sensible canonical
-    # snake_case names (never validated, since the one-owner check skips spec-only).
-    ModuleSpec("CP-RENDER", "ReportRenderer", "Infra", "rendered_report",
-               depends_on=("CP-6E",), implemented=False),
-    ModuleSpec("CP-EXTRACT", "AppendixExtractor", "Infra", "extraction_envelope",
-               depends_on=("CP-6E",), implemented=False),
+    # ── Infra — CP-RENDER / CP-EXTRACT: documented omissions ─────────────────
+    # CP-RENDER → Report Studio equivalent service; CP-EXTRACT → retired.
+    # See the module docstring (PD-06 2026-07-22; RT-2026-07-20-772).
 )
 
 REGISTRY: Dict[str, ModuleSpec] = {s.module_id: s for s in _SPECS}

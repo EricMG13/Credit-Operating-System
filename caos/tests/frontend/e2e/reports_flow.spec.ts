@@ -40,7 +40,7 @@ test.describe("Report Studio", () => {
     await expect(memo).toHaveAttribute("aria-current", "true");
     await expect(page.getByText("CONDITIONAL — QA-117", { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/IC Credit Memo is held by CP-5/)).toBeVisible();
-    await expect(page.getByText("CP-RENDER v2.2", { exact: true })).toBeVisible();
+    await expect(page.getByText("Report Studio · CP-RENDER", { exact: true })).toBeVisible();
     await expect(page.getByText(/\d+ sections · \d+ citations/).first()).toBeVisible();
   });
 
