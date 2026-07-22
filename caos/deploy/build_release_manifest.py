@@ -266,23 +266,35 @@ def section_vulnerability(out_dir: Path, image: str) -> dict:
         results["frontend_npm_audit"] = unavailable(
             f"npm audit failed: {err.splitlines()[-1] if err else code}", "npm audit")
 
-    # Final-OCI-image scan (OS packages). docker scout when present; the H0
-    # disposition of its findings stays a manual slot either way (RT-783).
-    code, _, _ = run(["docker", "scout", "version"])
+    # Final-OCI-image scan (OS packages): trivy preferred (adopted 2026-07-22),
+    # docker scout fallback. Disposition of findings stays a manual H0 slot
+    # (RT-783).
+    code, _, _ = run(["trivy", "--version"])
     if code == 0:
+        code, out, err = run(["trivy", "image", "--quiet", "--format", "sarif", image],
+                             timeout=900)
+        results["image_os_scan"] = (
+            recorded(scanner="trivy",
+                     **write_artifact(out_dir, "image-scan.sarif.json", out))
+            if code == 0 and out else
+            unavailable(f"trivy image failed: {err.splitlines()[-1] if err else code}",
+                        f"trivy image --format sarif {image}")
+        )
+    elif run(["docker", "scout", "version"])[0] == 0:
         code, out, err = run(["docker", "scout", "cves", "--format", "sarif", image],
                              timeout=900)
         results["image_os_scan"] = (
-            recorded(**write_artifact(out_dir, "image-scan.sarif.json", out))
+            recorded(scanner="docker-scout",
+                     **write_artifact(out_dir, "image-scan.sarif.json", out))
             if code == 0 and out else
             unavailable(f"docker scout cves failed: {err.splitlines()[-1] if err else code}",
                         f"docker scout cves {image}")
         )
     else:
         results["image_os_scan"] = unavailable(
-            "no OCI image scanner available (docker scout absent); "
+            "no OCI image scanner available (trivy and docker scout absent); "
             "H0 requires scanning the final image including OS packages",
-            "docker scout cves")
+            "trivy image")
     ok = all(v.get("status") == "recorded" for v in results.values())
     return {"status": "recorded" if ok else "unavailable", **results}
 

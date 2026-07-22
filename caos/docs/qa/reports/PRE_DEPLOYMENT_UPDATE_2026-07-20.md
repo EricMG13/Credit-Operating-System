@@ -71,10 +71,15 @@ surfaced live dependency findings, remediated same day with suites green:
 via pip-compile, server 2,594/15 green) and **sharp 0.34.5 → 0.35.3 override +
 brace-expansion 1.1.16/2.1.2/5.0.7** (libvips CVE-2026-33327/33328/35590/35591
 and exponential-expansion DoS; `npm audit --audit-level=high` now clean,
-production build exports all 18 routes). Outstanding for strict H0: an OCI
-image scanner decision (docker scout absent on this host), CI evidence links,
-and the named manual legs (restore rehearsal, off-host backup, scan
-disposition sign-off).
+production build exports all 18 routes). **Scanner adopted 2026-07-22: Trivy 0.72.0** (free/OSS), wired into the
+generator as the preferred OCI scanner with docker-scout fallback. Its first
+scan of the 2026-07-20 diagnostic image (`caos-app:pd01-check`) recorded 69
+high/critical-level results including six critical CVEs — all in OS base
+packages (glib, libxml2, perl), none in application dependencies. **H0
+rebuild instruction:** bump the Dockerfile's base-image digest pins to the
+current patched bases at freeze, rebuild, rescan, then disposition whatever
+remains. Outstanding for strict H0: CI evidence links and the named manual
+legs (restore rehearsal, off-host backup, scan disposition sign-off).
 
 ### Execution delta — PD-06 CP-RENDER/CP-EXTRACT dispositions executed 2026-07-22
 
