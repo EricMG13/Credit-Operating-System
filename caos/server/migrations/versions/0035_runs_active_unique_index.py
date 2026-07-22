@@ -12,7 +12,9 @@ that then races on the issuer's headline metric_facts.
 
 Portable (both dialects support a partial/filtered unique index) — no reason to
 scope this to Postgres only; enforcing it in the SQLite dev/test path too keeps
-schema parity. Additive — no edits to existing tables.
+schema parity. Resolves any pre-existing duplicate active runs (keeping the
+newest per issuer, failing the rest) before creating the index, so a deploy
+with dirty data doesn't fail the upgrade.
 
 Revision ID: 0035
 Revises: 0034 (runs_status_created_idx — two independent, purely-additive
@@ -36,6 +38,29 @@ _ACTIVE_PREDICATE = "status IN ('queued', 'running')"
 
 
 def upgrade() -> None:
+    # Resolve any pre-existing duplicate active runs first, else CREATE UNIQUE
+    # INDEX fails against dirty data. Keep the most-recently-created queued/
+    # running run per issuer (created_at, then id as a deterministic tiebreak
+    # — created_at is NOT NULL as of migration 0027, so no NULL fallback is
+    # needed here) and mark the rest failed — same posture as the boot-time
+    # stranded-run sweep (run_executor.py). Window-function-free so it runs
+    # on older SQLite too.
+    op.execute(
+        sa.text(
+            """
+            UPDATE runs SET status = 'failed',
+                            error = 'superseded (run-dedup migration 0035)'
+            WHERE status IN ('queued', 'running')
+              AND EXISTS (
+                  SELECT 1 FROM runs other
+                  WHERE other.issuer_id = runs.issuer_id
+                    AND other.status IN ('queued', 'running')
+                    AND (other.created_at > runs.created_at
+                         OR (other.created_at = runs.created_at AND other.id > runs.id))
+              )
+            """
+        )
+    )
     op.create_index(
         "uq_runs_issuer_active",
         "runs",

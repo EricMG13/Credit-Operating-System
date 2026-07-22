@@ -224,3 +224,67 @@ def test_issuer_uniqueness_migration_is_team_aware_and_refuses_existing_duplicat
     refused = _alembic("upgrade", "head", db_url=bad_url)
     assert refused.returncode != 0
     assert "duplicate normalized issuer name" in refused.stderr
+
+
+def test_0035_dedupes_pre_existing_duplicate_active_runs_before_indexing(
+    tmp_path: Path,
+) -> None:
+    """A dirty DB with duplicate active runs must still pass the 0035 upgrade.
+
+    Migration 0035 adds a partial unique index on runs(issuer_id) WHERE status
+    IN ('queued','running'). Without a preflight, CREATE UNIQUE INDEX would
+    fail outright against any pre-existing duplicate — exactly the shape an
+    H0 migration rehearsal against a real target DB would hit. Seeds three
+    active runs for one issuer: an outright-oldest one, and a same-timestamp
+    tie broken only by id, to exercise both branches of the dedupe query.
+    """
+    db_path = tmp_path / "run-dedup.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    assert _alembic("upgrade", "0034", db_url=db_url).returncode == 0
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "INSERT INTO issuers (id, name, created_at) VALUES (?, ?, ?)",
+            ("issuer-1", "Dup Co", "2026-07-15 00:00:00"),
+        )
+        connection.executemany(
+            "INSERT INTO runs (id, issuer_id, status, qa_status, committee_status, created_at)"
+            " VALUES (?, ?, ?, 'Not Reviewed', 'Draft Only', ?)",
+            [
+                ("run-1", "issuer-1", "queued", "2026-07-14 00:00:00"),
+                # Same created_at as run-3 — only the id tiebreak separates them.
+                ("run-2", "issuer-1", "queued", "2026-07-15 00:00:00"),
+                ("run-3", "issuer-1", "running", "2026-07-15 00:00:00"),
+            ],
+        )
+
+    upgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+
+    with sqlite3.connect(db_path) as connection:
+        rows = dict(
+            connection.execute(
+                "SELECT id, status || ':' || COALESCE(error, '') FROM runs"
+                " WHERE issuer_id = 'issuer-1'"
+            ).fetchall()
+        )
+        active = connection.execute(
+            "SELECT COUNT(*) FROM runs WHERE issuer_id = 'issuer-1'"
+            " AND status IN ('queued', 'running')"
+        ).fetchone()[0]
+
+        # The index is now live: a second active row for the same issuer is
+        # rejected, proving CREATE UNIQUE INDEX actually ran (not skipped).
+        # qa_status/committee_status are included so the only possible
+        # IntegrityError is the unique-index violation being asserted here,
+        # not an unrelated NOT NULL failure on those columns.
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO runs (id, issuer_id, status, qa_status, committee_status, created_at)"
+                " VALUES ('run-4', 'issuer-1', 'queued', 'Not Reviewed', 'Draft Only',"
+                " '2026-07-16 00:00:00')"
+            )
+
+    assert rows["run-1"] == "failed:superseded (run-dedup migration 0035)"
+    assert rows["run-2"] == "failed:superseded (run-dedup migration 0035)"
+    assert rows["run-3"] == "running:"  # newest by (created_at, id) wins, untouched
+    assert active == 1
