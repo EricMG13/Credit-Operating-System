@@ -94,7 +94,11 @@ test.describe("Report Studio", () => {
     await page.goto("/reports/?mode=reference");
     await expect(page.getByLabel("Report preview")).toBeVisible({ timeout: 15000 });
 
-    await page.getByRole("button", { name: "Edit report", exact: true }).click();
+    // Edit stays disabled until the server draft settles (canEditComposition);
+    // a cold CI runner can take seconds, so wait for enabled, never for luck.
+    const editButton = page.getByRole("button", { name: "Edit report", exact: true });
+    await expect(editButton).toBeEnabled({ timeout: 15000 });
+    await editButton.click();
     await expect(page.getByText(/EDITING · SOURCES/)).toBeVisible();
     const editable = page.getByRole("textbox", { name: /^Edit report field/ }).first();
     await expect(editable).toBeVisible();

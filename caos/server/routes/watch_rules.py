@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
@@ -19,7 +19,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, exists, false, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -221,7 +221,7 @@ def _rule_out(rule: WatchRule, caller: CallerIdentity) -> WatchRuleOut:
     return WatchRuleOut(
         id=UUID(rule.id),
         name=rule.name,
-        signal_type=rule.signal_type,
+        signal_type=cast(SignalType, rule.signal_type),
         enabled=rule.enabled,
         paused=rule.paused,
         issuer_id=rule.issuer_id,
@@ -233,9 +233,17 @@ def _rule_out(rule: WatchRule, caller: CallerIdentity) -> WatchRuleOut:
         next_evaluation_at=_utc(rule.next_evaluation_at),
         last_evaluated_at=_utc(rule.last_evaluated_at),
         config=config,
-        created_at=_utc(rule.created_at),
-        updated_at=_utc(rule.updated_at),
+        created_at=_required_utc(rule.created_at),
+        updated_at=_required_utc(rule.updated_at),
     )
+
+
+def _required_utc(value: datetime | None) -> datetime:
+    normalized = _utc(value)
+    if normalized is None:
+        # created_at/updated_at are NOT NULL server defaults — fail loud, never fabricate.
+        raise HTTPException(500, "watch_rule_timestamp_missing")
+    return normalized
 
 
 def _rule_uuid(value: str) -> str:
@@ -253,7 +261,7 @@ def _scope_predicate(caller: CallerIdentity):
         or_(
             WatchRule.owner_user_id == caller.id,
             WatchRule.team_id_snapshot == team_id,
-            role == "admin",
+            true() if role == "admin" else false(),
         ),
     )
     if not tenancy_enabled():
@@ -294,7 +302,7 @@ async def _visible_rule(
         statement = statement.where(
             or_(
                 WatchRule.owner_user_id == caller.id,
-                caller.role.strip().lower() == "admin",
+                true() if caller.role.strip().lower() == "admin" else false(),
             )
         )
     if lock:
@@ -334,7 +342,7 @@ def _filter_fingerprint(
 
 
 def _encode_cursor(*, fingerprint: str, row: WatchRule) -> str:
-    created_at = _utc(row.created_at)
+    created_at = _required_utc(row.created_at)
     payload = {
         "v": _CURSOR_VERSION,
         "resource": "watch_rules",
@@ -549,7 +557,7 @@ async def evaluate_rule_manually(
     )
     try:
         observation = SignalObservation(
-            signal_type=rule.signal_type,
+            signal_type=cast(SignalType, rule.signal_type),
             subject_scope=scope,
             source_identity=body.source_identity,
             observed_at=body.observed_at,
@@ -601,7 +609,10 @@ async def evaluate_rule_manually(
         if claim.evaluation.outcome in {"ignored", "rejected"}:
             return ManualEvaluationOut(
                 evaluation_id=UUID(claim.evaluation.id),
-                outcome=claim.evaluation.outcome,
+                outcome=cast(
+                    'Literal["matched", "ignored", "rejected"]',
+                    claim.evaluation.outcome,
+                ),
                 created=False,
             )
         raise HTTPException(409, "evaluation_rejected")

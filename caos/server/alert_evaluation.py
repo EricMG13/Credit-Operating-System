@@ -20,7 +20,7 @@ from engine.periods import is_finite_number
 from watch_rules import RuleConfig
 
 
-_OBSERVATION_KEY_VERSION = "c3-observation-v1"
+_OBSERVATION_SCHEMA_VERSION = "c3-observation-v1"
 _UNAVAILABLE_SIGNALS = frozenset({"edgar_filing", "market_move", "news"})
 _CATEGORICAL_SIGNALS = frozenset({"run_finding", "qa_gate"})
 _NUMERIC_SIGNALS = frozenset({"covenant", "cp1b_monitoring", "cp1c_peer_outlier"})
@@ -72,7 +72,7 @@ def observation_key(rule_version, observation: SignalObservation) -> str:
     scope = json.loads(observation.subject_scope.canonical_json())
     canonical = json.dumps(
         [
-            _OBSERVATION_KEY_VERSION,
+            _OBSERVATION_SCHEMA_VERSION,
             watch_rule_id,
             version,
             signal_type,

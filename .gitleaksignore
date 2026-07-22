@@ -29,3 +29,10 @@ dd92f2dfb9a1b7321a301527ff4958c9c341aa95:.claude/launch.json:generic-api-key:89
 # caos/frontend/src/lib/command/qa.test.ts:100 — deterministic finding-key
 # assertion in a unit-test fixture, verified not to be a credential.
 caos/frontend/src/lib/command/qa.test.ts:generic-api-key:100
+
+# caos/server/alert_evaluation.py:23 — `_OBSERVATION_KEY_VERSION = "c3-observation-v1"`,
+# the C3 observation-identity schema tag (a public constant, not a credential);
+# the generic-api-key heuristic matched the KEY token in the variable name. The
+# constant is renamed _OBSERVATION_SCHEMA_VERSION going forward; this pins the
+# historical addition commit.
+99d95cd1b2b76d4ea339af07dd6e546f48f8feda:caos/server/alert_evaluation.py:generic-api-key:23

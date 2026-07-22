@@ -24,7 +24,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, exists, func, or_, select, true
+from sqlalchemy import and_, exists, false, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
@@ -222,13 +222,12 @@ def _alert_visibility_predicate(caller: CallerIdentity):
     tenant_id, team_id = _scope_for_caller(caller)
     role = caller.role.strip().lower()
     contextual = and_(
-        not profileless_proxy,
         AlertEventContext.id.is_not(None),
         AlertEventContext.tenant_id == tenant_id,
         or_(
             AlertEventContext.owner_user_id == c3_owner_id(caller),
             AlertEventContext.team_id_snapshot == team_id,
-            role == "admin",
+            true() if role == "admin" else false(),
         ),
         or_(
             AlertEventContext.issuer_id.is_(None),
@@ -252,6 +251,10 @@ def _alert_visibility_predicate(caller: CallerIdentity):
             ),
         ),
     )
+    if profileless_proxy:
+        # RT-829 fence: a profile-less proxy never matches contextual C3 rows —
+        # with tenancy on it keeps only the issuer-anchored legacy read below.
+        contextual = false()
     legacy = and_(
         AlertEventContext.id.is_(None),
         ~AlertEvent.alert_key.startswith("c3:"),
