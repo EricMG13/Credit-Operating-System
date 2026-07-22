@@ -72,7 +72,7 @@ dominated by long-standing no-fix Debian advisories.
 
 | Role | Name | Decision | Date |
 |---|---|---|---|
-| Owner / release authority | ____________ | ☐ Accept per above | ______ |
+| Owner / release authority | Eric Guei | ☐ Accept per above | 2026-07-22 |
 
 Prepared 2026-07-22 against the re-frozen candidate `3b66da67` (config-only
 delta from `cda106dc`: vault-init service + gitleaks allowlist + evidence
