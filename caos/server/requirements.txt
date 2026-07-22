@@ -25,7 +25,7 @@ google-genai>=2.10,<3  # Gemini provider adapter (engine/gemini.py); imported on
 pypdf==6.*
 openpyxl==3.1.*
 defusedxml==0.7.1  # untrusted OOXML relationship parsing (xlsx_safety.py)
-reportlab==4.*
+reportlab==5.*
 # markitdown[pdf] pulls Pillow into the production image. Keep an explicit
 # security floor here so the generated deploy lock cannot retain vulnerable
 # 12.2.x transitively (fixed upstream in 12.3.0).
