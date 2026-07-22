@@ -15,7 +15,10 @@ This report supersedes the status verdict in
 [PRE_DEPLOYMENT_CLOSURE_2026-07-18.md](PRE_DEPLOYMENT_CLOSURE_2026-07-18.md).
 That report and the 2026-07-19 quality workbook remain historical evidence for
 the snapshots they tested. The current route/platform/custody map is
-[APPLICATION_SURFACE_MATRIX_2026-07-20.csv](../APPLICATION_SURFACE_MATRIX_2026-07-20.csv).
+[APPLICATION_SURFACE_MATRIX_2026-07-22.csv](../APPLICATION_SURFACE_MATRIX_2026-07-22.csv)
+(regenerated against the frozen candidate; the
+[2026-07-20 matrix](../APPLICATION_SURFACE_MATRIX_2026-07-20.csv) is retained as
+history).
 
 ### Execution delta — PD-10 closed on 2026-07-20
 
@@ -38,6 +41,32 @@ decision record is in `.agent-reviews/redteam.md` (RT-2026-07-20-723…728).
 This closes **PD-10 on the current working tree**. It does not substitute
 for PD-02's final three-browser journey seal or PD-09's digest-bound archive,
 and it must be rerun after H0 is frozen.
+
+### Execution delta — L23/L24 regenerated against the frozen candidate 2026-07-22
+
+**L24 (reachability / dead code): CLEAN, zero removals.** Vulture over
+`caos/server` + `caos/scripts` with the CI exclusions and confidence ≥80
+reports nothing. The framework-aware frontend walk (Fallow full static
+analysis, 332 entry points) reports exactly two candidates, both dispositioned
+**retained with rationale**: `refreshAlertEvents` is a negative-contract
+subject (its only consumer is the persisted-Monitor test that proves the
+controller never calls the legacy refresh lane) and `getAlertEvents` is C3's
+explicitly documented bounded-page compatibility export. No production module
+lost reachability since PD-04.
+
+**L23 (surface parity): regenerated** as
+[APPLICATION_SURFACE_MATRIX_2026-07-22.csv](../APPLICATION_SURFACE_MATRIX_2026-07-22.csv)
+— 31 surfaces reconciled to the frozen candidate. Material deltas from the
+2026-07-20 matrix: every "browser seal predates final commit" gap is closed
+(the full 195-node three-browser matrix ran green in CI on the exact frozen
+commit); the PD-10 target-size/clipping blockers are recorded closed; the
+routed-concept journeys credit Decisions, Portfolios, Issuer Profile,
+Sector RV, and Sponsors with dedicated route coverage; FastAPI handler rows
+are 178 (C3 routes included); Monitor reflects the landed C3 candidate with
+its live-operation legs still open; Sector Review / Sector RV / Report Studio
+reflect the recorded CP-SR deferral, C5 rescope, and CP-RENDER equivalence
+decisions. Remaining Blocked rows are exclusively target-host/enterprise
+custody and activation legs (DATA-01/02/03, OPS-01/02, EXT-01, UI-08).
 
 ### Execution delta — H0 CANDIDATE FROZEN 2026-07-22
 
