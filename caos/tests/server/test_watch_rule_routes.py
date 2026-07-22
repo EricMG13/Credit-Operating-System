@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timezone
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -110,8 +112,23 @@ def _as(user_id: str, *, role: str = "analyst", team_id: str | None = None):
     )
 
 
-def test_create_and_read_return_only_safe_operational_fields(client):
+def _post_rule(client, payload=None, *, key: str | None = None):
+    return client.post(
+        "/api/watch-rules",
+        json=payload if payload is not None else _create_payload(),
+        headers={"Idempotency-Key": key or f"route-test-{uuid4()}"},
+    )
+
+
+def test_create_requires_idempotency_key(client):
     response = client.post("/api/watch-rules", json=_create_payload())
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"][0]["loc"] == ["header", "Idempotency-Key"]
+
+
+def test_create_and_read_return_only_safe_operational_fields(client):
+    response = _post_rule(client)
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["name"] == "QA gate watch"
@@ -126,6 +143,8 @@ def test_create_and_read_return_only_safe_operational_fields(client):
         "claim_expires_at",
         "claim_attempt_count",
         "schedule_cursor",
+        "create_idempotency_key",
+        "create_request_sha256",
     ):
         assert secret_field not in body
 
@@ -134,23 +153,100 @@ def test_create_and_read_return_only_safe_operational_fields(client):
     assert fetched.json() == body
 
 
+def test_create_idempotency_replays_same_rule_and_conflicts_on_changed_body(client):
+    from uuid import uuid4
+
+    from database import AsyncSessionLocal, WatchRule, WatchRuleVersion
+
+    key = f"watch-rule-route-{uuid4()}"
+    headers = {"Idempotency-Key": key}
+    payload = _create_payload(name="Route idempotency sentinel")
+
+    first = client.post("/api/watch-rules", json=payload, headers=headers)
+    replay = client.post("/api/watch-rules", json=payload, headers=headers)
+    changed = client.post(
+        "/api/watch-rules",
+        json={**payload, "name": "Changed route intent"},
+        headers=headers,
+    )
+
+    assert first.status_code == 201, first.text
+    assert replay.status_code == 201, replay.text
+    assert replay.json() == first.json()
+    assert changed.status_code == 409, changed.text
+    assert changed.json()["detail"] == "watch_rule_idempotency_conflict"
+
+    async def persisted_counts() -> tuple[int, int]:
+        async with AsyncSessionLocal() as session:
+            rule_count = await session.scalar(
+                select(func.count())
+                .select_from(WatchRule)
+                .where(WatchRule.create_idempotency_key == key)
+            )
+            version_count = await session.scalar(
+                select(func.count())
+                .select_from(WatchRuleVersion)
+                .join(WatchRule, WatchRule.id == WatchRuleVersion.watch_rule_id)
+                .where(WatchRule.create_idempotency_key == key)
+            )
+            return rule_count, version_count
+
+    assert asyncio.run(persisted_counts()) == (1, 1)
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["contains spaces", "x" * 129, ""],
+)
+def test_create_idempotency_key_is_bounded_and_stable(client, key):
+    response = client.post(
+        "/api/watch-rules",
+        json=_create_payload(),
+        headers={"Idempotency-Key": key},
+    )
+    assert response.status_code == 422, response.text
+
+
 def test_requests_forbid_forged_authority_and_bool_integer_coercion(client):
     forged = _create_payload(tenant_id="other-team", owner_user_id="attacker")
-    assert client.post("/api/watch-rules", json=forged).status_code == 422
+    assert _post_rule(client, forged).status_code == 422
 
     boolean_interval = _create_payload(
         schedule_kind="interval",
         schedule_interval_seconds=True,
         next_evaluation_at=datetime.now(timezone.utc).isoformat(),
     )
-    assert client.post("/api/watch-rules", json=boolean_interval).status_code == 422
+    assert _post_rule(client, boolean_interval).status_code == 422
+
+
+def test_create_rejects_jsonb_nul_before_persisting_rule(client):
+    from database import AsyncSessionLocal, WatchRule
+
+    name = "JSONB NUL create sentinel"
+    payload = _create_payload(name=name)
+    payload["config"] = {
+        **payload["config"],
+        "title": "Wire-valid JSON containing \u0000 a PostgreSQL NUL",
+    }
+
+    response = _post_rule(client, payload)
+
+    assert response.status_code == 422, response.text
+
+    async def persisted_count() -> int:
+        async with AsyncSessionLocal() as session:
+            return await session.scalar(
+                select(func.count()).select_from(WatchRule).where(WatchRule.name == name)
+            )
+
+    assert asyncio.run(persisted_count()) == 0
 
 
 def test_scheduled_rule_accepts_aware_json_datetime_on_create_and_patch(client):
     next_at = datetime.now(timezone.utc).isoformat()
-    created = client.post(
-        "/api/watch-rules",
-        json=_create_payload(
+    created = _post_rule(
+        client,
+        _create_payload(
             schedule_kind="interval",
             schedule_interval_seconds=60,
             next_evaluation_at=next_at,
@@ -182,7 +278,7 @@ def test_viewer_is_rejected_before_rate_limit_consumption(client, monkeypatch):
 
     monkeypatch.setattr(rate_limit, "hit", counted_hit)
     _as("readonly", role="viewer")
-    response = client.post("/api/watch-rules", json=_create_payload())
+    response = _post_rule(client)
     assert response.status_code == 403
     assert calls == 0
 
@@ -214,7 +310,7 @@ def test_scope_capabilities_precede_rate_limits_for_create_patch_and_evaluate(
     asyncio.run(seed_foreign_issuer())
     monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
     _as("rate-owner", team_id="rate-team-a")
-    owned = client.post("/api/watch-rules", json=_create_payload()).json()
+    owned = _post_rule(client).json()
 
     calls = 0
 
@@ -225,8 +321,8 @@ def test_scope_capabilities_precede_rate_limits_for_create_patch_and_evaluate(
 
     monkeypatch.setattr(rate_limit, "hit", reject_if_called)
 
-    unauthorized_create = client.post(
-        "/api/watch-rules", json=_create_payload(issuer_id=foreign_issuer_id)
+    unauthorized_create = _post_rule(
+        client, _create_payload(issuer_id=foreign_issuer_id)
     )
     assert unauthorized_create.status_code == 404
     assert calls == 0
@@ -258,7 +354,7 @@ def test_authorized_mutations_consume_their_documented_rate_lanes(client, monkey
 
     monkeypatch.setattr(rate_limit, "hit", record_hit)
     _as("lane-owner")
-    created = client.post("/api/watch-rules", json=_create_payload())
+    created = _post_rule(client)
     assert created.status_code == 201, created.text
     rule_id = created.json()["id"]
 
@@ -286,7 +382,7 @@ def test_named_team_reads_but_only_owner_or_admin_writes_and_lookup_is_masked(
 
     monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
     _as("alice", team_id="desk-a")
-    created = client.post("/api/watch-rules", json=_create_payload()).json()
+    created = _post_rule(client).json()
 
     _as("teammate", team_id="desk-a")
     assert client.get(f"/api/watch-rules/{created['id']}").status_code == 200
@@ -309,12 +405,50 @@ def test_named_team_reads_but_only_owner_or_admin_writes_and_lookup_is_masked(
     assert updated.json()["current_version"] == 2
 
 
+def test_watch_rule_responses_derive_mutation_capability_for_each_caller(
+    client, monkeypatch
+):
+    from config import get_settings
+
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
+    _as("capability-owner", team_id="capability-desk")
+    created = _post_rule(client).json()
+    assert created["can_mutate"] is True
+    owner_list = client.get("/api/watch-rules")
+    assert owner_list.headers["x-watch-rule-can-create"] == "true"
+
+    _as("capability-teammate", team_id="capability-desk")
+    shared = client.get(f"/api/watch-rules/{created['id']}")
+    assert shared.status_code == 200, shared.text
+    assert shared.json()["can_mutate"] is False
+    listed = client.get("/api/watch-rules")
+    assert listed.status_code == 200, listed.text
+    assert listed.headers["x-watch-rule-can-create"] == "true"
+    assert next(item for item in listed.json() if item["id"] == created["id"])[
+        "can_mutate"
+    ] is False
+
+    _as("capability-owner", role="viewer", team_id="capability-desk")
+    read_only_owner = client.get(f"/api/watch-rules/{created['id']}")
+    assert read_only_owner.status_code == 200, read_only_owner.text
+    assert read_only_owner.json()["can_mutate"] is False
+    viewer_list = client.get("/api/watch-rules")
+    assert viewer_list.headers["x-watch-rule-can-create"] == "false"
+
+    _as("capability-admin", role="admin", team_id="capability-desk")
+    admin_view = client.get(f"/api/watch-rules/{created['id']}")
+    assert admin_view.status_code == 200, admin_view.text
+    assert admin_view.json()["can_mutate"] is True
+    admin_list = client.get("/api/watch-rules")
+    assert admin_list.headers["x-watch-rule-can-create"] == "true"
+
+
 def test_patch_rejects_stale_version_unavailable_source_and_rate_limit(
     client, monkeypatch
 ):
     import rate_limit
 
-    created = client.post("/api/watch-rules", json=_create_payload()).json()
+    created = _post_rule(client).json()
     stale = client.patch(
         f"/api/watch-rules/{created['id']}",
         json={"expected_version": 99, "patch": {"name": "stale"}},
@@ -322,9 +456,8 @@ def test_patch_rejects_stale_version_unavailable_source_and_rate_limit(
     assert stale.status_code == 409
     assert stale.json() == {"detail": "watch_rule_version_conflict"}
 
-    unavailable = client.post(
-        "/api/watch-rules",
-        json=_create_payload(signal_type="news", enabled=True),
+    unavailable = _post_rule(
+        client, _create_payload(signal_type="news", enabled=True)
     )
     assert unavailable.status_code == 422
 
@@ -338,7 +471,7 @@ def test_patch_rejects_stale_version_unavailable_source_and_rate_limit(
 
 
 def test_manual_evaluate_is_atomic_idempotent_and_only_returns_safe_state(client):
-    created = client.post("/api/watch-rules", json=_create_payload()).json()
+    created = _post_rule(client).json()
     payload = _manual_payload("fact:manual-idempotent")
 
     first = client.post(f"/api/watch-rules/{created['id']}/evaluate", json=payload)
@@ -380,12 +513,98 @@ def test_manual_evaluate_is_atomic_idempotent_and_only_returns_safe_state(client
     assert intents == [("email", "pending", None), ("in_app", "pending", None)]
 
 
+def test_manual_evaluate_accepts_canonical_detail_with_sqlite_render_expansion(
+    client,
+):
+    detail = {f"k{index}": "x" for index in range(5_000)}
+    canonical_bytes = len(
+        json.dumps(
+            detail,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    sqlite_rendered_bytes = len(json.dumps(detail).encode("utf-8"))
+    assert canonical_bytes == 58_891
+    assert canonical_bytes <= 64 * 1024 < sqlite_rendered_bytes
+
+    created = _post_rule(client).json()
+    response = client.post(
+        f"/api/watch-rules/{created['id']}/evaluate",
+        json=_manual_payload("fact:manual-near-limit", detail=detail),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["outcome"] == "matched"
+
+
+def test_manual_evaluate_rejects_jsonb_nul_before_persisting_evaluation(client):
+    from database import AsyncSessionLocal, WatchRuleEvaluation
+
+    created = _post_rule(client).json()
+    response = client.post(
+        f"/api/watch-rules/{created['id']}/evaluate",
+        json=_manual_payload(
+            "manual:jsonb-nul",
+            detail={"nested": {"value": "wire-valid \u0000 JSON"}},
+        ),
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "observation_invalid"
+
+    async def persisted_count() -> int:
+        async with AsyncSessionLocal() as session:
+            return await session.scalar(
+                select(func.count())
+                .select_from(WatchRuleEvaluation)
+                .where(WatchRuleEvaluation.watch_rule_id == created["id"])
+            )
+
+    assert asyncio.run(persisted_count()) == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("source_identity", "manual:unsafe\x00identity"),
+        ("categorical_value", "critical\x00unsafe"),
+        ("source_artifact_refs", ["fact:governed\x00unsafe"]),
+    ],
+)
+def test_manual_evaluate_rejects_jsonb_nul_in_observation_string_fields(
+    client, field, value
+):
+    from database import AsyncSessionLocal, WatchRuleEvaluation
+
+    created = _post_rule(client).json()
+    payload = _manual_payload("manual:string-nul")
+    payload[field] = value
+
+    response = client.post(
+        f"/api/watch-rules/{created['id']}/evaluate",
+        json=payload,
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "observation_invalid"
+
+    async def persisted_count() -> int:
+        async with AsyncSessionLocal() as session:
+            return await session.scalar(
+                select(func.count())
+                .select_from(WatchRuleEvaluation)
+                .where(WatchRuleEvaluation.watch_rule_id == created["id"])
+            )
+
+    assert asyncio.run(persisted_count()) == 0
+
+
 def test_manual_evaluate_rejects_client_scope_version_destination_and_inactive_rule(
     client,
 ):
-    created = client.post(
-        "/api/watch-rules", json=_create_payload(enabled=False)
-    ).json()
+    created = _post_rule(client, _create_payload(enabled=False)).json()
     for field, value in (
         ("tenant_id", "forged"),
         ("rule_version", 1),
@@ -413,9 +632,8 @@ def test_manual_evaluate_rejects_unavailable_source_and_has_its_own_rate_limit(
 ):
     import rate_limit
 
-    unavailable = client.post(
-        "/api/watch-rules",
-        json=_create_payload(signal_type="news", enabled=False),
+    unavailable = _post_rule(
+        client, _create_payload(signal_type="news", enabled=False)
     ).json()
     rejected = client.post(
         f"/api/watch-rules/{unavailable['id']}/evaluate",
@@ -424,7 +642,7 @@ def test_manual_evaluate_rejects_unavailable_source_and_has_its_own_rate_limit(
     assert rejected.status_code == 409
     assert rejected.json() == {"detail": "source_unavailable"}
 
-    active = client.post("/api/watch-rules", json=_create_payload()).json()
+    active = _post_rule(client).json()
     monkeypatch.setattr(rate_limit, "hit", lambda *_args, **_kwargs: False)
     limited = client.post(
         f"/api/watch-rules/{active['id']}/evaluate",
@@ -437,7 +655,7 @@ def test_manual_evaluate_rejects_unavailable_source_and_has_its_own_rate_limit(
 def test_manual_evaluate_rolls_back_claim_if_materialization_fails(client, monkeypatch):
     import routes.watch_rules as watch_rule_routes
 
-    created = client.post("/api/watch-rules", json=_create_payload()).json()
+    created = _post_rule(client).json()
     source_identity = "fact:rollback"
 
     async def fail_materialization(*_args, **_kwargs):
@@ -467,10 +685,7 @@ def test_manual_evaluate_rolls_back_claim_if_materialization_fails(client, monke
 def test_rule_collection_is_bounded_and_cursor_is_scope_and_filter_bound(client):
     prefix = "cursor-rule-"
     for index in range(3):
-        response = client.post(
-            "/api/watch-rules",
-            json=_create_payload(name=f"{prefix}{index}"),
-        )
+        response = _post_rule(client, _create_payload(name=f"{prefix}{index}"))
         assert response.status_code == 201
 
     first = client.get("/api/watch-rules", params={"limit": 2, "name_prefix": prefix})

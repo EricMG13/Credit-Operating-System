@@ -73,7 +73,7 @@ vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getSettings: (...args: unknown[]) => getSettings(...args),
-  getAlertEventPage: (...args: unknown[]) => getAlertEventPage(...args),
+  getAlertEventPage: async (...args: unknown[]) => ({ canMutate: true, ...await getAlertEventPage(...args) }),
   getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
   getPortfolio: (...args: unknown[]) => getPortfolio(...args),
   getDigest: (...args: unknown[]) => getDigest(...args),
@@ -129,6 +129,7 @@ function controlledMonitorController(events: AlertEventDTO[], activeEventId: str
     status: "ready",
     error: null,
     events,
+    canMutate: true,
     visibleEvents,
     counts: {
       open: events.filter((event) => event.state === "open").length,
@@ -148,6 +149,10 @@ function controlledMonitorController(events: AlertEventDTO[], activeEventId: str
     batchPending: false,
     batchError: null,
     batchErrorAction: null,
+    workflowSurfaceLocked: false,
+    authoritativeRefreshEpoch: 0,
+    releaseWorkflowSurface: vi.fn(),
+    dismissBatchError: vi.fn(),
     lastMutationMessage: null,
     requiresAuthoritativeReload: false,
     refresh: vi.fn(async () => true),
@@ -157,6 +162,7 @@ function controlledMonitorController(events: AlertEventDTO[], activeEventId: str
       status: "ready",
       error: null,
       rules: [],
+      canCreate: true,
       retryActivation: vi.fn(async () => undefined),
       refresh: vi.fn(async () => undefined),
       create: vi.fn(),
@@ -227,6 +233,45 @@ describe("Monitor · persisted decision and governance authority", () => {
     expect(forbiddenLegacyStates).not.toHaveBeenCalled();
   });
 
+  it("binds decision headline, impact, action, and as-of to one actionable observation", async () => {
+    const historicalBackfill = persistedEvent({
+      id: "alert-backfill",
+      alert_key: "c3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      title: "Historical observation inserted today",
+      impact: "Historical impact must not headline the current decision.",
+      evidence: { observed_at: "2025-01-01T09:00:00Z" },
+      created_at: "2026-07-22T09:00:00Z",
+    });
+    const recentlyResolved = persistedEvent({
+      id: "alert-resolved",
+      alert_key: "c3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      title: "More recent but already resolved observation",
+      impact: "No current action remains.",
+      state: "resolved",
+      evidence: { observed_at: "2026-07-22T08:00:00Z" },
+      created_at: "2026-07-21T08:01:00Z",
+    });
+    const actionable = persistedEvent({
+      id: "alert-actionable",
+      alert_key: "c3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      title: "Current actionable covenant observation",
+      impact: "Review the current waiver path.",
+      evidence: { observed_at: "2026-07-21T12:00:00Z" },
+      created_at: "2026-07-20T12:01:00Z",
+    });
+    getAlertEventPage.mockResolvedValue({ items: [historicalBackfill, recentlyResolved, actionable], nextCursor: null });
+
+    render(<MonitorPage />);
+
+    const decision = await screen.findByLabelText("Decision header");
+    await waitFor(() => expect(decision.textContent).toContain("Current actionable covenant observation"));
+    expect(decision.textContent).toContain("Review the current waiver path.");
+    expect(decision.textContent).toContain("Review covenant alert and persisted evidence");
+    expect(decision.textContent).toContain("2026-07-21 12:00 UTC");
+    expect(decision.textContent).not.toContain("Historical observation inserted today");
+    expect(decision.textContent).not.toContain("More recent but already resolved observation");
+  });
+
   it("keeps persisted decision authority live when the watch-rule activation flag is off", async () => {
     getSettings.mockReset().mockResolvedValue({ features: { alert_rules_v1_enabled: false } });
     getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
@@ -246,9 +291,7 @@ describe("Monitor · persisted decision and governance authority", () => {
     const errorHeader = await screen.findByLabelText("Decision header");
     await waitFor(() => expect(errorHeader.textContent).toContain("persisted read offline"));
     expect(errorHeader.textContent).not.toContain("No persisted alert events observed");
-    const unavailableAction = screen.getByRole("button", { name: "Acknowledge selected" });
-    expect(unavailableAction.getAttribute("aria-disabled")).toBe("true");
-    expect(unavailableAction.getAttribute("title")).toBe("Persisted alert list is unavailable; reload before acknowledging.");
+    expect(screen.queryByRole("button", { name: "Acknowledge selected" })).toBeNull();
     unavailable.unmount();
 
     getAlertEventPage.mockResolvedValueOnce({ items: [], nextCursor: null });

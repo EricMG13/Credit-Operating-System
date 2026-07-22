@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -23,7 +24,7 @@ from typing import Callable, Optional
 from sqlalchemy import (
     JSON, Boolean, CHAR, CheckConstraint, Computed, DDL, Date, DateTime, Float, ForeignKey,
     ForeignKeyConstraint, Index, Integer, SmallInteger, String, Text, UniqueConstraint,
-    Uuid, delete, event, inspect, or_, select, text, update,
+    Uuid, delete, event, func, inspect, or_, select, text, update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 import json
@@ -209,18 +210,44 @@ if "pool_size" in _engine_kwargs:
 
 # SQLite needs WAL + a busy timeout so the async executor and request handlers
 # can write concurrently without "database is locked". No-op on Postgres.
+def _unicode_lower(value: str | None) -> str | None:
+    """Unicode-aware SQLite scalar used for exact case-insensitive identity keys."""
+    return value.lower() if value is not None else None
+
+
 if settings.database_url.startswith("sqlite"):
 
     @event.listens_for(engine.sync_engine, "connect")
     def _sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+        dbapi_conn.create_function(
+            "caos_unicode_lower",
+            1,
+            _unicode_lower,
+            deterministic=True,
+        )
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL")
         cur.execute("PRAGMA busy_timeout=5000")
+        cur.execute("PRAGMA foreign_keys=ON")
         cur.close()
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
 )
+
+
+def case_insensitive_email_match(
+    session: AsyncSession,
+    column,
+    value: str,
+):
+    """Exact Unicode case-insensitive equality across SQLite and Postgres."""
+    lower = (
+        func.caos_unicode_lower
+        if session.get_bind().dialect.name == "sqlite"
+        else func.lower
+    )
+    return lower(column) == value.lower()
 
 
 def _utcnow() -> datetime:
@@ -1319,6 +1346,21 @@ _C3_SIGNAL_TYPES_SQL = (
 _C3_JSON_OBJECT = JSON(none_as_null=True).with_variant(
     JSONB(none_as_null=True), "postgresql"
 )
+_C3_JSON_STORAGE_MULTIPLIER = {
+    # SQLAlchemy's SQLite JSON serializer uses ensure_ascii=True and spaced
+    # separators. A non-ASCII UTF-8 scalar can expand by 3x and separator
+    # whitespace adds less than another canonical byte per canonical byte.
+    "sqlite": 4,
+    # jsonb text normalizes finite exponent-form Python floats to fixed decimal;
+    # the worst compact finite float (5e-324) expands by <55x. 64x also covers
+    # separator whitespace while canonical validation remains authoritative.
+    "postgresql": 64,
+}
+
+
+def _c3_json_storage_maximum(maximum: int, *, dialect: str) -> int:
+    """Bound dialect rendering without rejecting canonical wire-valid JSON."""
+    return maximum * _C3_JSON_STORAGE_MULTIPLIER[dialect]
 
 
 def _c3_json_object_sql(
@@ -1328,10 +1370,11 @@ def _c3_json_object_sql(
     dialect: str,
     subject_scope: bool = False,
 ) -> str:
+    storage_maximum = _c3_json_storage_maximum(maximum, dialect=dialect)
     if dialect == "postgresql":
         object_check = (
             f"jsonb_typeof({column}) = 'object' "
-            f"AND octet_length(CAST({column} AS text)) <= {maximum}"
+            f"AND octet_length(CAST({column} AS text)) <= {storage_maximum}"
         )
         if subject_scope:
             object_check += (
@@ -1350,7 +1393,7 @@ def _c3_json_object_sql(
 
     object_check = (
         f"json_valid({column}) AND json_type({column}) = 'object' "
-        f"AND length(CAST({column} AS BLOB)) <= {maximum}"
+        f"AND length(CAST({column} AS BLOB)) <= {storage_maximum}"
     )
     if subject_scope:
         object_check += (
@@ -1449,6 +1492,41 @@ def _compile_c3_observation_key_check(element, compiler, **_kw):
     )
 
 
+class C3WatchRuleCreateIdempotencyCheck(CheckConstraint):
+    inherit_cache = True
+
+    def __init__(self) -> None:
+        super().__init__(
+            text(
+                "(create_idempotency_key IS NULL AND create_request_sha256 IS NULL) OR "
+                "(create_idempotency_key IS NOT NULL "
+                "AND create_request_sha256 IS NOT NULL "
+                "AND length(CAST(create_idempotency_key AS BLOB)) BETWEEN 1 AND 128 "
+                "AND instr(create_idempotency_key, char(0)) = 0 "
+                "AND create_idempotency_key NOT GLOB '*[^A-Za-z0-9._:-]*' "
+                "AND length(CAST(create_request_sha256 AS BLOB)) = 64 "
+                "AND instr(create_request_sha256, char(0)) = 0 "
+                "AND create_request_sha256 NOT GLOB '*[^0-9a-f]*')"
+            ),
+            name="ck_watch_rules_create_idempotency",
+        )
+
+
+@compiles(C3WatchRuleCreateIdempotencyCheck, "postgresql")
+def _compile_c3_watch_rule_create_idempotency_check(
+    element, compiler, **_kw
+):
+    name = compiler.preparer.format_constraint(element)
+    return (
+        f"CONSTRAINT {name} CHECK ("
+        "(create_idempotency_key IS NULL AND create_request_sha256 IS NULL) OR "
+        "(create_idempotency_key IS NOT NULL "
+        "AND create_request_sha256 IS NOT NULL "
+        "AND create_idempotency_key ~ '^[A-Za-z0-9._:-]{1,128}$' "
+        "AND create_request_sha256 ~ '^[0-9a-f]{64}$'))"
+    )
+
+
 class WatchRule(Base):
     """Analyst-owned durable monitor rule and scheduled-claim state."""
 
@@ -1500,6 +1578,13 @@ class WatchRule(Base):
             65536,
             name="ck_watch_rules_config_json",
         ),
+        C3WatchRuleCreateIdempotencyCheck(),
+        UniqueConstraint(
+            "tenant_id",
+            "owner_user_id",
+            "create_idempotency_key",
+            name="uq_watch_rules_create_idempotency",
+        ),
         Index("ix_watch_rules_tenant_owner", "tenant_id", "owner_user_id"),
         Index("ix_watch_rules_tenant_team", "tenant_id", "team_id_snapshot"),
         Index("ix_watch_rules_tenant_issuer", "tenant_id", "issuer_id"),
@@ -1523,6 +1608,10 @@ class WatchRule(Base):
     team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
     issuer_id: Mapped[Optional[str]] = mapped_column(String(36))
     portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
+    # Durable POST-create retry identity. Nullable rows predate the 0068
+    # contract (and internal no-key callers retain their historical behavior).
+    create_idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
+    create_request_sha256: Mapped[Optional[str]] = mapped_column(String(64))
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
@@ -2563,18 +2652,52 @@ def _erasure_principal(analyst_id: str) -> str:
 
 def _redact_embedded_identity(value, keys: list[str], pseudonym: str):
     if isinstance(value, dict):
-        return {
-            key: _redact_embedded_identity(item, keys, pseudonym)
-            for key, item in value.items()
-        }
+        redacted_items = {}
+        for key, item in value.items():
+            redacted_key = _redact_embedded_identity(key, keys, pseudonym)
+            if redacted_key != key:
+                key_digest = hashlib.sha256(
+                    str(key).encode("utf-8")
+                ).hexdigest()
+                redacted_key = f"{redacted_key}:key:{key_digest}"
+            candidate = redacted_key
+            collision = 1
+            while candidate in redacted_items:
+                collision += 1
+                candidate = f"{redacted_key}:collision:{collision}"
+            redacted_items[candidate] = _redact_embedded_identity(
+                item, keys, pseudonym
+            )
+        return redacted_items
     if isinstance(value, list):
         return [_redact_embedded_identity(item, keys, pseudonym) for item in value]
     if isinstance(value, str):
         redacted = value
         for key in keys:
-            redacted = redacted.replace(key, pseudonym)
+            # Erasure keys are the exact analyst id plus the optional email.
+            # Email identity is case-insensitive; analyst ids remain exact.
+            if "@" in key:
+                redacted = re.sub(
+                    re.escape(key),
+                    lambda _match: pseudonym,
+                    redacted,
+                    flags=re.IGNORECASE,
+                )
+            else:
+                redacted = redacted.replace(key, pseudonym)
         return redacted
     return value
+
+
+def _redact_delivery_destination(
+    value: str, *, keys: list[str], pseudonym: str, intent_id: str
+) -> str:
+    """Scrub identity without collapsing a context/channel unique destination."""
+    redacted = _redact_embedded_identity(value, keys, pseudonym)
+    if redacted == value:
+        return value
+    row_digest = hashlib.sha256(intent_id.encode("utf-8")).hexdigest()
+    return f"{pseudonym}:destination:{row_digest}"
 
 
 def _privacy_redacted_snapshot(
@@ -2592,7 +2715,11 @@ def _privacy_redacted_snapshot(
 
 
 async def erase_analyst_data(
-    session: AsyncSession, *, analyst_id: str, email: Optional[str] = None
+    session: AsyncSession,
+    *,
+    analyst_id: str,
+    email: Optional[str] = None,
+    identity_aliases: tuple[str, ...] = (),
 ) -> dict[str, int]:
     """GDPR right-to-erasure for one analyst (the data subject).
 
@@ -2608,7 +2735,15 @@ async def erase_analyst_data(
     Returns the row counts touched. Commits itself (see below) so both callers —
     the self-service route and the operator CLI — get an atomic erase.
     """
-    keys = [k for k in (analyst_id, email) if k]
+    # Longest first prevents an analyst id embedded in their email from being
+    # replaced before the complete email address can be removed. Active proxy
+    # self-erasure also supplies its historical forwarded-user owner stamp as an
+    # alias while analyst_id remains the persisted profile UUID.
+    keys = sorted(
+        {k for k in (analyst_id, email, *identity_aliases) if k},
+        key=len,
+        reverse=True,
+    )
     pseudonym = _erasure_principal(analyst_id)
     owned_report_ids = list((await session.execute(
         select(ReportVersion.id).where(ReportVersion.analyst_id.in_(keys))
@@ -2619,6 +2754,159 @@ async def erase_analyst_data(
     owned_manifest_ids = list((await session.execute(
         select(SourceManifest.id).where(SourceManifest.analyst_id.in_(keys))
     )).scalars().all())
+    # Defensive closure: every C3 row redundantly snapshots the owner. Union
+    # rule ids across those stamps so a malformed/mismatched child cannot retain
+    # the erased principal or leave a still-active parent rule behind.
+    owned_watch_rule_ids = set((await session.execute(
+        select(WatchRule.id).where(WatchRule.owner_user_id.in_(keys))
+    )).scalars().all())
+    owned_watch_rule_ids.update((await session.execute(
+        select(WatchRuleVersion.watch_rule_id).where(
+            WatchRuleVersion.owner_user_id.in_(keys)
+        )
+    )).scalars().all())
+    owned_watch_rule_ids.update((await session.execute(
+        select(WatchRuleEvaluation.watch_rule_id).where(
+            WatchRuleEvaluation.owner_user_id.in_(keys)
+        )
+    )).scalars().all())
+    owned_watch_rule_ids.update((await session.execute(
+        select(AlertEventContext.watch_rule_id).where(
+            AlertEventContext.owner_user_id.in_(keys)
+        )
+    )).scalars().all())
+
+    # C3 rule definitions and their stamped five-table lineage are private
+    # analyst workspace. Erasure is the sole policy path that dependency-deletes
+    # this graph; ordinary product deletion remains protected by RESTRICT.
+    owned_watch_rule_evaluation_ids = list((await session.execute(
+        select(WatchRuleEvaluation.id).where(or_(
+            WatchRuleEvaluation.owner_user_id.in_(keys),
+            WatchRuleEvaluation.watch_rule_id.in_(owned_watch_rule_ids),
+        ))
+    )).scalars().all())
+    owned_alert_context_ids = list((await session.execute(
+        select(AlertEventContext.id).where(or_(
+            AlertEventContext.owner_user_id.in_(keys),
+            AlertEventContext.watch_rule_id.in_(owned_watch_rule_ids),
+            AlertEventContext.watch_rule_evaluation_id.in_(
+                owned_watch_rule_evaluation_ids
+            ),
+        ))
+    )).scalars().all())
+    alert_delivery_intents = await session.execute(
+        delete(AlertDeliveryIntent).where(or_(
+            AlertDeliveryIntent.owner_user_id.in_(keys),
+            AlertDeliveryIntent.alert_event_context_id.in_(owned_alert_context_ids),
+        ))
+    )
+    alert_delivery_intent_payloads_redacted = 0
+    retained_alert_delivery_intents = list((await session.execute(
+        select(AlertDeliveryIntent)
+    )).scalars().all())
+    for intent in retained_alert_delivery_intents:
+        destination_ref = _redact_delivery_destination(
+            intent.destination_ref,
+            keys=keys,
+            pseudonym=pseudonym,
+            intent_id=intent.id,
+        )
+        rendered_intent = _redact_embedded_identity(
+            intent.rendered_intent, keys, pseudonym
+        )
+        not_sent_reason = _redact_embedded_identity(
+            intent.not_sent_reason, keys, pseudonym
+        )
+        if all((
+            destination_ref == intent.destination_ref,
+            rendered_intent == intent.rendered_intent,
+            not_sent_reason == intent.not_sent_reason,
+        )):
+            continue
+        intent.destination_ref = destination_ref
+        intent.rendered_intent = rendered_intent
+        intent.not_sent_reason = not_sent_reason
+        alert_delivery_intent_payloads_redacted += 1
+    alert_event_contexts = await session.execute(
+        delete(AlertEventContext).where(
+            AlertEventContext.id.in_(owned_alert_context_ids)
+        )
+    )
+    watch_rule_evaluations = await session.execute(
+        delete(WatchRuleEvaluation).where(
+            WatchRuleEvaluation.id.in_(owned_watch_rule_evaluation_ids)
+        )
+    )
+    watch_rule_versions = await session.execute(
+        delete(WatchRuleVersion).where(
+            WatchRuleVersion.watch_rule_id.in_(owned_watch_rule_ids)
+        )
+    )
+    watch_rules = await session.execute(
+        delete(WatchRule).where(WatchRule.id.in_(owned_watch_rule_ids))
+    )
+
+    # Alerts and lifecycle states are retained institutional audit records.
+    # Scrub attribution and embedded identity without changing event/state ids,
+    # timestamps, evidence structure, or lifecycle outcomes.
+    alert_events_anonymized = await session.execute(
+        update(AlertEvent)
+        .where(AlertEvent.created_by.in_(keys))
+        .values(created_by=pseudonym)
+    )
+    alert_event_payloads_redacted = 0
+    retained_alert_events = list((await session.execute(
+        select(AlertEvent)
+    )).scalars().all())
+    for alert_event in retained_alert_events:
+        kind = _redact_embedded_identity(
+            alert_event.kind, keys, pseudonym
+        )
+        title = _redact_embedded_identity(
+            alert_event.title, keys, pseudonym
+        )
+        impact = _redact_embedded_identity(
+            alert_event.impact, keys, pseudonym
+        )
+        evidence = _redact_embedded_identity(
+            alert_event.evidence or {}, keys, pseudonym
+        )
+        authority = _redact_embedded_identity(
+            alert_event.authority or {}, keys, pseudonym
+        )
+        if all((
+            kind == alert_event.kind,
+            title == alert_event.title,
+            impact == alert_event.impact,
+            evidence == (alert_event.evidence or {}),
+            authority == (alert_event.authority or {}),
+        )):
+            continue
+        alert_event.kind = kind
+        alert_event.title = title
+        alert_event.impact = impact
+        alert_event.evidence = evidence
+        alert_event.authority = authority
+        alert_event_payloads_redacted += 1
+
+    alert_states_anonymized = 0
+    alert_state_text_redacted = 0
+    retained_alert_states = list((await session.execute(
+        select(AlertState)
+    )).scalars().all())
+    for alert_state in retained_alert_states:
+        if alert_state.analyst_id in keys:
+            alert_state.analyst_id = pseudonym
+            alert_states_anonymized += 1
+        text_changed = False
+        for field in ("assignee", "note", "resolution_note"):
+            prior = getattr(alert_state, field)
+            redacted = _redact_embedded_identity(prior, keys, pseudonym)
+            if redacted != prior:
+                setattr(alert_state, field, redacted)
+                text_changed = True
+        if text_changed:
+            alert_state_text_redacted += 1
 
     # Delete private versioned artifacts before their owning analysis contexts.
     # Reports reference checkpoints, while checkpoints and research jobs
@@ -2802,7 +3090,15 @@ async def erase_analyst_data(
     docs_anonymized = 0
     if email:
         docs = await session.execute(
-            update(Document).where(Document.uploaded_by == email).values(uploaded_by=None)
+            update(Document)
+            .where(
+                case_insensitive_email_match(
+                    session,
+                    Document.uploaded_by,
+                    email.strip(),
+                )
+            )
+            .values(uploaded_by=None)
         )
         docs_anonymized = docs.rowcount or 0  # type: ignore[attr-defined]  # CursorResult.rowcount, not on base Result
     await session.execute(
@@ -2811,6 +3107,16 @@ async def erase_analyst_data(
     profile = await session.execute(delete(Analyst).where(Analyst.id == analyst_id))
     await session.commit()
     return {
+        "alert_delivery_intents_deleted": alert_delivery_intents.rowcount or 0,  # type: ignore[attr-defined]
+        "alert_delivery_intent_payloads_redacted": alert_delivery_intent_payloads_redacted,
+        "alert_event_contexts_deleted": alert_event_contexts.rowcount or 0,  # type: ignore[attr-defined]
+        "watch_rule_evaluations_deleted": watch_rule_evaluations.rowcount or 0,  # type: ignore[attr-defined]
+        "watch_rule_versions_deleted": watch_rule_versions.rowcount or 0,  # type: ignore[attr-defined]
+        "watch_rules_deleted": watch_rules.rowcount or 0,  # type: ignore[attr-defined]
+        "alert_events_anonymized": alert_events_anonymized.rowcount or 0,  # type: ignore[attr-defined]
+        "alert_event_payloads_redacted": alert_event_payloads_redacted,
+        "alert_states_anonymized": alert_states_anonymized,
+        "alert_state_text_redacted": alert_state_text_redacted,
         "research_jobs_deleted": research.rowcount or 0,  # type: ignore[attr-defined]
         "source_manifests_deleted": manifests.rowcount or 0,  # type: ignore[attr-defined]
         "model_checkpoints_deleted": checkpoints.rowcount or 0,  # type: ignore[attr-defined]

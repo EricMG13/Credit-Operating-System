@@ -101,6 +101,77 @@ test.describe("Monitor", () => {
     await expect(page.getByText(/^SIM · seeded Reference replay/)).toBeVisible();
   });
 
+  test("monitor-08 desktop rule controls remain inside the inspector rail", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.route("**/api/watch-rules?*", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "X-Watch-Rule-Can-Create": "true" },
+        body: JSON.stringify([{
+          id: "7f9e2d1c-4b3a-4e65-9d87-1a2b3c4d5e6f",
+          name: "Liquidity evidence gate",
+          signal_type: "qa_gate",
+          enabled: false,
+          paused: false,
+          issuer_id: null,
+          portfolio_id: null,
+          can_mutate: false,
+          current_version: 2,
+          schedule_kind: "event_driven",
+          schedule_interval_seconds: null,
+          next_evaluation_at: null,
+          last_evaluated_at: "2026-07-20T09:00:00Z",
+          config: {
+            operator: "present",
+            threshold: null,
+            kind: "qa_gate",
+            title: "Liquidity evidence requires review",
+            impact: "Review the governed liquidity evidence before committee clearance.",
+          },
+          created_at: "2026-07-20T08:55:00Z",
+          updated_at: "2026-07-20T09:00:00Z",
+        }]),
+      });
+    });
+
+    await page.goto("/monitor/?mode=live&dataset=alerts");
+    await expect(page.getByRole("button", { name: "Manage watch rules" })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/Read only$/u)).toBeVisible();
+
+    const layout = await page.locator('[data-slot="inspector"]').evaluate((inspector) => {
+      const controls = [
+        document.querySelector('button[aria-label="Manage watch rules"]'),
+        [...document.querySelectorAll("span")].find((element) => element.textContent?.trim() === "◇ Read only"),
+      ].filter((element): element is Element => element instanceof Element);
+      return {
+        rail_overflow_px: inspector.scrollWidth - inspector.clientWidth,
+        clipped: controls.flatMap((control) => {
+          const rect = control.getBoundingClientRect();
+          const failures: string[] = [];
+          if (rect.left < -1 || rect.right > window.innerWidth + 1) failures.push("viewport");
+          let ancestor = control.parentElement;
+          while (ancestor) {
+            const style = getComputedStyle(ancestor);
+            if (/(auto|clip|hidden|scroll)/u.test(style.overflowX)) {
+              const boundary = ancestor.getBoundingClientRect();
+              if (rect.left < boundary.left - 1 || rect.right > boundary.right + 1) {
+                failures.push(ancestor.getAttribute("data-slot") ?? ancestor.className.toString());
+              }
+            }
+            ancestor = ancestor.parentElement;
+          }
+          return failures.map((boundary) => ({ label: control.textContent?.trim(), boundary }));
+        }),
+      };
+    });
+    expect(layout).toEqual({ rail_overflow_px: 0, clipped: [] });
+  });
+
   test("C3 real API creates, deduplicates, retries, and persists an acknowledged alert", async ({ page, request }, testInfo) => {
     const marker = testInfo.project.name;
     const ruleName = `C3 activation E2E ${marker}`;
@@ -194,7 +265,8 @@ test.describe("Monitor", () => {
       await row.getByRole("button", { name: "Retry", exact: true }).click();
       await retryResponse;
       await expect(row).toContainText("Acknowledged");
-      await expect(selected).toBeChecked();
+      await expect(selected).toHaveCount(0);
+      await expect(page.getByRole("toolbar", { name: "Batch actions" })).toHaveCount(0);
       await expect(assigneeDraft).toHaveValue("Draft owner remains local");
       expect({ patchAttempts, injectedFailures }).toEqual({ patchAttempts: 2, injectedFailures: 1 });
 
@@ -202,6 +274,7 @@ test.describe("Monitor", () => {
       row = page.locator(`[data-alert-event-id="${eventId}"]`);
       await expect(row).toBeVisible({ timeout: 15000 });
       await expect(row).toContainText("Acknowledged");
+      await expect(row.getByRole("checkbox", { name: `Select ${alertTitle}` })).toHaveCount(0);
     } finally {
       const cleanupResponse = await request.patch(`/api/watch-rules/${createdRule.id}`, {
         data: {

@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from alert_contracts import EvaluationTrigger, SignalObservation, SubjectScope
@@ -129,6 +129,24 @@ def test_observation_key_has_a_fixed_canonical_golden_value() -> None:
     assert observation_key(_version(), changed_rendering) == observation_key(
         _version(), observation
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("source_identity", "run:unsafe\x00identity"),
+        ("categorical_value", "critical\x00unsafe"),
+        ("source_artifact_refs", ["artifact:governed\x00unsafe"]),
+    ],
+)
+def test_signal_observation_rejects_jsonb_nul_in_string_fields(
+    field: str, value: object
+) -> None:
+    payload = _observation().model_dump(mode="json")
+    payload[field] = value
+
+    with pytest.raises(ValidationError, match=r"U\+0000"):
+        SignalObservation.model_validate(payload)
 
 
 def test_observation_key_changes_for_fact_or_immutable_rule_version() -> None:
@@ -387,6 +405,51 @@ def _claim_observation(**overrides) -> SignalObservation:
         categorical_value="critical",
         **overrides,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("attack", ["nested_mutation", "model_copy"])
+async def test_claim_revalidates_and_owns_nested_observation_json_before_database_io(
+    claim_store,
+    attack,
+) -> None:
+    sessions, rule_id = claim_store
+    async with sessions() as session:
+        rule = await session.get(WatchRule, rule_id)
+        observation = _claim_observation(
+            detail={"nested": {"finding": "safe-before-boundary"}}
+        )
+        trigger = _trigger(rule, observation)
+        if attack == "nested_mutation":
+            observation.detail["nested"]["finding"] = "invalid\x00jsonb"
+        else:
+            observation = observation.model_copy(
+                update={"detail": {"nested": {"finding": "invalid\x00jsonb"}}}
+            )
+
+        statements = 0
+
+        def count_statements(
+            _connection, _cursor, _statement, _parameters, _context, _many
+        ) -> None:
+            nonlocal statements
+            statements += 1
+
+        engine = sessions.kw["bind"]
+        event.listen(engine.sync_engine, "before_cursor_execute", count_statements)
+        try:
+            with pytest.raises(EvaluationClaimError, match="invalid_observation"):
+                await claim_rule_evaluation(session, trigger, observation)
+        finally:
+            event.remove(
+                engine.sync_engine, "before_cursor_execute", count_statements
+            )
+
+        assert statements == 0
+        assert (
+            await session.scalar(select(func.count()).select_from(WatchRuleEvaluation))
+            == 0
+        )
 
 
 @pytest.mark.asyncio

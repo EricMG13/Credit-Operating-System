@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ReportsPage from "./page";
 
 const state = vi.hoisted(() => ({
@@ -133,6 +133,14 @@ describe("Report Studio freshness lifecycle", () => {
       String(args.artifactRevision).endsWith(":report-1"),
     )).toBe(true);
 
+    // Report Studio deliberately stages the full preview over two frames. Let
+    // that transition settle before simulating an analyst selection so it
+    // cannot re-run the deep-link binding after the click under suite load.
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+      });
+    });
     fireEvent.click(screen.getByRole("button", { name: /Second memo/ }));
     expect(await screen.findByLabelText(/Freshness DUE/i)).toBeTruthy();
     expect(state.freshnessCalls.some((args) =>

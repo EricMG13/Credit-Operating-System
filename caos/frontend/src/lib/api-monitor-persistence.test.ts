@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   api,
   createWatchRule,
+  getChunk,
   getAlertEventPage,
   getWatchRulePage,
   updateWatchRule,
@@ -39,6 +40,7 @@ const RULE: WatchRuleDTO = {
   paused: false,
   issuer_id: "issuer-1",
   portfolio_id: null,
+  can_mutate: true,
   current_version: 3,
   schedule_kind: "event_driven",
   schedule_interval_seconds: null,
@@ -76,7 +78,12 @@ describe("persisted Monitor API wrappers", () => {
         data: eventRequest ? [EVENT] : [RULE],
         status: 200,
         statusText: "OK",
-        headers: { "x-next-cursor": eventRequest ? "signed-event-cursor" : "signed-rule-cursor" },
+        headers: {
+          "x-next-cursor": eventRequest ? "signed-event-cursor" : "signed-rule-cursor",
+          ...(eventRequest
+            ? { "x-alert-event-can-mutate": "true" }
+            : { "x-watch-rule-can-create": "true" }),
+        },
         config,
       });
     }) as never;
@@ -90,9 +97,9 @@ describe("persisted Monitor API wrappers", () => {
       limit: 25,
       cursor: "event-cursor",
       signal: eventAbort.signal,
-    })).resolves.toEqual({ items: [EVENT], nextCursor: "signed-event-cursor" });
+    })).resolves.toEqual({ items: [EVENT], nextCursor: "signed-event-cursor", canMutate: true });
     await expect(getWatchRulePage({ limit: 40, cursor: "rule-cursor", signal: ruleAbort.signal }))
-      .resolves.toEqual({ items: [RULE], nextCursor: "signed-rule-cursor" });
+      .resolves.toEqual({ items: [RULE], nextCursor: "signed-rule-cursor", canCreate: true });
 
     expect(requests[0]).toMatchObject({
       url: "/api/alerts/events",
@@ -115,12 +122,13 @@ describe("persisted Monitor API wrappers", () => {
       return Promise.resolve({ data: RULE, status: 200, statusText: "OK", headers: {}, config });
     }) as never;
 
-    await createWatchRule(WRITE);
+    await createWatchRule(WRITE, "watch-rule-create-op-1");
     await updateWatchRule("rule/1", 3, WRITE);
     const createBody = JSON.parse(String(requests[0]?.data));
     const updateBody = JSON.parse(String(requests[1]?.data));
 
     expect(createBody).toEqual(WRITE);
+    expect((requests[0]?.headers as Record<string, unknown>)["Idempotency-Key"]).toBe("watch-rule-create-op-1");
     expect(updateBody).toEqual({ expected_version: 3, patch: WRITE });
     expect(requests[1]?.url).toBe("/api/watch-rules/rule%2F1");
     for (const body of [createBody, updateBody.patch]) {
@@ -131,5 +139,17 @@ describe("persisted Monitor API wrappers", () => {
       expect(body).not.toHaveProperty("destination_ref");
       expect(body).not.toHaveProperty("delivery_state");
     }
+  });
+
+  it("encodes persisted chunk ids as one path segment", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    api.defaults.adapter = ((config: Record<string, unknown>) => {
+      requests.push(config);
+      return Promise.resolve({ data: { id: "chunk", doc: "Evidence", text: "Persisted." }, status: 200, statusText: "OK", headers: {}, config });
+    }) as never;
+
+    await getChunk("../../settings");
+
+    expect(requests[0]?.url).toBe("/api/query/chunk/..%2F..%2Fsettings");
   });
 });

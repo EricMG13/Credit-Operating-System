@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AlertEventDTO } from "@/lib/api";
 import MonitorPage from "./page";
 
@@ -10,6 +10,7 @@ const getWatchRulePage = vi.fn();
 const getSettings = vi.fn().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
 const getPortfolio = vi.fn();
 const getDigest = vi.fn();
+const patchAlertEvent = vi.fn();
 const forbiddenAutonomyDraft = vi.fn();
 const forbiddenLegacyStates = vi.fn();
 const analysisState = vi.hoisted(() => ({ loading: false, patch: vi.fn() }));
@@ -49,10 +50,11 @@ vi.mock("@/lib/analysis-workbench", async (importOriginal) => ({
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getSettings: (...args: unknown[]) => getSettings(...args),
-  getAlertEventPage: (...args: unknown[]) => getAlertEventPage(...args),
+  getAlertEventPage: async (...args: unknown[]) => ({ canMutate: true, ...await getAlertEventPage(...args) }),
   getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
   getPortfolio: (...args: unknown[]) => getPortfolio(...args),
   getDigest: (...args: unknown[]) => getDigest(...args),
+  patchAlertEvent: (...args: unknown[]) => patchAlertEvent(...args),
   getAutonomyDraft: (...args: unknown[]) => forbiddenAutonomyDraft(...args),
   getAlertStates: (...args: unknown[]) => forbiddenLegacyStates(...args),
 }));
@@ -87,12 +89,20 @@ function setNarrowMedia(matches: boolean) {
   }));
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
   getSettings.mockReset().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
   getAlertEventPage.mockReset();
   getWatchRulePage.mockReset();
   getPortfolio.mockReset();
   getDigest.mockReset();
+  patchAlertEvent.mockReset();
   forbiddenAutonomyDraft.mockReset();
   forbiddenLegacyStates.mockReset();
   analysisState.patch.mockReset().mockResolvedValue(undefined);
@@ -125,6 +135,7 @@ describe("Monitor · phone persisted triage gate", () => {
     expect(screen.getAllByText("Phone and desktop share this persisted event")).toHaveLength(2);
     expect(screen.getByText("1 persisted alert")).toBeTruthy();
     expect(screen.getByLabelText("Decision header").textContent).toContain("Phone and desktop share this persisted event");
+    expect(screen.queryByRole("button", { name: /Acknowledge selected/ })).toBeNull();
     expect(screen.queryByText("Email Intelligence · CP-MON intake")).toBeNull();
     expect(screen.getByRole("button", { name: "Open context drawer" })).toBeTruthy();
 
@@ -135,6 +146,55 @@ describe("Monitor · phone persisted triage gate", () => {
     expect(getWatchRulePage).toHaveBeenCalledOnce();
     expect(forbiddenAutonomyDraft).not.toHaveBeenCalled();
     expect(forbiddenLegacyStates).not.toHaveBeenCalled();
+  });
+
+  it("clears desktop batch selection before the phone triage surface can hide it", async () => {
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+    const view = render(<MonitorPage />);
+    const checkbox = await screen.findByRole("checkbox", { name: "Select Phone and desktop share this persisted event" });
+    fireEvent.click(checkbox);
+    expect(screen.getByRole("button", { name: "Acknowledge selected (1)" })).toBeTruthy();
+
+    mockBreakpoint = "mobile";
+    setNarrowMedia(true);
+    view.rerender(<MonitorPage />);
+
+    expect(await screen.findByText("Alert triage · persisted events")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Acknowledge selected/ })).toBeNull();
+    expect(patchAlertEvent).not.toHaveBeenCalled();
+
+    mockBreakpoint = "wide";
+    setNarrowMedia(false);
+    view.rerender(<MonitorPage />);
+    await waitFor(() => expect((screen.getByRole("checkbox", { name: "Select Phone and desktop share this persisted event" }) as HTMLInputElement).checked).toBe(false));
+  });
+
+  it("clears and hides batch authority when the visible dataset moves to Governance", async () => {
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+    render(<MonitorPage />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select Phone and desktop share this persisted event" }));
+    expect(screen.getByRole("button", { name: "Acknowledge selected (1)" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Governance" }));
+
+    expect(await screen.findByText("Live governance queue · CP-5 / CP-0 / Staleness")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Acknowledge selected/ })).toBeNull();
+    expect(patchAlertEvent).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Alerts" }));
+    await waitFor(() => expect((screen.getByRole("checkbox", { name: "Select Phone and desktop share this persisted event" }) as HTMLInputElement).checked).toBe(false));
+  });
+
+  it("renders a viewer alert collection without row, phone, or header mutation authority", async () => {
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null, canMutate: false });
+    render(<MonitorPage />);
+    await screen.findAllByText("Phone and desktop share this persisted event");
+
+    expect(screen.queryByRole("checkbox", { name: "Select Phone and desktop share this persisted event" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Acknowledge selected/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Ack" }).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Ack" }));
+    expect(patchAlertEvent).not.toHaveBeenCalled();
   });
 
   it("renders an honest persisted-event outage on phone without fabricating Reference or autonomy content", async () => {
@@ -187,5 +247,71 @@ describe("Monitor · phone persisted triage gate", () => {
     expect(getAlertEventPage).toHaveBeenCalledOnce();
     expect(getSettings).toHaveBeenCalledOnce();
     expect(getWatchRulePage).not.toHaveBeenCalled();
+  });
+
+  it("keeps deferred failure custody mounted across dataset and breakpoint changes until dismissal", async () => {
+    const patch = deferred<AlertEventDTO>();
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+    patchAlertEvent.mockReturnValueOnce(patch.promise);
+    const view = render(<MonitorPage />);
+    await screen.findByTestId("monitor-persisted-ready");
+
+    fireEvent.change(screen.getByLabelText("Alert assignee"), { target: { value: "Desk analyst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledOnce());
+
+    const governance = screen.getByRole("tab", { name: "Governance" });
+    expect(governance.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(governance);
+    expect(screen.getByRole("tab", { name: "Alerts" }).getAttribute("aria-selected")).toBe("true");
+
+    mockBreakpoint = "mobile";
+    setNarrowMedia(true);
+    view.rerender(<MonitorPage />);
+    expect(screen.getByText("Alert inbox · persisted events")).toBeTruthy();
+    expect(screen.queryByText("Alert triage · persisted events")).toBeNull();
+
+    await act(async () => {
+      patch.reject(new Error("deferred assignment unavailable"));
+      await patch.promise.catch(() => undefined);
+    });
+    expect(await screen.findByText(/deferred assignment unavailable/)).toBeTruthy();
+    expect(screen.getByText("Alert inbox · persisted events")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(await screen.findByText("Alert triage · persisted events")).toBeTruthy();
+    expect(screen.queryByText(/deferred assignment unavailable/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Governance" }));
+    expect(await screen.findByText("Live governance queue · CP-5 / CP-0 / Staleness")).toBeTruthy();
+  });
+
+  it("retains the alert dataset when URL navigation changes during deferred failure custody", async () => {
+    const patch = deferred<AlertEventDTO>();
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+    patchAlertEvent.mockReturnValueOnce(patch.promise);
+    const view = render(<MonitorPage />);
+    await screen.findByTestId("monitor-persisted-ready");
+
+    fireEvent.change(screen.getByLabelText("Alert assignee"), { target: { value: "Desk analyst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledOnce());
+
+    window.history.replaceState({}, "", "/monitor?dataset=governance");
+    view.rerender(<MonitorPage />);
+    expect(screen.getByRole("tab", { name: "Alerts" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("Alert inbox · persisted events")).toBeTruthy();
+    expect(screen.queryByText("Live governance queue · CP-5 / CP-0 / Staleness")).toBeNull();
+
+    await act(async () => {
+      patch.reject(new Error("URL-raced assignment unavailable"));
+      await patch.promise.catch(() => undefined);
+    });
+    expect(await screen.findByText(/URL-raced assignment unavailable/)).toBeTruthy();
+    expect(screen.getByText("Alert inbox · persisted events")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(await screen.findByText("Live governance queue · CP-5 / CP-0 / Staleness")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Governance" }).getAttribute("aria-selected")).toBe("true");
   });
 });

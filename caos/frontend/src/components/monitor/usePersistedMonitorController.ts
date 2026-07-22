@@ -27,6 +27,7 @@ const RULE_PAGE_LIMIT = 100;
 const ALERT_AUTHORITY_NOT_READY = "Persisted alert list authority is not ready; reload before updating";
 const RULE_AUTHORITY_NOT_READY = "Persisted watch-rule list authority is not ready; reload before updating";
 const RULE_ACTIVATION_NOT_ENABLED = "Watch-rule activation is not enabled by a verified workspace-settings snapshot";
+const RULE_CREATE_NOT_AUTHORIZED = "Watch-rule creation is not authorized for this caller";
 
 function authorityHasError(ref: { current: PersistedLoadStatus }): boolean {
   return ref.current === "error";
@@ -73,16 +74,23 @@ export function isAlertLifecycleConflict(reason: unknown): boolean {
   return (reason as { response?: { status?: number } })?.response?.status === 409;
 }
 
+export function isAlertAuthorityInvalidation(reason: unknown): boolean {
+  const status = (reason as { response?: { status?: number } })?.response?.status;
+  return status === 403 || status === 404;
+}
+
 async function drainPages<T>(
   loadPage: (cursor: string | undefined, signal: AbortSignal) => Promise<{ items: T[]; nextCursor: string | null }>,
   signal: AbortSignal,
   repeatedCursorMessage: string,
+  observePage?: (page: { items: T[]; nextCursor: string | null }) => void,
 ): Promise<T[]> {
   const items: T[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
   while (true) {
     const page = await loadPage(cursor, signal);
+    observePage?.(page);
     items.push(...page.items);
     if (!page.nextCursor) return items;
     if (seenCursors.has(page.nextCursor)) throw new Error(repeatedCursorMessage);
@@ -97,9 +105,10 @@ export interface PersistedWatchRuleController {
   status: PersistedLoadStatus;
   error: string | null;
   rules: WatchRuleDTO[];
+  canCreate: boolean;
   retryActivation: () => Promise<void>;
   refresh: () => Promise<void>;
-  create: (body: WatchRuleWriteDTO) => Promise<WatchRuleDTO>;
+  create: (body: WatchRuleWriteDTO, operationKey: string) => Promise<WatchRuleDTO>;
   update: (id: string, expectedVersion: number, patch: WatchRuleWriteDTO) => Promise<WatchRuleDTO>;
   reloadOne: (id: string) => Promise<WatchRuleDTO>;
 }
@@ -110,6 +119,7 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
   const [status, setStatus] = useState<PersistedLoadStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [rules, setRules] = useState<WatchRuleDTO[]>([]);
+  const [canCreate, setCanCreate] = useState(false);
   const availabilityRef = useRef<WatchRuleAvailability>("checking");
   const activationEpochRef = useRef(0);
   const settingsRequestRef = useRef(0);
@@ -117,6 +127,7 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
   const listRequestRef = useRef(0);
   const listAbortRef = useRef<AbortController | null>(null);
   const statusRef = useRef<PersistedLoadStatus>("loading");
+  const canCreateRef = useRef(false);
   const publishStatus = useCallback((next: PersistedLoadStatus) => {
     statusRef.current = next;
     setStatus(next);
@@ -139,11 +150,21 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
     listAbortRef.current?.abort();
     const abort = new AbortController();
     listAbortRef.current = abort;
+    canCreateRef.current = false;
+    setCanCreate(false);
     publishStatus("loading");
     setError(null);
     try {
+      let pageCanCreate: boolean | undefined;
       const loaded = await drainPages<WatchRuleDTO>(
-        (cursor, signal) => getWatchRulePage({ limit: RULE_PAGE_LIMIT, cursor, signal }) as Promise<WatchRulePageDTO>,
+        async (cursor, signal) => {
+          const page = await getWatchRulePage({ limit: RULE_PAGE_LIMIT, cursor, signal }) as WatchRulePageDTO;
+          if (pageCanCreate === undefined) pageCanCreate = page.canCreate;
+          else if (page.canCreate !== pageCanCreate) {
+            throw new Error("Persisted watch-rule pages returned inconsistent creation authority.");
+          }
+          return page;
+        },
         abort.signal,
         "Persisted watch-rule pagination repeated a cursor.",
       );
@@ -154,6 +175,9 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
         || activationEpochRef.current !== activationEpoch
       ) return;
       const unique = new Map(loaded.map((rule) => [rule.id, rule]));
+      const createAuthorized = pageCanCreate === true;
+      canCreateRef.current = createAuthorized;
+      setCanCreate(createAuthorized);
       setRules([...unique.values()]);
       publishStatus("ready");
     } catch (reason) {
@@ -182,6 +206,8 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
     activationEpochRef.current += 1;
     const activationEpoch = activationEpochRef.current;
     fenceListLoad();
+    canCreateRef.current = false;
+    setCanCreate(false);
     setRules([]);
     setError(null);
     setActivationError(null);
@@ -253,10 +279,11 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
     if (statusRef.current !== "ready") throw new Error(RULE_AUTHORITY_NOT_READY);
     return activationEpochRef.current;
   }, []);
-  const create = useCallback(async (body: WatchRuleWriteDTO) => {
+  const create = useCallback(async (body: WatchRuleWriteDTO, operationKey: string) => {
     const activationEpoch = requireReadyAuthority();
+    if (!canCreateRef.current) throw new Error(RULE_CREATE_NOT_AUTHORIZED);
     fenceListLoad();
-    return finishMutation(await createWatchRule(body), activationEpoch);
+    return finishMutation(await createWatchRule(body, operationKey), activationEpoch);
   }, [fenceListLoad, finishMutation, requireReadyAuthority]);
   const update = useCallback(async (id: string, expectedVersion: number, patch: WatchRuleWriteDTO) => {
     const activationEpoch = requireReadyAuthority();
@@ -275,6 +302,7 @@ export function usePersistedWatchRuleController(): PersistedWatchRuleController 
     status,
     error,
     rules,
+    canCreate,
     retryActivation,
     refresh,
     create,
@@ -287,6 +315,7 @@ export interface PersistedMonitorController {
   status: PersistedLoadStatus;
   error: string | null;
   events: AlertEventDTO[];
+  canMutate: boolean;
   visibleEvents: AlertEventDTO[];
   counts: Record<AlertEventDTO["state"], number>;
   filter: MonitorAlertFilter;
@@ -306,6 +335,10 @@ export interface PersistedMonitorController {
   batchPending: boolean;
   batchError: string | null;
   batchErrorAction: BatchErrorAction;
+  workflowSurfaceLocked: boolean;
+  authoritativeRefreshEpoch: number;
+  releaseWorkflowSurface: (id: string) => void;
+  dismissBatchError: () => void;
   lastMutationMessage: string | null;
   requiresAuthoritativeReload: boolean;
   refresh: (options?: { preserveReadyView?: boolean }) => Promise<boolean>;
@@ -316,6 +349,7 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
   const [status, setStatus] = useState<PersistedLoadStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [events, setEvents] = useState<AlertEventDTO[]>([]);
+  const [canMutate, setCanMutate] = useState(false);
   const [filter, setFilterState] = useState<MonitorAlertFilter>("all");
   const [activeEventId, setActiveEventId] = useState<string | null>(initialActiveEventId);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -323,19 +357,25 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
   const [batchPending, setBatchPending] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [batchErrorAction, setBatchErrorAction] = useState<BatchErrorAction>(null);
+  const [workflowHoldIds, setWorkflowHoldIds] = useState<Set<string>>(new Set());
   const [lastMutationMessage, setLastMutationMessage] = useState<string | null>(null);
   const [requiresAuthoritativeReload, setRequiresAuthoritativeReload] = useState(false);
+  const [authoritativeRefreshEpoch, setAuthoritativeRefreshEpoch] = useState(0);
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const initialActiveRef = useRef(initialActiveEventId);
   const statusRef = useRef<PersistedLoadStatus>("loading");
   const eventsRef = useRef<AlertEventDTO[]>([]);
+  const canMutateRef = useRef(false);
   const filterRef = useRef<MonitorAlertFilter>("all");
   const selectedIdsRef = useRef<string[]>([]);
   const batchErrorSelectionRef = useRef<string | null>(null);
+  const batchFailureIdsRef = useRef(new Set<string>());
   const pendingRef = useRef(new Set<string>());
   const pendingPromisesRef = useRef(new Map<string, { intent: string; promise: Promise<AlertEventDTO> }>());
   const batchRef = useRef(false);
+  const workflowHoldIdsRef = useRef(new Set<string>());
+  const mountedRef = useRef(true);
   const authorityReloadRequiredRef = useRef(false);
   const authorityFenceEpochRef = useRef(0);
   const authorityPendingMutationsRef = useRef(new Set<Promise<AlertEventDTO>>());
@@ -347,16 +387,44 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
   const selectionKey = selectionIdentity(selectedIds);
   selectedIdsRef.current = selectedIds;
 
-  useEffect(() => {
-    if (batchErrorSelectionRef.current === null || batchErrorSelectionRef.current === selectionKey) return;
+  const publishWorkflowHold = useCallback((id: string, held: boolean) => {
+    const next = new Set(workflowHoldIdsRef.current);
+    if (held) next.add(id);
+    else next.delete(id);
+    workflowHoldIdsRef.current = next;
+    setWorkflowHoldIds(next);
+  }, []);
+  const releaseWorkflowSurface = useCallback((id: string) => {
+    publishWorkflowHold(id, false);
+  }, [publishWorkflowHold]);
+  const releaseBatchFailureHolds = useCallback(() => {
+    if (batchFailureIdsRef.current.size === 0) return;
+    const next = new Set(workflowHoldIdsRef.current);
+    for (const id of batchFailureIdsRef.current) next.delete(id);
+    batchFailureIdsRef.current = new Set();
+    workflowHoldIdsRef.current = next;
+    setWorkflowHoldIds(next);
+  }, []);
+  const dismissBatchError = useCallback(() => {
+    releaseBatchFailureHolds();
     batchErrorSelectionRef.current = null;
     setBatchError(null);
     setBatchErrorAction(null);
-  }, [selectionKey]);
+  }, [releaseBatchFailureHolds]);
+
+  useEffect(() => {
+    if (batchErrorSelectionRef.current === null || batchErrorSelectionRef.current === selectionKey) return;
+    releaseBatchFailureHolds();
+    batchErrorSelectionRef.current = null;
+    setBatchError(null);
+    setBatchErrorAction(null);
+  }, [releaseBatchFailureHolds, selectionKey]);
 
   const requireAuthoritativeReload = useCallback(() => {
     authorityFenceEpochRef.current += 1;
     authorityReloadRequiredRef.current = true;
+    canMutateRef.current = false;
+    setCanMutate(false);
     for (const pending of pendingPromisesRef.current.values()) {
       authorityPendingMutationsRef.current.add(pending.promise);
     }
@@ -368,8 +436,9 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
   }, []);
 
   const refresh = useCallback(async (options?: { preserveReadyView?: boolean }) => {
-    const preserveReadyView = options?.preserveReadyView === true
-      && (statusRef.current === "ready" || authorityReloadRequiredRef.current);
+    if (!mountedRef.current) return false;
+    const preserveReadyView = statusRef.current === "ready"
+      || (options?.preserveReadyView === true && authorityReloadRequiredRef.current);
     const request = requestRef.current + 1;
     requestRef.current = request;
     abortRef.current?.abort();
@@ -389,15 +458,36 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
     // drain was in progress. The post-drain epoch is the one this GET proves.
     const authorityFenceEpoch = authorityFenceEpochRef.current;
     try {
+      let pageCanMutate: boolean | undefined;
       const loaded = await drainPages<AlertEventDTO>(
         (cursor, signal) => getAlertEventPage({ limit: ALERT_PAGE_LIMIT, cursor, signal }) as Promise<AlertEventPageDTO>,
         abort.signal,
         "Persisted alert pagination repeated a cursor.",
+        (page) => {
+          const capability = (page as AlertEventPageDTO).canMutate === true;
+          if (pageCanMutate === undefined) pageCanMutate = capability;
+          else if (pageCanMutate !== capability) {
+            throw new Error("Persisted alert pages returned inconsistent mutation authority.");
+          }
+        },
       );
       if (requestRef.current !== request || abort.signal.aborted) return false;
       if (authorityReloadRequiredRef.current && authorityFenceEpochRef.current !== authorityFenceEpoch) return false;
       const unique = new Map(loaded.map((event) => [event.id, event]));
       const next = [...unique.values()];
+      const mutationAuthorized = pageCanMutate === true;
+      canMutateRef.current = mutationAuthorized;
+      setCanMutate(mutationAuthorized);
+      // A successful list read is authoritative for every non-pending workflow
+      // outcome. Release stale local failure custody even when the refreshed
+      // event remains present but no longer exposes the original row action.
+      const releasedWorkflowHolds = new Set<string>();
+      workflowHoldIdsRef.current = releasedWorkflowHolds;
+      setWorkflowHoldIds(releasedWorkflowHolds);
+      batchFailureIdsRef.current = new Set();
+      batchErrorSelectionRef.current = null;
+      setBatchError(null);
+      setBatchErrorAction(null);
       const currentFilter = filterRef.current;
       const visible = (event: AlertEventDTO | undefined): event is AlertEventDTO => event !== undefined
         && (currentFilter === "all" || event.state === currentFilter);
@@ -406,7 +496,7 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
       setSelectedIds((current) => {
         const retainedIds = current.filter((id) => {
           const retained = unique.get(id);
-          return visible(retained) && retained.state !== "resolved";
+          return mutationAuthorized && visible(retained) && retained.state === "open";
         });
         selectedIdsRef.current = retainedIds;
         return retainedIds;
@@ -426,15 +516,18 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
         authorityPendingMutationsRef.current.clear();
         setRequiresAuthoritativeReload(false);
       }
+      setAuthoritativeRefreshEpoch((current) => current + 1);
       publishStatus("ready");
       return true;
     } catch (reason) {
       if (requestRef.current !== request || abort.signal.aborted) return false;
       setError(toErrorMessage(reason, "Persisted alert events are unavailable"));
-      if (preserveReadyView && authorityReloadRequiredRef.current) {
-        // Keep the analyst's draft mounted, but leave mutation authority
-        // closed until a later persisted reload succeeds.
-        statusRef.current = "error";
+      if (preserveReadyView) {
+        // Preserve the last usable surface. A lifecycle conflict remains
+        // mutation-fenced until a later authoritative reload; an ordinary
+        // refresh failure restores the prior ready authority so local retry
+        // custody can still be completed or dismissed.
+        statusRef.current = authorityReloadRequiredRef.current ? "error" : "ready";
         return false;
       }
       publishStatus("error");
@@ -443,8 +536,10 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
   }, [publishStatus]);
 
   useEffect(() => {
+    mountedRef.current = true;
     void refresh();
     return () => {
+      mountedRef.current = false;
       requestRef.current += 1;
       abortRef.current?.abort();
     };
@@ -460,6 +555,7 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
   );
 
   const setActiveEvent = useCallback((id: string | null) => {
+    if (pendingRef.current.size > 0 || batchRef.current || workflowHoldIdsRef.current.size > 0) return;
     if (id === null) {
       setActiveEventId(null);
       return;
@@ -469,9 +565,11 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
     if (candidate && (currentFilter === "all" || candidate.state === currentFilter)) setActiveEventId(id);
   }, []);
   const toggleSelected = useCallback((id: string) => {
+    if (pendingRef.current.size > 0 || batchRef.current || workflowHoldIdsRef.current.size > 0) return;
+    if (!canMutateRef.current) return;
     const candidate = eventsRef.current.find((event) => event.id === id);
     const currentFilter = filterRef.current;
-    if (!candidate || candidate.state === "resolved" || (currentFilter !== "all" && candidate.state !== currentFilter)) return;
+    if (!candidate || candidate.state !== "open" || (currentFilter !== "all" && candidate.state !== currentFilter)) return;
     setSelectedIds((current) => {
       if (current.includes(id)) {
         const next = current.filter((selected) => selected !== id);
@@ -486,10 +584,12 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
     });
   }, [activeEventId]);
   const clearSelection = useCallback(() => {
+    if (pendingRef.current.size > 0 || batchRef.current || workflowHoldIdsRef.current.size > 0) return;
     selectedIdsRef.current = [];
     setSelectedIds([]);
   }, []);
   const setFilter = useCallback((next: MonitorAlertFilter) => {
+    if (pendingRef.current.size > 0 || batchRef.current || workflowHoldIdsRef.current.size > 0) return;
     filterRef.current = next;
     setFilterState(next);
     selectedIdsRef.current = [];
@@ -502,8 +602,14 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
     id: string,
     nextState: AlertEventDTO["state"],
     opts?: { assignee?: string; note?: string; resolutionNote?: string },
+    batchOwned = false,
   ) => {
     if (statusRef.current !== "ready" || authorityReloadRequiredRef.current) throw new Error(ALERT_AUTHORITY_NOT_READY);
+    if (!canMutateRef.current) throw new Error("Persisted alert mutation is not authorized for this caller");
+    if (batchRef.current && !batchOwned) throw new Error("A batch acknowledgment is already in progress");
+    if (!batchOwned && workflowHoldIdsRef.current.size > 0 && !workflowHoldIdsRef.current.has(id)) {
+      throw new Error("Review or dismiss the current alert workflow failure before another update");
+    }
     const existing = eventsRef.current.find((event) => event.id === id);
     if (!existing) throw new Error("Persisted alert event is no longer available");
     const intent = JSON.stringify([
@@ -521,8 +627,10 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
     setPendingIds(new Set(pendingRef.current));
     const request = patchAlertEvent(id, nextState, opts);
     pendingPromisesRef.current.set(id, { intent, promise: request });
+    let authorityInvalidated = false;
     try {
       const next = await request;
+      publishWorkflowHold(id, false);
       // A list request that began before this transition has an older state
       // snapshot and must never replace the successful mutation.
       if (!authorityReloadRequiredRef.current) {
@@ -535,7 +643,7 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
       const workflowLabel = next.state === "ack" ? "acknowledged" : next.state;
       setLastMutationMessage(`${next.title} ${workflowLabel}. Persisted workflow state updated.`);
       const currentFilter = filterRef.current;
-      if (next.state === "resolved" || (currentFilter !== "all" && next.state !== currentFilter)) {
+      if (next.state !== "open" || (currentFilter !== "all" && next.state !== currentFilter)) {
         setSelectedIds((current) => {
           const retained = current.filter((selected) => selected !== id);
           selectedIdsRef.current = retained;
@@ -553,17 +661,35 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
       if (!authorityHasError(statusRef) && !authorityReloadRequiredRef.current) publishStatus("ready");
       return next;
     } catch (reason) {
-      if (isAlertLifecycleConflict(reason)) requireAuthoritativeReload();
+      authorityInvalidated = isAlertAuthorityInvalidation(reason);
+      if (isAlertLifecycleConflict(reason) || authorityInvalidated) {
+        publishWorkflowHold(id, false);
+        requireAuthoritativeReload();
+      } else {
+        publishWorkflowHold(id, true);
+      }
       throw reason;
     } finally {
       pendingPromisesRef.current.delete(id);
       pendingRef.current.delete(id);
       setPendingIds(new Set(pendingRef.current));
+      if (authorityInvalidated && !batchOwned && mountedRef.current) {
+        void refresh({ preserveReadyView: true });
+      }
     }
-  }, [publishStatus, requireAuthoritativeReload]);
+  }, [publishStatus, publishWorkflowHold, refresh, requireAuthoritativeReload]);
 
   const acknowledgeSelected = useCallback(async () => {
     if (batchRef.current || selectedIds.length === 0) return;
+    if (pendingRef.current.size > 0) {
+      throw new Error("An individual alert workflow update is already in progress");
+    }
+    const hasIndividualFailure = [...workflowHoldIdsRef.current].some(
+      (id) => !batchFailureIdsRef.current.has(id),
+    );
+    if (hasIndividualFailure) {
+      throw new Error("Review or dismiss the current alert workflow failure before batch acknowledgment");
+    }
     if (statusRef.current !== "ready" || authorityReloadRequiredRef.current) {
       const reason = new Error(ALERT_AUTHORITY_NOT_READY);
       batchErrorSelectionRef.current = selectionIdentity(selectedIdsRef.current);
@@ -578,8 +704,8 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
     setBatchErrorAction(null);
     const ids = [...selectedIds];
     try {
-      const outcomes = await Promise.allSettled(ids.map((id) => mutateEvent(id, "ack")));
-      const lifecycleFailure = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected" && isAlertLifecycleConflict(outcome.reason));
+      const outcomes = await Promise.allSettled(ids.map((id) => mutateEvent(id, "ack", undefined, true)));
+      const lifecycleFailure = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected" && (isAlertLifecycleConflict(outcome.reason) || isAlertAuthorityInvalidation(outcome.reason)));
       if (lifecycleFailure) {
         batchErrorSelectionRef.current = selectionIdentity(selectedIdsRef.current);
         setBatchErrorAction("reload");
@@ -605,18 +731,15 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
           throw failure.reason;
         }
         const failedIds = outcomes.flatMap((outcome, index) => outcome.status === "rejected" ? [ids[index]!] : []);
-        const currentSelection = selectedIdsRef.current;
-        const capturedIds = new Set(ids);
-        const retainsEveryFailure = failedIds.every((id) => currentSelection.includes(id));
-        const retargetedOutsideBatch = currentSelection.some((id) => !capturedIds.has(id));
-        if (retainsEveryFailure && !retargetedOutsideBatch) {
-          const retrySelection = selectionIdentity(currentSelection);
-          batchErrorSelectionRef.current = retrySelection;
-          setBatchErrorAction("retry");
-          setBatchError(`${toErrorMessage(failure.reason, "Selected alerts were not acknowledged")}. Selection was preserved; retry acknowledgment.`);
-        }
+        batchFailureIdsRef.current = new Set(failedIds);
+        selectedIdsRef.current = failedIds;
+        setSelectedIds(failedIds);
+        batchErrorSelectionRef.current = selectionIdentity(failedIds);
+        setBatchErrorAction("retry");
+        setBatchError(`${toErrorMessage(failure.reason, "Selected alerts were not acknowledged")}. Only failed alerts remain selected; retry acknowledgment.`);
         throw failure.reason;
       }
+      batchFailureIdsRef.current = new Set();
       const acknowledged = new Set(ids);
       setSelectedIds((current) => {
         const retained = current.filter((id) => !acknowledged.has(id));
@@ -633,6 +756,7 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
     status,
     error,
     events,
+    canMutate,
     visibleEvents,
     counts,
     filter,
@@ -648,6 +772,10 @@ export function usePersistedMonitorController(initialActiveEventId: string | nul
     batchPending,
     batchError,
     batchErrorAction,
+    workflowSurfaceLocked: batchPending || pendingIds.size > 0 || workflowHoldIds.size > 0,
+    authoritativeRefreshEpoch,
+    releaseWorkflowSurface,
+    dismissBatchError,
     lastMutationMessage,
     requiresAuthoritativeReload,
     refresh,

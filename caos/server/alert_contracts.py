@@ -47,7 +47,24 @@ RuleVersion = Annotated[int, BeforeValidator(_reject_bool), Field(ge=1)]
 AttemptCount = Annotated[int, BeforeValidator(_reject_bool), Field(ge=0, le=5)]
 
 
+def validate_jsonb_compatible(value: object, *, label: str) -> None:
+    """Reject valid JSON strings that PostgreSQL ``jsonb`` cannot represent."""
+    if isinstance(value, str):
+        if "\x00" in value:
+            raise ValueError(f"{label} must not contain U+0000")
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            validate_jsonb_compatible(key, label=label)
+            validate_jsonb_compatible(item, label=label)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            validate_jsonb_compatible(item, label=label)
+
+
 def _canonical_json(value: object, *, max_bytes: int, label: str) -> str:
+    validate_jsonb_compatible(value, label=label)
     try:
         encoded = json.dumps(
             value,
@@ -125,6 +142,12 @@ class SignalObservation(_WireModel):
     def _finite_numeric_value(cls, value: Optional[float]) -> Optional[float]:
         if value is not None and not is_finite_number(value):
             raise ValueError("numeric_value must be finite")
+        return value
+
+    @field_validator("source_identity", "categorical_value", "source_artifact_refs")
+    @classmethod
+    def _jsonb_safe_string_fields(cls, value: object) -> object:
+        validate_jsonb_compatible(value, label="observation")
         return value
 
     @field_validator("detail")

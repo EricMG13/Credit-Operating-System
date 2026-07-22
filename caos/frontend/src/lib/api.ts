@@ -696,7 +696,7 @@ export const getMetricCatalog = (): Promise<MetricDef[]> =>
 
 // Click-to-source: fetch one ingested chunk behind a citation chip.
 export const getChunk = (chunkId: string): Promise<ChunkDTO> =>
-  api.get(`/api/query/chunk/${chunkId}`).then((r) => r.data);
+  api.get(`/api/query/chunk/${encodeURIComponent(chunkId)}`).then((r) => r.data);
 
 // ─── Query concept (graph traversals over the run-derived store) ─────────────
 import type { CapabilitiesResult, GraphResult } from "@/lib/query/graph";
@@ -1484,6 +1484,7 @@ export interface AlertEventDTO {
 export interface AlertEventPageDTO {
   items: AlertEventDTO[];
   nextCursor: string | null;
+  canMutate: boolean;
 }
 
 export interface AlertEventPageRequest {
@@ -1523,6 +1524,7 @@ export const getAlertEventPage = ({
   }).then((response) => ({
     items: response.data,
     nextCursor: nextCursor(response.headers as Record<string, unknown>),
+    canMutate: (response.headers as Record<string, unknown>)["x-alert-event-can-mutate"] === "true",
   }));
 
 // Compatibility export for consumers that intentionally own only one bounded
@@ -1571,6 +1573,7 @@ export interface WatchRuleDTO {
   paused: boolean;
   issuer_id: string | null;
   portfolio_id: string | null;
+  can_mutate: boolean;
   current_version: number;
   schedule_kind: WatchRuleSchedule;
   schedule_interval_seconds: number | null;
@@ -1597,6 +1600,7 @@ export interface WatchRuleWriteDTO {
 export interface WatchRulePageDTO {
   items: WatchRuleDTO[];
   nextCursor: string | null;
+  canCreate: boolean;
 }
 
 export const getWatchRulePage = ({
@@ -1610,13 +1614,16 @@ export const getWatchRulePage = ({
   }).then((response) => ({
     items: response.data,
     nextCursor: nextCursor(response.headers as Record<string, unknown>),
+    canCreate: (response.headers as Record<string, unknown>)["x-watch-rule-can-create"] === "true",
   }));
 
 export const getWatchRule = (id: string): Promise<WatchRuleDTO> =>
   api.get<WatchRuleDTO>(`/api/watch-rules/${encodeURIComponent(id)}`).then((response) => response.data);
 
-export const createWatchRule = (body: WatchRuleWriteDTO): Promise<WatchRuleDTO> =>
-  api.post<WatchRuleDTO>("/api/watch-rules", body).then((response) => response.data);
+export const createWatchRule = (body: WatchRuleWriteDTO, idempotencyKey: string): Promise<WatchRuleDTO> =>
+  api.post<WatchRuleDTO>("/api/watch-rules", body, {
+    headers: { "Idempotency-Key": idempotencyKey },
+  }).then((response) => response.data);
 
 export const updateWatchRule = (
   id: string,

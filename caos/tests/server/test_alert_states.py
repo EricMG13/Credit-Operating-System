@@ -158,6 +158,68 @@ def test_empty_assignee_and_note_normalize_to_null(client):
     assert r.json()["note"] is None
 
 
+def test_event_patch_preserves_omitted_assignment_and_note(client):
+    import asyncio
+    from uuid import uuid4
+
+    from database import AlertEvent, AsyncSessionLocal
+
+    event_id = str(uuid4())
+    alert_key = f"legacy-event-patch:{uuid4()}"
+
+    async def seed_event():
+        async with AsyncSessionLocal.begin() as session:
+            session.add(
+                AlertEvent(
+                    id=event_id,
+                    alert_key=alert_key,
+                    kind="event-patch-preservation",
+                    title="Preserve workflow metadata",
+                    impact="Ack and resolve must not erase assignment custody.",
+                    evidence={},
+                    authority={},
+                )
+            )
+
+    asyncio.run(seed_event())
+    seeded = client.post(
+        "/api/alerts/state",
+        json={
+            "alert_key": alert_key,
+            "state": "open",
+            "assignee": "credit-owner",
+            "note": "Retain through lifecycle changes.",
+        },
+    )
+    assert seeded.status_code == 200, seeded.text
+
+    acknowledged = client.patch(
+        f"/api/alerts/events/{event_id}",
+        json={"state": "ack"},
+    )
+    assert acknowledged.status_code == 200, acknowledged.text
+    assert acknowledged.json()["assignee"] == "credit-owner"
+    assert acknowledged.json()["note"] == "Retain through lifecycle changes."
+
+    resolved = client.patch(
+        f"/api/alerts/events/{event_id}",
+        json={"state": "resolved", "resolution_note": "Risk retired."},
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["assignee"] == "credit-owner"
+    assert resolved.json()["note"] == "Retain through lifecycle changes."
+    assert resolved.json()["resolution_note"] == "Risk retired."
+
+    cleared = client.patch(
+        f"/api/alerts/events/{event_id}",
+        json={"state": "resolved", "assignee": None, "note": "  "},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["assignee"] is None
+    assert cleared.json()["note"] is None
+    assert cleared.json()["resolution_note"] == "Risk retired."
+
+
 def test_list_unfiltered_and_by_missing_key(client):
     all_rows = client.get("/api/alerts/state").json()
     assert len(all_rows) >= 4  # every state created above accumulates
@@ -206,6 +268,7 @@ def test_event_list_keeps_legacy_list_shape_with_bounded_filter_bound_cursor(cli
     asyncio.run(seed_events())
     first = client.get("/api/alerts/events", params={"kind": "cursor-test", "limit": 2})
     assert first.status_code == 200, first.text
+    assert first.headers["x-alert-event-can-mutate"] == "true"
     assert isinstance(first.json(), list) and len(first.json()) == 2
     expected_keys = {
         "id",
@@ -234,6 +297,7 @@ def test_event_list_keeps_legacy_list_shape_with_bounded_filter_bound_cursor(cli
         params={"kind": "cursor-test", "limit": 2, "cursor": cursor},
     )
     assert second.status_code == 200
+    assert second.headers["x-alert-event-can-mutate"] == "true"
     assert len(second.json()) == 1
     assert {row["id"] for row in first.json()}.isdisjoint(
         {row["id"] for row in second.json()}
@@ -248,6 +312,43 @@ def test_event_list_keeps_legacy_list_shape_with_bounded_filter_bound_cursor(cli
     )
     assert client.get("/api/alerts/events", params={"limit": 0}).status_code == 422
     assert client.get("/api/alerts/events", params={"limit": 201}).status_code == 422
+
+
+def test_event_list_reports_exact_server_mutation_capability_for_writer_and_viewer(
+    client,
+):
+    from uuid import uuid4
+
+    from identity import CallerIdentity, get_identity
+    from main import app
+
+    def as_role(role: str):
+        async def dependency():
+            return CallerIdentity(
+                id=f"event-capability-{role}",
+                email=f"event-capability-{role}@example.test",
+                full_name=f"Event capability {role}",
+                role=role,
+                source="profile",
+            )
+
+        app.dependency_overrides[get_identity] = dependency
+
+    kind = f"event-capability-{uuid4()}"
+    try:
+        as_role("analyst")
+        writer_page = client.get("/api/alerts/events", params={"kind": kind})
+        assert writer_page.status_code == 200, writer_page.text
+        assert writer_page.json() == []
+        assert writer_page.headers["x-alert-event-can-mutate"] == "true"
+
+        as_role("viewer")
+        viewer_page = client.get("/api/alerts/events", params={"kind": kind})
+        assert viewer_page.status_code == 200, viewer_page.text
+        assert viewer_page.json() == []
+        assert viewer_page.headers["x-alert-event-can-mutate"] == "false"
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_contextual_alert_lists_and_patch_are_404_masked_across_named_teams(
@@ -279,6 +380,7 @@ def test_contextual_alert_lists_and_patch_are_404_masked_across_named_teams(
         as_caller("alert-owner-a", "alert-team-a")
         rule = client.post(
             "/api/watch-rules",
+            headers={"Idempotency-Key": "alert-states-scoped-context"},
             json={
                 "name": "Scoped alert watch",
                 "signal_type": "qa_gate",
@@ -378,6 +480,7 @@ def test_direct_c3_state_writes_require_visible_context_before_rate_limit(
         as_caller("state-owner-a", "state-team-a")
         rule = client.post(
             "/api/watch-rules",
+            headers={"Idempotency-Key": "alert-states-direct-state"},
             json={
                 "name": "Direct state capability",
                 "signal_type": "qa_gate",
@@ -495,6 +598,250 @@ def test_direct_c3_state_writes_require_visible_context_before_rate_limit(
         assert len(rate_calls) == 1
     finally:
         app.dependency_overrides.clear()
+
+
+def test_profileless_proxy_tenancy_off_keeps_legacy_alerts_but_cannot_adopt_c3(
+    client, monkeypatch
+):
+    import asyncio
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    from config import get_settings
+    from database import AlertEvent, AlertState, Analyst, AsyncSessionLocal
+    from sqlalchemy import select
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "caos_alert_rules_v1_enabled", True)
+    monkeypatch.setattr(settings, "caos_tenancy_enabled", True)
+
+    profile_id = str(uuid4())
+    profile_email = f"matched-alert-owner-{uuid4()}@example.test"
+    profile_headers = {
+        "X-Forwarded-User": f"matched-proxy-subject-{uuid4()}",
+        "X-Forwarded-Email": profile_email.swapcase(),
+        "X-Forwarded-Preferred-Username": "Matched alert owner",
+    }
+    unmatched_user = f"profileless-alert-user-{uuid4()}"
+    unmatched_headers = {
+        "X-Forwarded-User": unmatched_user,
+        "X-Forwarded-Email": f"unmatched-{uuid4()}@example.test",
+        "X-Forwarded-Preferred-Username": "Profileless alert user",
+    }
+    legacy_event_id = str(uuid4())
+    legacy_key = f"legacy-profileless-proxy:{uuid4()}"
+    legacy_orphan_key = f"legacy-profileless-orphan:{uuid4()}"
+    c3_orphan_event_id = str(uuid4())
+    c3_orphan_key = f"c3:{uuid4().hex}{uuid4().hex}"
+
+    async def seed_profile_and_legacy_events():
+        async with AsyncSessionLocal.begin() as session:
+            session.add(
+                Analyst(
+                    id=profile_id,
+                    name="Matched Alert Owner",
+                    email=profile_email,
+                    role="qa",
+                    team_id=None,
+                )
+            )
+            session.add_all(
+                [
+                    AlertEvent(
+                        id=legacy_event_id,
+                        alert_key=legacy_key,
+                        kind="profileless-proxy-legacy",
+                        title="Legacy shared-desk alert",
+                        impact="Legacy alert behavior remains available.",
+                        evidence={},
+                        authority={},
+                    ),
+                    AlertEvent(
+                        id=c3_orphan_event_id,
+                        alert_key=c3_orphan_key,
+                        kind="profileless-proxy-c3-orphan",
+                        title="Contextless C3 orphan",
+                        impact="A C3-shaped orphan is never legacy authority.",
+                        evidence={},
+                        authority={},
+                    ),
+                ]
+            )
+
+    asyncio.run(seed_profile_and_legacy_events())
+    created = client.post(
+        "/api/watch-rules",
+        headers={
+            **profile_headers,
+            "Idempotency-Key": f"profileless-alert-visibility-{uuid4()}",
+        },
+        json={
+            "name": "Profileless proxy C3 visibility",
+            "signal_type": "qa_gate",
+            "enabled": True,
+            "paused": False,
+            "issuer_id": None,
+            "portfolio_id": None,
+            "schedule_kind": "event_driven",
+            "schedule_interval_seconds": None,
+            "next_evaluation_at": None,
+            "config": {
+                "operator": "present",
+                "threshold": None,
+                "kind": "profileless-proxy-c3-context",
+                "title": "Profile-backed C3 alert",
+                "impact": "Only a durable profile may own its workflow state.",
+            },
+        },
+    )
+    assert created.status_code == 201, created.text
+    evaluated = client.post(
+        f"/api/watch-rules/{created.json()['id']}/evaluate",
+        headers=profile_headers,
+        json={
+            "source_identity": f"profileless-alert-visibility:{uuid4()}",
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "numeric_value": None,
+            "categorical_value": "critical",
+            "detail": {"fixture": "profileless proxy alert boundary"},
+            "source_artifact_refs": [],
+            "hop_count": 0,
+        },
+    )
+    assert evaluated.status_code == 200, evaluated.text
+    c3_event_id = evaluated.json()["alert_event_id"]
+
+    async def alert_key_for_event() -> str:
+        async with AsyncSessionLocal() as session:
+            event = await session.get(AlertEvent, c3_event_id)
+            assert event is not None
+            return event.alert_key
+
+    c3_key = asyncio.run(alert_key_for_event())
+    seeded_c3_state = client.post(
+        "/api/alerts/state",
+        headers=profile_headers,
+        json={"alert_key": c3_key, "state": "open"},
+    )
+    assert seeded_c3_state.status_code == 200, seeded_c3_state.text
+    assert seeded_c3_state.json()["analyst_id"] == profile_id
+
+    tenancy_on_c3_patch = client.patch(
+        f"/api/alerts/events/{c3_event_id}",
+        headers=unmatched_headers,
+        json={"state": "ack", "note": "UNASSIGNED is not shared C3 authority."},
+    )
+    tenancy_on_c3_upsert = client.post(
+        "/api/alerts/state",
+        headers=unmatched_headers,
+        json={"alert_key": c3_key, "state": "resolved"},
+    )
+    tenancy_on_visible_event_ids = {
+        row["id"]
+        for row in client.get("/api/alerts/events", headers=unmatched_headers).json()
+    }
+    tenancy_on_visible_c3_states = client.get(
+        "/api/alerts/state",
+        headers=unmatched_headers,
+        params={"alert_key": c3_key},
+    ).json()
+
+    monkeypatch.setattr(settings, "caos_tenancy_enabled", False)
+    unmatched_identity = client.get("/api/auth/me", headers=unmatched_headers)
+    legacy_patch = client.patch(
+        f"/api/alerts/events/{legacy_event_id}",
+        headers=unmatched_headers,
+        json={"state": "ack", "note": "Legacy workflow remains writable."},
+    )
+    legacy_orphan_state = client.post(
+        "/api/alerts/state",
+        headers=unmatched_headers,
+        json={"alert_key": legacy_orphan_key, "state": "ack"},
+    )
+    c3_patch = client.patch(
+        f"/api/alerts/events/{c3_event_id}",
+        headers=unmatched_headers,
+        json={"state": "ack", "note": "Must not adopt C3 ownership."},
+    )
+    c3_orphan_patch = client.patch(
+        f"/api/alerts/events/{c3_orphan_event_id}",
+        headers=unmatched_headers,
+        json={"state": "ack"},
+    )
+    c3_upsert = client.post(
+        "/api/alerts/state",
+        headers=unmatched_headers,
+        json={"alert_key": c3_key, "state": "resolved"},
+    )
+    c3_orphan_upsert = client.post(
+        "/api/alerts/state",
+        headers=unmatched_headers,
+        json={"alert_key": c3_orphan_key, "state": "ack"},
+    )
+    visible_event_ids = {
+        row["id"]
+        for row in client.get("/api/alerts/events", headers=unmatched_headers).json()
+    }
+    visible_c3_states = client.get(
+        "/api/alerts/state",
+        headers=unmatched_headers,
+        params={"alert_key": c3_key},
+    ).json()
+    visible_legacy_orphan_states = client.get(
+        "/api/alerts/state",
+        headers=unmatched_headers,
+        params={"alert_key": legacy_orphan_key},
+    ).json()
+
+    async def persisted_c3_states() -> list[tuple[str | None, str]]:
+        async with AsyncSessionLocal() as session:
+            return list(
+                (
+                    await session.execute(
+                        select(AlertState.analyst_id, AlertState.state).where(
+                            AlertState.alert_key.in_([c3_key, c3_orphan_key])
+                        )
+                    )
+                ).all()
+            )
+
+    assert {
+        "unmatched_identity_id": unmatched_identity.json()["id"],
+        "legacy_patch": legacy_patch.status_code,
+        "legacy_orphan_upsert": legacy_orphan_state.status_code,
+        "tenancy_on_c3_patch": tenancy_on_c3_patch.status_code,
+        "tenancy_on_c3_upsert": tenancy_on_c3_upsert.status_code,
+        "tenancy_on_c3_visible": c3_event_id in tenancy_on_visible_event_ids,
+        "tenancy_on_visible_c3_states": tenancy_on_visible_c3_states,
+        "c3_patch": c3_patch.status_code,
+        "c3_orphan_patch": c3_orphan_patch.status_code,
+        "c3_upsert": c3_upsert.status_code,
+        "c3_orphan_upsert": c3_orphan_upsert.status_code,
+        "legacy_event_visible": legacy_event_id in visible_event_ids,
+        "contextual_c3_visible": c3_event_id in visible_event_ids,
+        "orphan_c3_visible": c3_orphan_event_id in visible_event_ids,
+        "visible_c3_states": visible_c3_states,
+        "visible_legacy_orphan_states": len(visible_legacy_orphan_states),
+        "persisted_c3_states": asyncio.run(persisted_c3_states()),
+    } == {
+        "unmatched_identity_id": unmatched_user,
+        "legacy_patch": 200,
+        "legacy_orphan_upsert": 200,
+        "tenancy_on_c3_patch": 404,
+        "tenancy_on_c3_upsert": 404,
+        "tenancy_on_c3_visible": False,
+        "tenancy_on_visible_c3_states": [],
+        "c3_patch": 404,
+        "c3_orphan_patch": 404,
+        "c3_upsert": 404,
+        "c3_orphan_upsert": 404,
+        "legacy_event_visible": True,
+        "contextual_c3_visible": False,
+        "orphan_c3_visible": False,
+        "visible_c3_states": [],
+        "visible_legacy_orphan_states": 1,
+        "persisted_c3_states": [(profile_id, "open")],
+    }
 
 
 def test_tenancy_on_legacy_alert_reads_require_a_visible_issuer_anchor(

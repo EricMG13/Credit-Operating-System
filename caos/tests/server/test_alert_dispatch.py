@@ -816,7 +816,7 @@ async def test_materialization_accepts_detail_omission_only_above_task3_threshol
 async def test_materialization_accepts_exact_task3_artifact_omission_threshold(
     alert_store,
 ) -> None:
-    artifact_refs = tuple("\x00" * 512 for _ in range(64))
+    artifact_refs = tuple("é" * 512 for _ in range(64))
     candidate = _task3_candidate(_observation(artifact_refs=artifact_refs))
     artifact_marker = candidate.evidence["source_artifact_refs"]
     assert artifact_marker == _omission_marker(list(artifact_refs), count=64)
@@ -832,10 +832,11 @@ async def test_materialization_accepts_exact_task3_artifact_omission_threshold(
 async def test_materialization_rejects_impossible_artifact_marker_byte_size(
     alert_store,
 ) -> None:
-    artifact_refs = tuple("\x00" * 512 for _ in range(64))
+    artifact_refs = tuple("é" * 512 for _ in range(64))
     genuine = _task3_candidate(_observation(artifact_refs=artifact_refs))
     evidence = copy.deepcopy(genuine.evidence)
-    evidence["source_artifact_refs"]["canonical_bytes"] = 3075 * 64 + 2
+    artifact_marker = evidence["source_artifact_refs"]
+    artifact_marker["canonical_bytes"] = 3 * artifact_marker["count"]
     forged = genuine.model_copy(update={"evidence": evidence})
     with pytest.raises(MaterializationError, match="candidate_mismatch"):
         async with alert_store.begin() as session:
@@ -952,6 +953,176 @@ async def test_issuer_scoped_run_with_cross_issuer_is_rejected(alert_store) -> N
             )
 
 
+async def _assert_no_materialized_alert_rows(alert_store) -> None:
+    async with alert_store() as verify:
+        evaluation = await verify.get(WatchRuleEvaluation, str(EVALUATION_ID))
+        assert evaluation is not None and evaluation.outcome == "observed"
+        for model in (AlertEvent, AlertEventContext, AlertDeliveryIntent):
+            assert await verify.scalar(select(func.count()).select_from(model)) == 0
+
+
+@pytest.mark.asyncio
+async def test_dual_issuer_and_portfolio_scope_materializes_when_both_match(
+    alert_store,
+) -> None:
+    async with alert_store.begin() as session:
+        await _add_portfolio_run(
+            session,
+            portfolio_id="portfolio-dual",
+            portfolio_team="desk-a",
+            issuer_id="issuer-dual",
+            issuer_team="desk-a",
+            run_id="run-dual-match",
+        )
+        await _set_evaluation_scope(
+            session,
+            issuer_id="issuer-dual",
+            portfolio_id="portfolio-dual",
+            run_id="run-dual-match",
+        )
+
+    async with alert_store.begin() as session:
+        result = await materialize_alert(
+            session,
+            _scoped_candidate(
+                issuer_id="issuer-dual",
+                portfolio_id="portfolio-dual",
+                run_id="run-dual-match",
+            ),
+            _sinks(),
+            now=NOW,
+        )
+
+    assert result.event.run_id == "run-dual-match"
+    assert result.context.issuer_id == "issuer-dual"
+    assert result.context.portfolio_id == "portfolio-dual"
+
+
+@pytest.mark.asyncio
+async def test_dual_scope_same_issuer_wrong_portfolio_rejects_atomically(
+    alert_store,
+) -> None:
+    async with alert_store.begin() as session:
+        await _add_portfolio_run(
+            session,
+            portfolio_id="portfolio-run",
+            portfolio_team="desk-a",
+            issuer_id="issuer-dual-wrong-book",
+            issuer_team="desk-a",
+            run_id="run-wrong-book",
+        )
+        session.add(
+            Portfolio(
+                id="portfolio-rule",
+                name="Portfolio Rule",
+                created_by="alice",
+                team_id="desk-a",
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        await session.flush()
+        session.add(
+            PortfolioPosition(
+                id=str(uuid4()),
+                portfolio_id="portfolio-rule",
+                issuer_id="issuer-dual-wrong-book",
+                borrower_name="Issuer issuer-dual-wrong-book",
+                par_usd=1_000_000,
+                created_at=NOW,
+            )
+        )
+        await _set_evaluation_scope(
+            session,
+            issuer_id="issuer-dual-wrong-book",
+            portfolio_id="portfolio-rule",
+            run_id="run-wrong-book",
+        )
+
+    with pytest.raises(MaterializationError, match="run_scope_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(
+                session,
+                _scoped_candidate(
+                    issuer_id="issuer-dual-wrong-book",
+                    portfolio_id="portfolio-rule",
+                    run_id="run-wrong-book",
+                ),
+                _sinks(),
+                now=NOW,
+            )
+    await _assert_no_materialized_alert_rows(alert_store)
+
+
+@pytest.mark.asyncio
+async def test_dual_scope_foreign_portfolio_team_rejects_atomically(
+    alert_store,
+) -> None:
+    async with alert_store.begin() as session:
+        await _add_portfolio_run(
+            session,
+            portfolio_id="portfolio-foreign-team",
+            portfolio_team="desk-b",
+            issuer_id="issuer-dual-foreign-book",
+            issuer_team="desk-a",
+            run_id="run-foreign-book",
+        )
+        await _set_evaluation_scope(
+            session,
+            issuer_id="issuer-dual-foreign-book",
+            portfolio_id="portfolio-foreign-team",
+            run_id="run-foreign-book",
+        )
+
+    with pytest.raises(MaterializationError, match="run_scope_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(
+                session,
+                _scoped_candidate(
+                    issuer_id="issuer-dual-foreign-book",
+                    portfolio_id="portfolio-foreign-team",
+                    run_id="run-foreign-book",
+                ),
+                _sinks(),
+                now=NOW,
+            )
+    await _assert_no_materialized_alert_rows(alert_store)
+
+
+@pytest.mark.asyncio
+async def test_dual_scope_missing_holding_rejects_atomically(alert_store) -> None:
+    async with alert_store.begin() as session:
+        await _add_portfolio_run(
+            session,
+            portfolio_id="portfolio-missing-holding",
+            portfolio_team="desk-a",
+            issuer_id="issuer-dual-not-held",
+            issuer_team="desk-a",
+            run_id="run-not-held",
+            held=False,
+        )
+        await _set_evaluation_scope(
+            session,
+            issuer_id="issuer-dual-not-held",
+            portfolio_id="portfolio-missing-holding",
+            run_id="run-not-held",
+        )
+
+    with pytest.raises(MaterializationError, match="run_scope_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(
+                session,
+                _scoped_candidate(
+                    issuer_id="issuer-dual-not-held",
+                    portfolio_id="portfolio-missing-holding",
+                    run_id="run-not-held",
+                ),
+                _sinks(),
+                now=NOW,
+            )
+    await _assert_no_materialized_alert_rows(alert_store)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("held", [True, False])
 async def test_portfolio_scoped_run_requires_a_position_for_its_issuer(
@@ -984,6 +1155,64 @@ async def test_portfolio_scoped_run_requires_a_position_for_its_issuer(
         with pytest.raises(MaterializationError, match="run_scope_mismatch"):
             async with alert_store.begin() as session:
                 await materialize_alert(session, candidate, _sinks(), now=NOW)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "late_state", ["issuer", "portfolio_created", "portfolio_updated", "position"]
+)
+async def test_run_materialization_rejects_resources_newer_than_evaluation(
+    alert_store,
+    late_state: str,
+) -> None:
+    issuer_id = f"issuer-late-{late_state}"
+    portfolio_id = f"portfolio-late-{late_state}"
+    run_id = f"run-late-{late_state}"
+    async with alert_store.begin() as session:
+        await _add_portfolio_run(
+            session,
+            portfolio_id=portfolio_id,
+            portfolio_team="desk-a",
+            issuer_id=issuer_id,
+            issuer_team="desk-a",
+            run_id=run_id,
+        )
+        issuer = await session.get(Issuer, issuer_id)
+        portfolio = await session.get(Portfolio, portfolio_id)
+        position = await session.scalar(
+            select(PortfolioPosition).where(
+                PortfolioPosition.portfolio_id == portfolio_id,
+                PortfolioPosition.issuer_id == issuer_id,
+            )
+        )
+        if late_state == "issuer":
+            issuer.created_at = NOW + timedelta(minutes=1)
+        elif late_state == "portfolio_created":
+            portfolio.created_at = NOW + timedelta(minutes=1)
+        elif late_state == "portfolio_updated":
+            portfolio.updated_at = NOW + timedelta(minutes=1)
+        else:
+            position.created_at = NOW + timedelta(minutes=1)
+        await _set_evaluation_scope(
+            session,
+            issuer_id=issuer_id,
+            portfolio_id=portfolio_id,
+            run_id=run_id,
+        )
+
+    with pytest.raises(MaterializationError, match="run_scope_mismatch"):
+        async with alert_store.begin() as session:
+            await materialize_alert(
+                session,
+                _scoped_candidate(
+                    issuer_id=issuer_id,
+                    portfolio_id=portfolio_id,
+                    run_id=run_id,
+                ),
+                _sinks(),
+                now=NOW,
+            )
+    await _assert_no_materialized_alert_rows(alert_store)
 
 
 @pytest.mark.asyncio
@@ -1328,6 +1557,52 @@ async def test_completion_rejects_sink_output_identity_mismatches(alert_store) -
         with pytest.raises(ValueError, match="sink intent"):
             async with alert_store.begin() as session:
                 await complete_delivery_intent(session, lease, invalid, now=NOW)
+    async with alert_store() as verify:
+        row = await verify.get(AlertDeliveryIntent, str(lease.intent_id))
+        assert row.status == "leased"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("attack", ["nested_mutation", "model_copy"])
+async def test_completion_revalidates_and_owns_nested_sink_json_before_database_io(
+    alert_store,
+    attack,
+) -> None:
+    await _materialize_committed(
+        alert_store,
+        sinks=(EmailSink(destination_ref="only", max_attempts=5),),
+    )
+    async with alert_store.begin() as session:
+        lease = await claim_delivery_intent(session, now=NOW)
+    assert lease is not None
+    result = EmailSink(destination_ref="only").render(lease.envelope)
+    if attack == "nested_mutation":
+        result.rendered_intent["evidence"]["detail"]["finding"] = (
+            "invalid\x00jsonb"
+        )
+    else:
+        payload = copy.deepcopy(result.rendered_intent)
+        payload["evidence"]["detail"]["finding"] = "invalid\x00jsonb"
+        result = result.model_copy(update={"rendered_intent": payload})
+
+    statements = 0
+
+    def count_statements(
+        _connection, _cursor, _statement, _parameters, _context, _many
+    ) -> None:
+        nonlocal statements
+        statements += 1
+
+    engine = alert_store.kw["bind"]
+    event.listen(engine.sync_engine, "before_cursor_execute", count_statements)
+    try:
+        with pytest.raises(ValueError, match="sink intent"):
+            async with alert_store.begin() as session:
+                await complete_delivery_intent(session, lease, result, now=NOW)
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", count_statements)
+
+    assert statements == 0
     async with alert_store() as verify:
         row = await verify.get(AlertDeliveryIntent, str(lease.intent_id))
         assert row.status == "leased"

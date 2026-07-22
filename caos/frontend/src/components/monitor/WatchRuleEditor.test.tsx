@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { WatchRuleWriteDTO } from "@/lib/api";
-import { WatchRuleEditor } from "./WatchRuleEditor";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { WatchRuleDTO, WatchRuleWriteDTO } from "@/lib/api";
+import { initialWatchRuleEditorState, WatchRuleEditor, watchRuleEditorStateReducer } from "./WatchRuleEditor";
 import { usePersistedWatchRuleController } from "./usePersistedMonitorController";
 
 const getWatchRulePage = vi.fn();
@@ -14,7 +14,10 @@ const getSettings = vi.fn().mockResolvedValue({ features: { alert_rules_v1_enabl
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getSettings: (...args: unknown[]) => getSettings(...args),
-  getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
+  getWatchRulePage: async (...args: unknown[]) => ({
+    canCreate: true,
+    ...await getWatchRulePage(...args),
+  }),
   getWatchRule: (...args: unknown[]) => getWatchRule(...args),
   createWatchRule: (...args: unknown[]) => createWatchRule(...args),
   updateWatchRule: (...args: unknown[]) => updateWatchRule(...args),
@@ -28,6 +31,7 @@ const rule = (overrides: Record<string, unknown> = {}) => ({
   paused: false,
   issuer_id: "issuer-17",
   portfolio_id: null,
+  can_mutate: true,
   current_version: 3,
   schedule_kind: "event_driven",
   schedule_interval_seconds: null,
@@ -47,7 +51,7 @@ const rule = (overrides: Record<string, unknown> = {}) => ({
 
 function Harness() {
   const controller = usePersistedWatchRuleController();
-  return <WatchRuleEditor controller={controller} />;
+  return <><button type="button" onClick={() => void controller.refresh()}>Refresh watch rules</button><WatchRuleEditor controller={controller} /></>;
 }
 
 function AvailabilityHarness() {
@@ -58,7 +62,7 @@ function AvailabilityHarness() {
     schedule_interval_seconds: null, next_evaluation_at: null,
     config: { operator: "present", threshold: null, kind: "qa_change", title: "QA changed", impact: "Review." },
   };
-  return <><output data-testid="rule-availability">{controller.availability}</output><button type="button" onClick={() => void controller.retryActivation()}>Probe activation again</button><button type="button" onClick={() => void controller.refresh().catch(() => undefined)}>Probe guarded list refresh</button><button type="button" onClick={() => void controller.reloadOne(rule().id).catch(() => undefined)}>Probe guarded item read</button><button type="button" onClick={() => void controller.create(write).catch(() => undefined)}>Probe guarded create</button><button type="button" onClick={() => void controller.update(rule().id, 3, write).catch(() => undefined)}>Probe guarded update</button><WatchRuleEditor controller={controller} /></>;
+  return <><output data-testid="rule-availability">{controller.availability}</output><button type="button" onClick={() => void controller.retryActivation()}>Probe activation again</button><button type="button" onClick={() => void controller.refresh().catch(() => undefined)}>Probe guarded list refresh</button><button type="button" onClick={() => void controller.reloadOne(rule().id).catch(() => undefined)}>Probe guarded item read</button><button type="button" onClick={() => void controller.create(write, "guard-probe").catch(() => undefined)}>Probe guarded create</button><button type="button" onClick={() => void controller.update(rule().id, 3, write).catch(() => undefined)}>Probe guarded update</button><WatchRuleEditor controller={controller} /></>;
 }
 
 function RuleFenceHarness() {
@@ -74,7 +78,7 @@ function RuleFenceHarness() {
     issuer_id: null, portfolio_id: null, schedule_kind: "event_driven",
     schedule_interval_seconds: null, next_evaluation_at: null,
     config: { operator: "present", threshold: null, kind: "qa_change", title: "QA changed", impact: "Review." },
-  }).catch(() => undefined)}>Create during load</button><button type="button" onClick={() => void controller.update(rule().id, 3, write("Updated while loading")).catch(() => undefined)}>Update during load</button></>;
+  }, "loading-probe").catch(() => undefined)}>Create during load</button><button type="button" onClick={() => void controller.update(rule().id, 3, write("Updated while loading")).catch(() => undefined)}>Update during load</button></>;
 }
 
 function deferred<T>() {
@@ -109,6 +113,23 @@ afterEach(() => {
 });
 
 describe("WatchRuleEditor", () => {
+  it("removes a dirty writable draft in the real authority-revocation transition", () => {
+    let state = watchRuleEditorStateReducer(initialWatchRuleEditorState, {
+      type: "begin-edit",
+      rule: rule() as WatchRuleDTO,
+    });
+    state = watchRuleEditorStateReducer(state, { type: "change", key: "name", value: "Stale writable draft" });
+    expect(state.open).toBe(true);
+    expect(state.form.name).toBe("Stale writable draft");
+
+    state = watchRuleEditorStateReducer(state, { type: "authority-revoked" });
+
+    expect(state.open).toBe(false);
+    expect(state.editing).toBeNull();
+    expect(state.form.name).toBe("");
+    expect(state.form).toEqual(initialWatchRuleEditorState.form);
+  });
+
   it("lists rules, restores opener focus on Escape, and states the exact delivery boundary with glyph plus text", async () => {
     render(<Harness />);
     const opener = await screen.findByRole("button", { name: "Manage watch rules" });
@@ -140,6 +161,73 @@ describe("WatchRuleEditor", () => {
     await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 
+  it("renders server-authorized rules as editable and shared or legacy rules as read-only", async () => {
+    getWatchRulePage.mockResolvedValue({ items: [
+      rule({ name: "Owned desk rule", can_mutate: true }),
+      rule({ id: "28d75a18-45fb-4e08-b759-e47d2fd59413", name: "Shared desk rule", can_mutate: false }),
+      rule({ id: "bbc9aa87-d9a6-4e29-acf3-89629a68f797", name: "Legacy fixture rule", can_mutate: undefined }),
+    ], nextCursor: null });
+    render(<Harness />);
+
+    expect(await screen.findByRole("button", { name: "Edit Owned desk rule" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit Shared desk rule" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit Legacy fixture rule" })).toBeNull();
+    expect(screen.getAllByText("Read only")).toHaveLength(2);
+  });
+
+  it("fails closed when the server denies collection-level create authority", async () => {
+    getWatchRulePage.mockResolvedValue({
+      items: [rule({ can_mutate: false })],
+      nextCursor: null,
+      canCreate: false,
+    });
+    render(<Harness />);
+
+    expect(await screen.findByText("Creation read only")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Manage watch rules" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit QA gate watch" })).toBeNull();
+  });
+
+  it("holds an in-flight save as an authority barrier across fields, Escape, backdrop, Close, and Cancel", async () => {
+    const pending = deferred<ReturnType<typeof rule>>();
+    createWatchRule.mockReturnValueOnce(pending.promise);
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage watch rules" }));
+    const name = screen.getByLabelText("Rule name") as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "Captured save authority" } });
+    const save = screen.getByRole("button", { name: "Save rule" });
+    save.focus();
+    fireEvent.click(save);
+    await waitFor(() => expect(createWatchRule).toHaveBeenCalledOnce());
+
+    const dialog = screen.getByRole("dialog", { name: "Create watch rule" });
+    const close = screen.getByRole("button", { name: "Close watch rule editor" }) as HTMLButtonElement;
+    const cancel = screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement;
+    expect(name.matches(":disabled")).toBe(true);
+    expect(close.disabled).toBe(true);
+    expect(cancel.disabled).toBe(true);
+    const saving = screen.getByRole("button", { name: "Saving…" }) as HTMLButtonElement;
+    expect(saving.disabled).toBe(false);
+    expect(saving.getAttribute("aria-disabled")).toBe("true");
+    expect(saving.getAttribute("aria-busy")).toBe("true");
+    expect(document.activeElement).toBe(saving);
+
+    fireEvent.click(close);
+    fireEvent.click(cancel);
+    fireEvent.click(saving);
+    fireEvent.mouseDown(dialog.parentElement!);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: "Create watch rule" })).toBeTruthy();
+    expect(createWatchRule).toHaveBeenCalledWith(expect.objectContaining({ name: "Captured save authority" }), expect.any(String));
+    expect(createWatchRule).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      pending.resolve(rule({ id: "18b6628e-5055-46b2-b5d6-02e87d385186", name: "Captured save authority" }));
+      await pending.promise;
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("creates a scoped rule without forging authority, version, destinations, or delivery state", async () => {
     render(<Harness />);
     fireEvent.click(await screen.findByRole("button", { name: "Manage watch rules" }));
@@ -169,6 +257,98 @@ describe("WatchRuleEditor", () => {
     expect(payload).not.toHaveProperty("current_version");
     expect(payload).not.toHaveProperty("destination_ref");
     expect(payload).not.toHaveProperty("delivery_state");
+  });
+
+  it("reuses one create operation key after an ambiguous response and rotates it for a new dialog intent", async () => {
+    createWatchRule
+      .mockRejectedValueOnce(new Error("response lost after commit"))
+      .mockImplementationOnce(async (payload) => rule({ ...payload, current_version: 1 }));
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage watch rules" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Idempotent create" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("response lost after commit");
+    const firstKey = createWatchRule.mock.calls[0]?.[1];
+    expect(firstKey).toEqual(expect.any(String));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(createWatchRule).toHaveBeenCalledTimes(2));
+    expect(createWatchRule.mock.calls[1]?.[1]).toBe(firstKey);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage watch rules" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Independent duplicate intent" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    await waitFor(() => expect(createWatchRule).toHaveBeenCalledTimes(3));
+    expect(createWatchRule.mock.calls[2]?.[1]).not.toBe(firstKey);
+  });
+
+  it("closes and refreshes a changed create draft when its retained key already committed", async () => {
+    getWatchRulePage
+      .mockResolvedValueOnce({ items: [rule()], nextCursor: null })
+      .mockResolvedValueOnce({ items: [rule({ name: "Persisted original create" })], nextCursor: null });
+    createWatchRule
+      .mockRejectedValueOnce(new Error("response lost after commit"))
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: "watch_rule_idempotency_conflict" } } });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage watch rules" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Original create intent" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("response lost after commit");
+
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Changed create intent" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+
+    expect(await screen.findByText(/Earlier create attempt already exists.*review persisted rules/i)).toBeTruthy();
+    await waitFor(() => expect(getWatchRulePage).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("dialog", { name: /watch rule/i })).toBeNull();
+    expect(screen.queryByDisplayValue("Changed create intent")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reload latest rule" })).toBeNull();
+    expect(await screen.findByText("Persisted original create")).toBeTruthy();
+    expect(createWatchRule).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves scheduled seconds when an unrelated field is edited", async () => {
+    getWatchRulePage.mockResolvedValue({
+      items: [rule({
+        schedule_kind: "interval",
+        schedule_interval_seconds: 300,
+        next_evaluation_at: "2026-07-20T10:00:37Z",
+      })],
+      nextCursor: null,
+    });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit QA gate watch" }));
+    expect((screen.getByLabelText("Next evaluation UTC") as HTMLInputElement).value).toBe("2026-07-20T10:00:37.000");
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Renamed scheduled rule" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(updateWatchRule).toHaveBeenCalledOnce());
+    expect(updateWatchRule.mock.calls[0]?.[2]).toMatchObject({
+      name: "Renamed scheduled rule",
+      next_evaluation_at: "2026-07-20T10:00:37Z",
+    });
+  });
+
+  it("preserves a numeric-looking categorical EQ threshold as text on an unrelated edit", async () => {
+    getWatchRulePage.mockResolvedValue({
+      items: [rule({ config: {
+        operator: "eq",
+        threshold: "1",
+        kind: "qa_change",
+        title: "QA gate changed",
+        impact: "Review governed evidence.",
+      } })],
+      nextCursor: null,
+    });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit QA gate watch" }));
+    expect((screen.getByLabelText("Threshold type") as HTMLSelectElement).value).toBe("text");
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Renamed categorical rule" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+
+    await waitFor(() => expect(updateWatchRule).toHaveBeenCalledOnce());
+    expect(updateWatchRule.mock.calls[0]?.[2]?.config.threshold).toBe("1");
   });
 
   it("forces source-unavailable signals disabled and validates schedule fields", async () => {
@@ -206,6 +386,117 @@ describe("WatchRuleEditor", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save rule" }));
     fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
     await waitFor(() => expect(updateWatchRule).toHaveBeenNthCalledWith(2, rule().id, 4, expect.any(Object)));
+  });
+
+  it("closes writable state when conflict reload revokes mutation authority and cannot issue another PATCH", async () => {
+    updateWatchRule.mockRejectedValueOnce({ response: { status: 409, data: { detail: "watch_rule_version_conflict" } } });
+    getWatchRule.mockResolvedValueOnce(rule({
+      name: "Authority-revoked rule",
+      can_mutate: false,
+      current_version: 4,
+    }));
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit QA gate watch" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Stale writable draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    expect(await screen.findByText(/Rule changed in another session/)).toBeTruthy();
+
+    const staleSave = screen.getByRole("button", { name: "Save rule" });
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest rule" }));
+
+    expect(await screen.findByText("Rule authority changed. The latest persisted rule is read only.")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: /watch rule/i })).toBeNull();
+    expect(staleSave.isConnected).toBe(false);
+    expect(screen.queryByRole("button", { name: "Edit Authority-revoked rule" })).toBeNull();
+    expect(screen.getByText("Read only")).toBeTruthy();
+    expect(updateWatchRule).toHaveBeenCalledOnce();
+
+    getWatchRulePage.mockResolvedValueOnce({
+      items: [rule({ name: "Restored authority rule", can_mutate: true, current_version: 5 })],
+      nextCursor: null,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh watch rules" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Restored authority rule" }));
+    expect((screen.getByLabelText("Rule name") as HTMLInputElement).value).toBe("Restored authority rule");
+    expect((screen.getByLabelText("Rule name") as HTMLInputElement).value).not.toBe("Stale writable draft");
+  });
+
+  it.each([
+    { status: 404, refreshed: [] },
+    { status: 403, refreshed: [rule({ can_mutate: false })] },
+  ])("closes and clears a writable draft after direct $status authority invalidation", async ({ status, refreshed }) => {
+    getWatchRulePage
+      .mockResolvedValueOnce({ items: [rule()], nextCursor: null })
+      .mockResolvedValueOnce({ items: refreshed, canCreate: false, nextCursor: null });
+    updateWatchRule.mockRejectedValueOnce({ response: { status, data: { detail: "Not Found" } } });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit QA gate watch" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Revoked dirty draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+
+    expect(await screen.findByText(/Rule authority changed.*draft.*closed/i)).toBeTruthy();
+    await waitFor(() => expect(getWatchRulePage).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("dialog", { name: /watch rule/i })).toBeNull();
+    expect(screen.queryByDisplayValue("Revoked dirty draft")).toBeNull();
+    expect(updateWatchRule).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Edit QA gate watch" })).toBeNull();
+  });
+
+  it("atomically closes a dirty editor when a successful collection refresh revokes mutation authority", async () => {
+    getWatchRulePage
+      .mockResolvedValueOnce({ items: [rule()], nextCursor: null })
+      .mockResolvedValueOnce({ items: [rule({ can_mutate: false, current_version: 4 })], canCreate: false, nextCursor: null });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit QA gate watch" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Collection-revoked dirty draft" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh watch rules" }));
+
+    expect(await screen.findByText(/Rule authority changed.*draft.*closed/i)).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: /watch rule/i })).toBeNull();
+    expect(screen.queryByDisplayValue("Collection-revoked dirty draft")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit QA gate watch" })).toBeNull();
+    expect(screen.getByText("Read only")).toBeTruthy();
+    expect(updateWatchRule).not.toHaveBeenCalled();
+  });
+
+  it("atomically closes a dirty create draft when collection create authority is revoked", async () => {
+    getWatchRulePage
+      .mockResolvedValueOnce({ items: [rule()], canCreate: true, nextCursor: null })
+      .mockResolvedValueOnce({ items: [rule()], canCreate: false, nextCursor: null });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage watch rules" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Revoked create draft" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh watch rules" }));
+
+    expect(await screen.findByText(/Rule authority changed.*draft.*closed/i)).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: /watch rule/i })).toBeNull();
+    expect(screen.queryByDisplayValue("Revoked create draft")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Manage watch rules" })).toBeNull();
+    expect(screen.getByText("Creation read only")).toBeTruthy();
+    expect(createWatchRule).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 404])("closes a conflict draft when latest-rule reload returns %s", async (status) => {
+    getWatchRulePage
+      .mockResolvedValueOnce({ items: [rule()], nextCursor: null })
+      .mockResolvedValueOnce({ items: [], canCreate: false, nextCursor: null });
+    updateWatchRule.mockRejectedValueOnce({ response: { status: 409, data: { detail: "watch_rule_version_conflict" } } });
+    getWatchRule.mockRejectedValueOnce({ response: { status, data: { detail: "Not Found" } } });
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit QA gate watch" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "Conflict draft with revoked authority" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save rule" }));
+    expect(await screen.findByText(/Rule changed in another session/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest rule" }));
+
+    expect(await screen.findByText(/Rule authority changed.*draft.*closed/i)).toBeTruthy();
+    await waitFor(() => expect(getWatchRulePage).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("dialog", { name: /watch rule/i })).toBeNull();
+    expect(screen.queryByDisplayValue("Conflict draft with revoked authority")).toBeNull();
+    expect(updateWatchRule).toHaveBeenCalledOnce();
   });
 
   it("mirrors signal/operator validation and focuses an ordinary save failure", async () => {

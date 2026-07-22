@@ -5,12 +5,11 @@ import { ActionReason } from "@/components/shared/ActionReason";
 import { ConclusionAuthority } from "@/components/shared/ConclusionAuthority";
 import { IssuerLink } from "@/components/shared/IssuerLink";
 import { SurfaceState } from "@/components/shared/SurfaceState";
-import { SourceRef } from "@/components/ui/SourceRef";
-import { getChunk, getDecisions, reopenDecision, toErrorMessage, type AlertEventDTO, type IcDecision } from "@/lib/api";
-import type { ChunkDTO } from "@/lib/query/types";
+import { getDecisions, reopenDecision, toErrorMessage, type AlertEventDTO, type IcDecision } from "@/lib/api";
+import { AlertEvidence } from "./AlertEvidence";
 import {
   alertIssuerLabel,
-  explicitAlertChunkIds,
+  isAlertAuthorityInvalidation,
   isAlertLifecycleConflict,
   type MonitorAlertFilter,
   type PersistedMonitorController,
@@ -27,36 +26,6 @@ function stateLabel(state: AlertEventDTO["state"]): string {
   if (state === "ack") return "Acknowledged";
   if (state === "resolved") return "Resolved";
   return "Open";
-}
-
-function AlertSource({ event }: { event: AlertEventDTO }) {
-  const chunkId = explicitAlertChunkIds(event)[0] ?? null;
-  const [chunk, setChunk] = useState<ChunkDTO | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  if (!chunkId) {
-    return <SourceRef source={{ state: "unavailable", reason: "No explicit persisted chunk id accompanies this alert event." }} />;
-  }
-  const open = async () => {
-    if (loading || chunk) return;
-    setLoading(true);
-    setError(null);
-    try {
-      setChunk(await getChunk(chunkId));
-    } catch (reason) {
-      setError(toErrorMessage(reason, "The persisted source chunk could not be loaded"));
-    } finally {
-      setLoading(false);
-    }
-  };
-  return (
-    <div className="mt-1 grid gap-1">
-      <SourceRef className="inline-flex min-h-8 items-center caos-target" source={{ state: "ready", id: chunkId, onOpen: () => void open() }}>Open persisted source</SourceRef>
-      {loading ? <span role="status" className="text-caos-2xs text-caos-muted">Loading source…</span> : null}
-      {error ? <span role="alert" className="text-caos-2xs text-caos-warning">Source unavailable · {error}</span> : null}
-      {chunk ? <details className="text-caos-2xs text-caos-muted"><summary className="inline-flex min-h-8 cursor-pointer items-center focus-ring rounded caos-target">{chunk.doc} · source extract</summary><p className="mt-1 whitespace-pre-wrap leading-snug text-caos-text">{chunk.text}</p></details> : null}
-    </div>
-  );
 }
 
 function AlertStateMark({ state }: { state: AlertEventDTO["state"] }) {
@@ -102,18 +71,19 @@ function ReopenDecision({ event, blockedReason }: { event: AlertEventDTO; blocke
 function AlertRowHeader({ event, controller }: { event: AlertEventDTO; controller: PersistedMonitorController }) {
   const issuer = alertIssuerLabel(event);
   const selected = controller.selectedIds.includes(event.id);
+  const selectionBlocked = controller.workflowSurfaceLocked;
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <input
+      {controller.canMutate && event.state === "open" ? <input
         type="checkbox"
         name={`select-alert-${event.id}`}
         autoComplete="off"
         checked={selected}
         onChange={() => controller.toggleSelected(event.id)}
-        disabled={event.state === "resolved"}
+        disabled={selectionBlocked}
         aria-label={`Select ${event.title}`}
         className="min-h-8 min-w-8 caos-target disabled:opacity-40"
-      />
+      /> : null}
       <ConclusionAuthority prov={{ origin: "LIVE", method: "DERIVED", detail: "Persisted alert event." }} approval={null} />
       <span className="tabular text-caos-2xs uppercase tracking-wider rounded border border-caos-border px-1.5 py-px text-caos-muted">{event.kind}</span>
       {event.issuer_id ? (
@@ -125,6 +95,10 @@ function AlertRowHeader({ event, controller }: { event: AlertEventDTO; controlle
 }
 
 type AlertActionOptions = { assignee?: string; note?: string; resolutionNote?: string };
+type AlertRetryIntent = {
+  kind: "assign" | "ack" | "resolve";
+  success?: () => void;
+};
 
 function focusStableAlertTarget(eventId: string) {
   window.setTimeout(() => {
@@ -145,18 +119,43 @@ function AlertRowActions({ event, controller }: { event: AlertEventDTO; controll
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [reconciling, setReconciling] = useState(false);
-  const retryRef = useRef<null | { state: AlertEventDTO["state"]; options?: AlertActionOptions; success?: () => void }>(null);
+  const [actionPending, setActionPending] = useState(false);
+  const retryRef = useRef<AlertRetryIntent | null>(null);
   const actionPendingRef = useRef(false);
+  const [observedRefreshEpoch, setObservedRefreshEpoch] = useState(controller.authoritativeRefreshEpoch);
+  const refreshCustodyStale = observedRefreshEpoch !== controller.authoritativeRefreshEpoch;
   const pending = controller.pendingIds.has(event.id);
-  const busyReason = reconciling
+  const busyReason = !controller.canMutate
+    ? "Alert workflow is read only for this caller"
+    : refreshCustodyStale
+    ? "Applying refreshed persisted alert state…"
+    : reconciling
     ? "Reloading persisted alert state…"
     : controller.requiresAuthoritativeReload
       ? "Reload persisted alert state before another action"
-      : pending ? "Update in progress…" : null;
+      : controller.batchPending
+        ? "Batch acknowledgment is in progress…"
+        : controller.workflowSurfaceLocked
+          ? "Review or dismiss the current workflow failure"
+          : actionPending || pending ? "Update in progress…" : null;
+  const inputsLocked = !controller.canMutate || refreshCustodyStale || actionPending || pending || controller.batchPending || reconciling || controller.requiresAuthoritativeReload;
 
   useEffect(() => {
     if (controller.requiresAuthoritativeReload) retryRef.current = null;
   }, [controller.requiresAuthoritativeReload]);
+
+  useEffect(() => {
+    if (observedRefreshEpoch === controller.authoritativeRefreshEpoch) return;
+    if (retryRef.current) {
+      retryRef.current = null;
+      setError(null);
+      setConflict(false);
+      setAssignee("");
+      setResolving(false);
+      setResolutionNote("");
+    }
+    setObservedRefreshEpoch(controller.authoritativeRefreshEpoch);
+  }, [controller.authoritativeRefreshEpoch, observedRefreshEpoch]);
 
   useEffect(() => {
     if (!conflict || controller.requiresAuthoritativeReload) return;
@@ -179,10 +178,11 @@ function AlertRowActions({ event, controller }: { event: AlertEventDTO; controll
     }
   };
 
-  const run = async (state: AlertEventDTO["state"], options?: AlertActionOptions, success?: () => void) => {
-    if (actionPendingRef.current || pending || reconciling || controller.requiresAuthoritativeReload) return;
+  const run = async (kind: AlertRetryIntent["kind"], state: AlertEventDTO["state"], options?: AlertActionOptions, success?: () => void) => {
+    if (refreshCustodyStale || actionPendingRef.current || pending || reconciling || controller.requiresAuthoritativeReload) return;
     actionPendingRef.current = true;
-    retryRef.current = { state, options, success };
+    setActionPending(true);
+    retryRef.current = { kind, success };
     setError(null);
     setConflict(false);
     try {
@@ -196,36 +196,74 @@ function AlertRowActions({ event, controller }: { event: AlertEventDTO; controll
       if (isAlertLifecycleConflict(reason)) {
         retryRef.current = null;
         await reconcilePersistedState();
+      } else if (isAlertAuthorityInvalidation(reason)) {
+        retryRef.current = null;
+        setAssignee("");
+        setResolving(false);
+        setResolutionNote("");
+        setError("Alert mutation authority changed. Persisted events are being reloaded; stale input cannot be retried.");
       } else {
         setError(toErrorMessage(reason, "Alert workflow update failed"));
       }
     } finally {
       actionPendingRef.current = false;
+      setActionPending(false);
     }
   };
   const retry = () => {
     const action = retryRef.current;
-    if (action) void run(action.state, action.options, action.success);
+    if (!action) return;
+    if (action.kind === "assign") {
+      void run("assign", event.state, { assignee: assignee.trim() }, action.success);
+      return;
+    }
+    if (action.kind === "resolve") {
+      void run("resolve", "resolved", { resolutionNote: resolutionNote || undefined }, action.success);
+      return;
+    }
+    void run("ack", "ack", undefined, action.success);
+  };
+  const retryReason = retryRef.current?.kind === "assign" && !assignee.trim()
+    ? "Enter a name to retry assignment"
+    : null;
+  const retryCopy = retryRef.current
+    ? retryRef.current.kind === "ack"
+      ? " Input was preserved. The workflow transition is available to retry."
+      : " Input was preserved. Retry submits the current draft."
+    : " Input was preserved.";
+  const cancelResolution = () => {
+    retryRef.current = null;
+    setError(null);
+    setConflict(false);
+    setResolving(false);
+    setResolutionNote("");
+    controller.releaseWorkflowSurface(event.id);
+  };
+  const dismissFailure = () => {
+    retryRef.current = null;
+    setError(null);
+    setConflict(false);
+    controller.releaseWorkflowSurface(event.id);
   };
 
   return (
     <div className="mt-2 grid gap-2">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="tabular text-caos-xs text-caos-muted">{event.assignee || "unassigned"}</span>
-        <input name="alert-assignee" autoComplete="off" aria-label="Alert assignee" value={assignee} onChange={(change) => setAssignee(change.target.value)} placeholder="Assign to…" className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target" />
-        <ActionReason reason={!assignee.trim() ? "Enter a name to assign" : busyReason} onClick={() => void run(event.state, { assignee: assignee.trim() }, () => setAssignee(""))} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Assign</ActionReason>
-        <ActionReason reason={event.state === "ack" ? "Already acknowledged" : busyReason} onClick={() => void run("ack")} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Ack</ActionReason>
+        <input name="alert-assignee" autoComplete="off" aria-label="Alert assignee" value={assignee} disabled={inputsLocked} onChange={(change) => setAssignee(change.target.value)} placeholder="Assign to…" className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-28 focus-ring caos-target disabled:opacity-50" />
+        <ActionReason reason={!assignee.trim() ? "Enter a name to assign" : busyReason} onClick={() => void run("assign", event.state, { assignee: assignee.trim() }, () => setAssignee(""))} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Assign</ActionReason>
+        <ActionReason reason={event.state === "ack" ? "Already acknowledged" : busyReason} onClick={() => void run("ack", "ack")} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Ack</ActionReason>
         {!resolving ? <ActionReason reason={busyReason} onClick={() => setResolving(true)} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text transition-caos focus-ring caos-target">Resolve</ActionReason> : null}
-        <ReopenDecision event={event} blockedReason={busyReason} />
+        <ReopenDecision event={event} blockedReason={!controller.canMutate ? "Alert workflow is read only for this caller" : busyReason} />
       </div>
       {resolving ? (
         <div className="flex items-center gap-2 flex-wrap">
-          <input name="alert-resolution-note" autoComplete="off" aria-label="Alert resolution note" value={resolutionNote} onChange={(change) => setResolutionNote(change.target.value)} placeholder="Resolution note (optional)…" autoFocus className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target" />
-          <ActionReason reason={busyReason} onClick={() => void run("resolved", { resolutionNote: resolutionNote || undefined }, () => { setResolving(false); setResolutionNote(""); })} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent transition-caos focus-ring caos-target">Confirm resolve</ActionReason>
-          <button type="button" onClick={() => { setResolving(false); setResolutionNote(""); }} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted transition-caos focus-ring caos-target">Cancel</button>
+          <input name="alert-resolution-note" autoComplete="off" aria-label="Alert resolution note" value={resolutionNote} disabled={inputsLocked} onChange={(change) => setResolutionNote(change.target.value)} placeholder="Resolution note (optional)…" autoFocus className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border bg-transparent text-caos-text w-44 focus-ring caos-target disabled:opacity-50" />
+          <ActionReason reason={busyReason} onClick={() => void run("resolve", "resolved", { resolutionNote: resolutionNote || undefined }, () => { setResolving(false); setResolutionNote(""); })} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-accent text-caos-accent transition-caos focus-ring caos-target">Confirm resolve</ActionReason>
+          <button type="button" disabled={inputsLocked} onClick={cancelResolution} className="tabular text-caos-xs px-1.5 min-h-8 rounded border border-caos-border text-caos-muted transition-caos focus-ring caos-target disabled:opacity-50">Cancel</button>
         </div>
       ) : null}
-      {error ? <div role="alert" className="flex items-center gap-2 text-caos-2xs text-caos-critical"><span>{error}. Input was preserved.</span>{!conflict && !controller.requiresAuthoritativeReload && retryRef.current ? <button type="button" onClick={retry} className="min-h-8 px-2 rounded border border-caos-border focus-ring caos-target">Retry</button> : null}</div> : null}
+      {error && !refreshCustodyStale ? <div role="alert" className="flex items-center gap-2 text-caos-2xs text-caos-critical"><span>{error}.{retryCopy}</span>{!conflict && !controller.requiresAuthoritativeReload && retryRef.current ? <><ActionReason reason={retryReason} reasonDisplay="hidden" onClick={retry} className="min-h-8 px-2 rounded border border-caos-border focus-ring caos-target">Retry</ActionReason><button type="button" onClick={dismissFailure} className="min-h-8 px-2 rounded border border-caos-border focus-ring caos-target">Dismiss</button></> : null}</div> : null}
     </div>
   );
 }
@@ -236,7 +274,7 @@ function AlertRow({ event, controller }: { event: AlertEventDTO; controller: Per
       <AlertRowHeader event={event} controller={controller} />
       <h3 className="text-caos-md text-caos-text leading-snug mt-1">{event.title}</h3>
       <p className="text-caos-xs text-caos-muted leading-snug mt-0.5">{event.impact || "No persisted impact copy."}</p>
-      <AlertSource event={event} />
+      <AlertEvidence event={event} />
       {event.state === "resolved" && event.resolution_note ? <p className="text-caos-xs text-caos-muted mt-1 italic">resolved: {event.resolution_note}</p> : null}
       {event.state !== "resolved" ? <AlertRowActions event={event} controller={controller} /> : null}
     </article>
@@ -245,12 +283,13 @@ function AlertRow({ event, controller }: { event: AlertEventDTO; controller: Per
 
 function AlertFilters({ controller }: { controller: PersistedMonitorController }) {
   const total = controller.events.length;
+  const filterBlocked = controller.workflowSurfaceLocked;
   return (
     <div className="flex items-center gap-1 border-b border-caos-border px-2 py-1.5 flex-wrap">
       <span className="mr-2 tabular text-caos-xs text-caos-muted">{total} persisted alert{total === 1 ? "" : "s"}</span>
       {FILTERS.map(({ value, label }) => {
         const count = value === "all" ? total : controller.counts[value];
-        return <button key={value} type="button" aria-pressed={controller.filter === value} aria-label={`Show ${label.toLowerCase()} alerts`} onClick={() => controller.setFilter(value)} className="min-h-8 rounded border border-caos-border px-2 tabular text-caos-xs text-caos-muted aria-pressed:border-caos-accent aria-pressed:text-caos-accent transition-caos focus-ring caos-target">{label} {count}</button>;
+        return <ActionReason key={value} type="button" reasonDisplay="hidden" reason={filterBlocked ? "An alert workflow update is in progress" : null} aria-pressed={controller.filter === value} aria-label={`Show ${label.toLowerCase()} alerts`} onClick={() => controller.setFilter(value)} className="min-h-8 rounded border border-caos-border px-2 tabular text-caos-xs text-caos-muted aria-pressed:border-caos-accent aria-pressed:text-caos-accent transition-caos focus-ring caos-target">{label} {count}</ActionReason>;
       })}
     </div>
   );
@@ -279,6 +318,13 @@ function PersistedReloadAuthority({ controller }: { controller: PersistedMonitor
 function PersistedAlertBatchBar({ controller }: { controller: PersistedMonitorController }) {
   const selectionCount = controller.selectedIds.length;
   const { batchPending, clearSelection } = controller;
+  const batchReason = batchPending
+    ? "Batch acknowledgment is in progress"
+    : controller.pendingIds.size > 0
+      ? "An individual alert workflow update is in progress"
+      : controller.workflowSurfaceLocked && !controller.batchError
+        ? "Review or dismiss the current alert workflow failure"
+        : null;
   useEffect(() => {
     if (selectionCount === 0) return;
     const onEscape = (event: KeyboardEvent) => {
@@ -295,10 +341,10 @@ function PersistedAlertBatchBar({ controller }: { controller: PersistedMonitorCo
       <span className="font-semibold text-caos-text whitespace-nowrap">
         {selectionCount} alert{selectionCount === 1 ? "" : "s"} selected
       </span>
-      <ActionReason reason={controller.batchPending ? "Batch acknowledgment is in progress" : null} onClick={() => void controller.acknowledgeSelected().catch(() => undefined)} className="tabular text-caos-xs px-2 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target">
+      <ActionReason reason={batchReason} onClick={() => void controller.acknowledgeSelected().catch(() => undefined)} className="tabular text-caos-xs px-2 min-h-8 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos focus-ring aria-disabled:opacity-50 caos-target">
         {controller.batchPending ? "Ack…" : "Ack"}
       </ActionReason>
-      <ActionReason reason={batchPending ? "Batch acknowledgment is in progress" : null} reasonDisplay="hidden" actionTitle="Clear selection (Esc)" onClick={clearSelection} className="ml-auto tabular text-caos-xs text-caos-muted hover:text-caos-text px-1.5 min-h-8 rounded focus-ring caos-target">clear</ActionReason>
+      <ActionReason reason={controller.workflowSurfaceLocked ? "Resolve the current workflow operation before clearing selection" : null} reasonDisplay="hidden" actionTitle="Clear selection (Esc)" onClick={clearSelection} className="ml-auto tabular text-caos-xs text-caos-muted hover:text-caos-text px-1.5 min-h-8 rounded focus-ring caos-target">clear</ActionReason>
     </div>
   );
 }
@@ -306,10 +352,10 @@ function PersistedAlertBatchBar({ controller }: { controller: PersistedMonitorCo
 function AlertInboxReady({ controller }: { controller: PersistedMonitorController }) {
   return (
     <div data-testid="monitor-persisted-ready">
-      <p role="status" aria-live="polite" className="sr-only">{controller.lastMutationMessage}</p>
+      <p role="status" aria-live="polite" className="sr-only">{controller.error ?? controller.lastMutationMessage}</p>
       <AlertFilters controller={controller} />
       <PersistedReloadAuthority controller={controller} />
-      {controller.batchError ? <div role="alert" className="flex items-center gap-2 border-b border-caos-border px-3 py-2 text-caos-xs text-caos-critical"><span>{controller.batchError}</span>{controller.batchErrorAction === "retry" && !controller.requiresAuthoritativeReload ? <button type="button" onClick={() => void controller.acknowledgeSelected().catch(() => undefined)} className="min-h-8 px-2 rounded border border-caos-border focus-ring caos-target">Retry acknowledgment</button> : null}</div> : null}
+      {controller.batchError ? <div role="alert" className="flex items-center gap-2 border-b border-caos-border px-3 py-2 text-caos-xs text-caos-critical"><span>{controller.batchError}</span>{controller.batchErrorAction === "retry" && !controller.requiresAuthoritativeReload ? <button type="button" onClick={() => void controller.acknowledgeSelected().catch(() => undefined)} className="min-h-8 px-2 rounded border border-caos-border focus-ring caos-target">Retry acknowledgment</button> : null}{controller.batchErrorAction !== "reload" ? <button type="button" onClick={controller.dismissBatchError} className="min-h-8 px-2 rounded border border-caos-border focus-ring caos-target">Review selection</button> : null}</div> : null}
       <PersistedAlertBatchBar controller={controller} />
       {controller.visibleEvents.length ? controller.visibleEvents.map((event) => <AlertRow key={event.id} event={event} controller={controller} />) : (
         <SurfaceState kind="empty" title={controller.events.length ? `No ${controller.filter} alerts` : "No persisted alerts observed"} detail="The persisted alert-event read completed; Reference fixtures remain separate." compact className="m-2" />

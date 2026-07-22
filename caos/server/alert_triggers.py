@@ -8,6 +8,9 @@ authority.
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -15,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, Update, and_, or_, select, update
+from sqlalchemy import Select, Update, and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from alert_contracts import EvaluationTrigger, SignalObservation, SubjectScope
@@ -58,6 +61,8 @@ _UNAVAILABLE_SCHEDULED_SIGNALS = frozenset(
 _CURSOR_UNCHANGED = object()
 _RESERVED_TENANT_IDS = frozenset({SHARED_TENANT_ID, UNASSIGNED_TENANT_ID})
 _RESERVED_TEAM_IDS = frozenset({SHARED_TEAM_ID, UNASSIGNED_TEAM_ID})
+_COMPLETED_RUN_CURSOR_VERSION = 1
+_MAX_RECONCILE_PAGE_SIZE = 500
 
 
 def _now() -> datetime:
@@ -72,6 +77,10 @@ class AsyncSessionFactory(Protocol):
 
 
 class _ScheduleLeaseLost(RuntimeError):
+    pass
+
+
+class AlertRulesReconciliationDisabled(RuntimeError):
     pass
 
 
@@ -108,6 +117,22 @@ class RunTriggerResult:
     status: Literal["not_committed", "not_complete", "evaluated"]
     observations: int = 0
     materialized: int = 0
+    failures: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class CompletedRunReconcileResult:
+    scanned: int
+    observations: int
+    materialized: int
+    failures: int
+    next_cursor: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _CompletedRunCursor:
+    completed_at: datetime
+    run_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +154,12 @@ class _FindingSnapshot:
     affected_claim_id: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _RunObservationBatch:
+    observations: tuple[SignalObservation, ...]
+    failures: int = 0
+
+
 def _aware_utc(value: datetime, *, label: str) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise ValueError(f"{label} must be timezone-aware")
@@ -139,6 +170,60 @@ def _persisted_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _encode_completed_run_cursor(cursor: _CompletedRunCursor) -> str:
+    payload = json.dumps(
+        {
+            "at": cursor.completed_at.astimezone(timezone.utc).isoformat(),
+            "id": cursor.run_id,
+            "v": _COMPLETED_RUN_CURSOR_VERSION,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_completed_run_cursor(value: str | None) -> _CompletedRunCursor | None:
+    if value is None:
+        return None
+    try:
+        if not isinstance(value, str) or not value or len(value) > 2048:
+            raise ValueError
+        padded = value + "=" * (-len(value) % 4)
+        decoded = base64.b64decode(
+            padded.encode("ascii"), altchars=b"-_", validate=True
+        )
+        payload = json.loads(decoded.decode("utf-8"))
+        if not isinstance(payload, dict) or set(payload) != {"at", "id", "v"}:
+            raise ValueError
+        if (
+            isinstance(payload["v"], bool)
+            or not isinstance(payload["v"], int)
+            or payload["v"] != _COMPLETED_RUN_CURSOR_VERSION
+        ):
+            raise ValueError
+        run_id = payload["id"]
+        if not isinstance(run_id, str) or not run_id or len(run_id) > 255:
+            raise ValueError
+        completed_at = datetime.fromisoformat(payload["at"])
+        completed_at = _aware_utc(completed_at, label="cursor timestamp")
+    except (TypeError, ValueError, UnicodeError):
+        raise ValueError("invalid reconciliation cursor") from None
+    return _CompletedRunCursor(completed_at=completed_at, run_id=run_id)
+
+
+def _validate_reconcile_limit(limit: int) -> int:
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not 1 <= limit <= _MAX_RECONCILE_PAGE_SIZE
+    ):
+        raise ValueError(
+            f"reconciliation limit must be between 1 and {_MAX_RECONCILE_PAGE_SIZE}"
+        )
+    return limit
 
 
 def _rule_id(value: UUID | str | None) -> str | None:
@@ -702,7 +787,12 @@ async def _completed_run_snapshot(
                 (),
             )
         observed_at = run.completed_at or run.created_at
-        issuer = await db.get(Issuer, run.issuer_id)
+        issuer = await db.scalar(
+            select(Issuer).where(
+                Issuer.id == run.issuer_id,
+                Issuer.created_at <= observed_at,
+            )
+        )
         if issuer is None:
             return (
                 _RunSnapshot(
@@ -715,11 +805,15 @@ async def _completed_run_snapshot(
                 [],
                 (),
             )
-        portfolio = (
-            await db.get(Portfolio, run.portfolio_id)
-            if run.portfolio_id is not None
-            else None
-        )
+        portfolio = None
+        if run.portfolio_id is not None:
+            portfolio = await db.scalar(
+                select(Portfolio).where(
+                    Portfolio.id == run.portfolio_id,
+                    Portfolio.created_at <= observed_at,
+                    Portfolio.updated_at <= observed_at,
+                )
+            )
         portfolio_position_exists = False
         if portfolio is not None:
             portfolio_position_exists = (
@@ -728,6 +822,7 @@ async def _completed_run_snapshot(
                     .where(
                         PortfolioPosition.portfolio_id == portfolio.id,
                         PortfolioPosition.issuer_id == run.issuer_id,
+                        PortfolioPosition.created_at <= observed_at,
                     )
                     .limit(1)
                 )
@@ -745,6 +840,15 @@ async def _completed_run_snapshot(
                 WatchRule.team_id_snapshot == SHARED_TEAM_ID,
                 or_(WatchRule.portfolio_id.is_(None), portfolio_position_exists),
             )
+        effective_version_exists = (
+            select(WatchRuleVersion.id)
+            .where(
+                WatchRuleVersion.watch_rule_id == WatchRule.id,
+                WatchRuleVersion.version == WatchRule.current_version,
+                WatchRuleVersion.created_at <= observed_at,
+            )
+            .exists()
+        )
         rules = list(
             (
                 await db.execute(
@@ -754,6 +858,9 @@ async def _completed_run_snapshot(
                         WatchRule.paused.is_(False),
                         WatchRule.schedule_kind == "event_driven",
                         WatchRule.signal_type.in_(tuple(_RUN_SIGNAL_TYPES)),
+                        WatchRule.created_at <= observed_at,
+                        WatchRule.updated_at <= observed_at,
+                        effective_version_exists,
                         visibility,
                         or_(
                             WatchRule.issuer_id.is_(None),
@@ -806,7 +913,7 @@ def _run_observations(
     run: _RunSnapshot,
     rule: WatchRule,
     findings: tuple[_FindingSnapshot, ...],
-) -> tuple[SignalObservation, ...]:
+) -> _RunObservationBatch:
     scope = SubjectScope(
         tenant_id=rule.tenant_id,
         issuer_id=rule.issuer_id,
@@ -815,7 +922,7 @@ def _run_observations(
     if rule.signal_type == "qa_gate":
         source_identity = f"run:{run.run_id}:qa_gate"
         correlation = uuid4()
-        return (
+        return _RunObservationBatch(observations=(
             SignalObservation(
                 signal_type="qa_gate",
                 subject_scope=scope,
@@ -828,37 +935,51 @@ def _run_observations(
                 correlation_root_id=correlation,
                 hop_count=0,
             ),
-        )
+        ))
     observations: list[SignalObservation] = []
+    failures = 0
     for finding in findings:
-        source_identity = f"run:{run.run_id}:finding:{finding.row_id}"
-        correlation = uuid4()
-        observations.append(
-            SignalObservation(
-                signal_type="run_finding",
-                subject_scope=scope,
-                source_identity=source_identity,
-                observed_at=run.observed_at,
-                categorical_value=finding.severity,
-                detail={
-                    "run_id": run.run_id,
-                    "finding_row_id": finding.row_id,
-                    "finding_id": finding.finding_id,
-                    "severity": finding.severity,
-                    "module_id": finding.module_id,
-                    "lane": finding.lane,
-                    "affected_claim_id": finding.affected_claim_id,
-                },
-                source_artifact_refs=(
-                    f"run:{run.run_id}",
-                    f"qa_finding:{finding.row_id}",
-                ),
-                correlation_id=correlation,
-                correlation_root_id=correlation,
-                hop_count=0,
+        try:
+            source_identity = f"run:{run.run_id}:finding:{finding.row_id}"
+            correlation = uuid4()
+            observations.append(
+                SignalObservation(
+                    signal_type="run_finding",
+                    subject_scope=scope,
+                    source_identity=source_identity,
+                    observed_at=run.observed_at,
+                    categorical_value=finding.severity,
+                    detail={
+                        "run_id": run.run_id,
+                        "finding_row_id": finding.row_id,
+                        "finding_id": finding.finding_id,
+                        "severity": finding.severity,
+                        "module_id": finding.module_id,
+                        "lane": finding.lane,
+                        "affected_claim_id": finding.affected_claim_id,
+                    },
+                    source_artifact_refs=(
+                        f"run:{run.run_id}",
+                        f"qa_finding:{finding.row_id}",
+                    ),
+                    correlation_id=correlation,
+                    correlation_root_id=correlation,
+                    hop_count=0,
+                )
             )
-        )
-    return tuple(observations)
+        except Exception:  # noqa: BLE001 - isolate one malformed finding
+            failures += 1
+            logger.warning(
+                "completed-run observation construction failed "
+                "run_id=%s rule_id=%s finding_row_id=%s status=failed",
+                run.run_id,
+                rule.id,
+                finding.row_id,
+            )
+    return _RunObservationBatch(
+        observations=tuple(observations),
+        failures=failures,
+    )
 
 
 async def _evaluate_completed_run_observation(
@@ -938,22 +1059,148 @@ async def trigger_completed_run(
 
     observations = 0
     materialized = 0
+    failures = 0
     for rule in rules:
-        for observation in _run_observations(run, rule, findings):
+        try:
+            observation_batch = _run_observations(run, rule, findings)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - one rule must not stop later rules
+            failures += 1
+            logger.warning(
+                "completed-run observation failed run_id=%s rule_id=%s "
+                "signal_type=%s status=failed",
+                run.run_id,
+                rule.id,
+                rule.signal_type,
+            )
+            continue
+        failures += observation_batch.failures
+        for observation in observation_batch.observations:
             observations += 1
-            if await _evaluate_completed_run_observation(
-                session_factory, rule, observation, now=run.observed_at
-            ):
+            try:
+                was_materialized = await _evaluate_completed_run_observation(
+                    session_factory, rule, observation, now=run.observed_at
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - one rule must not stop later rules
+                failures += 1
+                logger.warning(
+                    "completed-run observation failed run_id=%s rule_id=%s "
+                    "signal_type=%s status=failed",
+                    run.run_id,
+                    rule.id,
+                    observation.signal_type,
+                )
+                continue
+            if was_materialized:
                 materialized += 1
     return RunTriggerResult(
         status="evaluated",
         observations=observations,
         materialized=materialized,
+        failures=failures,
+    )
+
+
+async def reconcile_completed_runs(
+    *,
+    session_factory: AsyncSessionFactory = AsyncSessionLocal,
+    limit: int = 100,
+    cursor: str | None = None,
+) -> CompletedRunReconcileResult:
+    """Replay one bounded, cursor-ordered page of authoritative completed runs.
+
+    The caller owns iteration and durable cursor storage. Replaying an input
+    cursor is safe because ``trigger_completed_run`` claims evaluations by their
+    governed observation identity before materialization. If ``failures`` is
+    non-zero, retry the same input cursor; only advance to ``next_cursor`` after
+    a clean page. A clean terminal page returns ``next_cursor=None``: recurring
+    callers must retain the input cursor and intentionally replay that terminal
+    page until a future durable high-water-mark protocol exists.
+    """
+    if not get_settings().caos_alert_rules_v1_enabled:
+        raise AlertRulesReconciliationDisabled("alert rules are disabled")
+    normalized_limit = _validate_reconcile_limit(limit)
+    decoded_cursor = _decode_completed_run_cursor(cursor)
+
+    completed_order = func.coalesce(Run.completed_at, Run.created_at)
+    statement = select(
+        Run.id,
+        completed_order.label("completed_order"),
+    ).where(Run.status == "complete")
+    if decoded_cursor is not None:
+        statement = statement.where(
+            or_(
+                completed_order > decoded_cursor.completed_at,
+                and_(
+                    completed_order == decoded_cursor.completed_at,
+                    Run.id > decoded_cursor.run_id,
+                ),
+            )
+        )
+    statement = statement.order_by(completed_order, Run.id).limit(
+        normalized_limit + 1
+    )
+
+    async with session_factory() as db:
+        rows = (await db.execute(statement)).all()
+    has_more = len(rows) > normalized_limit
+    page = rows[:normalized_limit]
+
+    observations = 0
+    materialized = 0
+    failures = 0
+    for run_id, _completed_at in page:
+        try:
+            result = await trigger_completed_run(
+                run_id,
+                session_factory=session_factory,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - continue the bounded recovery page
+            failures += 1
+            logger.warning(
+                "completed-run reconciliation failed run_id=%s status=failed",
+                run_id,
+            )
+            continue
+        if result.status != "evaluated":
+            failures += 1
+            logger.warning(
+                "completed-run reconciliation failed run_id=%s status=%s",
+                run_id,
+                result.status,
+            )
+            continue
+        observations += result.observations
+        materialized += result.materialized
+        failures += result.failures
+
+    next_cursor = None
+    if failures == 0 and has_more and page:
+        last_run_id, last_completed_at = page[-1]
+        next_cursor = _encode_completed_run_cursor(
+            _CompletedRunCursor(
+                completed_at=_persisted_utc(last_completed_at),
+                run_id=last_run_id,
+            )
+        )
+    return CompletedRunReconcileResult(
+        scanned=len(page),
+        observations=observations,
+        materialized=materialized,
+        failures=failures,
+        next_cursor=next_cursor,
     )
 
 
 __all__ = [
     "APPROVED_TRIGGER_SINKS",
+    "AlertRulesReconciliationDisabled",
+    "CompletedRunReconcileResult",
     "RunTriggerResult",
     "SCHEDULE_CLAIM_DURATION",
     "SCHEDULE_FAILURE_BACKOFF_SECONDS",
@@ -963,6 +1210,7 @@ __all__ = [
     "complete_scheduled_rule",
     "evaluate_scheduled_rule",
     "fail_scheduled_rule",
+    "reconcile_completed_runs",
     "schedule_claim_select",
     "schedule_claim_update_statement",
     "trigger_completed_run",

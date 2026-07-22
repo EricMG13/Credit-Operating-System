@@ -353,6 +353,7 @@ def test_flag_on_watch_rule_crud_and_manual_evaluation_smoke(
     marker = uuid4().hex
     created = client.post(
         "/api/watch-rules",
+        headers={"Idempotency-Key": f"activation-smoke-{marker}"},
         json={
             "name": f"Activation smoke {marker}",
             "signal_type": "qa_gate",

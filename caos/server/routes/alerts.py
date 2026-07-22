@@ -38,7 +38,13 @@ from database import (
     get_db,
 )
 from engine import pipeline
-from identity import CallerIdentity, get_identity, get_write_identity
+from identity import (
+    CallerIdentity,
+    c3_owner_id,
+    get_identity,
+    get_write_identity,
+    require_write_role,
+)
 from tenancy import tenancy_enabled
 from watch_rules import _scope_for_caller
 
@@ -202,16 +208,25 @@ def _decode_alert_cursor(
 
 def _alert_visibility_predicate(caller: CallerIdentity):
     """Scope contextual C3 rows; retain only issuer-anchored legacy reads."""
+    profileless_proxy = caller.source == "proxy" and (
+        not caller.profile_backed or not caller.profile_id
+    )
     if not tenancy_enabled():
+        if profileless_proxy:
+            return and_(
+                AlertEventContext.id.is_(None),
+                ~AlertEvent.alert_key.startswith("c3:"),
+            )
         return true()
 
     tenant_id, team_id = _scope_for_caller(caller)
     role = caller.role.strip().lower()
     contextual = and_(
+        not profileless_proxy,
         AlertEventContext.id.is_not(None),
         AlertEventContext.tenant_id == tenant_id,
         or_(
-            AlertEventContext.owner_user_id == caller.id,
+            AlertEventContext.owner_user_id == c3_owner_id(caller),
             AlertEventContext.team_id_snapshot == team_id,
             role == "admin",
         ),
@@ -359,6 +374,9 @@ async def upsert_alert_state(
     caller: CallerIdentity = Depends(get_write_identity),
 ):
     await _require_c3_state_capability(db, caller, body.alert_key)
+    state_analyst_id = (
+        c3_owner_id(caller) if body.alert_key.startswith("c3:") else caller.id
+    )
     if not rate_limit.hit(f"alert-state:{caller.id}", max_attempts=_WRITES_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Alert-state rate limit reached — try again in a minute.")
     if body.state not in _VALID_STATES:
@@ -377,7 +395,7 @@ async def upsert_alert_state(
         existing.state = body.state
         existing.assignee = (body.assignee or "").strip() or None
         existing.note = (body.note or "").strip() or None
-        existing.analyst_id = caller.id
+        existing.analyst_id = state_analyst_id
         existing.resolved_at = resolved_at
         # A resolution note only ever REPLACES a prior one when the caller
         # actually sent one — an assignee-only PATCH on an already-resolved
@@ -391,7 +409,7 @@ async def upsert_alert_state(
             state=body.state,
             assignee=(body.assignee or "").strip() or None,
             note=(body.note or "").strip() or None,
-            analyst_id=caller.id,
+            analyst_id=state_analyst_id,
             resolved_at=resolved_at,
             resolution_note=resolution_note,
         )
@@ -414,7 +432,19 @@ async def list_alert_states(
         caller, "alert_states", {"alert_key": alert_key}
     )
     q = select(AlertState)
-    if tenancy_enabled():
+    profileless_proxy = caller.source == "proxy" and (
+        not caller.profile_backed or not caller.profile_id
+    )
+    if tenancy_enabled() or profileless_proxy:
+        caller_owned_orphan = and_(
+            AlertEvent.id.is_(None),
+            AlertState.analyst_id == caller.id,
+        )
+        if profileless_proxy:
+            caller_owned_orphan = and_(
+                caller_owned_orphan,
+                ~AlertState.alert_key.startswith("c3:"),
+            )
         q = (
             q.outerjoin(AlertEvent, AlertEvent.alert_key == AlertState.alert_key)
             .outerjoin(
@@ -424,10 +454,7 @@ async def list_alert_states(
             .where(
                 or_(
                     _alert_visibility_predicate(caller),
-                    and_(
-                        AlertEvent.id.is_(None),
-                        AlertState.analyst_id == caller.id,
-                    ),
+                    caller_owned_orphan,
                 )
             )
         )
@@ -528,6 +555,13 @@ async def list_alert_events(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_identity),
 ):
+    try:
+        require_write_role(caller)
+    except HTTPException:
+        response.headers["X-Alert-Event-Can-Mutate"] = "false"
+    else:
+        response.headers["X-Alert-Event-Can-Mutate"] = "true"
+
     fingerprint = _alert_cursor_fingerprint(
         caller,
         "alert_events",
@@ -616,13 +650,31 @@ async def patch_alert_event(
     ).scalar_one_or_none()
     if event is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert event not found.")
+    current_state = await db.scalar(
+        select(AlertState)
+        .where(AlertState.alert_key == event.alert_key)
+        .with_for_update()
+    )
+    supplied = body.model_fields_set
     state_row = await upsert_alert_state(
         AlertStateUpsert(
             alert_key=event.alert_key,
             state=body.state,
-            assignee=body.assignee,
-            note=body.note,
-            resolution_note=body.resolution_note,
+            assignee=(
+                body.assignee
+                if "assignee" in supplied
+                else current_state.assignee if current_state else None
+            ),
+            note=(
+                body.note
+                if "note" in supplied
+                else current_state.note if current_state else None
+            ),
+            resolution_note=(
+                body.resolution_note
+                if "resolution_note" in supplied
+                else current_state.resolution_note if current_state else None
+            ),
         ),
         db=db,
         caller=caller,

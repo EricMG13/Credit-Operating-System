@@ -137,12 +137,17 @@ def test_model_metadata_freezes_keys_indexes_checks_and_lease_fields() -> None:
     rules = WatchRule.__table__
     assert tuple(rules.columns.keys()) == (
         "id", "tenant_id", "owner_user_id", "team_id_snapshot", "issuer_id",
-        "portfolio_id", "name", "signal_type", "enabled", "paused",
-        "current_version", "schedule_kind", "schedule_interval_seconds",
-        "next_evaluation_at", "schedule_cursor", "claim_token",
-        "claim_expires_at", "last_evaluated_at", "claim_attempt_count",
-        "config_json", "created_at", "updated_at",
+        "portfolio_id", "create_idempotency_key", "create_request_sha256",
+        "name", "signal_type", "enabled", "paused", "current_version",
+        "schedule_kind", "schedule_interval_seconds", "next_evaluation_at",
+        "schedule_cursor", "claim_token", "claim_expires_at",
+        "last_evaluated_at", "claim_attempt_count", "config_json",
+        "created_at", "updated_at",
     )
+    assert rules.c.create_idempotency_key.type.length == 128
+    assert rules.c.create_idempotency_key.nullable is True
+    assert rules.c.create_request_sha256.type.length == 64
+    assert rules.c.create_request_sha256.nullable is True
     assert rules.c.schedule_cursor.type.length == 512
     assert rules.c.claim_token.nullable is True
     assert rules.c.claim_expires_at.nullable is True
@@ -152,7 +157,8 @@ def test_model_metadata_freezes_keys_indexes_checks_and_lease_fields() -> None:
         "ck_watch_rules_signal_type", "ck_watch_rules_current_version",
         "ck_watch_rules_schedule_kind", "ck_watch_rules_schedule_state",
         "ck_watch_rules_claim_pair", "ck_watch_rules_claim_attempt_count",
-        "ck_watch_rules_config_json",
+        "ck_watch_rules_config_json", "ck_watch_rules_create_idempotency",
+        "uq_watch_rules_create_idempotency",
     } <= _constraint_names(rules)
     rule_indexes = _index_signature(rules)
     assert rule_indexes["ix_watch_rules_due_claim"] == (
@@ -268,6 +274,417 @@ def test_model_json_constraints_compile_for_sqlite_and_postgresql() -> None:
     assert "json_type(" not in postgres_ddl
     assert "json_extract" not in postgres_ddl
     assert "AS BLOB" not in postgres_ddl
+
+
+def test_json_checks_compile_documented_dialect_storage_envelopes() -> None:
+    """CHECKs bound storage renderings, while canonical validation owns wire size."""
+    from database import AlertDeliveryIntent, WatchRule
+
+    sqlite_ddl = "\n".join(
+        str(CreateTable(table).compile(dialect=sqlite.dialect()))
+        for table in (WatchRule.__table__, AlertDeliveryIntent.__table__)
+    )
+    postgres_ddl = "\n".join(
+        str(CreateTable(table).compile(dialect=postgresql.dialect()))
+        for table in (WatchRule.__table__, AlertDeliveryIntent.__table__)
+    )
+
+    assert "length(CAST(config_json AS BLOB)) <= 262144" in sqlite_ddl
+    assert "length(CAST(rendered_intent AS BLOB)) <= 1048576" in sqlite_ddl
+    assert "octet_length(CAST(config_json AS text)) <= 4194304" in postgres_ddl
+    assert (
+        "octet_length(CAST(rendered_intent AS text)) <= 16777216"
+        in postgres_ddl
+    )
+
+    # A compact canonical object can contain many finite exponent-form floats.
+    # PostgreSQL jsonb text renders those as fixed numeric values, which is far
+    # beyond a whitespace-only envelope; the 64x logical-text cap covers it.
+    exponent_values = [1e-300] * 128
+    canonical = json.dumps(
+        {"values": exponent_values}, separators=(",", ":")
+    ).encode("utf-8")
+    jsonb_text_like = (
+        '{"values": ['
+        + ", ".join(format(value, ".300f") for value in exponent_values)
+        + "]}"
+    ).encode("utf-8")
+    assert len(canonical) < 64 * 1024
+    assert len(jsonb_text_like) > 4 * len(canonical)
+
+
+def test_postgresql_migration_ddl_uses_bounded_json_storage_envelopes() -> None:
+    postgres_url = "postgresql+asyncpg://caos:caos@localhost/caos"
+    upgrade = _alembic("upgrade", "0066:0067", "--sql", db_url=postgres_url)
+    assert upgrade.returncode == 0, upgrade.stderr
+    assert "DROP CONSTRAINT ck_watch_rules_config_json" in upgrade.stdout
+    assert (
+        "octet_length(CAST(config_json AS text)) <= 4194304"
+        in upgrade.stdout
+    )
+    assert (
+        "octet_length(CAST(rendered_intent AS text)) <= 16777216"
+        in upgrade.stdout
+    )
+
+
+def test_postgresql_0067_downgrade_refuses_offline_destructive_ddl() -> None:
+    postgres_url = "postgresql+asyncpg://caos:caos@localhost/caos"
+    downgrade = _alembic(
+        "downgrade", "0067:0066", "--sql", db_url=postgres_url
+    )
+
+    assert downgrade.returncode != 0
+    assert "0067 cannot downgrade in offline mode" in downgrade.stderr
+    assert "DROP CONSTRAINT" not in downgrade.stdout
+    assert "DROP COLUMN" not in downgrade.stdout
+
+
+def test_postgresql_0068_ddl_adds_scoped_create_idempotency_and_blocks_offline_removal() -> None:
+    postgres_url = "postgresql+asyncpg://caos:caos@localhost/caos"
+    upgrade = _alembic("upgrade", "0067:0068", "--sql", db_url=postgres_url)
+    assert upgrade.returncode == 0, upgrade.stderr
+    assert "ADD COLUMN create_idempotency_key VARCHAR(128)" in upgrade.stdout
+    assert "ADD COLUMN create_request_sha256 VARCHAR(64)" in upgrade.stdout
+    assert "ck_watch_rules_create_idempotency" in upgrade.stdout
+    assert "^[A-Za-z0-9._:-]{1,128}$" in upgrade.stdout
+    assert "^[0-9a-f]{64}$" in upgrade.stdout
+    assert "uq_watch_rules_create_idempotency" in upgrade.stdout
+    assert "tenant_id, owner_user_id, create_idempotency_key" in upgrade.stdout
+
+    downgrade = _alembic(
+        "downgrade", "0068:0067", "--sql", db_url=postgres_url
+    )
+    assert downgrade.returncode != 0
+    assert "0068 cannot downgrade in offline mode" in downgrade.stderr
+    assert "DROP CONSTRAINT" not in downgrade.stdout
+    assert "DROP COLUMN" not in downgrade.stdout
+
+
+def test_0068_upgrades_legacy_rules_with_nullable_retry_identity(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "watch-rule-existing-0067.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded_0067 = _alembic("upgrade", "0067", db_url=db_url)
+    assert upgraded_0067.returncode == 0, upgraded_0067.stderr
+    with sqlite3.connect(db_path) as connection:
+        rule_id, version_id = _insert_rule_and_version(connection)
+        connection.commit()
+
+    upgraded_0068 = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded_0068.returncode == 0, upgraded_0068.stderr
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0068",)
+        assert connection.execute(
+            "SELECT create_idempotency_key, create_request_sha256 "
+            "FROM watch_rules WHERE id = ?",
+            (rule_id,),
+        ).fetchone() == (None, None)
+        assert connection.execute(
+            "SELECT watch_rule_id FROM watch_rule_versions WHERE id = ?",
+            (version_id,),
+        ).fetchone() == (rule_id,)
+
+
+def test_0068_enforces_retry_pair_format_and_tenant_owner_scope(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "watch-rule-create-idempotency.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    now = "2026-07-22 12:00:00+00:00"
+    insert_sql = """INSERT INTO watch_rules
+        (id, tenant_id, owner_user_id, team_id_snapshot,
+         create_idempotency_key, create_request_sha256, name, signal_type,
+         enabled, paused, current_version, schedule_kind, claim_attempt_count,
+         config_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+    def values(
+        row_id: str,
+        *,
+        tenant: str = "tenant-a",
+        owner: str = "owner-a",
+        key: str | None = "client-key",
+        digest: str | None = "a" * 64,
+    ) -> tuple:
+        return (
+            row_id, tenant, owner, "team", key, digest, "Rule", "run_finding",
+            1, 0, 1, "event_driven", 0, "{}", now, now,
+        )
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(insert_sql, values("legacy-null", key=None, digest=None))
+        connection.execute(insert_sql, values("valid"))
+        connection.execute(
+            insert_sql, values("other-owner", owner="owner-b")
+        )
+        connection.execute(
+            insert_sql, values("other-tenant", tenant="tenant-b")
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(insert_sql, values("duplicate-scope"))
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                insert_sql,
+                values("missing-hash", key="missing-hash-key", digest=None),
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(insert_sql, values("missing-key", key=None))
+        for index, bad_key in enumerate(
+            ("contains spaces", "x" * 129, "contains\x00nul", "é")
+        ):
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(
+                    insert_sql, values(f"bad-key-{index}", key=bad_key)
+                )
+        for index, bad_hash in enumerate(("A" * 64, "g" * 64, "a" * 63)):
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(
+                    insert_sql, values(f"bad-hash-{index}", digest=bad_hash)
+                )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM watch_rules "
+            "WHERE create_idempotency_key = 'client-key'"
+        ).fetchone() == (3,)
+
+
+def test_0068_downgrade_refuses_to_drop_populated_retry_identity(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "watch-rule-idempotency-downgrade.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    with sqlite3.connect(db_path) as connection:
+        rule_id, version_id = _insert_rule_and_version(connection)
+        connection.execute(
+            "UPDATE watch_rules SET create_idempotency_key = ?, "
+            "create_request_sha256 = ? WHERE id = ?",
+            ("durable-key", "b" * 64, rule_id),
+        )
+        connection.commit()
+
+    rejected = _alembic("downgrade", "0067", db_url=db_url)
+    assert rejected.returncode != 0
+    assert "0068 cannot downgrade" in rejected.stderr
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0068",)
+        assert connection.execute(
+            "SELECT create_idempotency_key, create_request_sha256 "
+            "FROM watch_rules WHERE id = ?",
+            (rule_id,),
+        ).fetchone() == ("durable-key", "b" * 64)
+        connection.execute(
+            "UPDATE watch_rules SET create_idempotency_key = NULL, "
+            "create_request_sha256 = NULL WHERE id = ?",
+            (rule_id,),
+        )
+        connection.commit()
+
+    downgraded = _alembic("downgrade", "0067", db_url=db_url)
+    assert downgraded.returncode == 0, downgraded.stderr
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0067",)
+        assert "create_idempotency_key" not in {
+            row[1] for row in connection.execute("PRAGMA table_info(watch_rules)")
+        }
+        assert connection.execute(
+            "SELECT watch_rule_id FROM watch_rule_versions WHERE id = ?",
+            (version_id,),
+        ).fetchone() == (rule_id,)
+
+
+def test_existing_0066_database_receives_json_envelopes_via_0067(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "watch-rule-existing-0066.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded_0066 = _alembic("upgrade", "0066", db_url=db_url)
+    assert upgraded_0066.returncode == 0, upgraded_0066.stderr
+
+    now = "2026-07-20 12:00:00+00:00"
+    canonical_overhead = len('{"payload":""}'.encode("utf-8"))
+    unicode_units, ascii_remainder = divmod(65536 - canonical_overhead, 2)
+    wire_valid = {"payload": "é" * unicode_units + "x" * ascii_remainder}
+    sqlite_rendering = json.dumps(wire_valid)
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0066",)
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """INSERT INTO watch_rules
+                   (id, tenant_id, owner_user_id, team_id_snapshot, name,
+                    signal_type, enabled, paused, current_version, schedule_kind,
+                    claim_attempt_count, config_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    str(uuid4()), "tenant", "owner", "team", "Old bound",
+                    "run_finding", 1, 0, 1, "event_driven", 0,
+                    sqlite_rendering, now, now,
+                ),
+            )
+
+    upgraded_0067 = _alembic("upgrade", "0067", db_url=db_url)
+    assert upgraded_0067.returncode == 0, upgraded_0067.stderr
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0067",)
+        connection.execute(
+            """INSERT INTO watch_rules
+               (id, tenant_id, owner_user_id, team_id_snapshot, name,
+                signal_type, enabled, paused, current_version, schedule_kind,
+                claim_attempt_count, config_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                str(uuid4()), "tenant", "owner", "team", "Widened bound",
+                "run_finding", 1, 0, 1, "event_driven", 0,
+                sqlite_rendering, now, now,
+            ),
+        )
+        assert connection.execute(
+            """SELECT COUNT(*) FROM sqlite_master
+               WHERE type = 'trigger'
+                 AND name = 'trg_watch_rule_versions_immutable'"""
+        ).fetchone() == (1,)
+
+
+def test_migration_json_storage_envelope_accepts_wire_limit_and_rejects_raw_overflow(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "watch-rule-json-envelope.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    now = "2026-07-20 12:00:00+00:00"
+    canonical_overhead = len('{"payload":""}'.encode("utf-8"))
+    unicode_units, ascii_remainder = divmod(65536 - canonical_overhead, 2)
+    wire_valid = {"payload": "é" * unicode_units + "x" * ascii_remainder}
+    canonical = json.dumps(
+        wire_valid,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    sqlite_rendering = json.dumps(wire_valid)
+    assert len(canonical) == 65536
+    assert 65536 < len(sqlite_rendering.encode("utf-8")) <= 262144
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """INSERT INTO watch_rules
+               (id, tenant_id, owner_user_id, team_id_snapshot, name, signal_type,
+                enabled, paused, current_version, schedule_kind, claim_attempt_count,
+                config_json, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                str(uuid4()), "tenant", "owner", "team", "Near limit",
+                "run_finding", 1, 0, 1, "event_driven", 0,
+                sqlite_rendering, now, now,
+            ),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "UPDATE watch_rules SET config_json = ?",
+                (json.dumps({"payload": "x" * 262144}),),
+            )
+
+        _insert_graph(connection)
+        rendered_units, rendered_remainder = divmod(
+            262144 - canonical_overhead, 2
+        )
+        rendered_wire_valid = {
+            "payload": "é" * rendered_units + "x" * rendered_remainder
+        }
+        rendered_canonical = json.dumps(
+            rendered_wire_valid,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        rendered_sqlite = json.dumps(rendered_wire_valid)
+        assert len(rendered_canonical) == 262144
+        assert 262144 < len(rendered_sqlite.encode("utf-8")) <= 1048576
+        connection.execute(
+            """UPDATE alert_delivery_intents
+               SET status = 'rendered_intent', rendered_intent = ?
+               WHERE id = '00000000-0000-0000-0000-000000000005'""",
+            (rendered_sqlite,),
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """UPDATE alert_delivery_intents SET rendered_intent = ?
+                   WHERE id = '00000000-0000-0000-0000-000000000005'""",
+                (json.dumps({"payload": "x" * 1048576}),),
+            )
+
+
+def test_0067_incompatible_downgrade_preflights_without_mutating_database(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "watch-rule-0067-incompatible-downgrade.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    upgraded = _alembic("upgrade", "0067", db_url=db_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+
+    oversized = json.dumps({"payload": "x" * 65536})
+    assert 65536 < len(oversized.encode("utf-8")) <= 262144
+    with sqlite3.connect(db_path) as connection:
+        rule_id, version_id = _insert_rule_and_version(connection)
+        connection.execute(
+            "UPDATE watch_rules SET config_json = ? WHERE id = ?",
+            (oversized, rule_id),
+        )
+        connection.commit()
+        before = connection.execute(
+            "SELECT config_json FROM watch_rules WHERE id = ?", (rule_id,)
+        ).fetchone()
+
+    rejected = _alembic("downgrade", "0066", db_url=db_url)
+    assert rejected.returncode != 0
+    assert "watch_rules.config_json" in rejected.stderr
+    assert "cannot downgrade" in rejected.stderr.lower()
+
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("0067",)
+        assert connection.execute(
+            "SELECT config_json FROM watch_rules WHERE id = ?", (rule_id,)
+        ).fetchone() == before
+        assert connection.execute(
+            """SELECT COUNT(*) FROM sqlite_master
+               WHERE type = 'table' AND name LIKE '_alembic_tmp_%'"""
+        ).fetchone() == (0,)
+        assert connection.execute(
+            """SELECT COUNT(*) FROM sqlite_master
+               WHERE type = 'trigger'
+                 AND name = 'trg_watch_rule_versions_immutable'"""
+        ).fetchone() == (1,)
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                "UPDATE watch_rule_versions SET config_json = '{}' WHERE id = ?",
+                (version_id,),
+            )
+        connection.execute(
+            "UPDATE watch_rules SET config_json = '{}' WHERE id = ?", (rule_id,)
+        )
+        connection.commit()
+
+    downgraded = _alembic("downgrade", "0066", db_url=db_url)
+    assert downgraded.returncode == 0, downgraded.stderr
+    reupgraded = _alembic("upgrade", "head", db_url=db_url)
+    assert reupgraded.returncode == 0, reupgraded.stderr
 
 
 def test_create_all_installs_watch_rule_version_immutability_trigger() -> None:
@@ -831,7 +1248,10 @@ def test_database_json_bounds_and_delete_rules(tmp_path: Path) -> None:
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute("UPDATE watch_rules SET config_json = ?", ("[]",))
         with pytest.raises(sqlite3.IntegrityError):
-            connection.execute("UPDATE watch_rule_evaluations SET detail_json = ?", (json.dumps({"x": "y" * 65536}),))
+            connection.execute(
+                "UPDATE watch_rule_evaluations SET detail_json = ?",
+                (json.dumps({"x": "y" * (4 * 65536)}),),
+            )
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute("UPDATE watch_rule_evaluations SET hop_count = 4")
         with pytest.raises(sqlite3.IntegrityError):

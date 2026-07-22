@@ -222,6 +222,21 @@ function observedMonitorDatum(value: string | null, emptyMessage: string, asOf: 
   return value ? { kind: "ready", value, asOf, authority } : { kind: "observed-empty", message: emptyMessage, asOf, authority };
 }
 
+function selectMonitorDecisionEvent(events: AlertEventDTO[]): AlertEventDTO | null {
+  const stateRank: Record<AlertEventDTO["state"], number> = { open: 0, ack: 1, resolved: 2 };
+  return [...events].sort((left, right) => {
+    const stateDifference = stateRank[left.state] - stateRank[right.state];
+    if (stateDifference) return stateDifference;
+    const leftObserved = alertObservationTimestamp(left);
+    const rightObserved = alertObservationTimestamp(right);
+    const observationDifference = (rightObserved ? Date.parse(rightObserved) : Number.NEGATIVE_INFINITY)
+      - (leftObserved ? Date.parse(leftObserved) : Number.NEGATIVE_INFINITY);
+    if (observationDifference) return observationDifference;
+    const createdDifference = Date.parse(right.created_at) - Date.parse(left.created_at);
+    return createdDifference || right.id.localeCompare(left.id);
+  })[0] ?? null;
+}
+
 function buildMonitorDecision(input: MonitorDecisionInput): DecisionContextState {
   if (input.status !== "ready") {
     const unavailable = unavailableMonitorDatum(input);
@@ -231,27 +246,28 @@ function buildMonitorDecision(input: MonitorDecisionInput): DecisionContextState
     const empty: DecisionDatumState = { kind: "observed-empty", message: "No persisted alert events observed", asOf: "no persisted event timestamp", authority: { provenance: { origin: "LIVE", method: "DERIVED", detail: "Persisted alert-event read completed." }, approval: null } };
     return { whatChanged: empty, whyItMatters: empty, requiredAction: empty, evidenceHealth: empty };
   }
-  const { asOf, authority } = monitorDecisionAuthority(input);
+  const top = selectMonitorDecisionEvent(input.events);
+  const { asOf, authority } = monitorDecisionAuthority({ ...input, events: top ? [top] : [] });
   if (!asOf) {
     const unavailable = unavailableMonitorDatum(input);
     return { whatChanged: unavailable, whyItMatters: unavailable, requiredAction: unavailable, evidenceHealth: unavailable };
   }
-  const top = input.events[0];
-  const changed = input.events.slice(0, 3).map((event) => event.title).join(" · ");
+  const changed = top?.title ?? null;
   const impact = top?.impact || null;
-  const action = top ? `Review ${top.kind} alert and persisted evidence` : null;
+  const action = top?.state === "open" ? `Review ${top.kind} alert and persisted evidence` : null;
   const open = input.events.filter((event) => event.state === "open").length;
   const routed = `${input.events.length} persisted alert event${input.events.length === 1 ? "" : "s"} · ${open} open`;
   const missingTimestampCount = input.events.filter((event) => alertObservationTimestamp(event) === null).length;
+  const aggregateAuthority = monitorDecisionAuthority(input);
   const evidenceHealth: DecisionDatumState = missingTimestampCount
     ? {
         kind: "partial",
         value: `${routed} · ${missingTimestampCount} missing observation/event timestamp${missingTimestampCount === 1 ? "" : "s"}`,
         missingSources: ["evidence.observed_at", "created_at"],
-        asOf,
-        authority,
+        asOf: aggregateAuthority.asOf ?? asOf,
+        authority: aggregateAuthority.authority ?? authority,
       }
-    : { kind: "ready", value: routed, asOf, authority };
+    : { kind: "ready", value: routed, asOf: aggregateAuthority.asOf ?? asOf, authority: aggregateAuthority.authority ?? authority };
   return {
     whatChanged: observedMonitorDatum(changed, "No routed alerts observed", asOf, authority),
     whyItMatters: observedMonitorDatum(impact, "No portfolio impact observed", asOf, authority),
@@ -311,12 +327,15 @@ function acknowledgeReason(view: MonitorViewProps) {
   if (view.controller?.status === "error") return "Persisted alert list is unavailable; reload before acknowledging.";
   if (view.controller?.requiresAuthoritativeReload) return "Persisted alert authority changed; reload before acknowledging.";
   if (view.controller?.batchPending) return "Batch acknowledgment is already in progress.";
+  if (view.controller && view.controller.pendingIds.size > 0) return "An individual alert workflow update is in progress.";
+  if (view.controller?.workflowSurfaceLocked && !view.controller.batchError) return "Review or dismiss the current alert workflow failure before acknowledging.";
   if (view.selectedAlertCount > 0) return null;
   if (view.controller?.events.length) return "Select persisted alerts in the worklist first.";
   return "No persisted alerts to acknowledge.";
 }
 
-function MonitorPrimaryAction({ view }: { view: MonitorViewProps }): PageAction {
+function MonitorPrimaryAction({ view }: { view: MonitorViewProps }): PageAction | undefined {
+  if (view.dataMode !== "live" || view.dataset !== "alerts" || view.isPhone || view.controller?.canMutate !== true) return undefined;
   const count = view.selectedAlertCount ? ` (${view.selectedAlertCount})` : "";
   return {
     label: `Acknowledge selected${count}`,
@@ -435,7 +454,7 @@ function MonitorCitedBrief({ view }: { view: MonitorViewProps }) {
 
 function MonitorInspector({ view }: { view: MonitorViewProps }) {
   if (view.dataMode === "reference") return <PanelShell title="Reference scope"><p className="p-2 text-caos-xs text-caos-muted">Seeded replay and email examples only. Live governance and control-plane state are not merged into this workspace.</p></PanelShell>;
-  return <div className="grid gap-2"><PanelShell title="Alert rule controls"><div className="p-2"><WatchRuleEditor controller={view.controller!.rules} /></div></PanelShell><GovernanceSummary coldStart={!view.portfolio.live && !view.portfolio.error && !view.portfolio.loading} qa={view.liveQa?.length} failed={view.liveFailed?.length} gaps={view.liveGapsItems?.length} mixed={view.liveMixed?.length} stale={view.digestLive ? view.digest?.stale?.length ?? 0 : undefined} onOpen={() => view.updateUrlState({ dataset: "governance" })} /><PanelShell title="Source intake health"><ControlPlanePanel /></PanelShell><MonitorCitedBrief view={view} /></div>;
+  return <div className="grid min-w-0 grid-cols-1 gap-2"><PanelShell title="Alert rule controls"><div className="p-2"><WatchRuleEditor controller={view.controller!.rules} /></div></PanelShell><fieldset disabled={!view.datasetControlsReady} title={view.datasetSwitchReason ?? undefined} className="contents"><legend className="sr-only">{view.datasetSwitchReason ?? "Governance navigation"}</legend><GovernanceSummary coldStart={!view.portfolio.live && !view.portfolio.error && !view.portfolio.loading} qa={view.liveQa?.length} failed={view.liveFailed?.length} gaps={view.liveGapsItems?.length} mixed={view.liveMixed?.length} stale={view.digestLive ? view.digest?.stale?.length ?? 0 : undefined} onOpen={() => view.updateUrlState({ dataset: "governance" })} /></fieldset><PanelShell title="Source intake health"><ControlPlanePanel /></PanelShell><MonitorCitedBrief view={view} /></div>;
 }
 
 function MonitorWorkbench({ view }: { view: MonitorViewProps }) {
@@ -491,6 +510,18 @@ function useMonitorGovernance() {
 function useLiveMonitorView() {
   const navigation = useMonitorNavigation("live");
   const controller = usePersistedMonitorController(navigation.selected);
+  const { clearSelection: clearAlertSelection, workflowSurfaceLocked } = controller;
+  useEffect(() => {
+    if (!workflowSurfaceLocked && (navigation.isPhone || navigation.dataset !== "alerts")) clearAlertSelection();
+  }, [clearAlertSelection, navigation.dataset, navigation.isPhone, workflowSurfaceLocked]);
+  const retainedPhoneMode = useRef(navigation.isPhone);
+  const retainedDataset = useRef(navigation.dataset);
+  if (!controller.workflowSurfaceLocked) retainedPhoneMode.current = navigation.isPhone;
+  if (!controller.workflowSurfaceLocked) retainedDataset.current = navigation.dataset;
+  const updateUrlState: MonitorUrlUpdater = (changes, mode) => {
+    if (controller.workflowSurfaceLocked && Object.prototype.hasOwnProperty.call(changes, "dataset")) return;
+    navigation.updateUrlState(changes, mode);
+  };
   useMonitorSelection(controller, navigation.selected, navigation.analysis, navigation.updateUrlState);
   const governanceModel = useMonitorGovernance();
   const insight = useMonitorInsight(navigation.analysis.context?.id, controller.activeEventId);
@@ -499,12 +530,14 @@ function useLiveMonitorView() {
   return {
     dataMode: navigation.dataMode,
     analysis: navigation.analysis,
-    dataset: navigation.dataset,
-    updateUrlState: navigation.updateUrlState,
-    datasetControlsReady: navigation.datasetControlsReady,
-    datasetSwitchReason: navigation.datasetSwitchReason,
+    dataset: retainedDataset.current,
+    updateUrlState,
+    datasetControlsReady: navigation.datasetControlsReady && !controller.workflowSurfaceLocked,
+    datasetSwitchReason: controller.workflowSurfaceLocked
+      ? "Dataset switch is unavailable until the current alert workflow outcome is resolved."
+      : navigation.datasetSwitchReason,
     selectedAlertCount: controller.selectedIds.length,
-    isPhone: navigation.isPhone,
+    isPhone: controller.workflowSurfaceLocked ? retainedPhoneMode.current : navigation.isPhone,
     controller,
     portfolio: governanceModel.portfolio,
     digest: governance.digest,

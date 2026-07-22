@@ -69,24 +69,28 @@ async def _make_decision(client, name: str):
 
 
 async def _create_c3_alert(client, *, issuer_id: str, marker: str) -> str:
-    rule = client.post("/api/watch-rules", json={
-        "name": f"Decision reopen {marker}",
-        "signal_type": "qa_gate",
-        "enabled": True,
-        "paused": False,
-        "issuer_id": issuer_id,
-        "portfolio_id": None,
-        "schedule_kind": "event_driven",
-        "schedule_interval_seconds": None,
-        "next_evaluation_at": None,
-        "config": {
-            "operator": "present",
-            "threshold": None,
-            "kind": "decision-reopen-test",
-            "title": "Material change",
-            "impact": "Reconsider the active IC decision.",
+    rule = client.post(
+        "/api/watch-rules",
+        headers={"Idempotency-Key": f"decision-reopen-{marker}"},
+        json={
+            "name": f"Decision reopen {marker}",
+            "signal_type": "qa_gate",
+            "enabled": True,
+            "paused": False,
+            "issuer_id": issuer_id,
+            "portfolio_id": None,
+            "schedule_kind": "event_driven",
+            "schedule_interval_seconds": None,
+            "next_evaluation_at": None,
+            "config": {
+                "operator": "present",
+                "threshold": None,
+                "kind": "decision-reopen-test",
+                "title": "Material change",
+                "impact": "Reconsider the active IC decision.",
+            },
         },
-    })
+    )
     assert rule.status_code == 201, rule.text
     evaluated = client.post(
         f"/api/watch-rules/{rule.json()['id']}/evaluate",

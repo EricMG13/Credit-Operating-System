@@ -8,15 +8,17 @@ import { usePersistedMonitorController } from "./usePersistedMonitorController";
 const getAlertEventPage = vi.fn();
 const getWatchRulePage = vi.fn();
 const getChunk = vi.fn();
+const getQA = vi.fn();
 const patchAlertEvent = vi.fn();
 const forbiddenDraft = vi.fn();
 const forbiddenLegacyStates = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
-  getAlertEventPage: (...args: unknown[]) => getAlertEventPage(...args),
+  getAlertEventPage: async (...args: unknown[]) => ({ canMutate: true, ...await getAlertEventPage(...args) }),
   getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
   getChunk: (...args: unknown[]) => getChunk(...args),
+  getQA: (...args: unknown[]) => getQA(...args),
   patchAlertEvent: (...args: unknown[]) => patchAlertEvent(...args),
   getAutonomyDraft: (...args: unknown[]) => forbiddenDraft(...args),
   getAlertStates: (...args: unknown[]) => forbiddenLegacyStates(...args),
@@ -53,6 +55,7 @@ function Harness({ initialActive = null }: { initialActive?: string | null }) {
       <button type="button" onClick={() => {
         if (controller.activeEventId) controller.toggleSelected(controller.activeEventId);
       }}>Toggle active for batch</button>
+      <button type="button" className="min-h-11" onClick={() => void controller.refresh({ preserveReadyView: true })}>Refresh persisted alerts</button>
       <PhoneTriage controller={controller} />
     </>
   );
@@ -68,6 +71,7 @@ beforeEach(() => {
   getAlertEventPage.mockReset();
   getWatchRulePage.mockReset();
   getChunk.mockReset();
+  getQA.mockReset();
   patchAlertEvent.mockReset();
   forbiddenDraft.mockReset();
   forbiddenLegacyStates.mockReset();
@@ -118,6 +122,33 @@ describe("PhoneTriage · persisted controller", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Toggle active for batch" }));
     expect(screen.getByTestId("batch").textContent).toBe("alert-2");
+  });
+
+  it("opens governed run evidence on phone when automatic alerts carry run and QA-finding refs", async () => {
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent({
+      kind: "run_finding",
+      evidence: {
+        observed_at: "2026-07-20T10:00:00Z",
+        detail: { run_id: "run-17", finding_row_id: "row-17", finding_id: "CP5-PHONE" },
+        source_artifact_refs: ["run:run-17", "qa_finding:row-17"],
+      },
+    })], nextCursor: null });
+    getQA.mockResolvedValue({
+      run_id: "run-17",
+      qa_status: "Blocked",
+      committee_status: "Not Ready",
+      findings_by_severity: { MATERIAL: 1 },
+      findings: [{ finding_id: "CP5-PHONE", severity: "MATERIAL", lane: 5, module_id: "CP-5", description: "Phone governed evidence.", affected_claim_id: null, required_remediation: null }],
+    });
+    render(<Harness />);
+
+    const source = await screen.findByRole("button", { name: "Open source run:run-17" });
+    expect(source.className).toContain("min-h-11");
+    fireEvent.click(source);
+
+    expect(await screen.findByText(/Run run-17 · QA Blocked · committee Not Ready/)).toBeTruthy();
+    expect(screen.getByText(/CP5-PHONE · MATERIAL · Phone governed evidence/)).toBeTruthy();
+    expect(getQA).toHaveBeenCalledWith("run-17");
   });
 
   it("hydrates a resolved deep link without granting it batch-action authority", async () => {
@@ -175,11 +206,11 @@ describe("PhoneTriage · persisted controller", () => {
     expect(screen.getByText("QA gate moved to blocked resolved. Persisted workflow state updated.").getAttribute("role")).toBe("status");
   });
 
-  it("preserves failed mutation input, fences rapid duplicates, and retries the same intent", async () => {
+  it("preserves failed mutation input, fences rapid duplicates, and retries the current phone intent", async () => {
     getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
     patchAlertEvent
       .mockRejectedValueOnce(new Error("optimistic conflict"))
-      .mockResolvedValueOnce(persistedEvent({ assignee: "Sam" }));
+      .mockResolvedValueOnce(persistedEvent({ assignee: "Priya" }));
     render(<Harness />);
     await screen.findByText("QA gate moved to blocked");
 
@@ -192,12 +223,119 @@ describe("PhoneTriage · persisted controller", () => {
     expect(patchAlertEvent).toHaveBeenCalledTimes(1);
     expect(assignee.value).toBe("Sam");
 
+    fireEvent.change(assignee, { target: { value: "Priya" } });
+    expect(screen.getByRole("alert").textContent).toMatch(/retry submits the current draft/i);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText("Sam")).toBeTruthy();
+    expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "alert-1", "open", { assignee: "Priya" });
+    expect(await screen.findByText("Priya")).toBeTruthy();
     await waitFor(() => expect(assignee.value).toBe(""));
     expect(forbiddenDraft).not.toHaveBeenCalled();
     expect(forbiddenLegacyStates).not.toHaveBeenCalled();
+  });
+
+  it("states that input is preserved when a phone Ack transition can be retried", async () => {
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent()], nextCursor: null });
+    patchAlertEvent.mockRejectedValueOnce(new Error("phone acknowledgment unavailable"));
+    render(<Harness />);
+    const input = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Desk owner" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ack" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Input was preserved.");
+    expect(alert.textContent).toContain("The workflow transition is available to retry.");
+    expect(input.value).toBe("Desk owner");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("drops phone retry and draft custody after a successful authoritative refresh of the same row", async () => {
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [persistedEvent()], nextCursor: null })
+      .mockResolvedValueOnce({ items: [persistedEvent({ updated_at: "2026-07-20T10:05:00Z" })], nextCursor: null });
+    patchAlertEvent
+      .mockRejectedValueOnce(new Error("stale phone assignment"))
+      .mockResolvedValueOnce(persistedEvent({ assignee: "Fresh analyst" }));
+    render(<Harness />);
+    const input = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Stale analyst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("stale phone assignment");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh persisted alerts" }));
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(input.value).toBe("");
+    expect(patchAlertEvent).toHaveBeenCalledOnce();
+
+    fireEvent.change(input, { target: { value: "Fresh analyst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "alert-1", "open", { assignee: "Fresh analyst" }));
+  });
+
+  it("keeps phone retry and current draft mounted when a preserve-view refresh fails", async () => {
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [persistedEvent()], nextCursor: null })
+      .mockRejectedValueOnce(new Error("phone refresh unavailable"));
+    patchAlertEvent
+      .mockRejectedValueOnce(new Error("recoverable phone assignment"))
+      .mockResolvedValueOnce(persistedEvent({ assignee: "Recoverable analyst" }));
+    render(<Harness />);
+    const input = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Recoverable analyst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("recoverable phone assignment");
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh persisted alerts" }));
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Alert assignee")).toBe(input);
+    expect(input.value).toBe("Recoverable analyst");
+    expect(screen.getByRole("alert").textContent).toContain("recoverable phone assignment");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "alert-1", "open", { assignee: "Recoverable analyst" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect((screen.getByLabelText("Alert state filter") as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  it("locks phone assignee and resolution drafts until each submitted request settles", async () => {
+    const assignment = deferred<AlertEventDTO>();
+    const resolution = deferred<AlertEventDTO>();
+    const sibling = persistedEvent({ id: "alert-2", title: "Sibling pending navigation" });
+    getAlertEventPage.mockResolvedValue({ items: [persistedEvent(), sibling], nextCursor: null });
+    patchAlertEvent
+      .mockReturnValueOnce(assignment.promise)
+      .mockReturnValueOnce(resolution.promise);
+    render(<Harness />);
+    const assignee = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(assignee, { target: { value: "Alice" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(assignee.disabled).toBe(true));
+    expect(patchAlertEvent).toHaveBeenNthCalledWith(1, "alert-1", "open", { assignee: "Alice" });
+    expect((screen.getByLabelText("Alert state filter") as HTMLSelectElement).disabled).toBe(true);
+    const next = screen.getByRole("button", { name: "Next alert" });
+    expect(next.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(next);
+    expect(screen.getByText("QA gate moved to blocked")).toBeTruthy();
+    expect(screen.queryByText("Sibling pending navigation")).toBeNull();
+
+    assignment.resolve(persistedEvent({ assignee: "Alice" }));
+    await assignment.promise;
+    await waitFor(() => expect(assignee.value).toBe(""));
+
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    const note = screen.getByLabelText("Alert resolution note") as HTMLInputElement;
+    fireEvent.change(note, { target: { value: "Captured phone note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(note.disabled).toBe(true));
+    expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "alert-1", "resolved", { resolutionNote: "Captured phone note" });
+
+    resolution.resolve(persistedEvent({ state: "resolved", resolution_note: "Captured phone note" }));
+    await resolution.promise;
+    await waitFor(() => expect(screen.queryByLabelText("Alert resolution note")).toBeNull());
   });
 
   it("reloads a phone lifecycle conflict before another action and never retries the stale transition", async () => {
@@ -222,7 +360,8 @@ describe("PhoneTriage · persisted controller", () => {
     expect(patchAlertEvent).toHaveBeenCalledTimes(1);
 
     reload.resolve({ items: [persistedEvent({ state: "ack", assignee: "other.analyst" })], nextCursor: null });
-    expect(await screen.findByText(/Persisted events were reloaded/)).toBeTruthy();
+    const conflictCopy = await screen.findByText(/Persisted events were reloaded/);
+    expect(conflictCopy.closest('[role="alert"]')?.textContent).not.toMatch(/retry submits the current draft/i);
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(screen.getByLabelText("Alert assignee")).toBe(assignee);
     expect(assignee.value).toBe("Sam");
@@ -277,7 +416,7 @@ describe("PhoneTriage · persisted controller", () => {
     expect(patchAlertEvent).toHaveBeenCalledTimes(1);
   });
 
-  it("resets evidence, input, failure, and retry identity when phone navigation changes events", async () => {
+  it("retains failed action custody until dismissal, then resets local state when phone navigation changes events", async () => {
     const second = persistedEvent({
       id: "alert-2",
       alert_key: "c3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -305,6 +444,13 @@ describe("PhoneTriage · persisted controller", () => {
     expect(await screen.findByText(/alert A assignment failed.*Input was preserved/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 
+    const next = screen.getByRole("button", { name: "Next alert" });
+    expect(next.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(next);
+    expect(screen.getByText("QA gate moved to blocked")).toBeTruthy();
+    expect(screen.getByText(/alert A assignment failed/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     fireEvent.click(screen.getByRole("button", { name: "Next alert" }));
     expect(await screen.findByText("Second phone event")).toBeTruthy();
     expect(screen.queryByText("Evidence for alert A only.")).toBeNull();

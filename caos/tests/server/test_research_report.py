@@ -720,6 +720,32 @@ async def _seed_durable_report(*, suffix: str = "") -> str:
         return report.id
 
 
+async def _seed_report_parents(session, issuer_id: str, *run_ids: str) -> None:
+    from database import Issuer, Run
+
+    session.add(
+        Issuer(
+            id=issuer_id,
+            name=f"Report executor fixture {issuer_id}",
+            normalized_name=f"report executor fixture {issuer_id}",
+            created_by="test",
+        )
+    )
+    await session.flush()
+    session.add_all(
+        [
+            Run(
+                id=run_id,
+                issuer_id=issuer_id,
+                analyst_id="t",
+                status="complete",
+            )
+            for run_id in run_ids
+        ]
+    )
+    await session.flush()
+
+
 @pytest.mark.asyncio
 async def test_run_report_validates_before_persisting_payload_and_markdown(
     seeded_db, monkeypatch
@@ -836,8 +862,21 @@ async def test_report_executor_sweeps_stranded_reports(seeded_db):
     from research_report_executor import ResearchReportExecutor
 
     async with AsyncSessionLocal() as s:
-        stranded = IssuerResearchReport(status="running", issuer_id="i1", run_id="r1", analyst_id="t")
-        done = IssuerResearchReport(status="complete", issuer_id="i1", run_id="r2", analyst_id="t")
+        await _seed_report_parents(
+            s, "i1", "report-sweep-stranded", "report-sweep-done"
+        )
+        stranded = IssuerResearchReport(
+            status="running",
+            issuer_id="i1",
+            run_id="report-sweep-stranded",
+            analyst_id="t",
+        )
+        done = IssuerResearchReport(
+            status="complete",
+            issuer_id="i1",
+            run_id="report-sweep-done",
+            analyst_id="t",
+        )
         s.add_all([stranded, done])
         await s.commit()
         sid, did = stranded.id, done.id
@@ -860,8 +899,9 @@ async def test_report_executor_does_not_sweep_live_leased_report(seeded_db):
     from research_report_executor import ResearchReportExecutor
 
     async with AsyncSessionLocal() as s:
+        await _seed_report_parents(s, "i2", "report-live-run")
         live = IssuerResearchReport(
-            status="running", issuer_id="i2", run_id="r1", analyst_id="t",
+            status="running", issuer_id="i2", run_id="report-live-run", analyst_id="t",
             worker_id="sibling-replica:123",
             lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
         )
@@ -886,8 +926,9 @@ async def test_report_executor_sweeps_expired_leased_report(seeded_db):
     from research_report_executor import ResearchReportExecutor
 
     async with AsyncSessionLocal() as s:
+        await _seed_report_parents(s, "i4", "report-expired-run")
         dead = IssuerResearchReport(
-            status="running", issuer_id="i4", run_id="r1", analyst_id="t",
+            status="running", issuer_id="i4", run_id="report-expired-run", analyst_id="t",
             worker_id="dead-replica:456",
             lease_expires_at=datetime.now(timezone.utc) - timedelta(minutes=10),
         )
@@ -922,7 +963,13 @@ async def test_lease_set_failure_still_marks_report_failed(seeded_db, monkeypatc
     monkeypatch.setattr(research_report_executor, "get_settings", lambda: _BoomSettings())
 
     async with AsyncSessionLocal() as s:
-        report = IssuerResearchReport(status="running", issuer_id="i3", run_id="r1", analyst_id="t")
+        await _seed_report_parents(s, "i3", "report-lease-failure-run")
+        report = IssuerResearchReport(
+            status="running",
+            issuer_id="i3",
+            run_id="report-lease-failure-run",
+            analyst_id="t",
+        )
         s.add(report)
         await s.commit()
         rid = report.id
@@ -941,6 +988,7 @@ async def test_stale_report_attempt_cannot_mark_sibling_failed(seeded_db):
     from research_report_executor import ReportClaim, _mark_failed
 
     async with AsyncSessionLocal() as s:
+        await _seed_report_parents(s, "fenced-i", "fenced-r")
         report = IssuerResearchReport(
             status="running", issuer_id="fenced-i", run_id="fenced-r",
             analyst_id="t", attempts=2, worker_id="new-owner",
@@ -967,6 +1015,7 @@ async def test_report_heartbeat_cancels_task_after_ownership_loss(seeded_db):
     from research_report_executor import ReportClaim, ReportQueueWorker
 
     async with AsyncSessionLocal() as s:
+        await _seed_report_parents(s, "heartbeat-i", "heartbeat-r")
         report = IssuerResearchReport(
             status="running", issuer_id="heartbeat-i", run_id="heartbeat-r",
             analyst_id="t", attempts=2, worker_id="sibling-owner",

@@ -473,6 +473,8 @@ async def _validate_run_scope(
     if row is None:
         raise MaterializationError("run_not_found")
     run, issuer = row
+    if _persisted_utc(issuer.created_at) > _persisted_utc(evaluation.evaluated_at):
+        raise MaterializationError("run_scope_mismatch")
     tenant_id = evaluation.tenant_id
     team_id = evaluation.team_id_snapshot
     if (tenant_id, team_id) == (SHARED_TENANT_ID, SHARED_TEAM_ID):
@@ -498,9 +500,14 @@ async def _validate_run_scope(
     if evaluation.issuer_id is not None:
         if run.issuer_id != evaluation.issuer_id:
             raise MaterializationError("run_scope_mismatch")
-        return
     if evaluation.portfolio_id is not None:
-        portfolio = await db.get(Portfolio, evaluation.portfolio_id)
+        portfolio = await db.scalar(
+            select(Portfolio).where(
+                Portfolio.id == evaluation.portfolio_id,
+                Portfolio.created_at <= evaluation.evaluated_at,
+                Portfolio.updated_at <= evaluation.evaluated_at,
+            )
+        )
         portfolio_team_allowed = portfolio is not None and (
             tenancy_mode == "shared"
             or (tenancy_mode == "unassigned" and portfolio.team_id is None)
@@ -517,6 +524,7 @@ async def _validate_run_scope(
             .where(
                 PortfolioPosition.portfolio_id == evaluation.portfolio_id,
                 PortfolioPosition.issuer_id == run.issuer_id,
+                PortfolioPosition.created_at <= evaluation.evaluated_at,
             )
             .limit(1)
         )
@@ -975,6 +983,16 @@ async def complete_delivery_intent(
     now: datetime,
 ) -> bool:
     """Persist an owned terminal render result without committing."""
+    if not isinstance(result, SinkIntent):
+        raise ValueError("sink intent does not match the owned delivery lease")
+    # Own and revalidate nested renderer output before the first await so a
+    # post-construction mutation or unchecked model_copy cannot reach JSONB.
+    try:
+        result = SinkIntent.model_validate_json(result.model_dump_json())
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise ValueError(
+            "sink intent does not match the owned delivery lease"
+        ) from exc
     normalized_now = _aware_utc(now, label="now")
     intent = await db.scalar(
         select(AlertDeliveryIntent).where(

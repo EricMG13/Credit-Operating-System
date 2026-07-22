@@ -12,7 +12,14 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from database import AsyncSessionLocal, Issuer, MetricFact, Run
+from database import (
+    AsyncSessionLocal,
+    Document,
+    DocumentChunk,
+    Issuer,
+    MetricFact,
+    Run,
+)
 from engine.anomaly import (
     _cusum_shift,
     _peer_outlier,
@@ -146,13 +153,32 @@ async def _seed_series(db, issuer_id, run_id, values, start_year=2022):
               model_id="test", prompt_version="v1")
     db.add(run)
     await db.flush()
+    document_id = str(uuid.uuid4())
+    db.add(
+        Document(
+            id=document_id,
+            issuer_id=issuer_id,
+            doc_type="TestEvidence",
+            file_name=f"{run_id}.txt",
+            storage_key=f"test/anomaly/{run_id}.txt",
+        )
+    )
     for i, (period, val) in enumerate(values):
+        chunk_id = str(uuid.uuid4())
+        db.add(
+            DocumentChunk(
+                id=chunk_id,
+                document_id=document_id,
+                seq=i,
+                text=f"{period}: {val}",
+            )
+        )
         db.add(MetricFact(
             issuer_id=issuer_id, run_id=run_id, metric_key="net_leverage",
             period=period, value=val, unit="x",
             headline=(i == len(values) - 1), qa_status="Not Reviewed",
             provenance="run", created_at=datetime.now(timezone.utc),
-            document_chunk_id=f"chunk-{issuer_id}-{i}"))
+            document_chunk_id=chunk_id))
     await db.flush()
 
 

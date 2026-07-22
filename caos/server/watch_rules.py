@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
@@ -16,9 +18,11 @@ from pydantic import (
     model_validator,
 )
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from alert_contracts import SignalType
+from alert_contracts import SignalType, validate_jsonb_compatible
 from database import Issuer, Portfolio, WatchRule, WatchRuleVersion
 from engine.periods import is_finite_number
 from identity import CallerIdentity, require_write_role
@@ -37,6 +41,7 @@ _UNAVAILABLE_SIGNALS = frozenset({"edgar_filing", "market_move", "news"})
 _CATEGORICAL_SIGNALS = frozenset({"run_finding", "qa_gate"})
 _NUMERIC_SIGNALS = frozenset({"covenant", "cp1b_monitoring", "cp1c_peer_outlier"})
 _MAX_CONFIG_BYTES = 64 * 1024
+_CREATE_IDEMPOTENCY_KEY_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
 class WatchRuleError(Exception):
@@ -59,12 +64,20 @@ class WatchRuleConflictError(WatchRuleError):
         super().__init__("Watch rule version conflict")
 
 
+class WatchRuleIdempotencyConflictError(WatchRuleError):
+    code = "watch_rule_idempotency_conflict"
+
+    def __init__(self) -> None:
+        super().__init__("Idempotency-Key was used for a different watch rule")
+
+
 class WatchRuleValidationError(WatchRuleError):
     code = "watch_rule_invalid"
 
 
 def _canonical_config(config: "RuleConfig") -> dict:
     payload = config.model_dump(mode="json")
+    validate_jsonb_compatible(payload, label="config")
     try:
         encoded = json.dumps(
             payload,
@@ -78,6 +91,44 @@ def _canonical_config(config: "RuleConfig") -> dict:
     if len(encoded) > _MAX_CONFIG_BYTES:
         raise ValueError("config exceeds 65536 canonical UTF-8 bytes")
     return payload
+
+
+def _create_request_sha256(command: "CreateWatchRuleCommand") -> str:
+    payload = command.model_dump(mode="json")
+    validate_jsonb_compatible(payload, label="watch rule create request")
+    try:
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise WatchRuleValidationError(
+            "watch rule create request must be canonical finite JSON"
+        ) from exc
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _watch_rule_insert(dialect: str, values: dict):
+    if dialect == "postgresql":
+        statement = postgresql_insert(WatchRule)
+    elif dialect == "sqlite":
+        statement = sqlite_insert(WatchRule)
+    else:
+        raise WatchRuleValidationError("unsupported_database")
+    return (
+        statement.values(**values)
+        .on_conflict_do_nothing(
+            index_elements=[
+                "tenant_id",
+                "owner_user_id",
+                "create_idempotency_key",
+            ]
+        )
+        .returning(WatchRule.id)
+    )
 
 
 class _StrictModel(BaseModel):
@@ -299,11 +350,19 @@ async def create_watch_rule(
     db: AsyncSession,
     caller: CallerIdentity,
     command: CreateWatchRuleCommand,
+    *,
+    idempotency_key: str | None = None,
 ) -> WatchRule:
     """Create a rule and version 1 without taking ownership of the transaction."""
     require_write_role(caller)
     if not isinstance(command, CreateWatchRuleCommand):
         raise WatchRuleValidationError("command must be a CreateWatchRuleCommand")
+    if idempotency_key is not None and not _CREATE_IDEMPOTENCY_KEY_RE.fullmatch(
+        idempotency_key
+    ):
+        raise WatchRuleValidationError(
+            "Idempotency-Key must be 1-128 letters, digits, '.', '_', ':' or '-'."
+        )
     tenant_id, team_id = _scope_for_caller(caller)
     await _require_visible_scopes(
         db,
@@ -314,30 +373,58 @@ async def create_watch_rule(
     now = datetime.now(timezone.utc)
     rule_id = str(uuid4())
     config_json = _canonical_config(command.config)
-    rule = WatchRule(
-        id=rule_id,
-        tenant_id=tenant_id,
-        owner_user_id=caller.id,
-        team_id_snapshot=team_id,
-        issuer_id=command.issuer_id,
-        portfolio_id=command.portfolio_id,
-        name=command.name,
-        signal_type=command.signal_type,
-        enabled=command.enabled,
-        paused=command.paused,
-        current_version=1,
-        schedule_kind=command.schedule_kind,
-        schedule_interval_seconds=command.schedule_interval_seconds,
-        next_evaluation_at=command.next_evaluation_at,
-        schedule_cursor=None,
-        claim_token=None,
-        claim_expires_at=None,
-        last_evaluated_at=None,
-        claim_attempt_count=0,
-        config_json=config_json,
-        created_at=now,
-        updated_at=now,
+    request_sha256 = (
+        _create_request_sha256(command) if idempotency_key is not None else None
     )
+    rule_values = {
+        "id": rule_id,
+        "tenant_id": tenant_id,
+        "owner_user_id": caller.id,
+        "team_id_snapshot": team_id,
+        "issuer_id": command.issuer_id,
+        "portfolio_id": command.portfolio_id,
+        "create_idempotency_key": idempotency_key,
+        "create_request_sha256": request_sha256,
+        "name": command.name,
+        "signal_type": command.signal_type,
+        "enabled": command.enabled,
+        "paused": command.paused,
+        "current_version": 1,
+        "schedule_kind": command.schedule_kind,
+        "schedule_interval_seconds": command.schedule_interval_seconds,
+        "next_evaluation_at": command.next_evaluation_at,
+        "schedule_cursor": None,
+        "claim_token": None,
+        "claim_expires_at": None,
+        "last_evaluated_at": None,
+        "claim_attempt_count": 0,
+        "config_json": config_json,
+        "created_at": now,
+        "updated_at": now,
+    }
+    if idempotency_key is None:
+        rule = WatchRule(**rule_values)
+        db.add(rule)
+    else:
+        inserted_id = await db.scalar(
+            _watch_rule_insert(db.get_bind().dialect.name, rule_values)
+        )
+        rule = (
+            await db.execute(
+                select(WatchRule).where(
+                    WatchRule.tenant_id == tenant_id,
+                    WatchRule.owner_user_id == caller.id,
+                    WatchRule.create_idempotency_key == idempotency_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if rule is None:
+            raise WatchRuleValidationError("watch_rule_idempotency_insert_unresolved")
+        if inserted_id is None:
+            if rule.create_request_sha256 != request_sha256:
+                raise WatchRuleIdempotencyConflictError()
+            return rule
+
     version = WatchRuleVersion(
         id=str(uuid4()),
         watch_rule_id=rule_id,
@@ -348,7 +435,7 @@ async def create_watch_rule(
         config_json=config_json,
         created_at=now,
     )
-    db.add_all([rule, version])
+    db.add(version)
     await db.flush()
     return rule
 
@@ -441,6 +528,13 @@ async def update_watch_rule(
     }
     if rule.claim_token is not None and patch.model_fields_set & schedule_fields:
         raise WatchRuleValidationError("an actively claimed schedule cannot be changed")
+    terminal_schedule_resumed = (
+        "paused" in patch.model_fields_set
+        and patch.paused is False
+        and rule.paused is True
+        and rule.claim_attempt_count >= 5
+        and command.schedule_kind in {"interval", "edgar"}
+    )
     await _require_visible_scopes(
         db,
         caller,
@@ -464,6 +558,8 @@ async def update_watch_rule(
         rule.claim_token = None
         rule.claim_expires_at = None
         rule.last_evaluated_at = None
+        rule.claim_attempt_count = 0
+    elif terminal_schedule_resumed:
         rule.claim_attempt_count = 0
     rule.config_json = config_json
     rule.current_version = new_version
@@ -495,6 +591,7 @@ __all__ = [
     "UpdateWatchRulePatch",
     "WatchRuleConflictError",
     "WatchRuleError",
+    "WatchRuleIdempotencyConflictError",
     "WatchRuleNotFoundError",
     "WatchRuleValidationError",
     "create_watch_rule",

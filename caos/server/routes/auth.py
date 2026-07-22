@@ -30,9 +30,19 @@ import rate_limit
 from access_log import client_source, sanitize_field
 from config import get_settings, is_deployed
 from csrf import CSRF_COOKIE_NAME
-from database import Analyst, erase_analyst_data, get_db
+from database import (
+    Analyst,
+    case_insensitive_email_match,
+    erase_analyst_data,
+    get_db,
+)
 from identity import (
-    COOKIE_NAME, CallerIdentity, get_identity, make_session_token, read_session_token,
+    COOKIE_NAME,
+    CallerIdentity,
+    get_identity,
+    make_session_token,
+    normalize_email_identity,
+    read_session_token,
 )
 from passwords import hash_password, verify_password
 
@@ -226,12 +236,37 @@ async def create_profile(  # noqa: C901 — cohesive login flow (code gate + SSO
         raise HTTPException(422, "Name is required.")
 
     if sso_email:
-        sso_email = sanitize_field(sso_email)
-        analyst = (await db.execute(select(Analyst).where(Analyst.email == sso_email))).scalar_one_or_none()
+        sso_email = normalize_email_identity(sso_email)
+        matching_analysts = list(
+            (
+                await db.execute(
+                    select(Analyst)
+                    .where(
+                        case_insensitive_email_match(
+                            db,
+                            Analyst.email,
+                            sso_email,
+                        )
+                    )
+                    .order_by(Analyst.id)
+                    .limit(2)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if len(matching_analysts) > 1:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Ambiguous analyst email identity; resolve duplicate profiles.",
+            )
+        analyst = matching_analysts[0] if matching_analysts else None
         if analyst is None:
             analyst = Analyst(name=name, email=sso_email)
             db.add(analyst)
         else:
+            if analyst.email != sso_email:
+                analyst.email = sso_email
             if analyst.name != name:
                 analyst.name = name
             if analyst.password_hash or analyst.recovery_word_hashes:
@@ -410,6 +445,7 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
 
 @router.delete("/profile", status_code=200)
 async def delete_profile(
+    request: Request,
     response: Response,
     caller: CallerIdentity = Depends(get_identity),
     db: AsyncSession = Depends(get_db, scope="function"),
@@ -423,7 +459,28 @@ async def delete_profile(
     data, so it needs no admin role. Offboarding a *departed* analyst (who can no
     longer sign in) requires an operator path / RBAC that does not exist yet.
     """
-    summary = await erase_analyst_data(db, analyst_id=caller.id, email=caller.email or None)
+    identity_aliases = {caller.id}
+    forwarded_email = request.headers.get("x-forwarded-email")
+    forwarded_principal = request.headers.get("x-forwarded-user") or forwarded_email
+    # A valid profile cookie wins identity resolution, so caller.id is normally
+    # the profile UUID even when the request also traversed the edge proxy. Add
+    # the active historical proxy principal only when the verified edge email
+    # names this same profile; a mismatched header must never broaden erasure.
+    if (
+        forwarded_email
+        and forwarded_principal
+        and caller.email
+        and normalize_email_identity(forwarded_email)
+        == normalize_email_identity(caller.email)
+    ):
+        identity_aliases.add(sanitize_field(forwarded_principal))
+
+    summary = await erase_analyst_data(
+        db,
+        analyst_id=caller.profile_id or caller.id,
+        email=caller.email or None,
+        identity_aliases=tuple(identity_aliases),
+    )
     response.delete_cookie(COOKIE_NAME, path="/")
     response.delete_cookie(CSRF_COOKIE_NAME, path="/")
     return {"erased": summary}

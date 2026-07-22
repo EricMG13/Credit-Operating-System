@@ -11,15 +11,17 @@ const patchAlertEvent = vi.fn();
 const getDecisions = vi.fn();
 const reopenDecision = vi.fn();
 const getChunk = vi.fn();
+const getQA = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
-  getAlertEventPage: (...args: unknown[]) => getAlertEventPage(...args),
+  getAlertEventPage: async (...args: unknown[]) => ({ canMutate: true, ...await getAlertEventPage(...args) }),
   getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
   patchAlertEvent: (...args: unknown[]) => patchAlertEvent(...args),
   getDecisions: (...args: unknown[]) => getDecisions(...args),
   reopenDecision: (...args: unknown[]) => reopenDecision(...args),
   getChunk: (...args: unknown[]) => getChunk(...args),
+  getQA: (...args: unknown[]) => getQA(...args),
 }));
 
 const EVENT: AlertEventDTO = {
@@ -43,15 +45,7 @@ const EVENT: AlertEventDTO = {
 
 function Harness() {
   const controller = usePersistedMonitorController();
-  return <AlertInbox controller={controller} />;
-}
-
-function ConflictRaceHarness() {
-  const controller = usePersistedMonitorController();
-  return <>
-    <button type="button" onClick={() => void controller.mutateEvent("event-2", "ack").catch(() => undefined)}>Mutate sibling</button>
-    <AlertInbox controller={controller} />
-  </>;
+  return <><button type="button" onClick={() => void controller.refresh({ preserveReadyView: true })}>Refresh persisted alerts</button><AlertInbox controller={controller} /></>;
 }
 
 function deferred<T>() {
@@ -68,6 +62,7 @@ beforeEach(() => {
   getDecisions.mockReset().mockResolvedValue([]);
   reopenDecision.mockReset();
   getChunk.mockReset();
+  getQA.mockReset();
 });
 
 afterEach(() => {
@@ -76,19 +71,159 @@ afterEach(() => {
 });
 
 describe("AlertInbox · persisted event presentation", () => {
-  it("assigns through the event PATCH and preserves input for an explicit retry", async () => {
+  it("assigns through the event PATCH and retries the currently displayed assignee intent", async () => {
     patchAlertEvent
       .mockRejectedValueOnce(new Error("assignment unavailable"))
-      .mockResolvedValueOnce({ ...EVENT, assignee: "j.mora" });
+      .mockResolvedValueOnce({ ...EVENT, assignee: "s.lee" });
     render(<Harness />);
     const input = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "j.mora" } });
     fireEvent.click(screen.getByRole("button", { name: "Assign" }));
     expect((await screen.findByRole("alert")).textContent).toContain("assignment unavailable");
     expect(input.value).toBe("j.mora");
+    fireEvent.change(input, { target: { value: "s.lee" } });
+    expect(screen.getByRole("alert").textContent).toMatch(/retry submits the current draft/i);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "event-1", "open", { assignee: "j.mora" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "event-1", "open", { assignee: "s.lee" }));
     await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("states that input is preserved when an Ack transition can be retried", async () => {
+    patchAlertEvent.mockRejectedValueOnce(new Error("acknowledgment unavailable"));
+    render(<Harness />);
+    const input = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Desk owner" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ack" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Input was preserved.");
+    expect(alert.textContent).toContain("The workflow transition is available to retry.");
+    expect(input.value).toBe("Desk owner");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("drops desktop retry and draft custody after a successful authoritative refresh of the same row", async () => {
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [EVENT], nextCursor: null })
+      .mockResolvedValueOnce({ items: [{ ...EVENT, updated_at: "2026-07-20T10:05:00Z" }], nextCursor: null });
+    patchAlertEvent
+      .mockRejectedValueOnce(new Error("stale desktop assignment"))
+      .mockResolvedValueOnce({ ...EVENT, assignee: "Fresh analyst" });
+    render(<Harness />);
+    const input = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Stale analyst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("stale desktop assignment");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh persisted alerts" }));
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(input.value).toBe("");
+    expect(patchAlertEvent).toHaveBeenCalledOnce();
+
+    fireEvent.change(input, { target: { value: "Fresh analyst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "event-1", "open", { assignee: "Fresh analyst" }));
+  });
+
+  it("keeps desktop retry and current draft mounted when a preserve-view refresh fails", async () => {
+    getAlertEventPage
+      .mockResolvedValueOnce({ items: [EVENT], nextCursor: null })
+      .mockRejectedValueOnce(new Error("desktop refresh unavailable"));
+    patchAlertEvent
+      .mockRejectedValueOnce(new Error("recoverable desktop assignment"))
+      .mockResolvedValueOnce({ ...EVENT, assignee: "Recoverable analyst" });
+    render(<Harness />);
+    const input = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Recoverable analyst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("recoverable desktop assignment");
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh persisted alerts" }));
+    await waitFor(() => expect(getAlertEventPage).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Alert assignee")).toBe(input);
+    expect(input.value).toBe("Recoverable analyst");
+    expect(screen.getByRole("alert").textContent).toContain("recoverable desktop assignment");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "event-1", "open", { assignee: "Recoverable analyst" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.getByRole("button", { name: "Show resolved alerts" }).getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("retries the currently displayed resolution note instead of the failed captured payload", async () => {
+    patchAlertEvent
+      .mockRejectedValueOnce(new Error("resolution unavailable"))
+      .mockResolvedValueOnce({ ...EVENT, state: "resolved", resolution_note: "Current committee note" });
+    render(<Harness />);
+    await screen.findByText("QA gate changed");
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    const input = screen.getByLabelText("Alert resolution note") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Original committee note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm resolve" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("resolution unavailable");
+
+    fireEvent.change(input, { target: { value: "Current committee note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "event-1", "resolved", { resolutionNote: "Current committee note" }));
+  });
+
+  it("cancels a failed resolution draft together with its retry authority", async () => {
+    patchAlertEvent.mockRejectedValueOnce(new Error("resolution unavailable"));
+    render(<Harness />);
+    await screen.findByText("QA gate changed");
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    fireEvent.change(screen.getByLabelText("Alert resolution note"), {
+      target: { value: "Do not lose this committee note" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm resolve" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("resolution unavailable");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByLabelText("Alert resolution note")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(patchAlertEvent).toHaveBeenCalledOnce();
+  });
+
+  it("locks desktop assignee and resolution drafts until each submitted request settles", async () => {
+    const assignment = deferred<AlertEventDTO>();
+    const resolution = deferred<AlertEventDTO>();
+    patchAlertEvent
+      .mockReturnValueOnce(assignment.promise)
+      .mockReturnValueOnce(resolution.promise);
+    render(<Harness />);
+    const assignee = await screen.findByLabelText("Alert assignee") as HTMLInputElement;
+    fireEvent.change(assignee, { target: { value: "Alice" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    await waitFor(() => expect(assignee.disabled).toBe(true));
+    expect(patchAlertEvent).toHaveBeenNthCalledWith(1, "event-1", "open", { assignee: "Alice" });
+    const resolvedFilter = screen.getByRole("button", { name: "Show resolved alerts" });
+    expect(resolvedFilter.getAttribute("aria-disabled")).toBe("true");
+    expect((screen.getByLabelText("Select QA gate changed") as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(resolvedFilter);
+    expect(screen.getByText("QA gate changed")).toBeTruthy();
+
+    assignment.resolve({ ...EVENT, assignee: "Alice" });
+    await assignment.promise;
+    await waitFor(() => expect(assignee.value).toBe(""));
+
+    fireEvent.click(screen.getByRole("button", { name: "Resolve" }));
+    const note = screen.getByLabelText("Alert resolution note") as HTMLInputElement;
+    fireEvent.change(note, { target: { value: "Captured note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm resolve" }));
+    await waitFor(() => expect(note.disabled).toBe(true));
+    expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "event-1", "resolved", { resolutionNote: "Captured note" });
+
+    resolution.resolve({ ...EVENT, state: "resolved", resolution_note: "Captured note" });
+    await resolution.promise;
+    await waitFor(() => expect(screen.queryByLabelText("Alert resolution note")).toBeNull());
   });
 
   it("reconciles a lifecycle conflict before another action without exposing a stale retry", async () => {
@@ -111,7 +246,8 @@ describe("AlertInbox · persisted event presentation", () => {
     expect(patchAlertEvent).toHaveBeenCalledTimes(1);
 
     reload.resolve({ items: [{ ...EVENT, state: "ack", assignee: "other.analyst" }], nextCursor: null });
-    expect(await screen.findByText(/Persisted events were reloaded/)).toBeTruthy();
+    const conflictCopy = await screen.findByText(/Persisted events were reloaded/);
+    expect(conflictCopy.closest('[role="alert"]')?.textContent).not.toMatch(/retry submits the current draft/i);
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(screen.getByLabelText("Alert assignee")).toBe(input);
     expect(input.value).toBe("j.mora");
@@ -120,176 +256,35 @@ describe("AlertInbox · persisted event presentation", () => {
     await waitFor(() => expect(patchAlertEvent).toHaveBeenNthCalledWith(2, "event-1", "ack", { assignee: "j.mora" }));
   });
 
-  it("waits for a pre-conflict sibling mutation before loading final authority and never lets its late response clobber resolved notes", async () => {
+  it("blocks ordinary row mutations while a captured batch is pending", async () => {
+    const firstMutation = deferred<AlertEventDTO>();
     const siblingMutation = deferred<AlertEventDTO>();
     const sibling: AlertEventDTO = {
       ...EVENT,
       id: "event-2",
       alert_key: "c3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      title: "Sibling mutation",
-    };
-    getAlertEventPage
-      .mockResolvedValueOnce({ items: [EVENT, sibling], nextCursor: null })
-      .mockResolvedValueOnce({ items: [
-        { ...EVENT, state: "resolved", resolution_note: "Resolved by persisted authority." },
-        { ...sibling, state: "resolved", resolution_note: "Sibling resolved by persisted authority." },
-      ], nextCursor: null });
-    patchAlertEvent.mockImplementation((id: string) => {
-      if (id === "event-2") return siblingMutation.promise;
-      return Promise.reject({ response: { status: 409, data: { detail: "Cannot move resolved alert back to open." } } });
-    });
-    render(<ConflictRaceHarness />);
-    await screen.findByText("Sibling mutation");
-
-    fireEvent.click(screen.getByRole("button", { name: "Mutate sibling" }));
-    const input = screen.getAllByLabelText("Alert assignee")[0] as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "j.mora" } });
-    const assign = screen.getAllByRole("button", { name: "Assign" })[0]!;
-    fireEvent.click(assign);
-    await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledTimes(2));
-    expect(getAlertEventPage).toHaveBeenCalledTimes(1);
-    expect(assign.getAttribute("aria-disabled")).toBe("true");
-
-    siblingMutation.resolve({ ...sibling, state: "ack", note: "Sibling write completed." });
-    await siblingMutation.promise;
-
-    expect(await screen.findByText("resolved: Resolved by persisted authority.")).toBeTruthy();
-    expect(screen.getByText("resolved: Sibling resolved by persisted authority.")).toBeTruthy();
-    expect(getAlertEventPage).toHaveBeenCalledTimes(2);
-    expect(patchAlertEvent).toHaveBeenCalledTimes(2);
-    expect(screen.queryByRole("button", { name: "Reload persisted alerts" })).toBeNull();
-    expect(input.isConnected).toBe(false);
-    expect(screen.queryByLabelText("Alert assignee")).toBeNull();
-  });
-
-  it("does not issue a post-drain authority GET after unmount", async () => {
-    const siblingMutation = deferred<AlertEventDTO>();
-    const sibling: AlertEventDTO = {
-      ...EVENT,
-      id: "event-2",
-      alert_key: "c3:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      title: "Unmounted sibling mutation",
-    };
-    getAlertEventPage.mockResolvedValueOnce({ items: [EVENT, sibling], nextCursor: null });
-    patchAlertEvent.mockImplementation((id: string) => id === sibling.id
-      ? siblingMutation.promise
-      : Promise.reject({ response: { status: 409, data: { detail: "Row lifecycle changed." } } }));
-    const rendered = render(<ConflictRaceHarness />);
-    await screen.findByText("Unmounted sibling mutation");
-    fireEvent.click(screen.getByRole("button", { name: "Mutate sibling" }));
-    fireEvent.change(screen.getAllByLabelText("Alert assignee")[0]!, { target: { value: "j.mora" } });
-    fireEvent.click(screen.getAllByRole("button", { name: "Assign" })[0]!);
-    await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledTimes(2));
-    expect(getAlertEventPage).toHaveBeenCalledTimes(1);
-
-    rendered.unmount();
-    await act(async () => {
-      siblingMutation.resolve({ ...sibling, state: "ack" });
-      await siblingMutation.promise;
-    });
-    expect(getAlertEventPage).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not expose an ordinary batch retry after an unrelated row conflict raises reload authority", async () => {
-    const batchFailure = deferred<AlertEventDTO>();
-    const batchSuccess = deferred<AlertEventDTO>();
-    const reconciliation = deferred<{ items: AlertEventDTO[]; nextCursor: null }>();
-    const second: AlertEventDTO = {
-      ...EVENT,
-      id: "event-2",
-      alert_key: "c3:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       title: "Batch sibling",
     };
-    const third: AlertEventDTO = {
-      ...EVENT,
-      id: "event-3",
-      alert_key: "c3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      title: "Conflicted row",
-    };
-    getAlertEventPage
-      .mockResolvedValueOnce({ items: [EVENT, second, third], nextCursor: null })
-      .mockReturnValueOnce(reconciliation.promise);
-    patchAlertEvent.mockImplementation((id: string) => {
-      if (id === EVENT.id) return batchFailure.promise;
-      if (id === second.id) return batchSuccess.promise;
-      return Promise.reject({ response: { status: 409, data: { detail: "Row lifecycle changed." } } });
-    });
+    getAlertEventPage.mockResolvedValueOnce({ items: [EVENT, sibling], nextCursor: null });
+    patchAlertEvent
+      .mockReturnValueOnce(firstMutation.promise)
+      .mockReturnValueOnce(siblingMutation.promise);
     render(<Harness />);
-    await screen.findByText("Conflicted row");
+    await screen.findByText("Batch sibling");
     fireEvent.click(screen.getByRole("checkbox", { name: `Select ${EVENT.title}` }));
-    fireEvent.click(screen.getByRole("checkbox", { name: `Select ${second.title}` }));
+    fireEvent.click(screen.getByRole("checkbox", { name: `Select ${sibling.title}` }));
     fireEvent.click(screen.getAllByRole("button", { name: "Ack" })[0]!);
+    await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledTimes(2));
+    const assignees = screen.getAllByLabelText("Alert assignee") as HTMLInputElement[];
+    const assigns = screen.getAllByRole("button", { name: "Assign" });
+    expect(assignees.every((input) => input.disabled)).toBe(true);
+    expect(assigns.every((button) => button.getAttribute("aria-disabled") === "true")).toBe(true);
+    fireEvent.click(assigns[1]!);
+    expect(patchAlertEvent).toHaveBeenCalledTimes(2);
 
-    const thirdAssignee = screen.getAllByLabelText("Alert assignee")[2]!;
-    fireEvent.change(thirdAssignee, { target: { value: "j.mora" } });
-    fireEvent.click(screen.getAllByRole("button", { name: "Assign" })[2]!);
-    await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledTimes(3));
-
-    batchFailure.reject(new Error("ordinary batch transport failure"));
-    batchSuccess.resolve({ ...second, state: "ack" });
-    await Promise.allSettled([batchFailure.promise, batchSuccess.promise]);
-    expect(await screen.findByText(/ordinary batch transport failure/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Retry acknowledgment" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Reload persisted alerts" })).toBeTruthy();
-    expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
-
-    reconciliation.resolve({ items: [EVENT, { ...second, state: "ack" }, { ...third, state: "resolved", resolution_note: "Resolved elsewhere." }], nextCursor: null });
-    expect(await screen.findByText("resolved: Resolved elsewhere.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Reload persisted alerts" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Retry acknowledgment" })).toBeNull();
-  });
-
-  it("withdraws an existing ordinary batch retry when an already-pending row later raises reload authority", async () => {
-    const batchFailure = deferred<AlertEventDTO>();
-    const batchSuccess = deferred<AlertEventDTO>();
-    const rowConflict = deferred<AlertEventDTO>();
-    const reconciliation = deferred<{ items: AlertEventDTO[]; nextCursor: null }>();
-    const second: AlertEventDTO = {
-      ...EVENT,
-      id: "event-2",
-      alert_key: "c3:abababababababababababababababababababababababababababababababab",
-      title: "Reverse-order batch sibling",
-    };
-    const third: AlertEventDTO = {
-      ...EVENT,
-      id: "event-3",
-      alert_key: "c3:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
-      title: "Reverse-order conflicted row",
-    };
-    getAlertEventPage
-      .mockResolvedValueOnce({ items: [EVENT, second, third], nextCursor: null })
-      .mockReturnValueOnce(reconciliation.promise);
-    patchAlertEvent.mockImplementation((id: string) => {
-      if (id === EVENT.id) return batchFailure.promise;
-      if (id === second.id) return batchSuccess.promise;
-      return rowConflict.promise;
-    });
-    render(<Harness />);
-    await screen.findByText("Reverse-order conflicted row");
-    fireEvent.click(screen.getByRole("checkbox", { name: `Select ${EVENT.title}` }));
-    fireEvent.click(screen.getByRole("checkbox", { name: `Select ${second.title}` }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Ack" })[0]!);
-    fireEvent.change(screen.getAllByLabelText("Alert assignee")[2]!, { target: { value: "j.mora" } });
-    fireEvent.click(screen.getAllByRole("button", { name: "Assign" })[2]!);
-    await waitFor(() => expect(patchAlertEvent).toHaveBeenCalledTimes(3));
-
-    batchFailure.reject(new Error("reverse-order batch failure"));
-    batchSuccess.resolve({ ...second, state: "ack" });
-    await Promise.allSettled([batchFailure.promise, batchSuccess.promise]);
-    expect(await screen.findByRole("button", { name: "Retry acknowledgment" })).toBeTruthy();
-
-    rowConflict.reject({ response: { status: 409, data: { detail: "Row lifecycle changed." } } });
-    await rowConflict.promise.catch(() => undefined);
-    expect(await screen.findByRole("button", { name: "Reload persisted alerts" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Retry acknowledgment" })).toBeNull();
-    expect(document.body.textContent).not.toMatch(/retry acknowledgment/i);
-    expect(document.body.textContent).toMatch(/authoritative reload is required/i);
-    expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
-
-    reconciliation.resolve({ items: [EVENT, { ...second, state: "ack" }, { ...third, state: "resolved", resolution_note: "Resolved elsewhere." }], nextCursor: null });
-    expect(await screen.findByText("resolved: Resolved elsewhere.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Reload persisted alerts" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Retry acknowledgment" })).toBeNull();
+    firstMutation.resolve({ ...EVENT, state: "ack" });
+    siblingMutation.resolve({ ...sibling, state: "ack" });
+    await Promise.all([firstMutation.promise, siblingMutation.promise]);
   });
 
   it("opens only an explicitly typed persisted chunk reference", async () => {
@@ -303,6 +298,34 @@ describe("AlertInbox · persisted event presentation", () => {
     expect(await screen.findByText("Persisted extract.")).toBeTruthy();
     expect(screen.getByText("Governed filing · source extract").className).toContain("min-h-8");
     expect(getChunk).toHaveBeenCalledWith("chunk-7");
+  });
+
+  it("opens the governed run QA report for the real run-finding materialization shape", async () => {
+    getAlertEventPage.mockResolvedValue({ items: [{
+      ...EVENT,
+      kind: "run_finding",
+      run_id: "run-1",
+      evidence: {
+        observed_at: "2026-07-20T10:00:00Z",
+        detail: { run_id: "run-1", finding_row_id: "row-7", finding_id: "CP5-001", severity: "MATERIAL" },
+        source_artifact_refs: ["run:run-1", "qa_finding:row-7"],
+      },
+    }], nextCursor: null });
+    getQA.mockResolvedValue({
+      run_id: "run-1",
+      qa_status: "Blocked",
+      committee_status: "Not Ready",
+      findings_by_severity: { MATERIAL: 1 },
+      findings: [{ finding_id: "CP5-001", severity: "MATERIAL", lane: 5, module_id: "CP-5", description: "Attach governed support.", affected_claim_id: null, required_remediation: "Rerun CP-5." }],
+    });
+    render(<Harness />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open source run:run-1" }));
+
+    expect(await screen.findByText(/Run run-1 · QA Blocked · committee Not Ready/)).toBeTruthy();
+    expect(screen.getByText(/CP5-001 · MATERIAL · Attach governed support/)).toBeTruthy();
+    expect(getQA).toHaveBeenCalledWith("run-1");
+    expect(getChunk).not.toHaveBeenCalled();
   });
 
   it("preserves the material-alert IC reopen workflow with retry and a synchronous duplicate fence", async () => {

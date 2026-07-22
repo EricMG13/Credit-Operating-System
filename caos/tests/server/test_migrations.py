@@ -72,6 +72,14 @@ def test_watch_rule_revision_follows_notification_action_label() -> None:
     assert migration.down_revision == "0065"
 
 
+def test_watch_rule_create_idempotency_follows_json_storage_envelopes() -> None:
+    migration = importlib.import_module(
+        "migrations.versions.0068_watch_rule_create_idempotency"
+    )
+    assert migration.revision == "0068"
+    assert migration.down_revision == "0067"
+
+
 def test_check_matches_models(tmp_path: Path) -> None:
     db = f"sqlite+aiosqlite:///{tmp_path/'check.db'}"
     up = _alembic("upgrade", "head", db_url=db)

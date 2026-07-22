@@ -299,6 +299,17 @@ async def claim_rule_evaluation(
     observation: SignalObservation,
 ) -> EvaluationClaim:
     """Insert or get one observed evaluation without committing the transaction."""
+    if not isinstance(observation, SignalObservation):
+        raise EvaluationClaimError("invalid_observation")
+    # Own and revalidate the complete nested observation before the first await.
+    # Frozen Pydantic models still expose mutable nested JSON references, and
+    # model_copy updates bypass validators unless explicitly revalidated.
+    try:
+        observation = SignalObservation.model_validate_json(
+            observation.model_dump_json()
+        )
+    except (TypeError, ValueError, ValidationError) as exc:
+        raise EvaluationClaimError("invalid_observation") from exc
     row = (
         await db.execute(
             select(WatchRule, WatchRuleVersion)

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -10,6 +13,8 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from alert_contracts import SignalObservation, SubjectScope
+from alert_triggers import claim_scheduled_rule
 from config import get_settings
 from database import (
     Base,
@@ -23,8 +28,10 @@ from identity import CallerIdentity
 from watch_rules import (
     CreateWatchRuleCommand,
     RuleConfig,
+    SHARED_TENANT_ID,
     UpdateWatchRulePatch,
     WatchRuleConflictError,
+    WatchRuleIdempotencyConflictError,
     WatchRuleNotFoundError,
     WatchRuleValidationError,
     create_watch_rule,
@@ -33,6 +40,29 @@ from watch_rules import (
 
 
 NOW = datetime(2026, 7, 20, 12, tzinfo=timezone.utc)
+
+
+def _exact_canonical_json_object(maximum: int) -> dict[str, str]:
+    """Build an object whose compact, UTF-8 wire form is exactly ``maximum``."""
+    payload = {"payload": ""}
+    empty_size = len(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    unicode_units, ascii_remainder = divmod(maximum - empty_size, 2)
+    payload["payload"] = "é" * unicode_units + "x" * ascii_remainder
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    assert len(encoded) == maximum
+    return payload
 
 
 def _caller(
@@ -327,6 +357,178 @@ async def test_create_derives_shared_scope_and_never_accepts_identity_stamps(
 
 
 @pytest.mark.asyncio
+async def test_create_idempotency_replays_one_rule_and_keeps_caller_transaction(
+    rule_db, monkeypatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", False)
+    command = _command(name="Durable create")
+    key = "watch-rule-create-retry-1"
+
+    async with rule_db() as session:
+        async with session.begin():
+            first = await create_watch_rule(
+                session, _caller(), command, idempotency_key=key
+            )
+        first_id = first.id
+
+    async with rule_db() as session:
+        async with session.begin():
+            replay = await create_watch_rule(
+                session, _caller(), command, idempotency_key=key
+            )
+            assert replay.id == first_id
+            with pytest.raises(WatchRuleIdempotencyConflictError):
+                await create_watch_rule(
+                    session,
+                    _caller(),
+                    _command(name="Changed analyst intent"),
+                    idempotency_key=key,
+                )
+            # The conflict must not roll back or poison the caller-owned
+            # transaction; an unrelated write can still commit.
+            unrelated = await create_watch_rule(
+                session, _caller(), _command(name="Unrelated transaction write")
+            )
+        unrelated_id = unrelated.id
+
+    async with rule_db() as session:
+        rules = (
+            (
+                await session.execute(
+                    select(WatchRule).where(
+                        WatchRule.name.in_(
+                            ("Durable create", "Unrelated transaction write")
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert {rule.id for rule in rules} == {first_id, unrelated_id}
+        durable = next(rule for rule in rules if rule.id == first_id)
+        assert durable.create_idempotency_key == key
+        assert len(durable.create_request_sha256) == 64
+        assert await session.scalar(
+            select(func.count())
+            .select_from(WatchRuleVersion)
+            .where(WatchRuleVersion.watch_rule_id == first_id)
+        ) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_idempotency_key_is_scoped_by_derived_tenant_and_owner(
+    rule_db, monkeypatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", True)
+    key = "common-client-generated-key"
+    async with rule_db() as session:
+        async with session.begin():
+            alice = await create_watch_rule(
+                session,
+                _caller("alice", team_id="desk-a"),
+                _command(),
+                idempotency_key=key,
+            )
+            bob = await create_watch_rule(
+                session,
+                _caller("bob", team_id="desk-a"),
+                _command(),
+                idempotency_key=key,
+            )
+            other_tenant = await create_watch_rule(
+                session,
+                _caller("alice", team_id="desk-b"),
+                _command(),
+                idempotency_key=key,
+            )
+
+    assert len({alice.id, bob.id, other_tenant.id}) == 3
+
+
+@pytest.mark.asyncio
+async def test_concurrent_create_retries_converge_on_one_rule_and_version(
+    rule_db, monkeypatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", False)
+    command = _command(name="Concurrent durable create")
+    key = "concurrent-watch-rule-create"
+
+    async def create_once() -> str:
+        async with rule_db() as session:
+            async with session.begin():
+                rule = await create_watch_rule(
+                    session, _caller(), command, idempotency_key=key
+                )
+            return rule.id
+
+    first_id, second_id = await asyncio.gather(create_once(), create_once())
+    assert first_id == second_id
+
+    async with rule_db() as session:
+        assert await session.scalar(
+            select(func.count())
+            .select_from(WatchRule)
+            .where(WatchRule.create_idempotency_key == key)
+        ) == 1
+        assert await session.scalar(
+            select(func.count())
+            .select_from(WatchRuleVersion)
+            .where(WatchRuleVersion.watch_rule_id == first_id)
+        ) == 1
+
+
+@pytest.mark.asyncio
+async def test_wire_valid_near_limit_unicode_detail_persists(rule_db, monkeypatch) -> None:
+    """Dialect serialization expansion must not reject a wire-valid observation."""
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", False)
+    detail = _exact_canonical_json_object(64 * 1024)
+    correlation = uuid4()
+    observation = SignalObservation(
+        signal_type="run_finding",
+        subject_scope=SubjectScope(
+            tenant_id=SHARED_TENANT_ID,
+            issuer_id=None,
+            portfolio_id=None,
+        ),
+        source_identity="manual:near-limit",
+        observed_at=NOW,
+        detail=detail,
+        correlation_id=correlation,
+        correlation_root_id=correlation,
+        hop_count=0,
+    )
+
+    async with rule_db() as session:
+        rule = await create_watch_rule(session, _caller(), _command())
+        session.add(
+            WatchRuleEvaluation(
+                tenant_id=rule.tenant_id,
+                owner_user_id=rule.owner_user_id,
+                team_id_snapshot=rule.team_id_snapshot,
+                watch_rule_id=rule.id,
+                rule_version=rule.current_version,
+                signal_type=observation.signal_type,
+                subject_scope_json=observation.subject_scope.model_dump(mode="json"),
+                source_identity=observation.source_identity,
+                observation_key="f" * 64,
+                outcome="observed",
+                correlation_id=str(correlation),
+                correlation_root_id=str(correlation),
+                hop_count=0,
+                evaluated_at=NOW,
+                detail_json=observation.detail,
+            )
+        )
+        await session.commit()
+
+    async with rule_db() as session:
+        persisted = await session.scalar(select(WatchRuleEvaluation))
+        assert persisted is not None
+        assert persisted.detail_json == detail
+
+
+@pytest.mark.asyncio
 async def test_create_uses_team_or_unassigned_scope_when_tenancy_is_enabled(
     rule_db, monkeypatch
 ) -> None:
@@ -539,6 +741,50 @@ async def test_update_preserves_schedule_invariants_without_partial_mutation(
         )
         assert updated.current_version == 2
         assert updated.next_evaluation_at == NOW
+
+
+@pytest.mark.asyncio
+async def test_explicit_terminal_schedule_resume_resets_attempts_and_is_claimable(
+    rule_db, monkeypatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "caos_tenancy_enabled", False)
+    watermark = NOW - timedelta(hours=1)
+    async with rule_db() as session:
+        rule = await create_watch_rule(
+            session,
+            _caller(),
+            _command(
+                paused=True,
+                schedule_kind="interval",
+                schedule_interval_seconds=60,
+                next_evaluation_at=NOW - timedelta(minutes=1),
+            ),
+        )
+        rule.claim_attempt_count = 5
+        rule.schedule_cursor = "retained-cursor"
+        rule.last_evaluated_at = watermark
+        await session.commit()
+
+        resumed = await update_watch_rule(
+            session,
+            _caller(),
+            rule.id,
+            1,
+            UpdateWatchRulePatch(paused=False),
+        )
+        assert resumed.claim_attempt_count == 0
+        assert resumed.schedule_cursor == "retained-cursor"
+        persisted_watermark = resumed.last_evaluated_at
+        if persisted_watermark.tzinfo is None:
+            persisted_watermark = persisted_watermark.replace(tzinfo=timezone.utc)
+        assert persisted_watermark == watermark
+        await session.commit()
+
+    async with rule_db() as session:
+        claim = await claim_scheduled_rule(session, now=NOW)
+        assert claim is not None
+        assert claim.rule_id == UUID(rule.id)
+        assert claim.attempt_count == 1
 
 
 @pytest.mark.asyncio

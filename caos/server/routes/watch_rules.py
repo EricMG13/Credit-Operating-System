@@ -10,7 +10,7 @@ import json
 from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from pydantic import (
     AwareDatetime,
     BaseModel,
@@ -41,13 +41,19 @@ from database import (
     WatchRuleVersion,
     get_db,
 )
-from identity import CallerIdentity, get_identity, get_write_identity
+from identity import (
+    CallerIdentity,
+    get_c3_identity,
+    get_c3_write_identity,
+    require_write_role,
+)
 from tenancy import tenancy_enabled
 from watch_rules import (
     CreateWatchRuleCommand,
     RuleConfig,
     UpdateWatchRulePatch,
     WatchRuleConflictError,
+    WatchRuleIdempotencyConflictError,
     WatchRuleNotFoundError,
     WatchRuleValidationError,
     _require_visible_scopes,
@@ -70,6 +76,7 @@ _EVALUATE_LIMIT = 12
 _LIST_MAX = 100
 _CURSOR_MAX = 2048
 _CURSOR_VERSION = 1
+_CAN_CREATE_HEADER = "X-Watch-Rule-Can-Create"
 _UNAVAILABLE_SIGNALS = frozenset({"edgar_filing", "market_move", "news"})
 _APPROVED_SINKS = (
     EmailSink(destination_ref="owner-email-route", max_attempts=5),
@@ -171,6 +178,7 @@ class WatchRuleOut(_StrictModel):
     paused: bool
     issuer_id: str | None
     portfolio_id: str | None
+    can_mutate: bool
     current_version: int
     schedule_kind: str
     schedule_interval_seconds: int | None
@@ -196,11 +204,20 @@ def _utc(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
-def _rule_out(rule: WatchRule) -> WatchRuleOut:
+def _rule_out(rule: WatchRule, caller: CallerIdentity) -> WatchRuleOut:
     try:
         config = RuleConfig.model_validate(rule.config_json)
     except (TypeError, ValueError) as exc:
         raise HTTPException(409, "watch_rule_invalid") from exc
+    try:
+        require_write_role(caller)
+    except HTTPException:
+        can_mutate = False
+    else:
+        can_mutate = (
+            rule.owner_user_id == caller.id
+            or caller.role.strip().lower() == "admin"
+        )
     return WatchRuleOut(
         id=UUID(rule.id),
         name=rule.name,
@@ -209,6 +226,7 @@ def _rule_out(rule: WatchRule) -> WatchRuleOut:
         paused=rule.paused,
         issuer_id=rule.issuer_id,
         portfolio_id=rule.portfolio_id,
+        can_mutate=can_mutate,
         current_version=rule.current_version,
         schedule_kind=rule.schedule_kind,
         schedule_interval_seconds=rule.schedule_interval_seconds,
@@ -383,7 +401,8 @@ def _rate_limit(caller: CallerIdentity, *, lane: str, maximum: int) -> None:
 async def create_rule(
     body: CreateWatchRuleRequest,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_write_identity),
+    caller: CallerIdentity = Depends(get_c3_write_identity),
+    idempotency_key: str = Header(alias="Idempotency-Key"),
 ):
     try:
         await _require_visible_scopes(
@@ -396,12 +415,16 @@ async def create_rule(
         raise HTTPException(404, "watch_rule_not_found") from None
     _rate_limit(caller, lane="write", maximum=_WRITE_LIMIT)
     try:
-        rule = await create_watch_rule(db, caller, body)
+        rule = await create_watch_rule(
+            db, caller, body, idempotency_key=idempotency_key
+        )
     except WatchRuleNotFoundError:
         raise HTTPException(404, "watch_rule_not_found") from None
+    except WatchRuleIdempotencyConflictError:
+        raise HTTPException(409, "watch_rule_idempotency_conflict") from None
     except WatchRuleValidationError:
         raise HTTPException(422, "watch_rule_invalid") from None
-    return _rule_out(rule)
+    return _rule_out(rule, caller)
 
 
 @router.get("", response_model=list[WatchRuleOut])
@@ -415,8 +438,14 @@ async def list_rules(
     portfolio_id: str | None = Query(default=None, min_length=1, max_length=36),
     name_prefix: str | None = Query(default=None, min_length=1, max_length=160),
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_c3_identity),
 ):
+    try:
+        require_write_role(caller)
+    except HTTPException:
+        response.headers[_CAN_CREATE_HEADER] = "false"
+    else:
+        response.headers[_CAN_CREATE_HEADER] = "true"
     fingerprint = _filter_fingerprint(
         caller=caller,
         signal_type=signal_type,
@@ -460,16 +489,16 @@ async def list_rules(
         response.headers["X-Next-Cursor"] = _encode_cursor(
             fingerprint=fingerprint, row=page[-1]
         )
-    return [_rule_out(row) for row in page]
+    return [_rule_out(row, caller) for row in page]
 
 
 @router.get("/{rule_id}", response_model=WatchRuleOut)
 async def get_rule(
     rule_id: str,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_c3_identity),
 ):
-    return _rule_out(await _visible_rule(db, caller, rule_id))
+    return _rule_out(await _visible_rule(db, caller, rule_id), caller)
 
 
 @router.patch("/{rule_id}", response_model=WatchRuleOut)
@@ -477,7 +506,7 @@ async def patch_rule(
     rule_id: str,
     body: WatchRulePatchRequest,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_write_identity),
+    caller: CallerIdentity = Depends(get_c3_write_identity),
 ):
     await _visible_rule(db, caller, rule_id, mutation=True)
     _rate_limit(caller, lane="write", maximum=_WRITE_LIMIT)
@@ -495,7 +524,7 @@ async def patch_rule(
         raise HTTPException(409, "watch_rule_version_conflict") from None
     except WatchRuleValidationError:
         raise HTTPException(422, "watch_rule_invalid") from None
-    return _rule_out(rule)
+    return _rule_out(rule, caller)
 
 
 @router.post("/{rule_id}/evaluate", response_model=ManualEvaluationOut)
@@ -503,7 +532,7 @@ async def evaluate_rule_manually(
     rule_id: str,
     body: ManualEvaluationRequest,
     db: AsyncSession = Depends(get_db, scope="function"),
-    caller: CallerIdentity = Depends(get_write_identity),
+    caller: CallerIdentity = Depends(get_c3_write_identity),
 ):
     rule = await _visible_rule(db, caller, rule_id, mutation=True, lock=True)
     _rate_limit(caller, lane="evaluate", maximum=_EVALUATE_LIMIT)

@@ -22,7 +22,7 @@ def test_run_model_has_lease_columns():
 
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select, text
 from sqlalchemy.exc import IntegrityError
 
 
@@ -651,6 +651,64 @@ async def test_sqlite_uses_wal_and_busy_timeout():
     con.close()
     assert mode.lower() == "wal"
     await db_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_sqlite_enforces_foreign_keys(seeded_db):
+    from database import AsyncSessionLocal, Run, engine as db_engine
+
+    if db_engine.dialect.name != "sqlite":
+        pytest.skip("sqlite-only pragma check")
+
+    async with db_engine.connect() as connection:
+        assert await connection.scalar(text("PRAGMA foreign_keys")) == 1
+
+    async with AsyncSessionLocal() as session:
+        session.add(
+            Run(
+                issuer_id="00000000-0000-0000-0000-ffffffffffff",
+                analyst_id="foreign-key-test",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await session.commit()
+        await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_test_transactions_defer_but_still_resolve_foreign_keys(
+    seeded_db,
+):
+    """Valid unordered fixtures may settle before commit; no orphan may commit."""
+    from uuid import uuid4
+
+    from database import AsyncSessionLocal, Issuer, Run, engine as db_engine
+
+    if db_engine.dialect.name != "sqlite":
+        pytest.skip("sqlite-only deferred fixture contract")
+
+    issuer_id = str(uuid4())
+    run_id = str(uuid4())
+    async with AsyncSessionLocal() as session:
+        session.add_all(
+            [
+                Issuer(
+                    id=issuer_id,
+                    name="Deferred fixture issuer",
+                    normalized_name=f"deferred fixture issuer {issuer_id}",
+                    created_by="test",
+                ),
+                Run(id=run_id, issuer_id=issuer_id, analyst_id="test"),
+            ]
+        )
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        # Exercise cleanup SQL in the order that previously failed immediately;
+        # the transaction is valid by commit because the dependent is also gone.
+        await session.execute(delete(Issuer).where(Issuer.id == issuer_id))
+        await session.execute(delete(Run).where(Run.id == run_id))
+        await session.commit()
 
 
 @pytest.mark.asyncio

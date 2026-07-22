@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
@@ -211,6 +213,56 @@ async def test_completed_run_trigger_reads_only_after_commit(trigger_store) -> N
 
 
 @pytest.mark.asyncio
+async def test_completed_run_never_applies_rules_created_or_edited_after_completion(
+    trigger_store,
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-historical-fence",
+                name="Historical Fence Issuer",
+                normalized_name="historical fence issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW - timedelta(days=2),
+            )
+        )
+        created_late = await _add_rule(
+            session, issuer_id="issuer-historical-fence"
+        )
+        created_late.created_at = NOW + timedelta(minutes=1)
+        created_late.updated_at = NOW + timedelta(minutes=1)
+        edited_late = await _add_rule(
+            session, issuer_id="issuer-historical-fence"
+        )
+        edited_late.updated_at = NOW + timedelta(minutes=1)
+        session.add(
+            Run(
+                id="run-before-current-rules",
+                issuer_id="issuer-historical-fence",
+                analyst_id="alice",
+                status="complete",
+                qa_status="critical",
+                completed_at=NOW,
+                created_at=NOW - timedelta(minutes=5),
+            )
+        )
+        await session.commit()
+
+    result = await trigger_completed_run(
+        "run-before-current-rules", session_factory=trigger_store
+    )
+
+    assert result == alert_triggers.RunTriggerResult(status="evaluated")
+    async with trigger_store() as verify:
+        assert await verify.scalar(
+            select(func.count()).select_from(WatchRuleEvaluation)
+        ) == 0
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 0
+
+
+@pytest.mark.asyncio
 async def test_completed_run_uses_governed_finding_identity_and_replay_dedupes(
     trigger_store,
 ) -> None:
@@ -388,6 +440,130 @@ async def test_portfolio_scoped_rule_snapshot_requires_exact_current_book_visibi
     result = await trigger_completed_run(run_id, session_factory=trigger_store)
     assert result.observations == 1
     assert result.materialized == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("late_state", ["position", "portfolio_update"])
+async def test_completed_run_uses_historical_portfolio_authority(
+    trigger_store,
+    late_state: str,
+) -> None:
+    async with trigger_store() as session:
+        session.add_all(
+            [
+                Issuer(
+                    id=f"issuer-historical-{late_state}",
+                    name="Historical Portfolio Issuer",
+                    normalized_name=f"historical portfolio issuer {late_state}",
+                    team_id=None,
+                    uniqueness_scope="shared",
+                    created_by="seed",
+                    created_at=NOW - timedelta(days=2),
+                ),
+                Portfolio(
+                    id=f"pf-historical-{late_state}",
+                    name="Historical Portfolio",
+                    team_id="desk-a",
+                    created_by="alice",
+                    created_at=NOW - timedelta(days=2),
+                    updated_at=(
+                        NOW + timedelta(minutes=1)
+                        if late_state == "portfolio_update"
+                        else NOW - timedelta(days=1)
+                    ),
+                ),
+            ]
+        )
+        await session.flush()
+        session.add(
+            PortfolioPosition(
+                portfolio_id=f"pf-historical-{late_state}",
+                issuer_id=f"issuer-historical-{late_state}",
+                borrower_name="Historical Portfolio Issuer",
+                par_usd=1_000_000,
+                created_at=(
+                    NOW + timedelta(minutes=1)
+                    if late_state == "position"
+                    else NOW - timedelta(days=1)
+                ),
+            )
+        )
+        valid_rule = await _add_rule(
+            session,
+            issuer_id=f"issuer-historical-{late_state}",
+        )
+        await _add_rule(
+            session,
+            issuer_id=f"issuer-historical-{late_state}",
+            portfolio_id=f"pf-historical-{late_state}",
+        )
+        session.add(
+            Run(
+                id=f"run-historical-{late_state}",
+                issuer_id=f"issuer-historical-{late_state}",
+                portfolio_id=f"pf-historical-{late_state}",
+                analyst_id="alice",
+                status="complete",
+                qa_status="critical",
+                completed_at=NOW,
+                created_at=NOW - timedelta(minutes=5),
+            )
+        )
+        await session.commit()
+
+    result = await trigger_completed_run(
+        f"run-historical-{late_state}", session_factory=trigger_store
+    )
+
+    assert result.observations == 1
+    assert result.materialized == 1
+    async with trigger_store() as verify:
+        evaluations = (await verify.execute(select(WatchRuleEvaluation))).scalars().all()
+        assert [evaluation.watch_rule_id for evaluation in evaluations] == [
+            valid_rule.id
+        ]
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 1
+
+
+@pytest.mark.asyncio
+async def test_completed_run_rejects_issuer_created_after_observation(
+    trigger_store,
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-created-after-run",
+                name="Future Issuer",
+                normalized_name="future issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW + timedelta(minutes=1),
+            )
+        )
+        await _add_rule(session, issuer_id="issuer-created-after-run")
+        session.add(
+            Run(
+                id="run-before-issuer",
+                issuer_id="issuer-created-after-run",
+                analyst_id="alice",
+                status="complete",
+                qa_status="critical",
+                completed_at=NOW,
+                created_at=NOW - timedelta(minutes=5),
+            )
+        )
+        await session.commit()
+
+    result = await trigger_completed_run(
+        "run-before-issuer", session_factory=trigger_store
+    )
+    assert result == alert_triggers.RunTriggerResult(status="evaluated")
+    async with trigger_store() as verify:
+        assert await verify.scalar(
+            select(func.count()).select_from(WatchRuleEvaluation)
+        ) == 0
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 0
 
 
 @pytest.mark.asyncio
@@ -570,6 +746,654 @@ async def test_tenancy_off_selects_only_shared_rule_snapshots(
     result = await trigger_completed_run(run_id, session_factory=trigger_store)
     assert result.observations == 1
     assert result.materialized == 1
+
+
+@pytest.mark.asyncio
+async def test_completed_run_failure_isolated_per_observation_and_sanitized(
+    trigger_store, monkeypatch, caplog
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-isolation",
+                name="Isolation Issuer",
+                normalized_name="isolation issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW,
+            )
+        )
+        first = await _add_rule(session, issuer_id="issuer-isolation")
+        second = await _add_rule(session, issuer_id="issuer-isolation")
+        run = Run(
+            id="run-isolation",
+            issuer_id="issuer-isolation",
+            analyst_id="alice",
+            status="complete",
+            qa_status="critical",
+            completed_at=NOW,
+            created_at=NOW - timedelta(minutes=1),
+        )
+        session.add(run)
+        await session.commit()
+
+    failing_rule_id = min(first.id, second.id)
+    original = alert_triggers._evaluate_completed_run_observation
+
+    async def fail_first_rule(session_factory, rule, observation, *, now):
+        if rule.id == failing_rule_id:
+            raise RuntimeError("secret observation payload")
+        return await original(
+            session_factory,
+            rule,
+            observation,
+            now=now,
+        )
+
+    monkeypatch.setattr(
+        alert_triggers,
+        "_evaluate_completed_run_observation",
+        fail_first_rule,
+    )
+    caplog.set_level("WARNING", logger="caos.alert_triggers")
+
+    result = await trigger_completed_run(
+        "run-isolation", session_factory=trigger_store
+    )
+
+    assert result.status == "evaluated"
+    assert result.observations == 2
+    assert result.materialized == 1
+    assert result.failures == 1
+    assert "completed-run observation failed" in caplog.text
+    assert "secret observation payload" not in caplog.text
+    async with trigger_store() as verify:
+        assert (
+            await verify.scalar(select(func.count()).select_from(WatchRuleEvaluation))
+            == 1
+        )
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 1
+
+
+@pytest.mark.asyncio
+async def test_completed_run_observation_construction_failure_allows_later_rule(
+    trigger_store, monkeypatch, caplog
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-construction-isolation",
+                name="Construction Isolation Issuer",
+                normalized_name="construction isolation issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW,
+            )
+        )
+        first = await _add_rule(
+            session, issuer_id="issuer-construction-isolation"
+        )
+        second = await _add_rule(
+            session, issuer_id="issuer-construction-isolation"
+        )
+        session.add(
+            Run(
+                id="run-construction-isolation",
+                issuer_id="issuer-construction-isolation",
+                analyst_id="alice",
+                status="complete",
+                qa_status="critical",
+                completed_at=NOW,
+                created_at=NOW - timedelta(minutes=1),
+            )
+        )
+        await session.commit()
+
+    failing_rule_id = min(first.id, second.id)
+    original = alert_triggers._run_observations
+
+    def fail_first_rule(run, rule, findings):
+        if rule.id == failing_rule_id:
+            raise RuntimeError("secret corrupt rule snapshot")
+        return original(run, rule, findings)
+
+    monkeypatch.setattr(alert_triggers, "_run_observations", fail_first_rule)
+    caplog.set_level("WARNING", logger="caos.alert_triggers")
+
+    result = await trigger_completed_run(
+        "run-construction-isolation",
+        session_factory=trigger_store,
+    )
+
+    assert result.observations == 1
+    assert result.materialized == 1
+    assert result.failures == 1
+    assert "completed-run observation failed" in caplog.text
+    assert "secret corrupt rule snapshot" not in caplog.text
+    async with trigger_store() as verify:
+        assert (
+            await verify.scalar(select(func.count()).select_from(WatchRuleEvaluation))
+            == 1
+        )
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 1
+
+
+@pytest.mark.asyncio
+async def test_malformed_finding_does_not_drop_valid_sibling_observation(
+    trigger_store, caplog
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-finding-isolation",
+                name="Finding Isolation Issuer",
+                normalized_name="finding isolation issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW - timedelta(days=1),
+            )
+        )
+        await _add_rule(
+            session,
+            issuer_id="issuer-finding-isolation",
+            signal_type="run_finding",
+        )
+        session.add(
+            Run(
+                id="run-finding-isolation",
+                issuer_id="issuer-finding-isolation",
+                analyst_id="alice",
+                status="complete",
+                qa_status="critical",
+                completed_at=NOW,
+                created_at=NOW - timedelta(minutes=1),
+            )
+        )
+        session.add_all(
+            [
+                QAFinding(
+                    id="finding-invalid-shape",
+                    run_id="run-finding-isolation",
+                    finding_id="invalid",
+                    severity="x" * 513,
+                    description="malformed categorical value",
+                ),
+                QAFinding(
+                    id="finding-valid-shape",
+                    run_id="run-finding-isolation",
+                    finding_id="valid",
+                    severity="critical",
+                    description="valid governed finding",
+                ),
+            ]
+        )
+        await session.commit()
+
+    caplog.set_level("WARNING", logger="caos.alert_triggers")
+    result = await trigger_completed_run(
+        "run-finding-isolation", session_factory=trigger_store
+    )
+
+    assert result.observations == 1
+    assert result.materialized == 1
+    assert result.failures == 1
+    assert "finding_row_id=finding-invalid-shape" in caplog.text
+    assert "malformed categorical value" not in caplog.text
+    async with trigger_store() as verify:
+        assert await verify.scalar(
+            select(func.count()).select_from(WatchRuleEvaluation)
+        ) == 1
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 1
+
+
+@pytest.mark.asyncio
+async def test_completed_run_observation_cancellation_propagates(
+    trigger_store, monkeypatch
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-observation-cancel",
+                name="Observation Cancel Issuer",
+                normalized_name="observation cancel issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW,
+            )
+        )
+        await _add_rule(session, issuer_id="issuer-observation-cancel")
+        session.add(
+            Run(
+                id="run-observation-cancel",
+                issuer_id="issuer-observation-cancel",
+                analyst_id="alice",
+                status="complete",
+                qa_status="critical",
+                completed_at=NOW,
+                created_at=NOW,
+            )
+        )
+        await session.commit()
+
+    async def cancel_observation(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        alert_triggers,
+        "_evaluate_completed_run_observation",
+        cancel_observation,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await trigger_completed_run(
+            "run-observation-cancel", session_factory=trigger_store
+        )
+
+
+@pytest.mark.asyncio
+async def test_completed_run_reconciler_catches_flag_off_restart_miss(
+    trigger_store, monkeypatch
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-reconcile-miss",
+                name="Reconcile Miss Issuer",
+                normalized_name="reconcile miss issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW - timedelta(days=1),
+            )
+        )
+        await _add_rule(session, issuer_id="issuer-reconcile-miss")
+        session.add(
+            Run(
+                id="run-reconcile-miss",
+                issuer_id="issuer-reconcile-miss",
+                analyst_id="alice",
+                status="complete",
+                qa_status="critical",
+                completed_at=None,
+                created_at=NOW - timedelta(hours=1),
+            )
+        )
+        await session.commit()
+
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", False
+    )
+    missed = await trigger_completed_run(
+        "run-reconcile-miss", session_factory=trigger_store
+    )
+    assert missed.materialized == 0
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", True
+    )
+
+    result = await alert_triggers.reconcile_completed_runs(
+        session_factory=trigger_store,
+        limit=10,
+    )
+
+    assert result.scanned == 1
+    assert result.observations == 1
+    assert result.materialized == 1
+    assert result.failures == 0
+    assert result.next_cursor is None
+
+
+@pytest.mark.asyncio
+async def test_completed_run_reconciler_paginates_and_replays_idempotently(
+    trigger_store,
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-reconcile-page",
+                name="Reconcile Page Issuer",
+                normalized_name="reconcile page issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW - timedelta(days=1),
+            )
+        )
+        await _add_rule(session, issuer_id="issuer-reconcile-page")
+        session.add_all(
+            [
+                Run(
+                    id="run-page-a",
+                    issuer_id="issuer-reconcile-page",
+                    analyst_id="alice",
+                    status="complete",
+                    qa_status="critical",
+                    completed_at=None,
+                    created_at=NOW - timedelta(minutes=1),
+                ),
+                Run(
+                    id="run-page-b",
+                    issuer_id="issuer-reconcile-page",
+                    analyst_id="alice",
+                    status="complete",
+                    qa_status="critical",
+                    completed_at=NOW - timedelta(minutes=2),
+                    created_at=NOW - timedelta(minutes=4),
+                ),
+                Run(
+                    id="run-page-c",
+                    issuer_id="issuer-reconcile-page",
+                    analyst_id="alice",
+                    status="complete",
+                    qa_status="critical",
+                    completed_at=NOW - timedelta(minutes=2),
+                    created_at=NOW - timedelta(minutes=5),
+                ),
+            ]
+        )
+        await session.commit()
+
+    first = await alert_triggers.reconcile_completed_runs(
+        session_factory=trigger_store,
+        limit=2,
+    )
+    assert first.scanned == 2
+    assert first.observations == 2
+    assert first.materialized == 2
+    assert first.failures == 0
+    assert isinstance(first.next_cursor, str)
+    assert "run-page" not in first.next_cursor
+    async with trigger_store() as verify:
+        first_page_run_ids = set(
+            (await verify.execute(select(AlertEvent.run_id))).scalars()
+        )
+    assert first_page_run_ids == {"run-page-b", "run-page-c"}
+
+    second = await alert_triggers.reconcile_completed_runs(
+        session_factory=trigger_store,
+        limit=2,
+        cursor=first.next_cursor,
+    )
+    assert second.scanned == 1
+    assert second.observations == 1
+    assert second.materialized == 1
+    assert second.failures == 0
+    assert second.next_cursor is None
+
+    terminal_replay = await alert_triggers.reconcile_completed_runs(
+        session_factory=trigger_store,
+        limit=2,
+        cursor=first.next_cursor,
+    )
+    assert terminal_replay.scanned == 1
+    assert terminal_replay.observations == 1
+    assert terminal_replay.materialized == 0
+    assert terminal_replay.failures == 0
+    assert terminal_replay.next_cursor is None
+
+    replay = await alert_triggers.reconcile_completed_runs(
+        session_factory=trigger_store,
+        limit=2,
+    )
+    assert replay.scanned == 2
+    assert replay.observations == 2
+    assert replay.materialized == 0
+    assert replay.failures == 0
+    assert replay.next_cursor == first.next_cursor
+    async with trigger_store() as verify:
+        assert (
+            await verify.scalar(select(func.count()).select_from(WatchRuleEvaluation))
+            == 3
+        )
+        assert await verify.scalar(select(func.count()).select_from(AlertEvent)) == 3
+
+
+@pytest.mark.asyncio
+async def test_completed_run_reconciler_continues_across_failed_runs(
+    trigger_store, monkeypatch, caplog
+) -> None:
+    async with trigger_store() as session:
+        session.add(
+            Issuer(
+                id="issuer-reconcile-failure",
+                name="Reconcile Failure Issuer",
+                normalized_name="reconcile failure issuer",
+                team_id="desk-a",
+                uniqueness_scope="desk-a",
+                created_by="alice",
+                created_at=NOW,
+            )
+        )
+        session.add_all(
+            [
+                Run(
+                    id="run-reconcile-broken",
+                    issuer_id="issuer-reconcile-failure",
+                    analyst_id="alice",
+                    status="complete",
+                    completed_at=NOW - timedelta(minutes=2),
+                    created_at=NOW - timedelta(minutes=3),
+                ),
+                Run(
+                    id="run-reconcile-later",
+                    issuer_id="issuer-reconcile-failure",
+                    analyst_id="alice",
+                    status="complete",
+                    completed_at=NOW - timedelta(minutes=1),
+                    created_at=NOW - timedelta(minutes=2),
+                ),
+                Run(
+                    id="run-reconcile-next-page",
+                    issuer_id="issuer-reconcile-failure",
+                    analyst_id="alice",
+                    status="complete",
+                    completed_at=NOW,
+                    created_at=NOW - timedelta(minutes=1),
+                ),
+            ]
+        )
+        await session.commit()
+
+    calls: list[str] = []
+
+    async def replay_one(run_id, *, session_factory):
+        calls.append(run_id)
+        if run_id == "run-reconcile-broken":
+            raise RuntimeError("secret run payload")
+        return alert_triggers.RunTriggerResult(
+            status="evaluated", observations=1, materialized=1
+        )
+
+    monkeypatch.setattr(alert_triggers, "trigger_completed_run", replay_one)
+    caplog.set_level("WARNING", logger="caos.alert_triggers")
+
+    result = await alert_triggers.reconcile_completed_runs(
+        session_factory=trigger_store,
+        limit=2,
+    )
+
+    assert calls == ["run-reconcile-broken", "run-reconcile-later"]
+    assert result.scanned == 2
+    assert result.observations == 1
+    assert result.materialized == 1
+    assert result.failures == 1
+    assert result.next_cursor is None
+    assert "completed-run reconciliation failed" in caplog.text
+    assert "secret run payload" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_reconciler_rejects_invalid_cursor_before_database_work() -> None:
+    calls = 0
+
+    def forbidden_factory():
+        nonlocal calls
+        calls += 1
+        raise AssertionError("database must not be opened")
+
+    with pytest.raises(ValueError, match="invalid reconciliation cursor"):
+        await alert_triggers.reconcile_completed_runs(
+            session_factory=forbidden_factory,
+            limit=10,
+            cursor="not-an-opaque-versioned-cursor",
+        )
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [2, True])
+async def test_reconciler_rejects_unknown_or_non_integer_cursor_version_before_db(
+    version,
+) -> None:
+    payload = json.dumps(
+        {"at": NOW.isoformat(), "id": "run-cursor", "v": version},
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    cursor = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    calls = 0
+
+    def forbidden_factory():
+        nonlocal calls
+        calls += 1
+        raise AssertionError("database must not be opened")
+
+    with pytest.raises(ValueError, match="invalid reconciliation cursor"):
+        await alert_triggers.reconcile_completed_runs(
+            session_factory=forbidden_factory,
+            limit=10,
+            cursor=cursor,
+        )
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [0, 501, True])
+async def test_reconciler_rejects_unbounded_page_size_before_database_work(
+    limit,
+) -> None:
+    calls = 0
+
+    def forbidden_factory():
+        nonlocal calls
+        calls += 1
+        raise AssertionError("database must not be opened")
+
+    with pytest.raises(ValueError, match="limit must be between 1 and 500"):
+        await alert_triggers.reconcile_completed_runs(
+            session_factory=forbidden_factory,
+            limit=limit,
+        )
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_reconciler_refuses_flag_off_before_database_work(monkeypatch) -> None:
+    calls = 0
+
+    def forbidden_factory():
+        nonlocal calls
+        calls += 1
+        raise AssertionError("database must not be opened")
+
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", False
+    )
+    with pytest.raises(
+        alert_triggers.AlertRulesReconciliationDisabled,
+        match="alert rules are disabled",
+    ):
+        await alert_triggers.reconcile_completed_runs(
+            session_factory=forbidden_factory,
+            limit=10,
+        )
+    assert calls == 0
+
+
+def test_reconcile_alert_rules_cli_help_documents_one_page_cursor_contract(
+    capsys,
+) -> None:
+    import reconcile_alert_rules
+
+    assert "python -m reconcile_alert_rules" in (reconcile_alert_rules.__doc__ or "")
+    with pytest.raises(SystemExit) as raised:
+        reconcile_alert_rules.main(["--help"])
+    assert raised.value.code == 0
+    help_text = capsys.readouterr().out
+    normalized_help = " ".join(help_text.split())
+    assert "one bounded page" in normalized_help
+    assert "--limit" in normalized_help
+    assert "--cursor" in normalized_help
+    assert "next_cursor=null" in normalized_help
+    assert "retain the input cursor" in normalized_help
+    assert "replay the terminal page" in normalized_help
+
+
+def test_reconcile_alert_rules_cli_refuses_flag_off_without_replay(
+    monkeypatch, capsys
+) -> None:
+    import reconcile_alert_rules
+
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", False
+    )
+    called = False
+
+    async def forbidden_reconcile(**_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("reconciliation must not run")
+
+    monkeypatch.setattr(
+        reconcile_alert_rules,
+        "reconcile_completed_runs",
+        forbidden_reconcile,
+    )
+
+    assert reconcile_alert_rules.main([]) == 2
+    assert called is False
+    assert "alert rules are disabled" in capsys.readouterr().err
+
+
+def test_reconcile_alert_rules_cli_prints_contract_and_fails_on_page_errors(
+    monkeypatch, capsys
+) -> None:
+    import reconcile_alert_rules
+
+    monkeypatch.setitem(
+        get_settings().__dict__, "caos_alert_rules_v1_enabled", True
+    )
+    calls: list[tuple[int, str | None]] = []
+
+    async def failed_page(*, limit, cursor):
+        calls.append((limit, cursor))
+        return alert_triggers.CompletedRunReconcileResult(
+            scanned=3,
+            observations=4,
+            materialized=2,
+            failures=1,
+            next_cursor="opaque-next",
+        )
+
+    monkeypatch.setattr(
+        reconcile_alert_rules,
+        "reconcile_completed_runs",
+        failed_page,
+    )
+
+    assert (
+        reconcile_alert_rules.main(["--limit", "3", "--cursor", "opaque-in"])
+        == 1
+    )
+    assert calls == [(3, "opaque-in")]
+    assert capsys.readouterr().out.strip() == (
+        '{"failures": 1, "materialized": 2, "next_cursor": "opaque-next", '
+        '"observations": 4, "scanned": 3}'
+    )
 
 
 @pytest.mark.asyncio
