@@ -3204,3 +3204,25 @@ execution starts from reconciled scope after the C3 tranche lands.
 
 Decision: proceed with the plan document; reopen at execution pickup if C3's
 landed substrate differs from the plan's assumptions.
+
+## 2026-07-22 — Bloomberg descope + CP-SR Phase-1 deferral critic pass
+
+Decision under review (user product decisions, 2026-07-22): (1) remove the
+Bloomberg API build requirement from the pre-deployment plan — supersede the
+2026-07-03 "connector built in-plan" decision — and group Bloomberg entirely
+with the enterprise email connection as the enterprise-side final activation
+step (H4); Phase-1 ships on the existing fixed/manual market data (immutable
+`market_snapshots` 0055 store + analyst XLSX import lane + the immutable RV
+reference snapshot). (2) Record a CP-SR Phase-1 deferral: the sector-review
+surface keeps its honest partial/reference states with `ready` unreachable;
+the S0–S5 build becomes the first post-pilot item.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-22-788 | Market-data honesty reviewer | Shipping on fixed/manual data risks stale marks being read as current, the exact blending RT-769 killed. | Critical | Resolve with existing labels | The shipped lane already carries immutable snapshots, explicit as-of dates, and analyst-supplied labeling; Sector RV keeps per-result LIVE/DEMO/REFERENCE authority. No provider chain means no silent fallback path exists at all — the failure mode RT-769 targeted cannot occur. Reopen if any surface presents snapshot data without its as-of/source label. |
+| RT-2026-07-22-789 | Vendor reviewer | Deleting Bloomberg build work could orphan the H4 activation runbook contract (H3 package promises a connector "already built"). | High | Resolve by rescoping H4 | H4's activation package is rewritten from "activate the built connector" to "build-and-activate with enterprise transport docs in hand" — which RT-770 already argued is the only honest sequence (no licensed transport decision exists to code against). The fixture-backed provider was speculative build; removing it deletes dead-on-arrival code risk, not evidence. |
+| RT-2026-07-22-790 | Promise-honesty reviewer | A CP-SR deferral could be read as renaming a gap as implementation (RT-767's exact warning). | Critical | Resolve by disposition class | The deferral is recorded as DEFERRED, not resolved: the map row stays materially incomplete on its face, the surface keeps unreachable `ready` and labeled partial/reference states, and the written S0–S5 plan remains the closure path. Nothing is relabeled as live. PD-06 closes only on honest-state evidence for the deferred rows plus the executed C3/CP-RENDER legs. |
+| RT-2026-07-22-791 | Pilot-value reviewer | Deferring CP-SR could strip the pilot of a promised workflow analysts expect. | Medium | Accept with eyes open | The pilot's value is issuer-level analysis + Monitor/alerts (C3). The sector surface remains usable read-only with honest labels. The deferral is the user's explicit scope call, recorded here; reopen at the first post-pilot planning pass. |
+
+Decision: proceed. Reopen RT-788 if any consumer renders snapshot data without
+provenance, RT-790 if any surface or doc presents CP-SR as implemented.

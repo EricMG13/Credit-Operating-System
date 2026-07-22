@@ -425,6 +425,18 @@ C14). Provider chain, refresh, Settings control plane, and every consuming
 read-model remain unbuilt; `MarketDataProvider`/`BloombergProvider`/
 `ManualQuoteProvider` still zero-hit. C5 builds on the 0055 store (see §5).
 
+**SUPERSEDED 2026-07-22 (product decision, RT-2026-07-22-788/789):** the
+2026-07-03 "connector built in-plan" decision is reversed. **No Bloomberg
+code — provider chain, fixture-backed `BloombergProvider`, Settings
+connection plane — is built pre-deployment.** Phase-1 ships on the existing
+fixed/manual market data: the immutable `market_snapshots` store (0055) with
+the analyst XLSX import lane, plus the immutable RV reference snapshot, all
+provenance-labeled. Bloomberg moves entirely to the **enterprise-side final
+step**, grouped with the enterprise email transport as one H4 activation
+package (build-and-activate once licensing/transport documents exist — the
+only honest sequence per RT-2026-07-20-770, since no licensed transport
+decision exists to code against). DM remains the canonical spread metric.
+
 ---
 
 ## 1. Historical 2026-07-11 baseline — superseded
@@ -732,7 +744,15 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   unlabeled seed survives in a production build. **Verify:** C1's
   `MOCK_LEDGER.md` shows 0 open silent-mock rows in these surfaces. **Exit:**
   same.
-- [ ] **C5 (L — own implementation plan at pickup)** Market data: quote
+- [ ] **C5 — RESCOPED OUT OF PRE-DEPLOYMENT 2026-07-22** (product decision;
+  see "The two allowed-outstanding items" #2 supersession block and
+  RT-2026-07-22-788/789). Phase-1 uses the shipped fixed/manual market data
+  (0055 immutable snapshots + analyst XLSX import + RV reference snapshot,
+  provenance-labeled). The provider chain, `BloombergProvider`, refresh path,
+  and Settings market-data control plane below are retained as the **H4
+  enterprise activation package specification**, grouped with the email
+  transport — not a pre-deployment gate. Original item follows as the H4 spec:
+  **C5 (L — own implementation plan at pickup)** Market data: quote
   store + Bloomberg connector. **Latest 2026-07-15:** migration `0055` +
   `routes/market_import.py` are now **merged**: immutable analyst-owned
   `market_snapshots` (document FK, source manifest, import mapping) with a
@@ -1291,18 +1311,23 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
   **Verify:** a dated handover index enumerates every artifact above and each
   link resolves; do not use a brittle file-count assertion. **Exit:** package complete; PM/CIO can execute
   the H5 sign-off from it without asking a follow-up question.
-- [ ] **H4 (S)** The two outstanding-item activation packages, transfer-ready:
+- [ ] **H4 (S)** The two outstanding-item activation packages, transfer-ready.
+  **Rescoped 2026-07-22:** Bloomberg is now build-and-activate at this step
+  (no connector is built pre-deployment — C5 rescope, RT-2026-07-22-789); the
+  C5 section body above is the build specification enterprise work starts
+  from:
   - `EmailSink` adapter spec: SMTP + MS Graph variants; auth, rate limits,
     template rendering already proven by the stub's outbox records (C3-seam);
     test plan.
-  - **Bloomberg activation runbook** (connector already built + fixture-
-    tested in C5): entitlement checklist (transport per enterprise licensing
-    — SAPI/B-PIPE or HAPI; EIDs; network path), credential entry via the
-    Settings Market Data section (test-connection green), then the
-    **parallel-run reconciliation** — Bloomberg vs. manual marks on golden
-    issuers, material diffs explained and signed off before cutover
-    (DEVELOPMENT_PHASES Phase 5 is executed by/with enterprise, never
-    flip-the-switch). Rollback = provider chain falls back to manual.
+  - **Bloomberg activation package** (build + activate with enterprise):
+    licensed transport decision and official SDK/API documents first
+    (SAPI/B-PIPE or HAPI; EIDs; network path), then the C5-spec provider
+    chain, Settings Market Data section, and credential entry
+    (test-connection green), then the **parallel-run reconciliation** —
+    Bloomberg vs. manual marks on golden issuers, material diffs explained
+    and signed off before cutover (DEVELOPMENT_PHASES Phase 5 is executed
+    by/with enterprise, never flip-the-switch). Rollback = provider chain
+    falls back to manual/fixed snapshots.
   **Verify:** `caos/docs/reference/EMAILSINK_SPEC.md` and
   `caos/docs/reference/BLOOMBERG_ACTIVATION_RUNBOOK.md` (both new) exist,
   each with a named transport decision and a test plan. **Exit:** both

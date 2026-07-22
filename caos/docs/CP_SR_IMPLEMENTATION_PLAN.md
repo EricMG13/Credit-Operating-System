@@ -6,6 +6,9 @@
 **Execution pickup gate:** after the C3 Monitor/alert tranche lands — CP-SR
 reuses C3's claim/lease substrate and the next free Alembic head
 (RT-2026-07-22-784); re-verify this plan's substrate assumptions at pickup.
+**Phase-1 deferral recorded 2026-07-22** (user product decision,
+RT-2026-07-22-790/791): S0–S5 executes as the **first post-pilot item**; the
+shipped honest partial/reference states are the Phase-1 release contract.
 
 ## 1. Current runtime truth (what already exists)
 

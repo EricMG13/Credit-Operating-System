@@ -39,6 +39,23 @@ This closes **PD-10 on the current working tree**. It does not substitute
 for PD-02's final three-browser journey seal or PD-09's digest-bound archive,
 and it must be rerun after H0 is frozen.
 
+### Execution delta — PD-06 scope decisions 2026-07-22 (user product decisions)
+
+Three recorded decisions (critic pass RT-2026-07-22-788…791): **(1)** the
+2026-07-03 "Bloomberg connector built in-plan" decision is superseded — no
+Bloomberg code is built pre-deployment; the provider chain and connector move
+to the **H4 enterprise activation package, grouped with the email transport**
+(plan §C5 rescope + §H4 rewrite). **(2)** Phase-1 ships on the labeled
+fixed/manual market data: immutable `market_snapshots` (0055) + analyst XLSX
+import + the immutable RV reference snapshot; no provider chain means no
+silent-blend path exists. **(3)** **CP-SR is deferred for Phase-1** as a
+recorded DEFERRED disposition — the surface keeps its honest
+partial/reference states with `ready` unreachable, and
+[CP_SR_IMPLEMENTATION_PLAN.md](../../CP_SR_IMPLEMENTATION_PLAN.md) (S0–S5)
+executes as the first post-pilot item. After these records, PD-06's remaining
+pre-deployment scope is: CP-MON/C3 runtime work (in flight), model-provider
+activation evidence, and the H0-bound reruns.
+
 ### Execution delta — PD-01 manifest tooling + dependency remediation 2026-07-22
 
 `caos/deploy/build_release_manifest.py` now generates the §H0 release
@@ -332,7 +349,7 @@ remains non-waivable.
 | **PD-03** | Exact tracker rebuild is current, but 983 scenarios remain Designed, 377 rely on suite evidence, and the dated application-surface matrix predates the post-cleanup 692-control inventory | L23 regenerate route/nav/API/process/control/tracker/evidence parity from the candidate and execute all release-required scenarios |
 | **PD-04** | **CLOSED on the current working tree:** 16 dead modules removed; one policy test seam retained with rationale; graph is 262/263 from 27 roots | Rerun native graph and controlled-host Fallow against frozen H0; reopen on a new or unexplained candidate |
 | **PD-05** | **CLOSED on the current working tree:** the shipped root/global boundary and shared segment boundary delegated by all six segment error files pass 6/6 injected-browser executions with named failure, preserved authenticated analyst/context/draft state, zero failure-time writes, and exactly one recovery autosave | Repeat the same fail-closed proof on frozen H0; reopen on boundary-map, compiled-sentinel, state-preservation, or mutation-ledger drift |
-| **PD-06** | The [promise-to-runtime map](../PROMISE_TO_RUNTIME_MAP.md) and C3/C5 pickup plans exist. **2026-07-22: CP-EXTRACT retirement and the CP-RENDER equivalent-service decision are executed** (registry omissions, provenance cleanup, contract tests — RT-2026-07-22-775…779). CP-SR/CP-MON runtime work, licensed market data, email, provider activation evidence, and the H0 browser leg of CP-RENDER verification remain open | Execute the remaining mapped closures; keep unavailable/reference states honest; capture activation and failure evidence for every enabled seam |
+| **PD-06** | The [promise-to-runtime map](../PROMISE_TO_RUNTIME_MAP.md) and C3/C5 pickup plans exist. **2026-07-22: CP-EXTRACT retired and CP-RENDER equivalent-service executed** (RT-775…779); **CP-SR Phase-1 deferral recorded** (honest states shipped, S0–S5 post-pilot — RT-790/791); **C5/Bloomberg rescoped out of pre-deployment** to the H4 enterprise activation package grouped with email, Phase-1 on labeled fixed/manual market data (RT-788/789). Remaining open: CP-MON/C3 runtime work, model-provider activation evidence, H0-bound evidence legs | Land C3; keep unavailable/reference states honest; capture activation and failure evidence for every enabled seam; H0 reruns |
 | **PD-07** | Strong local 300-user evidence is not bound to the target image/host or simultaneous authenticated heavy work | L25 exact image with 15 principals, target-size data, heavy-operation overlap, slow/429/529/storage faults, queue/pool/memory/isolation/recovery telemetry |
 | **PD-08** | Target at-rest encryption, record governance, paired-backup freshness/alerting, and off-host recovery are unproven | E8/G8/G9 + L22/L26: approved custody policy, encrypted target/off-host stores, alarms, and remote-only restore |
 | **PD-09** | Final evidence is not bound to released bytes | Archive one digest-addressed H0/H1/H2 evidence bundle and signed decision record |
