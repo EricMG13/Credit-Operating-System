@@ -36,6 +36,37 @@ ordering in [DEVELOPMENT_PHASES.md](DEVELOPMENT_PHASES.md) where they
 conflict (DEVELOPMENT_PHASES "Phase 5 market-data cutover" happens *after*
 transfer — it is outstanding item #2 by design).
 
+### 2026-07-22 consolidated update — full phase/task reconciliation (operative)
+
+Candidate **`3b66da67`** / image `sha256:882efb398526…`, strict manifest
+zero-failures, main CI green. Every CAOS-side executable task is DONE; every
+remaining row is an owner/target action with its artifact prepared
+([H8 ledger](qa/H8_CLOSURE_LEDGER_2026-07-22.md): zero OPEN rows). Status
+vocabulary: **DONE** (evidence linked at the item), **OWNER** (only a
+human/target action remains), **POST-FREEZE** (real work, deliberately
+scheduled after the release decision because merging it would invalidate the
+frozen candidate), **PILOT** (post-deployment program by design).
+
+| Phase | Task status |
+|---|---|
+| **A — Trunk consolidation** | A1–A4, A6b, A7/A7b, A8 DONE (prior sessions) · **A5 DONE 07-22** (all 15 dependabot deferred-post-H0 recorded; #169/#184/#191/#192 = POST-FREEZE) · A6 branch hygiene = OWNER (deletions need approval) |
+| **B — Engine certification** | B1, B3, B4 DONE (prior) · **B2 DONE** (run-wide citation floor; breadth-applied by the corpus) · **B5 EXECUTED 07-22** at core-33 scope: 28/28 EDGAR fixtures, `corpus_run` property net, ~7 s full sweep, nightly `CORPUS_FULL=1` + per-PR smoke (L6 live); Batch-2 28 names = future tranche; SFR/Refresco/INEOS/Cirsa fixtures = OWNER documents |
+| **C — Concepts live** | C1, C7, C9 DONE (prior) · **C3-seam DONE 07-22** (landed + live-operated; target flag cycle → H4/PD-06 owner leg) · **C13 DONE** (all four runtime promises dispositioned) · **C14 DONE** (ships all-flags-off per manifest; staged enablement = PILOT) · C5 rescoped → H4 package · C2 residual (issuers-directory reference workspace), C4 (seeded-panel ledger), C6 (concept-link spec), C8 (PR #191), C10 (worklist semantics), C11 (Apply-to-model UI), C12 (run-mode semantics) = POST-FREEZE |
+| **D — Ingestion breadth** | D1 (OCR provenance + scanned golden), D2 (RAG lane), D3 DONE (prior) · D4 = one live RAG-cites-memo confirm (POST-FREEZE, S) |
+| **E — Hardening** | E4, E6 DONE (prior) · **E8 DONE 07-22** (governance matrix; ☐ owner decisions at H5) · E1 stale text corrected (durable claiming landed #179; residual = PILOT calibration) · E5 final full-diff `/security-review` rerun = POST-FREEZE (per-PR L18 subset green on the candidate meanwhile) · E2 legacy-route roles + admin panel, E3 audit trail (#169), E7 per-lane routing UI = POST-FREEZE |
+| **F — Beta dictionary** | F1–F5 = OWNER/analyst-cohort phase on the target (F1 separation decision first); artifacts (onboarding guide, gap-log process, golden-promotion rule) ready |
+| **G — Ops readiness** | G1, G4, G5, G6 DONE (prior) · **G3 DONE 07-22** (= L25 on the frozen image) · G8 mechanism DONE (off-host round trip + remote-only restore; real remote + alarms = OWNER) · G2 (Monitor dogfood rule; needs target flag-on), G7 (external probe), G9 (host baseline) = OWNER |
+| **H — Gate & handover** | **H2, H3, H4, H8 DONE 07-22** · **H0 DONE except the scan-disposition signature** (re-frozen `3b66da67`; 3/4 manual slots executed) · **H1 rehearsed** (4 OWNER rows named) · **H6 executed to the persona line** (3 walkthrough signatures = OWNER) · **H7 mechanics rehearsed** (36 s abort→restore; names + target repeat = OWNER) · H5 = signatures |
+| **PD blockers** | PD-01…PD-10: all evidence CLOSED on the candidate; residuals = sign scan disposition (PD-01), target-host repeats (PD-06/07/08 legs), PD-09 signed decision — see the [blocker ledger](qa/reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md) and H8 |
+| **§14 expansion (X1–X13)** | Visible, MED, non-blocking by policy — untouched |
+
+The remaining path to deployment is exactly: **sign** (scan disposition, risk
+register, H5 table) → **name the target host** (G9) → repeat
+L25/L26/H1/H6/H7 there with the real edge (OAuth), real off-host remote,
+encryption, and the external probe (G7) → **archive PD-09 + signed go/no-go**
+→ F beta on the target. The two allowed-outstanding items (email transport,
+Bloomberg activation) remain exactly two, both packaged.
+
 ### 2026-07-20 consolidated update — operative release status
 
 The canonical status and evidence-boundary report is
@@ -540,7 +571,13 @@ truth, tooling roots clean.
   live data; branch deleted post-merge.
 - [x] **A4 (S)** ~~Land PR #95 (Sector RV DM/YTM plausibility guard)~~
   **DONE/superseded** — `origin/main` carries the `credibleDm` guard.
-- [ ] **A5 (M) — live PR triage.** 2026-07-15: **4 open** — #169 (E3), #184
+- [x] **A5 — DECISIONS RECORDED 2026-07-22** (L14 satisfied): all 15 open
+  dependabot PRs **deferred post-H0** (any dependency bump invalidates the
+  frozen candidate; the per-PR CI security subset stays green meanwhile);
+  #169 (E3), #184 (D1 stamp), #191/#192 (C8), #207 (docs) = post-freeze
+  work, scheduled after the release decision (H8 ledger row). No PR lacks a
+  decision. *Historical item text follows:*
+  **(M) — live PR triage.** 2026-07-15: **4 open** — #169 (E3), #184
   (D1 stamp), #191/#192 (C8). C7 (#187/#188) and C9 (#189/#190) merged
   2026-07-15 with main-tip CI green after. Remaining decisions: #169 (had a
   server-test failure at last check), #191/#192 (green candidate/stamp),
@@ -616,7 +653,7 @@ grounding, including the #25/#26/#27 engine-fault closure boxes.)*
   FUN, and VMO2 across keyless EDGAR/reported and keyed mock-LLM paths,
   including run-wide evidence resolution and CP-5. The `golden_e2e` marker is
   registered in `pytest.ini` and selected by `.github/workflows/nightly.yml`.
-- [ ] **B2 (M)** *(Exec 2026-07-11: the no-dangling-citation floor landed inside PR #163 — `_assert_provenance_resolves_run_wide` sweeps every claim across every produced module on all 4 golden runs. Residual for B2 proper: lineage-class-aware sweep beyond chunk-existence.)* Provenance chain audit, golden-run-wide: for every claim in
+- [x] **B2 — EXIT SATISFIED** *(Exec 2026-07-11: the no-dangling-citation floor landed inside PR #163 — `_assert_provenance_resolves_run_wide` sweeps every claim across every produced module on all 4 golden runs; 2026-07-22: the same run-wide sweep now also applies breadth-wide across the 28-issuer B5 corpus. Recorded follow-on, post-release: lineage-class-aware sweep beyond chunk-existence.)* Provenance chain audit, golden-run-wide: for every claim in
   a golden run, assert `claim → evidence → chunk` resolves with no dangling
   citation ids, across the whole run rather than per-module (today's coverage
   is per-module/per-run: `test_engine.py:350`, `test_evidence_resolution.py`,
@@ -710,7 +747,17 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   directory** `DEMO_UNIVERSE` fallback (UW-24): separate the reference
   workspace from the live worklist or show a true empty state with an
   explicit open-sample action — then close.)*
-- [ ] **C3-seam (L — own implementation plan at pickup)** Monitor alert seam.
+- [x] **C3-seam — LANDED + LIVE-OPERATED 2026-07-22.** Candidate merged
+  2026-07-22 (exact-tree gate 2,919 server / 1,824 frontend / 18/18 browser /
+  recaptured axe — C3_MONITOR_ALERT_CANDIDATE_EVIDENCE_2026-07-21.md), then
+  the live-operation legs executed on live PostgreSQL: migrations 0066–0068 +
+  `alembic check`, SKIP-LOCKED lease suites, an 18-cycle externally-operated
+  reconciler/dispatcher window (materialization with full authority chain,
+  exactly-once dispatch, idempotent replay), and the flag on→observe→off
+  rollback — [C3_LIVE_OPERATION_EVIDENCE_2026-07-22.md](qa/C3_LIVE_OPERATION_EVIDENCE_2026-07-22.md).
+  Remaining (target/activation, tracked by PD-06/H4): target-host flag cycle,
+  email transport, RT-823 target-volume residuals. *Historical item text
+  follows:* **(L — own implementation plan at pickup)** Monitor alert seam.
   **Latest:** the autonomy engine and the live ack/assign/resolve inbox are
   present; the current WIP also adds durable `AlertEvent` records. The
   production rule/evaluation/sink architecture is still absent, and the
@@ -755,7 +802,10 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   unlabeled seed survives in a production build. **Verify:** C1's
   `MOCK_LEDGER.md` shows 0 open silent-mock rows in these surfaces. **Exit:**
   same.
-- [ ] **C5 — RESCOPED OUT OF PRE-DEPLOYMENT 2026-07-22** (product decision;
+- [x] **C5 — RESCOPED OUT OF PRE-DEPLOYMENT 2026-07-22** (resolved for this
+  plan: not a gate; the build spec below transfers as the H4 package, now
+  written — [reference/BLOOMBERG_ACTIVATION_RUNBOOK.md](reference/BLOOMBERG_ACTIVATION_RUNBOOK.md))
+  (product decision;
   see "The two allowed-outstanding items" #2 supersession block and
   RT-2026-07-22-788/789). Phase-1 uses the shipped fixed/manual market data
   (0055 immutable snapshots + analyst XLSX import + RV reference snapshot,
@@ -902,7 +952,14 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   one contract/E2E case per visible mode proves the queued run's plan matches
   its label; invalid/retired modes fail explicitly. **Exit:** no selected mode
   can queue the full route while claiming a narrower/different route.
-- [ ] **C13 (M) — runtime promise resolution (PG-06/UF-01).** Produce a
+- [x] **C13 — ALL FOUR PROMISES DISPOSITIONED** (2026-07-22 complete): the
+  checked-in promise map + CP-RENDER = Report Studio **equivalent-service
+  executed** and CP-EXTRACT **retired** (1974eb3d, RT-775…779), CP-MON =
+  the landed C3 seam (above), CP-SR = recorded Phase-1 **deferral** with
+  honest unavailable states (RT-790/791; CP_SR_IMPLEMENTATION_PLAN.md ready
+  for post-pilot pickup). No spec-only route promise survives unresolved.
+  *Historical item text follows:* **(M) — runtime promise resolution
+  (PG-06/UF-01).** Produce a
   checked-in promise map for `CP-SR`, `CP-MON`, `CP-RENDER`, and `CP-EXTRACT`.
   For each module, either implement and register it, or name the live service
   that fully owns the same user-visible contract and remove or redirect the
@@ -924,7 +981,14 @@ full.** C3-seam and C5 each get their own implementation plan at pickup.
   mapped promise, including degraded and empty behavior. **Exit:** no
   production control or concept claims a module whose only runtime state is
   `implemented=False`.
-- [ ] **C14 (M — new 2026-07-15) — applicable-updates flag-wave disposition.**
+- [x] **C14 — PROGRAM DECISION RECORDED** (the item's own scope): the release
+  ships **every flag off** — all 13 declared `*_enabled` states are `false`
+  in the strict H0 manifest, which is the signed-disposition source of truth.
+  The staged 0→5 pilot enablement (with its observation windows and the two
+  Head-of-Research approvals) remains the post-deployment pilot program per
+  APPLICABLE_UPDATES_PHASE7_RELEASE.md — by design not a pre-deployment gate.
+  *Historical item text follows:* **(M — new 2026-07-15) —
+  applicable-updates flag-wave disposition.**
   The five-flag wave (lineage v2 · market xlsx v2 · model engine v2 · CP-4D ·
   CP-2G) is implementation-complete, merged, and **default-off**; its staged
   enablement 0→5, per-stage entry evidence, abort triggers, and rollback rules
@@ -1009,8 +1073,11 @@ silently with 0 chunks.
 - [ ] **E1 (M) — partial on main.** `WEB_CONCURRENCY`, Postgres-gated
   multi-worker launch, advisory-lock migration safety, and a recorded
   15-user/60-second two-worker run (2,584 requests, 0 failures, p95 89 ms)
-  have landed. Remaining: 2×-pilot calibration and durable cross-worker
-  claiming for the research/report executors, which remain in-process. Already
+  have landed. *(Stale-text correction 2026-07-22: durable cross-worker
+  claiming for the research/report executors LANDED 2026-07-12 — QueueWorker
+  claim/reclaim, PR #179 — and its SKIP-LOCKED suites ran green on live
+  PostgreSQL this session; the L25 capacity artifact supersedes the 60-second
+  run.)* Remaining: 2×-pilot calibration only — a pilot-host activity. Already
   landed: per-analyst run cap
   (`config.py:210 caos_run_per_analyst_limit=3`, enforced `routes/runs.py:298`),
   identity-keyed rate limits across runs/vault/chat/models/digest/edgar/
@@ -1087,7 +1154,14 @@ silently with 0 chunks.
   Settings persistence + run dispatch tests prove each lane selection changes
   the executed route; an unavailable route produces an explicit recovery
   state. **Exit:** no permanently disabled/no-op production select remains.
-- [ ] **E8 (M) — data governance and vendor handling (PG-07).** Create an
+- [x] **E8 — MATRIX DRAFTED 2026-07-22** ([handover/DATA_GOVERNANCE.md](handover/DATA_GOVERNANCE.md)):
+  record-class custody table (vault/Postgres/browser/logs/backups), vendor
+  egress matrix (EDGAR, model providers behind the proven fail-closed
+  `CAOS_DOCUMENT_EGRESS_ENABLED` gate, Bloomberg-at-H4, rclone remote),
+  residency/immutable-record/beta-boundary policy, standing quarterly review.
+  Owner ☐ decisions (retention years, residency, DPA confirmations) complete
+  at H5 with the Data Owner signature. *Historical item text follows:*
+  **(M) — data governance and vendor handling (PG-07).** Create an
   approved record-class matrix for uploaded source documents, chunks and
   embeddings, run facts, prompts/model outputs, findings, committee records,
   audit rows, analyst identity data, exports, logs, and backups. For each,
@@ -1192,7 +1266,16 @@ phase is marked passed.
   lands in the inbox via `InAppSink`). **Exit:** rule live, test green. This
   proves product self-observation only; it does not satisfy PG-03/G7 because
   CAOS cannot report its own total outage.
-- [ ] **G3 (M)** Load characterization: locust at enterprise-plausible
+- [x] **G3 — EXECUTED as L25 on the frozen image 2026-07-22**
+  ([qa/perf/PRE_DEPLOYMENT_CAPACITY_2026-07-22.md](qa/perf/PRE_DEPLOYMENT_CAPACITY_2026-07-22.md)):
+  15 authenticated principals with think-time on the deploy container
+  contract — 25,630-request steady stage, per-route p50/p95/p99 documented
+  (interactive p95 42 ms aggregate), upload lane characterized (AV+parse
+  ~5 s p95, serialized by design, does not starve reads), provider/storage
+  fault legs, ~5× memory headroom; ceiling/bottleneck history = the
+  remediated 320-user pool fault + three clean 300-user runs. Owner residual:
+  accept the p95 targets (all met) and repeat on the named host (G9).
+  *Historical item text follows:* **(M)** Load characterization: locust at enterprise-plausible
   concurrency (define with owner — e.g. 15 analysts × think-time) on
   prod-parity build; p95 targets per route class; document ceiling + first
   bottleneck. Builds on E1's multi-worker config. **Verify:** `performance`
@@ -1275,7 +1358,17 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
 
 **Objective:** prove the end state and package the transfer.
 
-- [ ] **H0 (M) — freeze and preflight the release candidate
+- [ ] **H0 — DONE except the scan-disposition signature.** Candidate frozen
+  `cda106dc` → re-frozen **`3b66da67`** (config-only delta, same image
+  `sha256:882efb398526…`); zero-failure strict manifest with digest override
+  pinning `app` + `vault-init`
+  ([strict-h0-3b66da67adea](qa/release/strict-h0-3b66da67adea/RELEASE_MANIFEST.json));
+  three of four manual slots executed 2026-07-22 (restore→upgrade→boot→
+  read/write rehearsal; off-host round trip + remote-only restore; PD-09
+  skeleton = RELEASE_DECISION_RECORD.md). Open: owner signs
+  [SCAN_DISPOSITION.md](qa/release/strict-h0-3b66da67adea/SCAN_DISPOSITION.md)
+  (66/66 error-level CVEs verified no-fix). *Historical item text follows:*
+  **(M) — freeze and preflight the release candidate
   (PG-01/PG-02/PG-11).**
   Cut a candidate from a clean checkout exactly equal to a green
   `origin/main` commit. Build once, record the application image digest and
@@ -1296,14 +1389,31 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
 - [ ] **H1 (M)** Full [LAUNCH_PHASE1 §5](LAUNCH_PHASE1.md) checklist on a
   prod-parity host using H0's exact image digest, every box, no skips. Update
   stale checklist counts rather than copying them into the evidence record.
-- [ ] **H2 (S)** Full regression stack green on that build in one sweep:
+  *(2026-07-22: **rehearsed box-by-box on the frozen digest** —
+  [qa/H1_REHEARSAL_2026-07-22.md](qa/H1_REHEARSAL_2026-07-22.md); every
+  mechanically-checkable row green incl. EDGAR-live, identity gates,
+  durability, hardening, backup drill; four OWNER rows named: OAuth
+  sign-in/domain, Caddy strip leg, HSTS-at-edge, host encryption. Residual =
+  the verbatim repeat on the named target host.)*
+- [x] **H2 — GREEN + ARCHIVED 2026-07-22**: CI run 29917558055 on the frozen
+  code (9 jobs incl. the complete three-browser E2E and the image resource
+  probe) + dispatched Nightly 29929720671 (golden E2E both lanes, hermetic
+  backend regression, concept manifests, 300-issuer load smoke) + CI
+  29934546964 green on the re-frozen tip — all links bound in the strict
+  manifest. *Historical item text follows:*
+  **(S)** Full regression stack green on that build in one sweep:
   golden-master + golden E2E + concept-link + e2e + stress + a11y + perf +
   ingestion matrix. Reuses the `workflow_dispatch:` trigger the loop doc's
   `nightly.yml` work item adds (§5 there) — one CI dispatch, results
   archived. **Verify:** the dispatched run's summary. **Exit:** all green in
   one archived run.
-- [ ] **H3 (M)** Handover package (`caos/docs/handover/` — does not exist
-  yet, S4 Ev-9):
+- [x] **H3 — PACKAGE COMPLETE 2026-07-22** ([handover/INDEX.md](handover/INDEX.md)):
+  admin guide, analyst onboarding, support model + named handover loops,
+  accepted-risk register (10 rows, signatures at H5), cutover run sheet,
+  monitoring inventory, data-governance matrix, OpenAPI export (139 routes /
+  178 operations — matches the surface matrix), SBOM/manifest/scan links;
+  owner-fill cells (names, ☐ decisions) complete at H5. *Historical item
+  text follows:* **(M)** Handover package (`caos/docs/handover/`, S4 Ev-9):
   - Architecture overview (refresh README/docs to as-built)
   - Admin guide: deploy, env/secrets inventory (names, not values), rotation
     runbook (E4), backup/restore (G1), DR (G4), scaling notes (G3), role
@@ -1322,7 +1432,16 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
   **Verify:** a dated handover index enumerates every artifact above and each
   link resolves; do not use a brittle file-count assertion. **Exit:** package complete; PM/CIO can execute
   the H5 sign-off from it without asking a follow-up question.
-- [ ] **H4 (S)** The two outstanding-item activation packages, transfer-ready.
+- [x] **H4 — BOTH PACKAGES TRANSFER-READY 2026-07-22**:
+  [reference/EMAILSINK_SPEC.md](reference/EMAILSINK_SPEC.md) (MS Graph
+  primary + SMTP variant, named auth/rate-limit/failure taxonomy, 4-step
+  test plan, anchored on the proven C3 render-intent contract) and
+  [reference/BLOOMBERG_ACTIVATION_RUNBOOK.md](reference/BLOOMBERG_ACTIVATION_RUNBOOK.md)
+  (licensed-transport decision table, build-on-`market_snapshots` order,
+  parallel-run reconciliation, rollback = provider-chain fallback). Both
+  reviewable by enterprise IT/licensing with no CAOS-side follow-up.
+  *Historical item text follows:*
+  **(S)** The two outstanding-item activation packages, transfer-ready.
   **Rescoped 2026-07-22:** Bloomberg is now build-and-activate at this step
   (no connector is built pre-deployment — C5 rescope, RT-2026-07-22-789); the
   C5 section body above is the build specification enterprise work starts
@@ -1357,7 +1476,15 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
 | Data owner | E8 policy, G8 RPO/RTO and production-data boundary | |
 | Support owner | H7 cutover, escalation and handover loops | |
 
-- [ ] **H6 (M) — persona-critical UAT (PG-08).** On H0's immutable candidate,
+- [ ] **H6 — EXECUTED TO THE PERSONA LINE 2026-07-22**
+  ([qa/H6_UAT_MATRIX_2026-07-22.md](qa/H6_UAT_MATRIX_2026-07-22.md)): every
+  machine-checkable case ran live on the digest (EICAR-in-valid-PDF → named
+  422 malware rejection with no vault write; non-PDF 400; ghost-issuer 404;
+  tampered cookie 401; empty/vendor-down/provider-fault rows) and the
+  viewport/zoom/keyboard/browser rows bind to the zero-finding PD-10 and
+  three-browser matrices. Open: the three persona walkthroughs (analyst,
+  PM/CIO, Research/QA) executed and signed on the target. *Historical item
+  text follows:* **(M) — persona-critical UAT (PG-08).** On H0's immutable candidate,
   execute a signed matrix for: analyst issuer onboarding → evidence-backed run
   → Deep-Dive/model/report/decision; PM/CIO portfolio posture, changes,
   committee pack and read-only behavior; Research/QA source tracing, CP-5
@@ -1367,14 +1494,26 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
   Reference data must remain visibly reference-only and cannot satisfy a live
   case. **Exit:** all critical cases pass or carry a signed accepted risk with
   workaround and owner.
-- [ ] **H7 (S) — cutover, abort, communications, and hypercare (PG-10).** Name
+- [ ] **H7 — MECHANICS REHEARSED 2026-07-22**
+  ([qa/H7_CUTOVER_REHEARSAL_2026-07-22.md](qa/H7_CUTOVER_REHEARSAL_2026-07-22.md)):
+  timed digest-pinned deploy (14 s to healthy), pre-cutover backup, forced
+  abort of a fail-closed bad cutover, and a **36-second** rollback to the
+  last-good digest with the pre-cutover state verified present. Open: the
+  names (deployer, migration owner, chair, rollback owner, rota), analyst
+  comms, and the timed repeat on the target. *Historical item text follows:*
+  **(S) — cutover, abort, communications, and hypercare (PG-10).** Name
   the change window, freeze point, deployer, migration owner, go/no-go chair,
   rollback decision owner, analyst notification, status channel, success/error
   thresholds, observation period, and support rota. Rehearse the timed run
   sheet on prod-parity, including one forced abort and restoration of the
   last-good digest/data state. **Exit:** contacts acknowledge the plan and
   hypercare ends only after the agreed stable window and evidence review.
-- [ ] **H8 (S) — blocker-only closure ledger (PG-12).** Generate a final table
+- [x] **H8 — LEDGER GENERATED, ZERO OPEN ROWS 2026-07-22**
+  ([qa/H8_CLOSURE_LEDGER_2026-07-22.md](qa/H8_CLOSURE_LEDGER_2026-07-22.md)):
+  every blocking PD/H/G row is CLOSED with a dated artifact or OWNER with its
+  artifact ready; C7–C9/§14 expansion stays visible and non-blocking; the
+  re-freeze addendum binds the ledger to candidate `3b66da67`. *Historical
+  item text follows:* **(S) — blocker-only closure ledger (PG-12).** Generate a final table
   of every blocking A–H item plus PG-01…PG-12 with status, evidence link,
   owner, and accepted-risk reference. C7–C9 and §14 expansion items remain
   visible but explicitly non-blocking. **Exit:** zero blocking rows are open
