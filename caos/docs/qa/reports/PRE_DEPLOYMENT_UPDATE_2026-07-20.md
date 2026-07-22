@@ -75,11 +75,25 @@ production build exports all 18 routes). **Scanner adopted 2026-07-22: Trivy 0.7
 generator as the preferred OCI scanner with docker-scout fallback. Its first
 scan of the 2026-07-20 diagnostic image (`caos-app:pd01-check`) recorded 69
 high/critical-level results including six critical CVEs — all in OS base
-packages (glib, libxml2, perl), none in application dependencies. **H0
-rebuild instruction:** bump the Dockerfile's base-image digest pins to the
-current patched bases at freeze, rebuild, rescan, then disposition whatever
-remains. Outstanding for strict H0: CI evidence links and the named manual
-legs (restore rehearsal, off-host backup, scan disposition sign-off).
+packages (glib, libxml2, perl), none in application dependencies.
+
+**H0 rebuild rehearsed 2026-07-22 (post-C3 tree):** the Dockerfile python
+base digest was bumped to the current `python:3.14-slim`
+(`sha256:cea0e604…`; the node base pin was already current), the image
+rebuilt (`caos-app:h0-prep`, `sha256:2be8dbc0…`), and the in-image consumer
+probe reproduced the exact resource contract (prompt fingerprint
+`15bdcbc3628d`, 2 governed bundles, 588-row RV snapshot, unchanged SHA-256).
+Trivy rescan: the same six critical CVEs persist because **Debian has
+released no fix for any of them** (CVE-2026-42496 explicitly deferred).
+**Draft disposition (evidence-backed, pending H0 sign-off): no runtime
+exposure.** The six sit in `perl-base` (dpkg-essential; the runtime never
+executes perl), `libglib2.0` (no consumer in the image's process tree), and
+`libxml2` (the server is JSON-native — no `lxml` in the lock, no
+XML-parsing imports anywhere in `caos/server`; SEC EDGAR ingestion consumes
+the JSON companyfacts API); the Python interpreter links none of the three.
+Re-evaluate at every rebuild; the disposition converts to a signed H0 record
+at freeze. Outstanding for strict H0: CI evidence links and the named manual
+legs (restore rehearsal, off-host backup, scan-disposition sign-off).
 
 ### Execution delta — PD-06 CP-RENDER/CP-EXTRACT dispositions executed 2026-07-22
 
