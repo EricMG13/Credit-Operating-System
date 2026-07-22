@@ -66,3 +66,23 @@ tampered cookie 401, empty/vendor-down/fault rows) with the three persona
 walkthroughs left for target sign-off
 ([H6_UAT_MATRIX_2026-07-22.md](H6_UAT_MATRIX_2026-07-22.md)). Both rows'
 residuals are now purely names, target repetition, and signatures.
+
+## Addendum 3 — post-reconciliation executable sweep (2026-07-22)
+
+Three items that were still machine-runnable without breaking the freeze were
+executed and flipped to DONE in the plan:
+
+- **D4** — live memo → RAG-answer citation confirmed end-to-end (upload →
+  ClamAV → autolink → chunk `02f23666` → `/api/query/answer` cites it).
+- **E5** — final security rerun over the actual shipped diff (C3 seam only;
+  C5 rescoped, E2/E3 post-freeze): adversarial `/security-review` = **zero
+  HIGH/MEDIUM** ([E5_SECURITY_RERUN_2026-07-22.md](E5_SECURITY_RERUN_2026-07-22.md)).
+  One below-bar E2-pickup note (legacy AlertState tenant column) filed as a
+  background task, not a candidate blocker.
+- **A6** — 89 remote heads classified (55 merged / 34 orphan); the
+  merged-delete command is staged, gated on owner approval (mass remote
+  deletion).
+
+This exhausts the CAOS-side executable surface. Every open row now requires an
+owner signature/approval, the named target host, or is deliberately
+post-freeze-scheduled.

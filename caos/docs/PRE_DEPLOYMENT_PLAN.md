@@ -49,16 +49,23 @@ frozen candidate), **PILOT** (post-deployment program by design).
 
 | Phase | Task status |
 |---|---|
-| **A — Trunk consolidation** | A1–A4, A6b, A7/A7b, A8 DONE (prior sessions) · **A5 DONE 07-22** (all 15 dependabot deferred-post-H0 recorded; #169/#184/#191/#192 = POST-FREEZE) · A6 branch hygiene = OWNER (deletions need approval) |
+| **A — Trunk consolidation** | A1–A4, A6b, A7/A7b, A8 DONE (prior sessions) · **A5 DONE 07-22** (all 15 dependabot deferred-post-H0 recorded; #169/#184/#191/#192 = POST-FREEZE) · **A6 CLASSIFIED 07-22** (89 heads: 55 merged / 34 orphan; delete command staged — only the mass-delete approval is OWNER) |
 | **B — Engine certification** | B1, B3, B4 DONE (prior) · **B2 DONE** (run-wide citation floor; breadth-applied by the corpus) · **B5 EXECUTED 07-22** at core-33 scope: 28/28 EDGAR fixtures, `corpus_run` property net, ~7 s full sweep, nightly `CORPUS_FULL=1` + per-PR smoke (L6 live); Batch-2 28 names = future tranche; SFR/Refresco/INEOS/Cirsa fixtures = OWNER documents |
 | **C — Concepts live** | C1, C7, C9 DONE (prior) · **C3-seam DONE 07-22** (landed + live-operated; target flag cycle → H4/PD-06 owner leg) · **C13 DONE** (all four runtime promises dispositioned) · **C14 DONE** (ships all-flags-off per manifest; staged enablement = PILOT) · C5 rescoped → H4 package · C2 residual (issuers-directory reference workspace), C4 (seeded-panel ledger), C6 (concept-link spec), C8 (PR #191), C10 (worklist semantics), C11 (Apply-to-model UI), C12 (run-mode semantics) = POST-FREEZE |
-| **D — Ingestion breadth** | D1 (OCR provenance + scanned golden), D2 (RAG lane), D3 DONE (prior) · D4 = one live RAG-cites-memo confirm (POST-FREEZE, S) |
-| **E — Hardening** | E4, E6 DONE (prior) · **E8 DONE 07-22** (governance matrix; ☐ owner decisions at H5) · E1 stale text corrected (durable claiming landed #179; residual = PILOT calibration) · E5 final full-diff `/security-review` rerun = POST-FREEZE (per-PR L18 subset green on the candidate meanwhile) · E2 legacy-route roles + admin panel, E3 audit trail (#169), E7 per-lane routing UI = POST-FREEZE |
+| **D — Ingestion breadth** | D1 (OCR provenance + scanned golden), D2 (RAG lane), D3 DONE (prior) · **D4 DONE 07-22** (live memo→RAG-answer citation confirmed, chunk `02f23666`) |
+| **E — Hardening** | E4, E6 DONE (prior) · **E8 DONE 07-22** (governance matrix; ☐ owner decisions at H5) · **E5 DONE 07-22** (final rerun over the shipped C3 diff = zero HIGH/MED; one below-bar E2-pickup note) · E1 stale text corrected (durable claiming landed #179; residual = PILOT calibration) · E2 legacy-route roles + admin panel, E3 audit trail (#169), E7 per-lane routing UI = POST-FREEZE |
 | **F — Beta dictionary** | F1–F5 = OWNER/analyst-cohort phase on the target (F1 separation decision first); artifacts (onboarding guide, gap-log process, golden-promotion rule) ready |
 | **G — Ops readiness** | G1, G4, G5, G6 DONE (prior) · **G3 DONE 07-22** (= L25 on the frozen image) · G8 mechanism DONE (off-host round trip + remote-only restore; real remote + alarms = OWNER) · G2 (Monitor dogfood rule; needs target flag-on), G7 (external probe), G9 (host baseline) = OWNER |
 | **H — Gate & handover** | **H2, H3, H4, H8 DONE 07-22** · **H0 DONE except the scan-disposition signature** (re-frozen `3b66da67`; 3/4 manual slots executed) · **H1 rehearsed** (4 OWNER rows named) · **H6 executed to the persona line** (3 walkthrough signatures = OWNER) · **H7 mechanics rehearsed** (36 s abort→restore; names + target repeat = OWNER) · H5 = signatures |
 | **PD blockers** | PD-01…PD-10: all evidence CLOSED on the candidate; residuals = sign scan disposition (PD-01), target-host repeats (PD-06/07/08 legs), PD-09 signed decision — see the [blocker ledger](qa/reports/PRE_DEPLOYMENT_UPDATE_2026-07-20.md) and H8 |
 | **§14 expansion (X1–X13)** | Visible, MED, non-blocking by policy — untouched |
+
+Post-reconciliation executable sweep (2026-07-22, after the "proceed"): the
+three still-machine-runnable items were executed — **D4** (live memo→RAG
+citation), **E5** (final security rerun over the shipped C3 diff, zero
+HIGH/MED), and **A6** (all 89 remote heads classified; merged-delete command
+staged for approval). Nothing CAOS-side remains executable without either an
+owner signature/approval, the named target host, or the post-freeze schedule.
 
 The remaining path to deployment is exactly: **sign** (scan disposition, risk
 register, H5 table) → **name the target host** (G9) → repeat
@@ -585,7 +592,16 @@ truth, tooling roots clean.
   **Verify:** refresh the GitHub open-PR list and checks at pickup.
   **Exit:** no PR older than 14 days lacks a decision, no duplicate candidate
   remains open, and accepted work is green on `origin/main` (L14).
-- [ ] **A6 (S) — remote branch hygiene.** The 2026-07-11 classification found
+- [x] **A6 — CLASSIFIED 2026-07-22; deletion list ready for owner approval.**
+  Fresh `git ls-remote` + `git merge-base --is-ancestor` over all 89 non-main
+  remote heads: **55 merged** into `origin/main`, **34 orphan** (14 of them
+  dependabot, which A5 already dispositioned as deferred-post-H0). The exact
+  `git push origin --delete …` command for the 55 merged heads (with the live
+  `codex/112`/`main` excluded) is staged; **mass remote deletion needs owner
+  approval** — that's the only residual. Every orphan has a disposition
+  (dependabot = A5; the rest = superseded feature/rebase heads, delete or keep
+  per owner). *Historical item text follows:*
+  **(S) — remote branch hygiene.** The 2026-07-11 classification found
   18 merged branches and 9 orphan branches; that count is historical and must
   not be reused as current evidence. Refresh remote refs, classify every head
   against `origin/main`, and delete only owner-approved merged/superseded
@@ -1047,7 +1063,16 @@ lane) is done and moved to §1's working table.**
   non-PDF, lying extension, mid-read oversize, corrupt, encrypted, non-workbook,
   and zip-bomb-like containers. Every case is an explicit 4xx or a loud
   zero-chunk warning; none becomes silent success.
-- [ ] **D4 (S) — partial on main.** The Issuer Profile quick-note entry point,
+- [x] **D4 — EXIT CONFIRMED LIVE 2026-07-22.** A quick-note memo naming the
+  issuer was uploaded through `/api/ingestion/upload/memo` (ClamAV-scanned,
+  autolinked, chunked into retrieval, chunk `02f23666…`), then
+  `POST /api/query/answer` returned the note's fact citing exactly that chunk
+  id (`answer: "…the ZEPHYR-KITE threshold of 2.75x…"`, model
+  deepseek-v4-pro). The manual RAG-cites-the-new-memo confirmation the exit
+  gate asked for is done. Gotcha recorded: a memo linking **zero** issuers
+  stays vault-only (no chunks) — the note must name a known issuer/ticker to
+  be answerable. *Historical item text follows:*
+  **(S) — partial on main.** The Issuer Profile quick-note entry point,
   vault upload/autolink path, immediate re-read, and frontend test have landed.
   Remaining exit evidence is the live manual RAG answer proving the new memo's
   chunk id is cited. The quick capture writes a tagged memo through
@@ -1129,7 +1154,16 @@ silently with 0 chunks.
   explains rotation for shipped secrets; `test_secret_log_hygiene.py` is
   mutation-verified and CI-wired. C5/H4 must append future Bloomberg/email
   credential names and rotation steps when those integrations exist.
-- [ ] **E5 (M) — baseline pass, final rerun still required.** The 2026-07-12
+- [x] **E5 — FINAL RERUN EXECUTED 2026-07-22** ([qa/E5_SECURITY_RERUN_2026-07-22.md](qa/E5_SECURITY_RERUN_2026-07-22.md)):
+  the shipped diff since the 07-12 gate is only the C3 seam (C5 rescoped;
+  E2/E3 are post-freeze, not in the candidate). Adversarial `/security-review`
+  over all 8 C3 files + identity/tenancy helpers → **zero HIGH/MEDIUM above
+  the confidence bar** (parameterized ORM, frozen strict input envelopes,
+  owner-and-tenant-scoped writes with server-forced subject_scope, HMAC
+  compare_digest cursors, identifier-only logs). One below-bar E2-pickup note
+  (legacy non-`c3:` AlertState lacks a tenant column) filed for the roles
+  work; not a candidate blocker. Per-PR L18 subset green on the candidate.
+  *Historical item text follows:* **(M) — baseline pass, final rerun still required.** The 2026-07-12
   security-infra review passed all six gates with 0 new HIGH/MED findings and
   replaced the route-gate regex with an AST sweep. Keep this item open until
   the full post-C3/C5/E2/E3 diff is rerun. Already re-verified present: SSRF
