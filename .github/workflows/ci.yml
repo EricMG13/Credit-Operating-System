@@ -173,9 +173,14 @@ jobs:
       # so model_flow.spec.ts's v2-authority test 404s without these.
       # Alert rules are also default-off; enable them only on this real-API
       # subprocess so monitor_flow can exercise the activation boundary.
+      # The whole three-browser sweep runs as ONE analyst, so the per-analyst
+      # analysis write budget (45/min, sized for a real human) rate-limits the
+      # late specs into 429 churn — give the harness principal test-only
+      # headroom; production defaults are unchanged (routes/analysis.py).
       - name: Start app server
         run: |
           nohup env CAOS_LINEAGE_V2_ENABLED=true CAOS_MODEL_ENGINE_V2_ENABLED=true CAOS_ALERT_RULES_V1_ENABLED=true \
+            CAOS_ANALYSIS_WRITE_MAX_PER_MINUTE=600 CAOS_ANALYSIS_READ_MAX_PER_MINUTE=2400 \
             python caos/server/run.py > server.log 2>&1 &
           for i in $(seq 1 30); do
             curl -sf http://localhost:8000/api/health && exit 0

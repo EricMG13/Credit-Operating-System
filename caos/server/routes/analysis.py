@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal, Optional, cast
 
@@ -72,8 +73,12 @@ from tenancy import (
 
 router = APIRouter()
 
-_READ_MAX_PER_MINUTE = 120
-_WRITE_MAX_PER_MINUTE = 45
+# Per-analyst per-minute budgets. Production keeps the defaults; the env
+# overrides exist for single-principal test harnesses (the CI E2E job runs the
+# whole three-browser sweep as one analyst and legitimately exceeds a real
+# analyst's write budget — see ci.yml "Start app server").
+_READ_MAX_PER_MINUTE = int(os.environ.get("CAOS_ANALYSIS_READ_MAX_PER_MINUTE", "120"))
+_WRITE_MAX_PER_MINUTE = int(os.environ.get("CAOS_ANALYSIS_WRITE_MAX_PER_MINUTE", "45"))
 _MAX_CONTEXT_STATE_BYTES = 100 * 1024
 _MAX_FINDING_EVIDENCE_BYTES = 250 * 1024
 

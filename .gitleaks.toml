@@ -7,6 +7,13 @@ useDefault = true
 
 [allowlist]
 description = "Prose/vendored/built trees: example tokens + minified noise, not real secrets"
+regexes = [
+  # C3 observation-identity schema tag (alert_evaluation.py): a public version
+  # constant, not a credential. The generic-api-key rule matched the historical
+  # `_OBSERVATION_KEY_VERSION` identifier; commit-fingerprint pinning does not
+  # survive CI checkout attribution, so allowlist the exact literal value.
+  '''c3-observation-v1''',
+]
 paths = [
   # Compiled Next.js export shipped for the single-app deploy — minified bundles
   # read as high entropy and false-positive the generic rule.
