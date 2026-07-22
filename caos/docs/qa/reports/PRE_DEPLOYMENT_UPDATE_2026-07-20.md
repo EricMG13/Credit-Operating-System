@@ -39,6 +39,42 @@ This closes **PD-10 on the current working tree**. It does not substitute
 for PD-02's final three-browser journey seal or PD-09's digest-bound archive,
 and it must be rerun after H0 is frozen.
 
+### Execution delta — H0 CANDIDATE FROZEN 2026-07-22
+
+The release candidate is frozen and recorded in the digest-addressed strict
+manifest [caos/docs/qa/release/strict-h0-cda106dc3973/](../release/strict-h0-cda106dc3973/RELEASE_MANIFEST.json)
+(zero strict failures):
+
+- **Candidate:** `cda106dc3973…` — clean tree, exactly equal to the
+  `origin/main` tip after reconciliation (the C3 merge, the pr147 0035
+  dirty-data hardening, and the CI gate fixes all landed first).
+- **Image:** `caos-app:h0-cda106dc` = `sha256:882efb398526…`, built from the
+  frozen tip; in-image consumer probe reproduces the exact resource contract
+  (prompt fingerprint `15bdcbc3628d`, CP-2G/CP-4D bundles, 588-row RV
+  snapshot). `docker-compose.digests.yml` pins the app by immutable reference.
+- **Schema head:** `0068` (single head). **Config fingerprint:**
+  `e466adb8936b8e2b…` over the tracked non-secret deploy inputs.
+- **Flags:** all 13 declared `*_enabled` flags explicitly `false` — the true
+  deploy state; the C14 staged enablement remains a pilot-host program with
+  its own sign-offs.
+- **Evidence:** CycloneDX SBOMs (npm + pip), pip/npm audit (clean), Trivy
+  SARIF of the final image (six OS-base criticals, no Debian fix released,
+  zero-runtime-exposure draft disposition pending sign-off), and three green
+  run links bound in the manifest: main CI on the exact frozen commit
+  (29917558055 — full three-browser E2E matrix included), nightly golden-E2E,
+  and the security review.
+
+Getting the frozen commit green surfaced and fixed three real defects — C3
+route typing (including the RT-829 tenancy fence made explicit), a gitleaks
+attribution gap, and the analyst rate limiter throttling the single-principal
+E2E sweep into 429 churn (env-tunable budgets now; production defaults
+unchanged; the client-side churn defect is filed as follow-up work).
+
+This directory is the nucleus of the PD-09 digest-addressed evidence bundle.
+Still open before release: L23/L24 regeneration against this candidate,
+target-host L25/L26 and the C3 live-operation legs, the scan-disposition and
+C14 sign-offs, and the signed PD-09 decision record.
+
 ### Execution delta — PD-06 scope decisions 2026-07-22 (user product decisions)
 
 Three recorded decisions (critic pass RT-2026-07-22-788…791): **(1)** the
@@ -363,7 +399,7 @@ remains non-waivable.
 
 | ID | Blocking condition | Completion gate |
 |---|---|---|
-| **PD-01** | **RESOURCE DEFECT CLOSED on the current working tree:** real app image and UID-10001 probes validate the governed prompt corpus/bundles and 588-row RV file from a measured 3.88 MB context. No clean canonical release image; branch reconciliation, registry digest, schema/config/flag manifest, SBOM, and scan remain open | Repeat the exact image contract after reconciliation, then record clean H0 commit, immutable registry digest, schema head, config fingerprint, flags, dependency/SBOM/scan evidence |
+| **PD-01** | **CANDIDATE FROZEN 2026-07-22:** clean `cda106dc` == `origin/main`, image `sha256:882efb398526…` with passing in-image probes, schema head `0068`, config fingerprint, 13 explicit flag states, SBOMs, Trivy scan, and three green CI links — all in the zero-failure strict manifest ([strict-h0-cda106dc3973](../release/strict-h0-cda106dc3973/RELEASE_MANIFEST.json)). Registry-digest publication happens at deploy (self-hosted; the target loads the pinned image, never rebuilds) | Sign the scan disposition; keep the manifest binding for PD-09 |
 | **PD-02** | The historical 165-case seal predates the current working tree. Routed-concept and boundary-recovery deltas now pass 21/21 fixture/test-only-injection executions, but the complete 189-node inventory is not bound to frozen H0 API/data | L27 current candidate green across Chromium/Firefox/WebKit without retry against real H0 API/data for primary journeys and affected states |
 | **PD-03** | Exact tracker rebuild is current, but 983 scenarios remain Designed, 377 rely on suite evidence, and the dated application-surface matrix predates the post-cleanup 692-control inventory | L23 regenerate route/nav/API/process/control/tracker/evidence parity from the candidate and execute all release-required scenarios |
 | **PD-04** | **CLOSED on the current working tree:** 16 dead modules removed; one policy test seam retained with rationale; graph is 262/263 from 27 roots | Rerun native graph and controlled-host Fallow against frozen H0; reopen on a new or unexplained candidate |

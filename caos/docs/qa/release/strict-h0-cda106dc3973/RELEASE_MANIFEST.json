@@ -1,0 +1,176 @@
+{
+  "app_image": {
+    "image_id": "sha256:882efb398526a374faa6100a04effbd6275f145ba391215990e048fd7cd52258",
+    "reference": "caos-app:h0-cda106dc",
+    "repo_digests": [
+      "caos-app@sha256:882efb398526a374faa6100a04effbd6275f145ba391215990e048fd7cd52258"
+    ],
+    "status": "recorded"
+  },
+  "candidate": {
+    "branch": "codex/112",
+    "commit": "cda106dc397369b5f86874ae6d09ade64b9ba7dd",
+    "dirty": false,
+    "equals_origin_main": true,
+    "origin_main": "cda106dc397369b5f86874ae6d09ade64b9ba7dd",
+    "status": "recorded"
+  },
+  "ci_evidence": {
+    "runs": [
+      "https://github.com/EricMG13/Credit-Operating-System/actions/runs/29917558055",
+      "https://github.com/EricMG13/Credit-Operating-System/actions/runs/29904874606",
+      "https://github.com/EricMG13/Credit-Operating-System/actions/runs/29914801025"
+    ],
+    "status": "recorded"
+  },
+  "config_fingerprint": {
+    "combined_sha256": "e466adb8936b8e2ba4959d3c0eb8473639add4cc06799169fc315d7ec4dfb954",
+    "files": {
+      ".dockerignore": "00ff354ce4f2f8ff4d8d5f7eb67332091e0fa8055ee71605d257359132ac0614",
+      "caos/deploy/.env.example": "ee38b19c58b6b9cf3f1ea0474c386eb92cf36fa8a2e53447138f783693ee6a19",
+      "caos/deploy/Caddyfile": "195221aa5e0fd43dd6859eebece05398a9c4409d7a10f23c2ebff1df0550bcd2",
+      "caos/deploy/Dockerfile": "764a5fc1538900af2b6fbfbe482e08a1571219d8f3d8e1ef7c1b552cb8aee624",
+      "caos/deploy/Dockerfile.backup": "8ba565573ab9758ada10cd12c4c00a5dd25d7bd58ab71e71146b9095c5863aa4",
+      "caos/deploy/Dockerfile.backup-sync": "8af461b8ab0c2d589366ae33ede71e19cde8c541ad726db2281b998a89342476",
+      "caos/deploy/clamd.conf": "bd4dc56007a278de8b4541a622202d181bcb647d0969d1566e1ce9c4206a50a6",
+      "caos/deploy/docker-compose.yml": "c70a14f9f7db49412b84a00374da7145d012f7b8e742f06d9df70760f60fad4f",
+      "caos/deploy/oauth2-proxy.cfg": "30974770d476282d0ce6431eab51c427901ba5b8412d4c2382d6d332ce88e3a5"
+    },
+    "status": "recorded"
+  },
+  "digest_override": {
+    "path": "caos/docs/qa/release/strict-h0-cda106dc3973/docker-compose.digests.yml",
+    "sha256": "38b774940db67e9c2d697f3aba834775e4a72579204157e47b20540bdf7ed333",
+    "status": "recorded"
+  },
+  "feature_flags": {
+    "declared": [
+      "advisor_enabled",
+      "caos_alert_rules_v1_enabled",
+      "caos_cp_2g_enabled",
+      "caos_cp_4d_enabled",
+      "caos_cross_analyst_run_sharing_enabled",
+      "caos_document_egress_enabled",
+      "caos_lineage_v2_enabled",
+      "caos_market_xlsx_v2_enabled",
+      "caos_model_engine_v2_enabled",
+      "caos_tenancy_enabled",
+      "council_enabled",
+      "debate_enabled",
+      "rerank_enabled"
+    ],
+    "missing_states": [],
+    "stated": {
+      "advisor_enabled": "false",
+      "caos_alert_rules_v1_enabled": "false",
+      "caos_cp_2g_enabled": "false",
+      "caos_cp_4d_enabled": "false",
+      "caos_cross_analyst_run_sharing_enabled": "false",
+      "caos_document_egress_enabled": "false",
+      "caos_lineage_v2_enabled": "false",
+      "caos_market_xlsx_v2_enabled": "false",
+      "caos_model_engine_v2_enabled": "false",
+      "caos_tenancy_enabled": "false",
+      "council_enabled": "false",
+      "debate_enabled": "false",
+      "rerank_enabled": "false"
+    },
+    "status": "recorded"
+  },
+  "generated_at": "2026-07-22T12:03:52+00:00",
+  "manual_h0_slots": {
+    "db_restore_upgrade_rehearsal": "open \u2014 rehearse against a restored target snapshot (plan \u00a7H0)",
+    "image_scan_disposition": "open \u2014 every critical/high finding needs a signed disposition (plan \u00a7H0)",
+    "off_host_backup_verified": "open \u2014 take and verify immediately before H1 (plan \u00a7H0)",
+    "signed_decision_record": "open \u2014 PD-09 archive step"
+  },
+  "mode": "strict-h0",
+  "modular_os": {
+    "probe": {
+      "prompt_corpus_fingerprint": "15bdcbc3628d",
+      "rv_reference": {
+        "path": "/frontend/src/lib/command/market-data.json",
+        "rows": 588,
+        "sha256": "8ca8c785070a6837b118f0cf9a530d3c63e89d051526f9a70fdf5f844a021597"
+      },
+      "specialized_bundles": {
+        "CP-2G": "6fb5fde56da3bd931f737583a1878f7e285ea83180d4a762b807691eabf6fc03",
+        "CP-4D": "6dbfed67733ac18776c618680b673ddfb9e877d68efeb39f51042a20788d0947"
+      }
+    },
+    "status": "recorded"
+  },
+  "record": "CAOS H0 release manifest",
+  "sboms": {
+    "frontend_npm": {
+      "path": "caos/docs/qa/release/strict-h0-cda106dc3973/sbom-frontend-cyclonedx.json",
+      "sha256": "80f3e1affba4d51b65717f5a8364446e8d04c0fc54a46b8161d1ab03bce185fd",
+      "status": "recorded"
+    },
+    "server_pip": {
+      "findings_present": false,
+      "path": "caos/docs/qa/release/strict-h0-cda106dc3973/sbom-server-cyclonedx.json",
+      "sha256": "7d046f653f568c7940f43a26446aff45c0e8785a23ffc92d36957004831e1751",
+      "status": "recorded"
+    },
+    "status": "recorded"
+  },
+  "schema": {
+    "heads": [
+      "0068"
+    ],
+    "single_head": true,
+    "status": "recorded"
+  },
+  "strict_failures": [],
+  "third_party_images": {
+    "images": [
+      {
+        "digest_pinned": true,
+        "image": "pgvector/pgvector:pg18@sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0"
+      },
+      {
+        "digest_pinned": true,
+        "image": "quay.io/oauth2-proxy/oauth2-proxy:v7.15.3@sha256:10a1165743a192e1940b4708fb9647027185ce11a681a1c5519b442ff7f1f561"
+      },
+      {
+        "digest_pinned": true,
+        "image": "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"
+      },
+      {
+        "digest_pinned": false,
+        "image": "caos-backup:pg18"
+      },
+      {
+        "digest_pinned": false,
+        "image": "caos-backup-sync:pg18-rclone"
+      },
+      {
+        "digest_pinned": true,
+        "image": "clamav/clamav:1.5@sha256:7f5389ccaa2368c383fa80e167ccfe44348d71e685f926fce4755eed1757673a"
+      }
+    ],
+    "status": "recorded"
+  },
+  "vulnerability": {
+    "frontend_npm_audit": {
+      "findings_present": false,
+      "path": "caos/docs/qa/release/strict-h0-cda106dc3973/npm-audit.json",
+      "sha256": "57f6f2ddfb6f7d687a897f6511adb497280649a7448ef5f84bc8f2b7cf4f48bc",
+      "status": "recorded"
+    },
+    "image_os_scan": {
+      "path": "caos/docs/qa/release/strict-h0-cda106dc3973/image-scan.sarif.json",
+      "scanner": "trivy",
+      "sha256": "75e96bcda88446767aba75c8801dee7da7255fc26b73a5bf88e26371ae69680e",
+      "status": "recorded"
+    },
+    "server_pip_audit": {
+      "findings_present": false,
+      "path": "caos/docs/qa/release/strict-h0-cda106dc3973/pip-audit.json",
+      "sha256": "7a542ea0b990207d526473653410fdd8ec528ad4a6cb5516e9ca29a2759af74b",
+      "status": "recorded"
+    },
+    "status": "recorded"
+  }
+}
