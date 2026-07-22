@@ -162,6 +162,14 @@ Caddy provisions TLS on first request to `https://<CAOS_DOMAIN>`. The build
 compiles the Next.js export and bakes it into the image, so there is no separate
 frontend build step.
 
+On first boot the one-shot `vault-init` service chowns the fresh `vault-data`
+volume to the app's UID 10001 and exits before the app starts (the app image
+ships no `/vault`, so a pristine named volume would otherwise be root-owned
+and the first document upload would fail — found by the 2026-07-22 L25 run).
+It is idempotent and re-runs harmlessly on every `up`. For an H0
+digest-pinned deploy, apply the release override so neither service builds:
+`docker compose -f docker-compose.yml -f <release>/docker-compose.digests.yml up -d`.
+
 ---
 
 ## 5. Post-deploy verification — launch checklist

@@ -40,6 +40,26 @@ services:
       retries: 5
     networks: [internal]
 
+  # One-shot ownership init for the vault volume. The app image has no /vault
+  # directory (the volume mount creates it), so a pristine named volume comes up
+  # root-owned while the app runs as UID 10001 (Dockerfile USER caos) on an
+  # immutable rootfs with all caps dropped — it cannot fix ownership itself, and
+  # the FIRST document upload on a fresh host 500s with EACCES (found by the
+  # L25 target-shaped run, 2026-07-22). The backup image bakes /backups
+  # ownership at build time; this service is the equivalent for /vault without
+  # rebuilding the frozen app image.
+  vault-init:
+    build:
+      context: ../..
+      dockerfile: caos/deploy/Dockerfile
+    user: "0:0"
+    entrypoint: ["python", "-c", "import os; os.chown('/vault', 10001, 10001)"]
+    restart: "no"
+    security_opt: ["no-new-privileges:true"]
+    network_mode: "none"
+    volumes:
+      - vault-data:/vault
+
   app:
     build:
       context: ../..
@@ -50,6 +70,8 @@ services:
         condition: service_healthy
       clamav:
         condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
     # Hardening: non-root already (Dockerfile USER caos). Drop all caps (the app
     # needs none), block priv-escalation, run an immutable rootfs. It writes only
     # to /vault (volume) and /tmp (upload tempfiles → tmpfs); PYTHONDONTWRITEBYTECODE

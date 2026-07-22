@@ -312,6 +312,9 @@ def write_digest_override(out_dir: Path, app_image: dict) -> dict:
         "  app:\n"
         f"    image: {ref}\n"
         "    build: !reset null\n"
+        "  vault-init:\n"
+        f"    image: {ref}\n"
+        "    build: !reset null\n"
     )
     return recorded(**write_artifact(out_dir, "docker-compose.digests.yml", override))
 

@@ -68,6 +68,63 @@ reflect the recorded CP-SR deferral, C5 rescope, and CP-RENDER equivalence
 decisions. Remaining Blocked rows are exclusively target-host/enterprise
 custody and activation legs (DATA-01/02/03, OPS-01/02, EXT-01, UI-08).
 
+### Execution delta — post-freeze evidence sweep 2026-07-22 (PD-02/03/06/07/08, H1/H2/H3/H4)
+
+One session executed every locally-executable blocker leg against the frozen
+candidate; each item links its dated artifact:
+
+- **PD-01 residual:** [SCAN_DISPOSITION.md](../release/strict-h0-cda106dc3973/SCAN_DISPOSITION.md)
+  written (66/66 error-level findings verified no-fix-available; per-group
+  verdicts, compensating controls, rebuild trigger). Open: the owner
+  signature row only.
+- **PD-02:** the manifest-bound CI run 29917558055 on the exact frozen commit
+  ran the complete three-browser Playwright inventory (no retry) against the
+  real `run.py` server — the gate's substance. Recorded here as closed on
+  candidate evidence; any code change reopens it.
+- **PD-03:** [SCENARIO_DISPOSITION_2026-07-22.md](../SCENARIO_DISPOSITION_2026-07-22.md)
+  — every release-required scenario kind mapped to named current-candidate
+  evidence; the 983 Designed rows are classified (aggregate-loop-owned,
+  flag-off, or post-release growth), not silently pending.
+- **PD-06:** C3 live-operation legs executed on live PostgreSQL with an
+  externally operated scheduler/dispatcher over an 18-cycle window, honest
+  non-match, materialization, exactly-once dispatch, idempotent replay, and
+  flag-off rollback — [C3_LIVE_OPERATION_EVIDENCE_2026-07-22.md](../C3_LIVE_OPERATION_EVIDENCE_2026-07-22.md).
+  Model-provider activation matrix (no-key / key+egress-off fail-closed /
+  live OpenRouter + live Anthropic calls / fault fail-fast) —
+  [MODEL_PROVIDER_ACTIVATION_EVIDENCE_2026-07-22.md](../MODEL_PROVIDER_ACTIVATION_EVIDENCE_2026-07-22.md).
+  Remaining: target-host flag operation + email transport (H4 package).
+- **PD-07:** L25 executed on the exact image digest under the deploy
+  container contract — 15 principals, 25,630-request steady stage (p95
+  42 ms, zero 5xx), upload stage through ClamAV, 429/529/hang provider
+  faults (bounded, isolated), PostgreSQL restart (recovery 1 s), durability —
+  [perf/PRE_DEPLOYMENT_CAPACITY_2026-07-22.md](../perf/PRE_DEPLOYMENT_CAPACITY_2026-07-22.md).
+  **Found and fixed a real first-boot defect:** pristine `vault-data` volume
+  is root-owned → first upload 500s; one-shot `vault-init` compose service
+  (config-only; image digest unchanged; manifest regeneration required).
+- **PD-08:** full custody chain executed with the unmodified deploy backup
+  images: local cycle + scratch drill, rclone off-host round trip,
+  **remote-only restore after deleting local artifacts**, and the H0
+  restore→upgrade→boot→read/write rehearsal —
+  [audits/data-custody-recovery-2026-07-22.md](../audits/data-custody-recovery-2026-07-22.md).
+  Remaining: real off-host destination, at-rest encryption, alert wiring,
+  retention sign-off (owner/target).
+- **H1:** §5 rehearsed box-by-box on the frozen image (EDGAR live, identity
+  gates, durability, hardening) — [H1_REHEARSAL_2026-07-22.md](../H1_REHEARSAL_2026-07-22.md);
+  four OWNER rows named. **H2:** CI 29917558055 + dispatched Nightly
+  29929720671 (golden E2E both lanes, hermetic backend, concepts, 300-issuer
+  smoke) — all green, archived.
+- **H3/H4:** handover package complete at [handover/INDEX.md](../../handover/INDEX.md)
+  (admin guide, onboarding, support model, accepted-risk register, cutover
+  run sheet, monitoring inventory, data governance, OpenAPI export — 139
+  routes/178 operations, matching the surface matrix); activation packages
+  [EMAILSINK_SPEC.md](../../reference/EMAILSINK_SPEC.md) and
+  [BLOOMBERG_ACTIVATION_RUNBOOK.md](../../reference/BLOOMBERG_ACTIVATION_RUNBOOK.md).
+
+Irreducible remainder = owner/target actions: sign the scan disposition and
+risk register, name the target host (G9) and run L25/L26/H1/H6 there, real
+off-host remote + encryption + alert wiring, OAuth edge legs, H5 signatures,
+H7 names/rehearsal on the target, PD-09 archive + signed decision.
+
 ### Execution delta — H0 CANDIDATE FROZEN 2026-07-22
 
 The release candidate is frozen and recorded in the digest-addressed strict
