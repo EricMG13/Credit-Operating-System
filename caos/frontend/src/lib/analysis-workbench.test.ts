@@ -208,6 +208,72 @@ describe("useAnalysisContext mutation ordering", () => {
     expect(result.current.context?.id).toBe("context-new-session");
   });
 
+  it("retries once after a 429 with bounded backoff, staying throttled (not error) until it succeeds", async () => {
+    window.history.replaceState({}, "", "/command");
+    vi.useFakeTimers();
+    try {
+      post
+        .mockRejectedValueOnce({ isAxiosError: true, response: { status: 429 } })
+        .mockResolvedValueOnce({ data: { ...CONTEXT, name: "Desk Throttle A" } });
+      const onContextError = vi.fn();
+      const onThrottled = vi.fn();
+      window.addEventListener("caos:analysis-context-error", onContextError);
+      window.addEventListener("caos:analysis-context-throttled", onThrottled);
+
+      const { result } = renderHook(() => useAnalysisContext({ name: "Desk Throttle A" }));
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(post).toHaveBeenCalledTimes(1);
+      expect(result.current.throttled).toBe(true);
+      expect(result.current.error).toBeNull();
+      expect(result.current.context).toBeNull();
+      expect(onContextError).not.toHaveBeenCalled();
+      // The shell-wide chrome (AnalysisContextStrip) hears this to show an
+      // honest "throttled — retrying" state instead of silence or churn.
+      expect(onThrottled).toHaveBeenCalledTimes(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+
+      expect(post).toHaveBeenCalledTimes(2);
+      expect(result.current.throttled).toBe(false);
+      expect(result.current.context?.name).toBe("Desk Throttle A");
+      expect(onContextError).not.toHaveBeenCalled();
+      window.removeEventListener("caos:analysis-context-error", onContextError);
+      window.removeEventListener("caos:analysis-context-throttled", onThrottled);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not refire the create request when the shell remounts mid-backoff (no storm)", async () => {
+    window.history.replaceState({}, "", "/command");
+    vi.useFakeTimers();
+    try {
+      post
+        .mockRejectedValueOnce({ isAxiosError: true, response: { status: 429 } })
+        .mockResolvedValueOnce({ data: { ...CONTEXT, name: "Desk Throttle B" } });
+
+      const { result, unmount } = renderHook(() => useAnalysisContext({ name: "Desk Throttle B" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(post).toHaveBeenCalledTimes(1);
+      expect(result.current.throttled).toBe(true);
+
+      // Simulate the shell tearing this surface down and remounting it before
+      // the backoff window elapses — the observed churn pattern.
+      unmount();
+      const remount = renderHook(() => useAnalysisContext({ name: "Desk Throttle B" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(post).toHaveBeenCalledTimes(1); // still just the one attempt — no storm
+      expect(remount.result.current.throttled).toBe(true);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+      expect(post).toHaveBeenCalledTimes(2);
+      expect(remount.result.current.context?.name).toBe("Desk Throttle B");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("serializes patches and sends the newest revision to the queued mutation", async () => {
     window.history.replaceState({}, "", "/command?context=context-1");
     get.mockResolvedValue({ data: CONTEXT });

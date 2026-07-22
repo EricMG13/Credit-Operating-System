@@ -494,6 +494,42 @@ function createContextOnce(
   return created;
 }
 
+// 429 backoff for context create/load. Keyed independent of any one mounted
+// component so a shell remount mid-backoff (the observed churn pattern) sees
+// the existing cool-down instead of firing a fresh request. Bounded: past
+// MAX_THROTTLE_ATTEMPTS this degrades to the normal terminal-error path.
+const MAX_THROTTLE_ATTEMPTS = 5;
+const THROTTLE_BASE_MS = 1000;
+const THROTTLE_MAX_MS = 30000;
+const contextLoadThrottle = new Map<string, { attempt: number; retryAt: number }>();
+
+function isRateLimited(reason: unknown): boolean {
+  return axios.isAxiosError(reason) && reason.response?.status === 429;
+}
+
+// Half-jitter: full backoff window, then a random half on top. Keeps retries
+// spread out under sustained throttling without ever exceeding THROTTLE_MAX_MS.
+function throttleDelayMs(attempt: number): number {
+  const window = Math.min(THROTTLE_BASE_MS * 2 ** (attempt - 1), THROTTLE_MAX_MS);
+  return Math.round(window / 2 + Math.random() * (window / 2));
+}
+
+function contextLoadThrottleKey(
+  contextId: string | null,
+  principalId: string,
+  principalGeneration: number,
+  name: string,
+  sectorId: string | undefined,
+): string {
+  // principalId scopes the "get" key too: named profiles share one edge-proxy
+  // session (see AuthProvider), so a second analyst hitting the same
+  // ?context= URL right after a re-login must not inherit the first
+  // analyst's cool-down.
+  return contextId
+    ? `get:${principalId}:${contextId}`
+    : `create:${principalId}@${principalGeneration}|${name}|${sectorId ?? ""}`;
+}
+
 type ContextSetter = Dispatch<SetStateAction<AnalysisContext | null>>;
 type MutationState = "idle" | "saving" | "error";
 
@@ -527,16 +563,19 @@ const useContextLoad = (
   const [context, setContext] = useState<AnalysisContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [throttled, setThrottled] = useState(false);
   const loadGeneration = useRef(0);
   useEffect(() => {
     const generation = ++loadGeneration.current;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const currentLoad = () => !cancelled && generation === loadGeneration.current;
-    const load = async () => {
+    const contextId = requestedContextFromLocation(hasExplicitContextId, requestedContextId);
+    const throttleKey = contextLoadThrottleKey(contextId, principalId, principalGeneration, defaultName, defaultSectorId);
+
+    const attempt = async () => {
+      if (!currentLoad()) return;
       setLoading(true);
-      setError(null);
-      setContext(null);
-      const contextId = requestedContextFromLocation(hasExplicitContextId, requestedContextId);
       try {
         const value = contextId
           ? await analysisApi.getContext(contextId)
@@ -546,20 +585,50 @@ const useContextLoad = (
             principalGeneration,
           );
         if (!currentLoad()) return;
+        contextLoadThrottle.delete(throttleKey);
+        setThrottled(false);
+        setError(null);
         setContext(value);
+        setLoading(false);
         publishLoadedContext(value, contextId);
       } catch (reason) {
         if (!currentLoad()) return;
+        const priorAttempts = contextLoadThrottle.get(throttleKey)?.attempt ?? 0;
+        if (isRateLimited(reason) && priorAttempts < MAX_THROTTLE_ATTEMPTS) {
+          const nextAttempt = priorAttempts + 1;
+          const retryAt = Date.now() + throttleDelayMs(nextAttempt);
+          contextLoadThrottle.set(throttleKey, { attempt: nextAttempt, retryAt });
+          setThrottled(true);
+          setError(null);
+          window.dispatchEvent(new Event("caos:analysis-context-throttled"));
+          timer = setTimeout(() => { void attempt(); }, retryAt - Date.now());
+          return;
+        }
+        contextLoadThrottle.delete(throttleKey);
+        setThrottled(false);
+        setLoading(false);
         setError(toErrorMessage(reason, "Analysis context unavailable."));
         window.dispatchEvent(new Event("caos:analysis-context-error"));
-      } finally {
-        if (currentLoad()) setLoading(false);
       }
     };
-    void load();
-    return () => { cancelled = true; };
+
+    setContext(null);
+    setError(null);
+    const cooldown = contextLoadThrottle.get(throttleKey);
+    const remaining = cooldown ? cooldown.retryAt - Date.now() : 0;
+    if (remaining > 0) {
+      // A prior mount is already backing off this same create/load — honor its
+      // cool-down instead of firing a fresh request (prevents remount storms).
+      setLoading(true);
+      setThrottled(true);
+      window.dispatchEvent(new Event("caos:analysis-context-throttled"));
+      timer = setTimeout(() => { void attempt(); }, remaining);
+    } else {
+      void attempt();
+    }
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [defaultName, defaultSectorId, hasExplicitContextId, principalGeneration, principalId, requestedContextId]);
-  return { context, setContext, loading, error };
+  return { context, setContext, loading, error, throttled };
 };
 
 const patchContextWithConflictRetry = async (
@@ -680,7 +749,7 @@ const useContextMutation = (
 export function useAnalysisContext(defaults: { name: string; sector_id?: string; context_id?: string | null }) {
   const { user, principalGeneration = 0 } = useAuth();
   const principalId = user?.id ?? "unresolved";
-  const { context, setContext, loading, error } = useContextLoad(defaults, principalId, principalGeneration);
+  const { context, setContext, loading, error, throttled } = useContextLoad(defaults, principalId, principalGeneration);
   const contextIdMode = Object.prototype.hasOwnProperty.call(defaults, "context_id") ? "explicit" : "implicit";
   const scopeKey = `${principalId}@${principalGeneration}|${defaults.name}|${defaults.sector_id ?? ""}|${contextIdMode}|${defaults.context_id ?? ""}`;
   const { patch, mutationState, mutationError, retryLastPatch } = useContextMutation(context, setContext, scopeKey);
@@ -691,8 +760,9 @@ export function useAnalysisContext(defaults: { name: string; sector_id?: string;
     patch,
     loading,
     error,
+    throttled,
     mutationState,
     mutationError,
     retryLastPatch,
-  }), [context, setContext, patch, loading, error, mutationState, mutationError, retryLastPatch]);
+  }), [context, setContext, patch, loading, error, throttled, mutationState, mutationError, retryLastPatch]);
 }

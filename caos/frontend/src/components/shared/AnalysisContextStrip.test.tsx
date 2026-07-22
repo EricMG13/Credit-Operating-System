@@ -73,6 +73,29 @@ describe("AnalysisContextStrip", () => {
     expect(listFindings).toHaveBeenCalledWith("context-12345678");
   });
 
+  it("shows an honest throttled state instead of silently retrying", () => {
+    render(<AnalysisContextStrip />);
+
+    act(() => window.dispatchEvent(new Event("caos:analysis-context-throttled")));
+
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain("Workspace throttled — retrying");
+    expect(status.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("clears the throttled banner once the retried load succeeds", async () => {
+    getContext.mockResolvedValue(CONTEXT);
+    listFindings.mockResolvedValue([]);
+    render(<AnalysisContextStrip />);
+
+    act(() => window.dispatchEvent(new Event("caos:analysis-context-throttled")));
+    expect(screen.getByRole("status").textContent).toContain("Workspace throttled — retrying");
+
+    act(() => window.dispatchEvent(new CustomEvent("caos:analysis-context", { detail: CONTEXT })));
+    await waitFor(() => expect(screen.queryByText("Special Situations")).not.toBeNull());
+    expect(screen.queryByText("Workspace throttled — retrying")).toBeNull();
+  });
+
   it("replaces the reserved row with the existing unavailable state", () => {
     render(<AnalysisContextStrip />);
 

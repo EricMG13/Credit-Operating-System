@@ -10,11 +10,13 @@ export function AnalysisContextStrip() {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [unavailable, setUnavailable] = useState(false);
   const [contextFree, setContextFree] = useState(false);
+  const [throttled, setThrottled] = useState(false);
   useEffect(() => {
     let cancelled = false;
     const load = (id: string) => {
       setContextFree(false);
       setUnavailable(false);
+      setThrottled(false);
       Promise.all([analysisApi.getContext(id), analysisApi.listFindings(id)])
         .then(([nextContext, nextFindings]) => {
           if (!cancelled) { setContext(nextContext); setFindings(activeFindings(nextFindings)); }
@@ -32,17 +34,35 @@ export function AnalysisContextStrip() {
     const onContextError = () => {
       setContext(null);
       setFindings([]);
+      setThrottled(false);
       setUnavailable(true);
     };
+    // The context loader (useContextLoad) fires this while it is backing off a
+    // 429 with retries — surface that honestly instead of the churn looking
+    // like nothing is happening (or, worse, the harsh "unavailable" banner).
+    const onThrottled = () => setThrottled(true);
     window.addEventListener("caos:analysis-context", onContext);
     window.addEventListener("caos:analysis-context-error", onContextError);
+    window.addEventListener("caos:analysis-context-throttled", onThrottled);
     return () => {
       cancelled = true;
       window.removeEventListener("caos:analysis-context", onContext);
       window.removeEventListener("caos:analysis-context-error", onContextError);
+      window.removeEventListener("caos:analysis-context-throttled", onThrottled);
     };
   }, []);
 
+  if (!context && throttled) {
+    return (
+      <div
+        role="status"
+        aria-busy="true"
+        className="flex min-h-12 shrink-0 items-center border-b border-caos-border bg-caos-warning/10 px-3 md:min-h-8"
+      >
+        <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning">Workspace throttled — retrying</span>
+      </div>
+    );
+  }
   if (!context && contextFree) {
     return (
       <div
