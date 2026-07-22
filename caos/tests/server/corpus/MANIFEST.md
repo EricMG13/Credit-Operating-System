@@ -62,6 +62,21 @@ days of up-front verification.
 Core 30 CIKs as supplied; 3 foreign reported-lane names have no CIK. Capture = one live SEC/doc fetch each, trimmed + frozen as an
 offline fixture (`_capture.py` pattern) so the corpus runs keyless in CI.
 
+**Capture executed 2026-07-22 (core-33 scope, owner-selected).** All 28 EDGAR
+rows captured to `fixtures/<ticker>_facts.json` (KEEP-trimmed companyfacts);
+`test_corpus_run.py` (marker `corpus_run`) asserts the manifest properties —
+full 28-issuer sweep runs in ~7 s, so the nightly runs the whole set
+(`CORPUS_FULL=1`) and the per-PR server job runs the 5-issuer smoke subset
+via normal collection. Six analyst-supplied CIKs were stale and re-resolved
+live at capture (`_capture.py` now falls back to `resolve_cik`): OTEX →
+0001002638, BHC → 0000885590, AVTR → 0001722482, ARMK → 0001584509, PENN →
+0000921738, HGV → 0001674168. Reported-lane disposition: **VMO2** is asserted
+by the golden reported-lane E2E (not duplicated here); **Altice France/SFR,
+Refresco, INEOS, Cirsa** need owner-sourced bondholder documents (their IR
+portals are not stable unauthenticated fetch targets) — the corpus scope
+check pins fixtures == the 28 EDGAR rows until those documents arrive.
+Batch-2's 28 additional names remain the future capture tranche.
+
 ### Software / Data & Analytics
 | Issuer | Ticker | CIK | Lane |
 |--------|--------|-----|------|

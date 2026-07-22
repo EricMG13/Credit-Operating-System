@@ -633,7 +633,18 @@ grounding, including the #25/#26/#27 engine-fault closure boxes.)*
 - [x] **B4 (S) — DONE on main.** `test_cp5_gate_honesty.py` proves a pristine
   golden remains clean, an injected implausible leverage fact becomes
   MATERIAL/Restricted, and missing evidence becomes CRITICAL/Blocked.
-- [ ] **B5 (L — own implementation plan at pickup)** Breadth corpus capture.
+- [x] **B5 — EXECUTED at core-33 scope 2026-07-22** (owner scope decision:
+  33-name subset first; Batch-2's 28 names remain the future tranche). All 28
+  EDGAR fixtures captured (`corpus/_capture.py`, KEEP-trimmed, six stale
+  analyst CIKs re-resolved live), `corpus_run` marker registered,
+  `test_corpus_run.py` asserts the manifest properties per issuer — full
+  28-issuer sweep runs in **~7 s** (cap was 300 s), so nightly runs the whole
+  set (`CORPUS_FULL=1`, L6 wired) and the per-PR server job carries the
+  5-issuer smoke subset via normal collection; +1 manifest↔fixture parity
+  test. VMO2 reported lane stays golden-owned; SFR/Refresco/INEOS/Cirsa are
+  owner-doc-pending (recorded in MANIFEST). Full server sweep with the corpus
+  collected: 2,935 passed / 38 skipped. *Historical item text follows:*
+  **(L — own implementation plan at pickup)** Breadth corpus capture.
   **Selection delivered** — `caos/tests/server/corpus/MANIFEST.md` now names
   **61 issuers** (the original 30-name analyst cohort + 3 foreign
   reported-lane names from 2026-07-03, +28 from a second analyst list added

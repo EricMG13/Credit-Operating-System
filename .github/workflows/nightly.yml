@@ -82,6 +82,16 @@ jobs:
           GEMINI_API_KEY: ""
           OPENROUTER_API_KEY: ""
         run: python -m pytest -q caos/tests/server caos/tests/cohort caos/tests/stress
+      # L6 — B5 breadth corpus, full captured set (the per-PR server job runs
+      # the 6-issuer smoke subset via normal collection; CORPUS_FULL unlocks
+      # every captured issuer — 29 chains in ~7 s at the core-33 scope).
+      - name: Breadth corpus — full clean-run net (B5 / L6)
+        env:
+          ANTHROPIC_API_KEY: ""
+          GEMINI_API_KEY: ""
+          OPENROUTER_API_KEY: ""
+          CORPUS_FULL: "1"
+        run: python -m pytest -q -m corpus_run caos/tests/server/corpus
 
   weekly-load-smoke:
     name: Weekly — isolated 300-issuer load smoke
