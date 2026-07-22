@@ -31,7 +31,7 @@ adjacent workflows do not by themselves constitute runtime implementation.
 
 | Promise | Status | Current runtime truth | Required closure |
 |---|---|---|---|
-| CP-SR | BLOCKED | The sector-review route persists versioned partial/reference reviews. All six dimensions remain unavailable, missing dependencies are retained, and ready publication is unreachable. | Implement the separately planned asynchronous, source-backed sector-review service; prove complete dimension synthesis, comparables, recovery, ratification, and production-data publication. |
+| CP-SR | BLOCKED (plan written 2026-07-22) | The sector-review route persists versioned partial/reference reviews. All six dimensions remain unavailable, missing dependencies are retained, and ready publication is unreachable. Implementation plan now exists: [CP_SR_IMPLEMENTATION_PLAN.md](../CP_SR_IMPLEMENTATION_PLAN.md) (deterministic-first six-dimension synthesis on the existing versioned-dossier substrate; execution gated on the C3 tranche landing — RT-2026-07-22-784…787). | Execute the plan (S0–S5); prove complete dimension synthesis, comparables, recovery, ratification, and production-data publication. |
 | CP-MON | BLOCKED | Watchtower and autonomy worklists provide adjacent monitoring behavior, and alert-event lifecycle APIs exist. There is no complete watch-rule evaluator, durable delivery sink, scheduler claim model, briefing, or single persisted Monitor authority. | Execute the C3 Monitor and alert seam plan, preserving existing AlertEvent compatibility; prove deterministic evaluation, scoped event access, durable delivery, failure handling, and production-data Monitor parity. |
 | CP-RENDER | RESOLVED (equivalent service; H0 browser evidence outstanding) | **Decision recorded 2026-07-22:** Report Studio IS the render service. Evidence: the committee export gate (`engine/report.py`) refuses non-Committee-Ready runs; published versions are immutable, document-hash-verified, and bound to an approved analyst-owned source manifest (`routes/reports.py`); the module registry documents CP-RENDER as a deliberate omission (CP-DB precedent) instead of a pending build; engine payloads no longer stamp CP-RENDER as a downstream consumer; the module API stays honestly unavailable (`test_engine`: `/modules/CP-RENDER` → 404, plan-absence asserted). Red-team: RT-2026-07-20-772, RT-2026-07-22-775…779. | Production-data browser export evidence on frozen H0 (retained in the contract-evidence list below). Reopen if any surface reintroduces a CP-RENDER runtime claim. |
 | CP-EXTRACT | RETIRED (2026-07-22) | **Retirement decision recorded 2026-07-22:** the server is JSON-native and no application document boundary uses the promised canonical DOCX appendix parser. Registry spec and all production `downstream_consumers` stamps removed; documented omission at `engine/registry.py`; plan-absence and honest-404 asserted in `test_planner`/`test_engine`. Upload extraction remains under its real PDF/XLSX ingestion contract and is explicitly NOT labeled equivalent. Red-team: RT-2026-07-20-772, RT-2026-07-22-775…779. | None for the promise itself. A future adapter must register as a new module through the normal registry mechanism with its own contract evidence. |
@@ -72,7 +72,9 @@ Before PD-06 can close, the release record must include:
 
 - [ ] C3 Monitor and alert seam implemented and verified.
 - [ ] C5 market-data provider chain implemented and verified.
-- [ ] CP-SR implementation plan written and executed.
+- [ ] CP-SR implementation plan written and executed — plan written 2026-07-22
+      ([CP_SR_IMPLEMENTATION_PLAN.md](../CP_SR_IMPLEMENTATION_PLAN.md));
+      execution (S0–S5) open, gated on the C3 tranche landing.
 - [ ] CP-RENDER equivalent-service decision recorded and verified — decision,
       registry omission, provenance cleanup, and contract tests landed
       2026-07-22; verification completes with the H0 production-data browser

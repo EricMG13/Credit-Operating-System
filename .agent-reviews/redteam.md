@@ -3185,3 +3185,22 @@ compose override, with a diagnostic mode and a fail-closed `--strict` H0 mode.
 Decision: proceed; new file only, zero collision with the C3 tranche. Reopen if
 H0 adopts a registry (digest source becomes the registry, not local inspect) or
 if the flag inventory moves out of `config.py`.
+
+## 2026-07-22 — CP-SR implementation-plan critic pass
+
+Decision under review: write the standalone CP-SR implementation plan
+(caos/docs/CP_SR_IMPLEMENTATION_PLAN.md) that PD-06's closure checklist
+requires, structured as deterministic-first synthesis over the existing
+versioned-dossier substrate, executed as an asynchronous claimed job, with
+email intake and licensed market data explicitly out of scope. Plan only —
+execution starts from reconciled scope after the C3 tranche lands.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-22-784 | Migration-collision reviewer | CP-SR schema work started now would race the in-flight C3 worktree for the next Alembic revision and the shared claim/scheduler substrate. | Critical | Resolve by sequencing | The plan documents its schema needs but execution is gated on C3 landing; CP-SR reuses whatever claim/lease substrate C3 establishes rather than inventing a second one (RT-766 parity). |
+| RT-2026-07-22-785 | Synthesis-honesty reviewer | An LLM-first six-dimension synthesis could fabricate sector scores where sources are thin, exactly what the readiness gate exists to prevent. | Critical | Resolve in the contract | Each dimension is deterministic-first: computed from vault-derived evidence and CP-1 facts with an LLM narrative lane that is fault-isolated and abstains (dimension stays `unavailable`) when the source register cannot support it. A dossier reaches `ready` only when every dimension is scored from cited evidence; partial dossiers stay unpublishable (RT-767). |
+| RT-2026-07-22-786 | Scope reviewer | Including corpus Step A.2 (email intelligence) or Bloomberg-fed comparables would couple CP-SR to seams PD-06 already blocks. | High | Resolve by exclusion | Email intake and licensed market data are named non-goals; the source register runs on vault documents and analyst-supplied market snapshots only, and the plan states the corpus deviation explicitly. |
+| RT-2026-07-22-787 | Trigger-loop reviewer | The corpus CP-MON→CP-SR refresh hook could recreate the unbounded alert↔refresh recursion RT-768 killed. | High | Resolve by inheritance | Refresh triggers carry the correlation/hop-count contract RT-768 defined; a same-observation return edge is suppressed and nothing auto-ratifies or auto-publishes. |
+
+Decision: proceed with the plan document; reopen at execution pickup if C3's
+landed substrate differs from the plan's assumptions.
