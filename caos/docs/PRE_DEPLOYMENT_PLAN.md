@@ -1503,12 +1503,12 @@ yet, the loop doc names it as a `WORK-ITEM` with a file anchor (almost always
 
 | Role | Gate | Sign-off |
 |------|------|----------|
-| Deploying engineer | H1 + H2 green | |
-| Head of Research / QA | golden set + gap log + CP-5 gate | |
-| PM / CIO | accepted-risk register + the two named outstanding items | |
-| Security / Platform owner | H0, G7, G9, E5 and incident path | |
-| Data owner | E8 policy, G8 RPO/RTO and production-data boundary | |
-| Support owner | H7 cutover, escalation and handover loops | |
+| Deploying engineer | H1 + H2 green | ☐ pending — H2 green; H1 only rehearsed locally, needs the target-host run |
+| Head of Research / QA | golden set + gap log + CP-5 gate | ☐ pending — golden/CP-5 done; gap log is the F beta-cohort artifact |
+| PM / CIO | accepted-risk register + the two named outstanding items | ☑ Eric Guei, 2026-07-22 — register accepted; email + Bloomberg packaged (H4) |
+| Security / Platform owner | H0, G7, G9, E5 and incident path | ☐ pending — H0 scan accepted; G7/G9 target, E5 full-diff rerun post-freeze |
+| Data owner | E8 policy, G8 RPO/RTO and production-data boundary | ☐ pending — E8 needs values; RPO/RTO measured on target |
+| Support owner | H7 cutover, escalation and handover loops | ☐ pending — H7 mechanics rehearsed; names + target repeat, loop owners |
 
 - [ ] **H6 — EXECUTED TO THE PERSONA LINE 2026-07-22**
   ([qa/H6_UAT_MATRIX_2026-07-22.md](qa/H6_UAT_MATRIX_2026-07-22.md)): every
