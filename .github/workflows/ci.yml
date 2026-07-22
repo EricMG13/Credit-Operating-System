@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history so the complexity gate can diff the PR base
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       # requirements.txt is the loose spec; requirements.lock is what the prod image
@@ -148,7 +148,7 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: caos/frontend/package-lock.json
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -269,7 +269,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history so gitleaks scans past commits, not just the tree
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - uses: actions/setup-node@v6
