@@ -110,3 +110,24 @@ Do not use `down -v` for this migration; that deletes the recovery set.
   it were ever reached directly.
 - Carried-forward limits (single-team authz, mock-vs-engine overlay) are
   unchanged from the platform build — see [../docs/LAUNCH_PHASE1.md](../docs/LAUNCH_PHASE1.md) §8.
+
+## H0 release manifest (PD-01 completion gate)
+
+`build_release_manifest.py` assembles the machine-derivable legs of the plan's
+§H0 release manifest: candidate identity, app/third-party image digests,
+Alembic schema head, sanitized config fingerprint, explicit feature-flag
+states, the in-image Modular OS resource probe, CycloneDX SBOMs, pip/npm/OCI
+vulnerability evidence, CI links, and a digest-pinned compose override.
+
+```bash
+python3 caos/deploy/build_release_manifest.py --image caos-app:ci \
+  --flag caos_cp_4d_enabled=false ... --ci-run-url <green-run> --strict
+```
+
+Diagnostic runs (default) land in gitignored
+`caos/docs/qa/release/diagnostic-*/` and can never pass as release evidence;
+`--strict` fails closed unless the tree is clean and equal to `origin/main`,
+every declared `*_enabled` flag has an explicit state matching the signed C14
+disposition, and every section records. DB restore rehearsal, off-host backup
+verification, and scan-finding disposition remain named manual H0 steps
+(RT-2026-07-22-780…783).

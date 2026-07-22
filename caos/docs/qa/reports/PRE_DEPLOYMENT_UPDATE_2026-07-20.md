@@ -39,6 +39,26 @@ This closes **PD-10 on the current working tree**. It does not substitute
 for PD-02's final three-browser journey seal or PD-09's digest-bound archive,
 and it must be rerun after H0 is frozen.
 
+### Execution delta — PD-01 manifest tooling + dependency remediation 2026-07-22
+
+`caos/deploy/build_release_manifest.py` now generates the §H0 release
+manifest's machine-derivable legs (candidate identity, image digests, schema
+head, sanitized config fingerprint, explicit flag states, the in-image
+resource probe, CycloneDX SBOMs, pip/npm/OCI scan evidence, digest-pinned
+compose override) with a fail-closed `--strict` H0 mode; diagnostic runs are
+gitignored and self-label so they cannot pass as release evidence
+(RT-2026-07-22-780…783). Its first diagnostic run reproduced the PD-01 probe
+evidence exactly (prompt fingerprint `15bdcbc3628d`, 588-row RV snapshot) and
+surfaced live dependency findings, remediated same day with suites green:
+**pyasn1 0.6.3 → 0.6.4** (CVE-2026-59885/59886 decoder DoS; lock regenerated
+via pip-compile, server 2,594/15 green) and **sharp 0.34.5 → 0.35.3 override +
+brace-expansion 1.1.16/2.1.2/5.0.7** (libvips CVE-2026-33327/33328/35590/35591
+and exponential-expansion DoS; `npm audit --audit-level=high` now clean,
+production build exports all 18 routes). Outstanding for strict H0: an OCI
+image scanner decision (docker scout absent on this host), CI evidence links,
+and the named manual legs (restore rehearsal, off-host backup, scan
+disposition sign-off).
+
 ### Execution delta — PD-06 CP-RENDER/CP-EXTRACT dispositions executed 2026-07-22
 
 The two Infra promise dispositions directed by RT-2026-07-20-772 were executed

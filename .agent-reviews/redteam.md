@@ -3165,3 +3165,23 @@ spec-only honesty is untouched.
 Decision: proceed. Reopen if any suite or golden pins the removed rows, or if
 the C3 tranche lands a conflicting registry shape first (rebase and re-verify
 rather than force-merge).
+
+## 2026-07-22 — H0 release-manifest generator critic pass
+
+Decision under review: implement PD-01's completion-gate tooling as one
+stdlib-only script, `caos/deploy/build_release_manifest.py`, that assembles the
+H0 release manifest (candidate identity, image digests, schema head, sanitized
+config fingerprint, explicit feature-flag states, Modular OS in-image probe
+evidence, SBOMs, vulnerability scans, CI evidence links) plus a digest-pinned
+compose override, with a diagnostic mode and a fail-closed `--strict` H0 mode.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-22-780 | Secrets reviewer | A "config fingerprint" that hashes live env files or prints flag sources could capture secrets in a long-lived release record. | Critical | Resolve by construction | Fingerprint hashes only tracked non-secret deploy files (compose, Dockerfiles, Caddyfile, oauth2-proxy.cfg, clamd.conf, .dockerignore, .env.example schema). Live `.env` is never read; flag states enter only as explicit `--flag NAME=STATE` arguments; values are never echoed from the environment. |
+| RT-2026-07-22-781 | Fake-green reviewer | A diagnostic run on a dirty tree could be mistaken for H0 evidence, repeating the "evidence not bound to released bytes" defect PD-09 exists to prevent. | Critical | Resolve with modes | Every manifest stamps `mode`; `--strict` refuses a dirty tree, a HEAD not equal to `origin/main`, any unresolved image digest, any missing flag state, and any `unavailable` section. Diagnostic manifests say so in the filename and body. |
+| RT-2026-07-22-782 | Tooling reviewer | Silent degradation when npm/pip-audit/docker scout are absent would produce a manifest that looks complete but is not. | High | Resolve with per-section status | Every section records `status: recorded` or `status: unavailable` with the exact reason and command; strict mode fails on any unavailable section. No section is omitted. |
+| RT-2026-07-22-783 | Scope reviewer | Building rehearsal legs (DB restore, backup verify) into the script would fake host-bound evidence the plan assigns to the target host. | Medium | Resolve by exclusion | The script covers only the machine-derivable manifest legs; restore/upgrade rehearsal, off-host backup, and image scan disposition remain named manual H0 steps and the manifest records them as explicit open slots. |
+
+Decision: proceed; new file only, zero collision with the C3 tranche. Reopen if
+H0 adopts a registry (digest source becomes the registry, not local inspect) or
+if the flag inventory moves out of `config.py`.
