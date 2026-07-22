@@ -1,17 +1,10 @@
 "use client";
 
-// Concept F — The Monitor: CP-MON email-intelligence intake alongside the live
-// Watchtower alert-routing rail, promoted out of the Command Center into its
-// own standing surface. This is the "trading-desk alertness" pillar — a
-// stream you watch, distinct in cadence from the posture/coverage snapshots
-// in Command. Email Intelligence (CP-MON) is the primary column; the Alert
-// Routing rail leads with real Watchtower/Sentinel output and demotes CP-MON-
-// H's seeded showcase tape behind a disclosure — CP-MON-H (an email-derived
-// alert router) has no live implementation yet (routes/sector.py: "CP-MON
-// stay registry-pending"), so it is never the panel's own name once
-// Watchtower output is what's actually leading it (G8 cleanup).
+// Concept F — The Monitor. Live mode is governed solely by persisted C3 alert
+// events and watch rules; Reference replay/email examples remain a separate,
+// read-only surface and never claim live issuer authority.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { RequireAuth } from "@/components/shared/RequireAuth";
@@ -24,8 +17,9 @@ import { fmtUtcDateTime } from "@/lib/format-date";
 import { Panel as PanelShell } from "@/components/shared/Panel";
 import { AlertInbox } from "@/components/monitor/AlertInbox";
 import { PhoneTriage } from "@/components/monitor/PhoneTriage";
-import { useAutonomyDraft } from "@/lib/engine/useAutonomyDraft";
-import { draftToAlertRows, requiredActionFor } from "@/lib/alerts/inbox";
+import { WatchRuleEditor } from "@/components/monitor/WatchRuleEditor";
+import { alertObservationTimestamp, usePersistedMonitorController, type PersistedMonitorController, type PersistedLoadStatus } from "@/components/monitor/usePersistedMonitorController";
+import type { AlertEventDTO } from "@/lib/api";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { ControlPlanePanel } from "@/components/monitor/ControlPlanePanel";
 import { usePortfolio } from "@/lib/engine/usePortfolio";
@@ -71,33 +65,122 @@ function resolveMonitorDataset(value: string | null, leadingDataset: string | un
   return "alerts";
 }
 
-function selectionDetail(event: Event) {
-  const detail = (event as CustomEvent<{ count: number; eventId: string | null }>).detail;
-  return { count: detail?.count ?? 0, eventId: detail?.eventId ?? null };
+function syncSelectedAlert(
+  context: ReturnType<typeof useAnalysisContext>["context"],
+  patch: ReturnType<typeof useAnalysisContext>["patch"],
+  eventId: string | null,
+  lastAttempt: { current: string | null },
+  inFlightTargets: { current: Set<string> },
+  pendingSync: { current: boolean },
+  rerun: () => void,
+) {
+  if (!context) {
+    lastAttempt.current = null;
+    pendingSync.current = false;
+    return;
+  }
+  const artifactEventId = context.artifacts.alert_event_id;
+  const surfaceEventId = context.surface_state.monitor?.active_id;
+  const attempt = JSON.stringify({
+    contextId: context.id,
+    revision: context.revision,
+    eventId,
+    artifact: { defined: artifactEventId !== undefined, value: artifactEventId ?? null },
+    surface: { defined: surfaceEventId !== undefined, value: surfaceEventId ?? null },
+  });
+  const changes: Parameters<typeof patch>[0] = {};
+  if (artifactEventId !== eventId) changes.artifacts = { alert_event_id: eventId };
+  if (surfaceEventId !== eventId) changes.surface_state = { monitor: { active_id: eventId } };
+  if (!changes.artifacts && !changes.surface_state) {
+    lastAttempt.current = null;
+    return;
+  }
+  const target = JSON.stringify({ contextId: context.id, eventId });
+  if (inFlightTargets.current.has(target)) {
+    pendingSync.current = true;
+    return;
+  }
+  if (lastAttempt.current === attempt) return;
+  // Record before dispatch: mutation-state rerenders and a persistent rejection
+  // must not replay the same repair indefinitely.
+  lastAttempt.current = attempt;
+  inFlightTargets.current.add(target);
+  void patch(changes).catch(() => undefined).finally(() => {
+    inFlightTargets.current.delete(target);
+    if (!pendingSync.current) return;
+    pendingSync.current = false;
+    rerun();
+  });
 }
 
-function syncSelectedAlert(analysis: ReturnType<typeof useAnalysisContext>, eventId: string | null) {
-  const context = analysis.context;
-  if (!context || !eventId || context.artifacts.alert_event_id === eventId) return;
-  void analysis.patch({
-    artifacts: { ...context.artifacts, alert_event_id: eventId },
-    surface_state: { ...context.surface_state, monitor: { ...context.surface_state.monitor, active_id: eventId } },
-  }).catch(() => undefined);
-}
-
-function useMonitorSelection(analysis: ReturnType<typeof useAnalysisContext>, updateUrlState: MonitorUrlUpdater) {
-  const [count, setCount] = useState(0);
+function useMonitorSelection(controller: PersistedMonitorController, requested: string | null, analysis: ReturnType<typeof useAnalysisContext>, updateUrlState: MonitorUrlUpdater) {
+  const { activeEventId: selected, setActiveEvent, status, visibleEvents } = controller;
+  const analysisContext = analysis.context;
+  const patchAnalysisContext = analysis.patch;
+  const observedRequestRef = useRef(requested);
+  const pendingRequestedRef = useRef<string | null>(null);
+  const lastAnalysisSyncAttemptRef = useRef<string | null>(null);
+  const analysisSyncTargetsRef = useRef(new Set<string>());
+  const analysisSyncPendingRef = useRef(false);
+  const analysisSyncMountedRef = useRef(true);
+  const [analysisSyncEpoch, setAnalysisSyncEpoch] = useState(0);
   useEffect(() => {
-    const updateSelection = (event: Event) => {
-      const detail = selectionDetail(event);
-      setCount(detail.count);
-      updateUrlState({ selected: detail.eventId }, "replace");
-      syncSelectedAlert(analysis, detail.eventId);
+    // React Strict Mode runs a development-only setup/cleanup/setup cycle.
+    // Re-arm on setup so a settled patch can still schedule its guarded rerun.
+    analysisSyncMountedRef.current = true;
+    return () => {
+      analysisSyncMountedRef.current = false;
     };
-    window.addEventListener("caos:monitor-selection", updateSelection);
-    return () => window.removeEventListener("caos:monitor-selection", updateSelection);
-  }, [analysis, updateUrlState]);
-  return count;
+  }, []);
+  useEffect(() => {
+    if (status !== "ready") return;
+    const pendingRequested = pendingRequestedRef.current;
+    if (pendingRequested) {
+      const requestStillCurrent = requested === pendingRequested;
+      const targetStillVisible = visibleEvents.some((event) => event.id === pendingRequested);
+      const targetSelected = selected === pendingRequested;
+      // A pending request is installed only after the prior effect has observed
+      // the URL. Seeing that same request again with another ready selection
+      // means controller authority settled somewhere else; normalize to it.
+      const selectionSettledAway = requested === observedRequestRef.current && !targetSelected;
+      if (!requestStillCurrent || !targetStillVisible || targetSelected || selectionSettledAway) {
+        pendingRequestedRef.current = null;
+      }
+    }
+    if (requested === observedRequestRef.current) return;
+    observedRequestRef.current = requested;
+    if (!requested || requested === selected) {
+      pendingRequestedRef.current = null;
+      return;
+    }
+    if (visibleEvents.some((event) => event.id === requested)) {
+      pendingRequestedRef.current = requested;
+      setActiveEvent(requested);
+    } else {
+      pendingRequestedRef.current = null;
+    }
+  }, [requested, selected, setActiveEvent, status, visibleEvents]);
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (pendingRequestedRef.current && pendingRequestedRef.current !== selected) return;
+    pendingRequestedRef.current = null;
+    updateUrlState({ selected }, "replace");
+  }, [requested, selected, status, updateUrlState]);
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (pendingRequestedRef.current && pendingRequestedRef.current !== selected) return;
+    syncSelectedAlert(
+      analysisContext,
+      patchAnalysisContext,
+      selected,
+      lastAnalysisSyncAttemptRef,
+      analysisSyncTargetsRef,
+      analysisSyncPendingRef,
+      () => {
+        if (analysisSyncMountedRef.current) setAnalysisSyncEpoch((current) => current + 1);
+      },
+    );
+  }, [analysisContext, analysisSyncEpoch, patchAnalysisContext, selected, status]);
 }
 
 function useMonitorInsight(contextId: string | null | undefined, selected: string | null) {
@@ -112,47 +195,84 @@ function useMonitorInsight(contextId: string | null | undefined, selected: strin
 }
 
 type MonitorDecisionInput = {
-  draft: ReturnType<typeof useAutonomyDraft>["draft"];
-  loading: boolean;
-  offline: boolean;
-  rows: ReturnType<typeof draftToAlertRows>;
+  status: PersistedLoadStatus;
+  error: string | null;
+  events: AlertEventDTO[];
+  retry: () => Promise<unknown>;
 };
 
 function monitorDecisionAuthority(input: MonitorDecisionInput) {
-  const asOf = input.draft?.generated_at ? fmtUtcDateTime(input.draft.generated_at) : null;
+  if (input.status !== "ready") return { asOf: null, authority: undefined };
+  const observed = input.events.map(alertObservationTimestamp).filter((value): value is string => value !== null).sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
+  const asOf = observed ? fmtUtcDateTime(observed) : null;
   const authority: DecisionAuthority | undefined = asOf ? {
-    provenance: { origin: "LIVE", method: "MODELLED", freshness: "CURRENT", detail: "Autonomy draft alert routing.", asOf },
-    approval: input.draft?.ratified ? "RATIFIED" : "UNRATIFIED",
+    provenance: { origin: "LIVE", method: "DERIVED", detail: "Persisted alert events; freshness is not inferred.", asOf },
+    approval: null,
   } : undefined;
   return { asOf, authority };
 }
 
 function unavailableMonitorDatum(input: MonitorDecisionInput): DecisionDatumState {
-  if (input.loading) return { kind: "loading", message: "Checking autonomy draft…" };
-  if (input.offline) return { kind: "offline", lastKnown: "Autonomy endpoint unavailable" };
-  return { kind: "partial", value: "Draft answered without an observation timestamp", missingSources: ["generated_at"], asOf: "timestamp missing" };
+  if (input.status === "loading") return { kind: "loading", message: "Checking persisted alert events…" };
+  if (input.status === "error") return { kind: "error", message: input.error ?? "Persisted alert events unavailable", retryLabel: "Retry alerts", onRetry: () => void input.retry() };
+  return { kind: "partial", value: "Persisted events lack a valid observation or event timestamp", missingSources: ["evidence.observed_at", "created_at"], asOf: "timestamp missing" };
 }
 
 function observedMonitorDatum(value: string | null, emptyMessage: string, asOf: string, authority: DecisionAuthority | undefined): DecisionDatumState {
   return value ? { kind: "ready", value, asOf, authority } : { kind: "observed-empty", message: emptyMessage, asOf, authority };
 }
 
+function selectMonitorDecisionEvent(events: AlertEventDTO[]): AlertEventDTO | null {
+  const stateRank: Record<AlertEventDTO["state"], number> = { open: 0, ack: 1, resolved: 2 };
+  return [...events].sort((left, right) => {
+    const stateDifference = stateRank[left.state] - stateRank[right.state];
+    if (stateDifference) return stateDifference;
+    const leftObserved = alertObservationTimestamp(left);
+    const rightObserved = alertObservationTimestamp(right);
+    const observationDifference = (rightObserved ? Date.parse(rightObserved) : Number.NEGATIVE_INFINITY)
+      - (leftObserved ? Date.parse(leftObserved) : Number.NEGATIVE_INFINITY);
+    if (observationDifference) return observationDifference;
+    const createdDifference = Date.parse(right.created_at) - Date.parse(left.created_at);
+    return createdDifference || right.id.localeCompare(left.id);
+  })[0] ?? null;
+}
+
 function buildMonitorDecision(input: MonitorDecisionInput): DecisionContextState {
-  const { asOf, authority } = monitorDecisionAuthority(input);
+  if (input.status !== "ready") {
+    const unavailable = unavailableMonitorDatum(input);
+    return { whatChanged: unavailable, whyItMatters: unavailable, requiredAction: unavailable, evidenceHealth: unavailable };
+  }
+  if (input.events.length === 0) {
+    const empty: DecisionDatumState = { kind: "observed-empty", message: "No persisted alert events observed", asOf: "no persisted event timestamp", authority: { provenance: { origin: "LIVE", method: "DERIVED", detail: "Persisted alert-event read completed." }, approval: null } };
+    return { whatChanged: empty, whyItMatters: empty, requiredAction: empty, evidenceHealth: empty };
+  }
+  const top = selectMonitorDecisionEvent(input.events);
+  const { asOf, authority } = monitorDecisionAuthority({ ...input, events: top ? [top] : [] });
   if (!asOf) {
     const unavailable = unavailableMonitorDatum(input);
     return { whatChanged: unavailable, whyItMatters: unavailable, requiredAction: unavailable, evidenceHealth: unavailable };
   }
-  const top = input.rows[0];
-  const changed = input.rows.length ? input.rows.slice(0, 3).map((row) => row.event).join(" · ") : null;
-  const impact = top ? `${top.reason} · severity ${top.severity}` : null;
-  const action = top ? requiredActionFor(top) : null;
-  const routed = `${input.rows.length} alert${input.rows.length === 1 ? "" : "s"} routed from the autonomy draft`;
+  const changed = top?.title ?? null;
+  const impact = top?.impact || null;
+  const action = top?.state === "open" ? `Review ${top.kind} alert and persisted evidence` : null;
+  const open = input.events.filter((event) => event.state === "open").length;
+  const routed = `${input.events.length} persisted alert event${input.events.length === 1 ? "" : "s"} · ${open} open`;
+  const missingTimestampCount = input.events.filter((event) => alertObservationTimestamp(event) === null).length;
+  const aggregateAuthority = monitorDecisionAuthority(input);
+  const evidenceHealth: DecisionDatumState = missingTimestampCount
+    ? {
+        kind: "partial",
+        value: `${routed} · ${missingTimestampCount} missing observation/event timestamp${missingTimestampCount === 1 ? "" : "s"}`,
+        missingSources: ["evidence.observed_at", "created_at"],
+        asOf: aggregateAuthority.asOf ?? asOf,
+        authority: aggregateAuthority.authority ?? authority,
+      }
+    : { kind: "ready", value: routed, asOf: aggregateAuthority.asOf ?? asOf, authority: aggregateAuthority.authority ?? authority };
   return {
     whatChanged: observedMonitorDatum(changed, "No routed alerts observed", asOf, authority),
     whyItMatters: observedMonitorDatum(impact, "No portfolio impact observed", asOf, authority),
     requiredAction: observedMonitorDatum(action, "No acknowledgment required", asOf, authority),
-    evidenceHealth: { kind: "ready", value: routed, asOf, authority },
+    evidenceHealth,
   };
 }
 
@@ -175,10 +295,7 @@ type MonitorViewProps = {
   datasetSwitchReason: string | null;
   selectedAlertCount: number;
   isPhone: boolean;
-  autonomyLoading: boolean;
-  autonomyOffline: boolean;
-  liveRows: ReturnType<typeof draftToAlertRows>;
-  hasLiveAlerts: boolean;
+  controller: PersistedMonitorController | null;
   portfolio: ReturnType<typeof usePortfolio>;
   digest: ReturnType<typeof useGovernanceSources>["digest"];
   digestLive: boolean;
@@ -190,7 +307,7 @@ type MonitorViewProps = {
   findingStatus: MonitorSurfaceStatus;
   digestStatus: MonitorSurfaceStatus;
   criticalOnly: boolean;
-  draftAsOf: string | null;
+  alertAsOf: string | null;
   monitorDecision: DecisionContextState;
   insight: InsightArtifact | null;
   insightMessage: string | null;
@@ -206,22 +323,29 @@ function MonitorIdentity({ view }: { view: MonitorViewProps }) {
 
 function acknowledgeReason(view: MonitorViewProps) {
   if (view.dataMode === "reference") return "Reference replay is read-only.";
+  if (view.controller?.status === "loading") return "Persisted alert list is still loading.";
+  if (view.controller?.status === "error") return "Persisted alert list is unavailable; reload before acknowledging.";
+  if (view.controller?.requiresAuthoritativeReload) return "Persisted alert authority changed; reload before acknowledging.";
+  if (view.controller?.batchPending) return "Batch acknowledgment is already in progress.";
+  if (view.controller && view.controller.pendingIds.size > 0) return "An individual alert workflow update is in progress.";
+  if (view.controller?.workflowSurfaceLocked && !view.controller.batchError) return "Review or dismiss the current alert workflow failure before acknowledging.";
   if (view.selectedAlertCount > 0) return null;
-  if (view.hasLiveAlerts) return "Select live alerts in the worklist first.";
-  return "No live alerts to acknowledge.";
+  if (view.controller?.events.length) return "Select persisted alerts in the worklist first.";
+  return "No persisted alerts to acknowledge.";
 }
 
-function MonitorPrimaryAction({ view }: { view: MonitorViewProps }): PageAction {
+function MonitorPrimaryAction({ view }: { view: MonitorViewProps }): PageAction | undefined {
+  if (view.dataMode !== "live" || view.dataset !== "alerts" || view.isPhone || view.controller?.canMutate !== true) return undefined;
   const count = view.selectedAlertCount ? ` (${view.selectedAlertCount})` : "";
   return {
     label: `Acknowledge selected${count}`,
-    onAction: () => window.dispatchEvent(new Event("caos:monitor-ack-selected")),
+    onAction: () => void view.controller?.acknowledgeSelected().catch(() => undefined),
     unavailableReason: acknowledgeReason(view),
   };
 }
 
 function MonitorHeaderStatus({ view }: { view: MonitorViewProps }) {
-  return <>{view.draftAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Observed {view.draftAsOf}</span> : null}<AnalysisContextSaveState analysis={view.analysis} /></>;
+  return <>{view.alertAsOf ? <span className="tabular text-caos-2xs text-caos-muted">Observed {view.alertAsOf}</span> : null}<AnalysisContextSaveState analysis={view.analysis} /></>;
 }
 
 function MonitorUtilities({ view }: { view: MonitorViewProps }) {
@@ -229,15 +353,13 @@ function MonitorUtilities({ view }: { view: MonitorViewProps }) {
 }
 
 function MonitorToolbar({ view }: { view: MonitorViewProps }) {
-  const count = view.dataMode === "reference" ? "Seeded examples" : view.autonomyLoading ? "Loading" : view.autonomyOffline ? "Offline" : `${view.liveRows.length} live alerts`;
-  return <WorkbenchToolbar title={view.dataMode === "reference" ? "Reference monitor" : "Alert worklist"} description={view.dataMode === "reference" ? "Inspect seeded replay and email examples without asserting issuer state." : "Acknowledge, assign and hand off routed events; phone remains triage-only."} count={count} viewLabel={view.dataMode === "reference" ? "Reference" : "Live worklist"} />;
+  const eventCount = view.controller?.events.length ?? 0;
+  const count = view.dataMode === "reference" ? "Seeded examples" : view.controller?.status === "loading" ? "Loading" : view.controller?.status === "error" ? "Unavailable" : `${eventCount} persisted alert${eventCount === 1 ? "" : "s"}`;
+  return <WorkbenchToolbar title={view.dataMode === "reference" ? "Reference monitor" : "Alert worklist"} description={view.dataMode === "reference" ? "Inspect seeded replay and email examples without asserting issuer state." : "Acknowledge, assign and hand off persisted alert events; phone remains triage-only."} count={count} viewLabel={view.dataMode === "reference" ? "Reference" : "Live worklist"} />;
 }
 
 function LiveAlertContent({ view }: { view: MonitorViewProps }) {
-  if (view.autonomyLoading) return <SurfaceState kind="loading" title="Loading live alerts" compact className="m-2" />;
-  if (view.autonomyOffline) return <SurfaceState kind="unavailable" title="Live alert service unavailable" detail="No routed-alert state can be asserted while the autonomy endpoint is offline." compact className="m-2" />;
-  if (!view.hasLiveAlerts) return <SurfaceState kind="empty" title="No live alerts routed" detail="The current live worklist is empty. Reference replay and email examples remain available only in Reference mode." compact className="m-2" />;
-  return <AlertInbox />;
+  return <AlertInbox controller={view.controller!} />;
 }
 
 function governanceStatus(status: MonitorSurfaceStatus, count: number) {
@@ -300,14 +422,14 @@ function MonitorDatasetContent({ view }: { view: MonitorViewProps }) {
     ? <GovernanceQueueTable view={view} />
     : <GovernancePanel findingStatus={view.findingStatus} qaStatus={view.qaStatus} digestStatus={view.digestStatus} liveQa={view.liveQa} liveFailedGates={view.liveFailed} liveGaps={view.liveGapsItems} liveMixedOrigin={view.liveMixed} staleRows={view.digestLive ? view.digest?.stale ?? [] : []} />;
   if (view.dataMode === "reference") return <ReferenceMonitorReplay criticalOnly={view.criticalOnly} onCriticalChange={(criticalOnly) => view.updateUrlState({ severity: criticalOnly ? "critical" : null })} />;
-  return view.isPhone ? <PhoneTriage /> : <LiveAlertContent view={view} />;
+  return view.isPhone ? <PhoneTriage controller={view.controller!} /> : <LiveAlertContent view={view} />;
 }
 
 function monitorDatasetTitle(view: MonitorViewProps) {
   if (view.dataset === "email") return "Email Intelligence · CP-MON intake";
   if (view.dataset === "governance") return "Live governance queue · CP-5 / CP-0 / Staleness";
   if (view.dataMode === "reference") return "Reference alert replay · CP-MON-H";
-  return view.isPhone ? "Alert triage · autonomy routing" : "Alert inbox · autonomy routing";
+  return view.isPhone ? "Alert triage · persisted events" : "Alert inbox · persisted events";
 }
 
 function monitorDatasetLabel(dataset: MonitorDataset) {
@@ -332,15 +454,16 @@ function MonitorCitedBrief({ view }: { view: MonitorViewProps }) {
 
 function MonitorInspector({ view }: { view: MonitorViewProps }) {
   if (view.dataMode === "reference") return <PanelShell title="Reference scope"><p className="p-2 text-caos-xs text-caos-muted">Seeded replay and email examples only. Live governance and control-plane state are not merged into this workspace.</p></PanelShell>;
-  return <div className="grid gap-2"><GovernanceSummary coldStart={!view.portfolio.live && !view.portfolio.error && !view.portfolio.loading} qa={view.liveQa?.length} failed={view.liveFailed?.length} gaps={view.liveGapsItems?.length} mixed={view.liveMixed?.length} stale={view.digestLive ? view.digest?.stale?.length ?? 0 : undefined} onOpen={() => view.updateUrlState({ dataset: "governance" })} /><PanelShell title="Source intake health"><ControlPlanePanel /></PanelShell><MonitorCitedBrief view={view} /></div>;
+  return <div className="grid min-w-0 grid-cols-1 gap-2"><PanelShell title="Alert rule controls"><div className="p-2"><WatchRuleEditor controller={view.controller!.rules} /></div></PanelShell><fieldset disabled={!view.datasetControlsReady} title={view.datasetSwitchReason ?? undefined} className="contents"><legend className="sr-only">{view.datasetSwitchReason ?? "Governance navigation"}</legend><GovernanceSummary coldStart={!view.portfolio.live && !view.portfolio.error && !view.portfolio.loading} qa={view.liveQa?.length} failed={view.liveFailed?.length} gaps={view.liveGapsItems?.length} mixed={view.liveMixed?.length} stale={view.digestLive ? view.digest?.stale?.length ?? 0 : undefined} onOpen={() => view.updateUrlState({ dataset: "governance" })} /></fieldset><PanelShell title="Source intake health"><ControlPlanePanel /></PanelShell><MonitorCitedBrief view={view} /></div>;
 }
 
 function MonitorWorkbench({ view }: { view: MonitorViewProps }) {
   const decision = view.dataMode === "reference"
     ? <SurfaceState kind="unavailable" title="Decision context not applicable" detail="Reference replay does not assert a live issuer decision or observation timestamp." compact />
     : <DecisionHeader state={view.monitorDecision} />;
-  const sparseAlerts = view.dataMode === "live" && view.dataset === "alerts" && view.liveRows.length > 0 && view.liveRows.length <= 3;
-  return <><MonitorToolbar view={view} /><div id="alert-inbox" className={`caos-persona-route monitor-workbench flex-1 min-h-0 p-2${sparseAlerts ? " monitor-workbench--sparse" : ""}`} tabIndex={-1}><PersonaWorkbench surface="monitor" retainEmphasizedSupportOnNarrow={!view.isPhone} decision={decision} primary={<MonitorDatasetPanel view={view} />} context={<MonitorContext rows={view.liveRows} asOf={view.draftAsOf} dataMode={view.dataMode} />} inspector={<MonitorInspector view={view} />} /></div></>;
+  const eventCount = view.controller?.events.length ?? 0;
+  const sparseAlerts = view.dataMode === "live" && view.dataset === "alerts" && eventCount > 0 && eventCount <= 3;
+  return <><MonitorToolbar view={view} /><div id="alert-inbox" className={`caos-persona-route monitor-workbench flex-1 min-h-0 p-2${sparseAlerts ? " monitor-workbench--sparse" : ""}`} tabIndex={-1}><PersonaWorkbench surface="monitor" retainEmphasizedSupportOnNarrow={!view.isPhone} decision={decision} primary={<MonitorDatasetPanel view={view} />} context={<MonitorContext events={view.controller?.events ?? []} asOf={view.alertAsOf} dataMode={view.dataMode} />} inspector={<MonitorInspector view={view} />} /></div></>;
 }
 
 function MonitorView({ view }: { view: MonitorViewProps }) {
@@ -351,7 +474,6 @@ function useMonitorNavigation(dataMode: DataMode) {
   const analysis = useAnalysisContext({ name: "Alert oversight" });
   const composition = usePersonaComposition("monitor");
   const { values, update } = useTypedUrlState(MONITOR_URL_KEYS);
-  const selectedAlertCount = useMonitorSelection(analysis, update);
   const { breakpoint } = useBreakpoint();
   const datasetControlsReady = !analysis.loading;
   return {
@@ -361,18 +483,10 @@ function useMonitorNavigation(dataMode: DataMode) {
     updateUrlState: update,
     selected: values.selected,
     criticalOnly: values.severity === "critical",
-    selectedAlertCount,
     isPhone: breakpoint === "mobile",
     datasetControlsReady,
     datasetSwitchReason: datasetControlsReady ? null : "Dataset switch is not available until the page finishes loading.",
   };
-}
-
-function useMonitorAlerts() {
-  const autonomy = useAutonomyDraft();
-  const liveRows = autonomy.draft ? draftToAlertRows(autonomy.draft) : [];
-  const hasLiveAlerts = !autonomy.offline && liveRows.length > 0;
-  return { autonomy, liveRows, hasLiveAlerts };
 }
 
 function monitorSurfaceStatus(loading: boolean, error: boolean): MonitorSurfaceStatus {
@@ -395,24 +509,36 @@ function useMonitorGovernance() {
 
 function useLiveMonitorView() {
   const navigation = useMonitorNavigation("live");
-  const alerts = useMonitorAlerts();
+  const controller = usePersistedMonitorController(navigation.selected);
+  const { clearSelection: clearAlertSelection, workflowSurfaceLocked } = controller;
+  useEffect(() => {
+    if (!workflowSurfaceLocked && (navigation.isPhone || navigation.dataset !== "alerts")) clearAlertSelection();
+  }, [clearAlertSelection, navigation.dataset, navigation.isPhone, workflowSurfaceLocked]);
+  const retainedPhoneMode = useRef(navigation.isPhone);
+  const retainedDataset = useRef(navigation.dataset);
+  if (!controller.workflowSurfaceLocked) retainedPhoneMode.current = navigation.isPhone;
+  if (!controller.workflowSurfaceLocked) retainedDataset.current = navigation.dataset;
+  const updateUrlState: MonitorUrlUpdater = (changes, mode) => {
+    if (controller.workflowSurfaceLocked && Object.prototype.hasOwnProperty.call(changes, "dataset")) return;
+    navigation.updateUrlState(changes, mode);
+  };
+  useMonitorSelection(controller, navigation.selected, navigation.analysis, navigation.updateUrlState);
   const governanceModel = useMonitorGovernance();
-  const insight = useMonitorInsight(navigation.analysis.context?.id, navigation.selected);
-  const decisionInput = { draft: alerts.autonomy.draft, loading: alerts.autonomy.loading, offline: alerts.autonomy.offline, rows: alerts.liveRows };
+  const insight = useMonitorInsight(navigation.analysis.context?.id, controller.activeEventId);
+  const decisionInput = { status: controller.status, error: controller.error, events: controller.events, retry: controller.refresh };
   const governance = governanceModel.governance;
   return {
     dataMode: navigation.dataMode,
     analysis: navigation.analysis,
-    dataset: navigation.dataset,
-    updateUrlState: navigation.updateUrlState,
-    datasetControlsReady: navigation.datasetControlsReady,
-    datasetSwitchReason: navigation.datasetSwitchReason,
-    selectedAlertCount: navigation.selectedAlertCount,
-    isPhone: navigation.isPhone,
-    autonomyLoading: alerts.autonomy.loading,
-    autonomyOffline: alerts.autonomy.offline,
-    liveRows: alerts.liveRows,
-    hasLiveAlerts: alerts.hasLiveAlerts,
+    dataset: retainedDataset.current,
+    updateUrlState,
+    datasetControlsReady: navigation.datasetControlsReady && !controller.workflowSurfaceLocked,
+    datasetSwitchReason: controller.workflowSurfaceLocked
+      ? "Dataset switch is unavailable until the current alert workflow outcome is resolved."
+      : navigation.datasetSwitchReason,
+    selectedAlertCount: controller.selectedIds.length,
+    isPhone: controller.workflowSurfaceLocked ? retainedPhoneMode.current : navigation.isPhone,
+    controller,
     portfolio: governanceModel.portfolio,
     digest: governance.digest,
     digestLive: governance.live,
@@ -424,7 +550,7 @@ function useLiveMonitorView() {
     findingStatus: governanceModel.findingStatus,
     digestStatus: governanceModel.digestStatus,
     criticalOnly: navigation.criticalOnly,
-    draftAsOf: monitorDecisionAuthority(decisionInput).asOf,
+    alertAsOf: monitorDecisionAuthority(decisionInput).asOf,
     monitorDecision: buildMonitorDecision(decisionInput),
     insight: insight.insight,
     insightMessage: insight.message,
@@ -443,10 +569,7 @@ function useReferenceMonitorView() {
     datasetSwitchReason: navigation.datasetSwitchReason,
     selectedAlertCount: 0,
     isPhone: navigation.isPhone,
-    autonomyLoading: false,
-    autonomyOffline: false,
-    liveRows: [],
-    hasLiveAlerts: false,
+    controller: null,
     portfolio: null as unknown as ReturnType<typeof usePortfolio>,
     digest: null,
     digestLive: false,
@@ -458,7 +581,7 @@ function useReferenceMonitorView() {
     findingStatus: "ready",
     digestStatus: "ready",
     criticalOnly: navigation.criticalOnly,
-    draftAsOf: null,
+    alertAsOf: null,
     monitorDecision: {} as DecisionContextState,
     insight: null,
     insightMessage: null,
@@ -481,21 +604,22 @@ function Monitor() {
   return dataMode === "reference" ? <ReferenceMonitor /> : <LiveMonitor />;
 }
 
-function MonitorContext({ rows, asOf, dataMode }: { rows: ReturnType<typeof draftToAlertRows>; asOf: string | null; dataMode: DataMode }) {
-  if (dataMode === "reference" || rows.length <= 1) return null;
-  const severityBand = (value: number) => value >= 3 ? "critical" : value >= 2 ? "high" : value >= 1 ? "medium" : "low";
-  const severities = ["critical", "high", "medium", "low"].map((severity) => ({ severity, count: rows.filter((row) => severityBand(row.severity) === severity).length }));
+function MonitorContext({ events, asOf, dataMode }: { events: AlertEventDTO[]; asOf: string | null; dataMode: DataMode }) {
+  if (dataMode === "reference" || events.length === 0) return null;
+  const states = ["open", "ack", "resolved"].map((state) => ({ state, count: events.filter((event) => event.state === state).length }));
   const spec: VisualizationSpec = {
     kind: "bar",
-    title: "Routed alerts by severity",
+    title: "Persisted alerts by workflow state",
     unit: "alerts",
     asOf: asOf ?? undefined,
-    sourceIds: ["autonomy-draft"],
-    accessibleSummary: `${rows.length} live routed alerts; ${severities[0].count} are critical.`,
-    status: severities[0].count ? { label: "Critical present", tone: "critical" } : { label: "No critical alert", tone: "success" },
-    data: severities,
-    tabularFallback: { label: "Alert severity counts", columns: [{ key: "severity", label: "Severity" }, { key: "count", label: "Count" }], data: severities },
-    chart: { type: "interval", encode: { x: "severity", y: "count" } },
+    sourceIds: events.map((event) => event.id),
+    accessibleSummary: `${events.length} persisted alert events; ${states[0].count} open, ${states[1].count} acknowledged, and ${states[2].count} resolved.`,
+    // C3 persists workflow state but no severity. Open is therefore neutral
+    // workflow posture, not evidence of critical urgency.
+    status: states[0].count ? { label: `${states[0].count} open`, tone: "idle" } : { label: "No open alert", tone: "success" },
+    data: states,
+    tabularFallback: { label: "Alert workflow state counts", columns: [{ key: "state", label: "State" }, { key: "count", label: "Count" }], data: states },
+    chart: { type: "interval", encode: { x: "state", y: "count" } },
   };
   return <SemanticVisualization spec={spec} />;
 }

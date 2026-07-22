@@ -15,20 +15,22 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
 from sqlalchemy import (
-    JSON, Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-    UniqueConstraint, delete, event, inspect, or_, select, text, update, Computed,
+    JSON, Boolean, CHAR, CheckConstraint, Computed, DDL, Date, DateTime, Float, ForeignKey,
+    ForeignKeyConstraint, Index, Integer, SmallInteger, String, Text, UniqueConstraint,
+    Uuid, delete, event, func, inspect, or_, select, text, update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 import json
 from sqlalchemy.types import TypeDecorator, UnicodeText
 from pgvector.sqlalchemy import Vector
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.ext.compiler import compiles
 
 logger = logging.getLogger("caos.database")
@@ -208,18 +210,44 @@ if "pool_size" in _engine_kwargs:
 
 # SQLite needs WAL + a busy timeout so the async executor and request handlers
 # can write concurrently without "database is locked". No-op on Postgres.
+def _unicode_lower(value: str | None) -> str | None:
+    """Unicode-aware SQLite scalar used for exact case-insensitive identity keys."""
+    return value.lower() if value is not None else None
+
+
 if settings.database_url.startswith("sqlite"):
 
     @event.listens_for(engine.sync_engine, "connect")
     def _sqlite_pragmas(dbapi_conn, _record):  # noqa: ANN001
+        dbapi_conn.create_function(
+            "caos_unicode_lower",
+            1,
+            _unicode_lower,
+            deterministic=True,
+        )
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL")
         cur.execute("PRAGMA busy_timeout=5000")
+        cur.execute("PRAGMA foreign_keys=ON")
         cur.close()
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
 )
+
+
+def case_insensitive_email_match(
+    session: AsyncSession,
+    column,
+    value: str,
+):
+    """Exact Unicode case-insensitive equality across SQLite and Postgres."""
+    lower = (
+        func.caos_unicode_lower
+        if session.get_bind().dialect.name == "sqlite"
+        else func.lower
+    )
+    return lower(column) == value.lower()
 
 
 def _utcnow() -> datetime:
@@ -1311,6 +1339,657 @@ class AlertEvent(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+_C3_SIGNAL_TYPES_SQL = (
+    "'run_finding','qa_gate','covenant','edgar_filing','market_move',"
+    "'cp1b_monitoring','cp1c_peer_outlier','news'"
+)
+_C3_JSON_OBJECT = JSON(none_as_null=True).with_variant(
+    JSONB(none_as_null=True), "postgresql"
+)
+_C3_JSON_STORAGE_MULTIPLIER = {
+    # SQLAlchemy's SQLite JSON serializer uses ensure_ascii=True and spaced
+    # separators. A non-ASCII UTF-8 scalar can expand by 3x and separator
+    # whitespace adds less than another canonical byte per canonical byte.
+    "sqlite": 4,
+    # jsonb text normalizes finite exponent-form Python floats to fixed decimal;
+    # the worst compact finite float (5e-324) expands by <55x. 64x also covers
+    # separator whitespace while canonical validation remains authoritative.
+    "postgresql": 64,
+}
+
+
+def _c3_json_storage_maximum(maximum: int, *, dialect: str) -> int:
+    """Bound dialect rendering without rejecting canonical wire-valid JSON."""
+    return maximum * _C3_JSON_STORAGE_MULTIPLIER[dialect]
+
+
+def _c3_json_object_sql(
+    column: str,
+    maximum: int,
+    *,
+    dialect: str,
+    subject_scope: bool = False,
+) -> str:
+    storage_maximum = _c3_json_storage_maximum(maximum, dialect=dialect)
+    if dialect == "postgresql":
+        object_check = (
+            f"jsonb_typeof({column}) = 'object' "
+            f"AND octet_length(CAST({column} AS text)) <= {storage_maximum}"
+        )
+        if subject_scope:
+            object_check += (
+                f" AND {column} ?& ARRAY['tenant_id','issuer_id','portfolio_id'] "
+                f"AND ({column} - ARRAY['tenant_id','issuer_id','portfolio_id']) = '{{}}'::jsonb "
+                f"AND jsonb_typeof({column} -> 'tenant_id') = 'string' "
+                f"AND octet_length({column} ->> 'tenant_id') BETWEEN 1 AND 255 "
+                f"AND (jsonb_typeof({column} -> 'issuer_id') = 'null' OR "
+                f"(jsonb_typeof({column} -> 'issuer_id') = 'string' "
+                f"AND octet_length({column} ->> 'issuer_id') BETWEEN 1 AND 36)) "
+                f"AND (jsonb_typeof({column} -> 'portfolio_id') = 'null' OR "
+                f"(jsonb_typeof({column} -> 'portfolio_id') = 'string' "
+                f"AND octet_length({column} ->> 'portfolio_id') BETWEEN 1 AND 36))"
+            )
+        return object_check
+
+    object_check = (
+        f"json_valid({column}) AND json_type({column}) = 'object' "
+        f"AND length(CAST({column} AS BLOB)) <= {storage_maximum}"
+    )
+    if subject_scope:
+        object_check += (
+            f" AND json_remove({column}, '$.tenant_id', '$.issuer_id', "
+            f"'$.portfolio_id') = '{{}}' "
+            f"AND json_type({column}, '$.tenant_id') = 'text' "
+            f"AND length(CAST(json_extract({column}, '$.tenant_id') AS BLOB)) "
+            f"BETWEEN 1 AND 255 "
+            f"AND json_type({column}, '$.issuer_id') IS NOT NULL "
+            f"AND json_type({column}, '$.issuer_id') IN ('null','text') "
+            f"AND (json_type({column}, '$.issuer_id') = 'null' OR "
+            f"length(CAST(json_extract({column}, '$.issuer_id') AS BLOB)) "
+            f"BETWEEN 1 AND 36) "
+            f"AND json_type({column}, '$.portfolio_id') IS NOT NULL "
+            f"AND json_type({column}, '$.portfolio_id') IN ('null','text') "
+            f"AND (json_type({column}, '$.portfolio_id') = 'null' OR "
+            f"length(CAST(json_extract({column}, '$.portfolio_id') AS BLOB)) "
+            f"BETWEEN 1 AND 36)"
+        )
+    return object_check
+
+
+class C3JsonObjectCheck(CheckConstraint):
+    """A named JSON-object CHECK with audited SQLite/PostgreSQL compilation."""
+
+    inherit_cache = True
+
+    def __init__(
+        self,
+        column: str,
+        maximum: int,
+        *,
+        name: str,
+        nullable: bool = False,
+        subject_scope: bool = False,
+    ) -> None:
+        self.c3_column = column
+        self.c3_maximum = maximum
+        self.c3_nullable = nullable
+        self.c3_subject_scope = subject_scope
+        sqlite_sql = _c3_json_object_sql(
+            column, maximum, dialect="sqlite", subject_scope=subject_scope
+        )
+        if nullable:
+            sqlite_sql = f"{column} IS NULL OR ({sqlite_sql})"
+        super().__init__(text(sqlite_sql), name=name)
+
+
+@compiles(C3JsonObjectCheck)
+def _compile_c3_json_object_check(element, compiler, **_kw):
+    dialect = "postgresql" if compiler.dialect.name == "postgresql" else "sqlite"
+    check_sql = _c3_json_object_sql(
+        element.c3_column,
+        element.c3_maximum,
+        dialect=dialect,
+        subject_scope=element.c3_subject_scope,
+    )
+    if element.c3_nullable:
+        check_sql = f"{element.c3_column} IS NULL OR ({check_sql})"
+    name = compiler.preparer.format_constraint(element)
+    return f"CONSTRAINT {name} CHECK ({check_sql})"
+
+
+def _c3_string_bounds(
+    table: str,
+    *bounds: tuple[str, int, int, bool],
+) -> CheckConstraint:
+    clauses = []
+    for column, minimum, maximum, nullable in bounds:
+        check = f"length({column}) BETWEEN {minimum} AND {maximum}"
+        clauses.append(f"({column} IS NULL OR {check})" if nullable else check)
+    return CheckConstraint(
+        " AND ".join(clauses), name=f"ck_{table}_string_bounds"
+    )
+
+
+class C3ObservationKeyCheck(CheckConstraint):
+    inherit_cache = True
+
+    def __init__(self) -> None:
+        super().__init__(
+            text(
+                "length(observation_key) = 64 AND "
+                "observation_key NOT GLOB '*[^0-9a-f]*'"
+            ),
+            name="ck_watch_rule_evaluations_observation_key",
+        )
+
+
+@compiles(C3ObservationKeyCheck, "postgresql")
+def _compile_c3_observation_key_check(element, compiler, **_kw):
+    name = compiler.preparer.format_constraint(element)
+    return (
+        f"CONSTRAINT {name} CHECK (length(observation_key) = 64 "
+        "AND observation_key ~ '^[0-9a-f]{64}$')"
+    )
+
+
+class C3WatchRuleCreateIdempotencyCheck(CheckConstraint):
+    inherit_cache = True
+
+    def __init__(self) -> None:
+        super().__init__(
+            text(
+                "(create_idempotency_key IS NULL AND create_request_sha256 IS NULL) OR "
+                "(create_idempotency_key IS NOT NULL "
+                "AND create_request_sha256 IS NOT NULL "
+                "AND length(CAST(create_idempotency_key AS BLOB)) BETWEEN 1 AND 128 "
+                "AND instr(create_idempotency_key, char(0)) = 0 "
+                "AND create_idempotency_key NOT GLOB '*[^A-Za-z0-9._:-]*' "
+                "AND length(CAST(create_request_sha256 AS BLOB)) = 64 "
+                "AND instr(create_request_sha256, char(0)) = 0 "
+                "AND create_request_sha256 NOT GLOB '*[^0-9a-f]*')"
+            ),
+            name="ck_watch_rules_create_idempotency",
+        )
+
+
+@compiles(C3WatchRuleCreateIdempotencyCheck, "postgresql")
+def _compile_c3_watch_rule_create_idempotency_check(
+    element, compiler, **_kw
+):
+    name = compiler.preparer.format_constraint(element)
+    return (
+        f"CONSTRAINT {name} CHECK ("
+        "(create_idempotency_key IS NULL AND create_request_sha256 IS NULL) OR "
+        "(create_idempotency_key IS NOT NULL "
+        "AND create_request_sha256 IS NOT NULL "
+        "AND create_idempotency_key ~ '^[A-Za-z0-9._:-]{1,128}$' "
+        "AND create_request_sha256 ~ '^[0-9a-f]{64}$'))"
+    )
+
+
+class WatchRule(Base):
+    """Analyst-owned durable monitor rule and scheduled-claim state."""
+
+    __tablename__ = "watch_rules"
+    __table_args__ = (
+        _c3_string_bounds(
+            "watch_rules",
+            ("tenant_id", 1, 255, False),
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("issuer_id", 1, 36, True),
+            ("portfolio_id", 1, 36, True),
+            ("name", 1, 160, False),
+            ("signal_type", 1, 32, False),
+            ("schedule_kind", 1, 24, False),
+            ("schedule_cursor", 0, 512, True),
+        ),
+        CheckConstraint(
+            f"signal_type IN ({_C3_SIGNAL_TYPES_SQL}) AND "
+            "(signal_type <> 'news' OR enabled = false)",
+            name="ck_watch_rules_signal_type",
+        ),
+        CheckConstraint("current_version >= 1", name="ck_watch_rules_current_version"),
+        CheckConstraint(
+            "schedule_kind IN ('event_driven','interval','edgar')",
+            name="ck_watch_rules_schedule_kind",
+        ),
+        CheckConstraint(
+            "(schedule_kind = 'event_driven' AND schedule_interval_seconds IS NULL "
+            "AND next_evaluation_at IS NULL AND schedule_cursor IS NULL "
+            "AND claim_token IS NULL AND claim_expires_at IS NULL "
+            "AND last_evaluated_at IS NULL AND claim_attempt_count = 0) OR "
+            "(schedule_kind IN ('interval','edgar') "
+            "AND schedule_interval_seconds BETWEEN 60 AND 86400 "
+            "AND (enabled = false OR paused = true OR next_evaluation_at IS NOT NULL))",
+            name="ck_watch_rules_schedule_state",
+        ),
+        CheckConstraint(
+            "(claim_token IS NULL AND claim_expires_at IS NULL) OR "
+            "(claim_token IS NOT NULL AND claim_expires_at IS NOT NULL)",
+            name="ck_watch_rules_claim_pair",
+        ),
+        CheckConstraint(
+            "claim_attempt_count BETWEEN 0 AND 5",
+            name="ck_watch_rules_claim_attempt_count",
+        ),
+        C3JsonObjectCheck(
+            "config_json",
+            65536,
+            name="ck_watch_rules_config_json",
+        ),
+        C3WatchRuleCreateIdempotencyCheck(),
+        UniqueConstraint(
+            "tenant_id",
+            "owner_user_id",
+            "create_idempotency_key",
+            name="uq_watch_rules_create_idempotency",
+        ),
+        Index("ix_watch_rules_tenant_owner", "tenant_id", "owner_user_id"),
+        Index("ix_watch_rules_tenant_team", "tenant_id", "team_id_snapshot"),
+        Index("ix_watch_rules_tenant_issuer", "tenant_id", "issuer_id"),
+        Index("ix_watch_rules_tenant_portfolio", "tenant_id", "portfolio_id"),
+        Index(
+            "ix_watch_rules_due_claim",
+            "next_evaluation_at",
+            "claim_expires_at",
+            postgresql_where=text(
+                "enabled AND NOT paused AND schedule_kind IN ('interval','edgar')"
+            ),
+            sqlite_where=text(
+                "enabled AND NOT paused AND schedule_kind IN ('interval','edgar')"
+            ),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
+    # Durable POST-create retry identity. Nullable rows predate the 0068
+    # contract (and internal no-key callers retain their historical behavior).
+    create_idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
+    create_request_sha256: Mapped[Optional[str]] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    paused: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    current_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    schedule_kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    schedule_interval_seconds: Mapped[Optional[int]] = mapped_column(Integer)
+    next_evaluation_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    schedule_cursor: Mapped[Optional[str]] = mapped_column(String(512))
+    claim_token: Mapped[Optional[str]] = mapped_column(Uuid(as_uuid=False))
+    claim_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    last_evaluated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    claim_attempt_count: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
+    config_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class WatchRuleVersion(Base):
+    """Immutable rule configuration snapshot."""
+
+    __tablename__ = "watch_rule_versions"
+    __table_args__ = (
+        _c3_string_bounds(
+            "watch_rule_versions",
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("signal_type", 1, 32, False),
+        ),
+        UniqueConstraint(
+            "watch_rule_id", "version", name="uq_watch_rule_versions_rule_version"
+        ),
+        CheckConstraint("version >= 1", name="ck_watch_rule_versions_version"),
+        CheckConstraint(
+            f"signal_type IN ({_C3_SIGNAL_TYPES_SQL})",
+            name="ck_watch_rule_versions_signal_type",
+        ),
+        C3JsonObjectCheck(
+            "config_json",
+            65536,
+            name="ck_watch_rule_versions_config_json",
+        ),
+        Index(
+            "ix_watch_rule_versions_rule_version",
+            "watch_rule_id",
+            "version",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    watch_rule_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey("watch_rules.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    config_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+@event.listens_for(WatchRuleVersion, "before_update")
+def _watch_rule_version_is_immutable(_mapper, _connection, _target) -> None:
+    raise ValueError("WatchRuleVersion rows are immutable")
+
+
+event.listen(
+    WatchRuleVersion.__table__,
+    "after_create",
+    DDL(
+        "CREATE TRIGGER trg_watch_rule_versions_immutable "
+        "BEFORE UPDATE ON watch_rule_versions "
+        "BEGIN SELECT RAISE(ABORT, 'watch_rule_versions are immutable'); END"
+    ).execute_if(dialect="sqlite"),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "before_drop",
+    DDL("DROP TRIGGER IF EXISTS trg_watch_rule_versions_immutable").execute_if(
+        dialect="sqlite"
+    ),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "after_create",
+    DDL(
+        "CREATE FUNCTION c3_reject_watch_rule_version_update() RETURNS trigger "
+        "LANGUAGE plpgsql AS $$ BEGIN "
+        "RAISE EXCEPTION 'watch_rule_versions are immutable' USING ERRCODE = '55000'; "
+        "RETURN OLD; END; $$"
+    ).execute_if(dialect="postgresql"),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "after_create",
+    DDL(
+        "CREATE TRIGGER trg_watch_rule_versions_immutable "
+        "BEFORE UPDATE ON watch_rule_versions FOR EACH ROW "
+        "EXECUTE FUNCTION c3_reject_watch_rule_version_update()"
+    ).execute_if(dialect="postgresql"),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "before_drop",
+    DDL(
+        "DROP TRIGGER IF EXISTS trg_watch_rule_versions_immutable "
+        "ON watch_rule_versions"
+    ).execute_if(dialect="postgresql"),
+)
+event.listen(
+    WatchRuleVersion.__table__,
+    "after_drop",
+    DDL("DROP FUNCTION IF EXISTS c3_reject_watch_rule_version_update()").execute_if(
+        dialect="postgresql"
+    ),
+)
+
+
+class WatchRuleEvaluation(Base):
+    """One deterministic observation of an immutable rule version."""
+
+    __tablename__ = "watch_rule_evaluations"
+    __table_args__ = (
+        _c3_string_bounds(
+            "watch_rule_evaluations",
+            ("tenant_id", 1, 255, False),
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("issuer_id", 1, 36, True),
+            ("portfolio_id", 1, 36, True),
+            ("signal_type", 1, 32, False),
+            ("source_identity", 1, 512, False),
+            ("observation_key", 64, 64, False),
+            ("outcome", 1, 24, False),
+        ),
+        C3ObservationKeyCheck(),
+        UniqueConstraint(
+            "tenant_id", "observation_key",
+            name="uq_watch_rule_evaluations_tenant_observation",
+        ),
+        ForeignKeyConstraint(
+            ["watch_rule_id", "rule_version"],
+            ["watch_rule_versions.watch_rule_id", "watch_rule_versions.version"],
+            ondelete="RESTRICT",
+            name="fk_watch_rule_evaluations_rule_version",
+        ),
+        CheckConstraint(
+            f"signal_type IN ({_C3_SIGNAL_TYPES_SQL}) AND signal_type <> 'news'",
+            name="ck_watch_rule_evaluations_signal_type",
+        ),
+        CheckConstraint(
+            "outcome IN ('observed','matched','ignored','rejected')",
+            name="ck_watch_rule_evaluations_outcome",
+        ),
+        CheckConstraint(
+            "hop_count BETWEEN 0 AND 3",
+            name="ck_watch_rule_evaluations_hop_count",
+        ),
+        C3JsonObjectCheck(
+            "subject_scope_json",
+            65536,
+            name="ck_watch_rule_evaluations_subject_scope_json",
+            subject_scope=True,
+        ),
+        C3JsonObjectCheck(
+            "detail_json",
+            65536,
+            name="ck_watch_rule_evaluations_detail_json",
+        ),
+        Index(
+            "ix_watch_rule_evaluations_rule_evaluated",
+            "watch_rule_id",
+            "evaluated_at",
+        ),
+        Index(
+            "ix_watch_rule_evaluations_correlation_evaluated",
+            "correlation_root_id",
+            "evaluated_at",
+        ),
+        Index(
+            "ix_watch_rule_evaluations_tenant_owner", "tenant_id", "owner_user_id"
+        ),
+        Index(
+            "ix_watch_rule_evaluations_tenant_team", "tenant_id", "team_id_snapshot"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
+    watch_rule_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("watch_rules.id", ondelete="RESTRICT"), nullable=False
+    )
+    rule_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_scope_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False)
+    source_identity: Mapped[str] = mapped_column(String(512), nullable=False)
+    observation_key: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False)
+    correlation_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), nullable=False)
+    correlation_root_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), nullable=False)
+    hop_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    detail_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False, default=dict)
+
+
+class AlertEventContext(Base):
+    """Tenant-stamped one-to-one bridge from an evaluation to a legacy alert."""
+
+    __tablename__ = "alert_event_contexts"
+    __table_args__ = (
+        _c3_string_bounds(
+            "alert_event_contexts",
+            ("tenant_id", 1, 255, False),
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("issuer_id", 1, 36, True),
+            ("portfolio_id", 1, 36, True),
+            ("alert_event_id", 1, 36, False),
+            ("signal_type", 1, 32, False),
+        ),
+        UniqueConstraint("alert_event_id", name="uq_alert_event_contexts_alert_event"),
+        UniqueConstraint(
+            "watch_rule_evaluation_id", name="uq_alert_event_contexts_evaluation"
+        ),
+        ForeignKeyConstraint(
+            ["watch_rule_id", "rule_version"],
+            ["watch_rule_versions.watch_rule_id", "watch_rule_versions.version"],
+            ondelete="RESTRICT",
+            name="fk_alert_event_contexts_rule_version",
+        ),
+        CheckConstraint(
+            f"signal_type IN ({_C3_SIGNAL_TYPES_SQL}) AND signal_type <> 'news'",
+            name="ck_alert_event_contexts_signal_type",
+        ),
+        CheckConstraint(
+            "hop_count BETWEEN 0 AND 3", name="ck_alert_event_contexts_hop_count"
+        ),
+        C3JsonObjectCheck(
+            "context_json",
+            65536,
+            name="ck_alert_event_contexts_context_json",
+        ),
+        Index("ix_alert_event_contexts_rule_created", "watch_rule_id", "created_at"),
+        Index("ix_alert_event_contexts_tenant_owner", "tenant_id", "owner_user_id"),
+        Index("ix_alert_event_contexts_tenant_team", "tenant_id", "team_id_snapshot"),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
+    alert_event_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("alert_events.id", ondelete="CASCADE"), nullable=False
+    )
+    watch_rule_evaluation_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey("watch_rule_evaluations.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    watch_rule_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False), ForeignKey("watch_rules.id", ondelete="RESTRICT"), nullable=False
+    )
+    rule_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    signal_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    correlation_root_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), nullable=False)
+    hop_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    context_json: Mapped[dict] = mapped_column(_C3_JSON_OBJECT, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AlertDeliveryIntent(Base):
+    """Bounded, leased delivery work without a delivery-success claim."""
+
+    __tablename__ = "alert_delivery_intents"
+    __table_args__ = (
+        _c3_string_bounds(
+            "alert_delivery_intents",
+            ("tenant_id", 1, 255, False),
+            ("owner_user_id", 1, 255, False),
+            ("team_id_snapshot", 1, 64, False),
+            ("issuer_id", 1, 36, True),
+            ("portfolio_id", 1, 36, True),
+            ("alert_event_id", 1, 36, False),
+            ("channel", 1, 24, False),
+            ("destination_ref", 1, 256, False),
+            ("status", 1, 24, False),
+            ("not_sent_reason", 0, 256, True),
+        ),
+        UniqueConstraint(
+            "alert_event_context_id", "channel", "destination_ref",
+            name="uq_alert_delivery_intents_destination",
+        ),
+        CheckConstraint(
+            "channel IN ('in_app','email')", name="ck_alert_delivery_intents_channel"
+        ),
+        CheckConstraint(
+            "status IN ('pending','leased','rendered_intent','not_sent')",
+            name="ck_alert_delivery_intents_status",
+        ),
+        CheckConstraint(
+            "max_attempts BETWEEN 1 AND 5 AND "
+            "attempt_count BETWEEN 0 AND max_attempts",
+            name="ck_alert_delivery_intents_attempts",
+        ),
+        CheckConstraint(
+            "(status = 'leased' AND lease_token IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL) OR "
+            "(status <> 'leased' AND lease_token IS NULL AND lease_expires_at IS NULL)",
+            name="ck_alert_delivery_intents_lease_pair",
+        ),
+        CheckConstraint(
+            "(status = 'rendered_intent' AND rendered_intent IS NOT NULL "
+            "AND not_sent_reason IS NULL) OR "
+            "(status = 'not_sent' AND rendered_intent IS NULL "
+            "AND not_sent_reason IS NOT NULL) OR "
+            "(status IN ('pending','leased') AND rendered_intent IS NULL "
+            "AND not_sent_reason IS NULL)",
+            name="ck_alert_delivery_intents_payload_state",
+        ),
+        C3JsonObjectCheck(
+            "rendered_intent",
+            262144,
+            name="ck_alert_delivery_intents_rendered_intent",
+            nullable=True,
+        ),
+        Index("ix_alert_delivery_intents_alert_event_id", "alert_event_id"),
+        Index("ix_alert_delivery_intents_status_available", "status", "available_at"),
+        Index("ix_alert_delivery_intents_lease_expires_at", "lease_expires_at"),
+        Index(
+            "ix_alert_delivery_intents_tenant_owner_created",
+            "tenant_id", "owner_user_id", "created_at",
+        ),
+        Index(
+            "ix_alert_delivery_intents_tenant_team", "tenant_id", "team_id_snapshot"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
+    issuer_id: Mapped[Optional[str]] = mapped_column(String(36))
+    portfolio_id: Mapped[Optional[str]] = mapped_column(String(36))
+    alert_event_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("alert_events.id", ondelete="CASCADE"), nullable=False
+    )
+    alert_event_context_id: Mapped[str] = mapped_column(
+        Uuid(as_uuid=False),
+        ForeignKey("alert_event_contexts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    channel: Mapped[str] = mapped_column(String(24), nullable=False)
+    destination_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_token: Mapped[Optional[str]] = mapped_column(Uuid(as_uuid=False))
+    lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    rendered_intent: Mapped[Optional[dict]] = mapped_column(_C3_JSON_OBJECT)
+    not_sent_reason: Mapped[Optional[str]] = mapped_column(String(256))
+    correlation_root_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class AnalystLink(Base):
     """An analyst-entered custom link/commentary parsed from the Obsidian vault."""
 
@@ -1973,18 +2652,52 @@ def _erasure_principal(analyst_id: str) -> str:
 
 def _redact_embedded_identity(value, keys: list[str], pseudonym: str):
     if isinstance(value, dict):
-        return {
-            key: _redact_embedded_identity(item, keys, pseudonym)
-            for key, item in value.items()
-        }
+        redacted_items = {}
+        for key, item in value.items():
+            redacted_key = _redact_embedded_identity(key, keys, pseudonym)
+            if redacted_key != key:
+                key_digest = hashlib.sha256(
+                    str(key).encode("utf-8")
+                ).hexdigest()
+                redacted_key = f"{redacted_key}:key:{key_digest}"
+            candidate = redacted_key
+            collision = 1
+            while candidate in redacted_items:
+                collision += 1
+                candidate = f"{redacted_key}:collision:{collision}"
+            redacted_items[candidate] = _redact_embedded_identity(
+                item, keys, pseudonym
+            )
+        return redacted_items
     if isinstance(value, list):
         return [_redact_embedded_identity(item, keys, pseudonym) for item in value]
     if isinstance(value, str):
         redacted = value
         for key in keys:
-            redacted = redacted.replace(key, pseudonym)
+            # Erasure keys are the exact analyst id plus the optional email.
+            # Email identity is case-insensitive; analyst ids remain exact.
+            if "@" in key:
+                redacted = re.sub(
+                    re.escape(key),
+                    lambda _match: pseudonym,
+                    redacted,
+                    flags=re.IGNORECASE,
+                )
+            else:
+                redacted = redacted.replace(key, pseudonym)
         return redacted
     return value
+
+
+def _redact_delivery_destination(
+    value: str, *, keys: list[str], pseudonym: str, intent_id: str
+) -> str:
+    """Scrub identity without collapsing a context/channel unique destination."""
+    redacted = _redact_embedded_identity(value, keys, pseudonym)
+    if redacted == value:
+        return value
+    row_digest = hashlib.sha256(intent_id.encode("utf-8")).hexdigest()
+    return f"{pseudonym}:destination:{row_digest}"
 
 
 def _privacy_redacted_snapshot(
@@ -2002,7 +2715,11 @@ def _privacy_redacted_snapshot(
 
 
 async def erase_analyst_data(
-    session: AsyncSession, *, analyst_id: str, email: Optional[str] = None
+    session: AsyncSession,
+    *,
+    analyst_id: str,
+    email: Optional[str] = None,
+    identity_aliases: tuple[str, ...] = (),
 ) -> dict[str, int]:
     """GDPR right-to-erasure for one analyst (the data subject).
 
@@ -2018,7 +2735,15 @@ async def erase_analyst_data(
     Returns the row counts touched. Commits itself (see below) so both callers —
     the self-service route and the operator CLI — get an atomic erase.
     """
-    keys = [k for k in (analyst_id, email) if k]
+    # Longest first prevents an analyst id embedded in their email from being
+    # replaced before the complete email address can be removed. Active proxy
+    # self-erasure also supplies its historical forwarded-user owner stamp as an
+    # alias while analyst_id remains the persisted profile UUID.
+    keys = sorted(
+        {k for k in (analyst_id, email, *identity_aliases) if k},
+        key=len,
+        reverse=True,
+    )
     pseudonym = _erasure_principal(analyst_id)
     owned_report_ids = list((await session.execute(
         select(ReportVersion.id).where(ReportVersion.analyst_id.in_(keys))
@@ -2029,6 +2754,159 @@ async def erase_analyst_data(
     owned_manifest_ids = list((await session.execute(
         select(SourceManifest.id).where(SourceManifest.analyst_id.in_(keys))
     )).scalars().all())
+    # Defensive closure: every C3 row redundantly snapshots the owner. Union
+    # rule ids across those stamps so a malformed/mismatched child cannot retain
+    # the erased principal or leave a still-active parent rule behind.
+    owned_watch_rule_ids = set((await session.execute(
+        select(WatchRule.id).where(WatchRule.owner_user_id.in_(keys))
+    )).scalars().all())
+    owned_watch_rule_ids.update((await session.execute(
+        select(WatchRuleVersion.watch_rule_id).where(
+            WatchRuleVersion.owner_user_id.in_(keys)
+        )
+    )).scalars().all())
+    owned_watch_rule_ids.update((await session.execute(
+        select(WatchRuleEvaluation.watch_rule_id).where(
+            WatchRuleEvaluation.owner_user_id.in_(keys)
+        )
+    )).scalars().all())
+    owned_watch_rule_ids.update((await session.execute(
+        select(AlertEventContext.watch_rule_id).where(
+            AlertEventContext.owner_user_id.in_(keys)
+        )
+    )).scalars().all())
+
+    # C3 rule definitions and their stamped five-table lineage are private
+    # analyst workspace. Erasure is the sole policy path that dependency-deletes
+    # this graph; ordinary product deletion remains protected by RESTRICT.
+    owned_watch_rule_evaluation_ids = list((await session.execute(
+        select(WatchRuleEvaluation.id).where(or_(
+            WatchRuleEvaluation.owner_user_id.in_(keys),
+            WatchRuleEvaluation.watch_rule_id.in_(owned_watch_rule_ids),
+        ))
+    )).scalars().all())
+    owned_alert_context_ids = list((await session.execute(
+        select(AlertEventContext.id).where(or_(
+            AlertEventContext.owner_user_id.in_(keys),
+            AlertEventContext.watch_rule_id.in_(owned_watch_rule_ids),
+            AlertEventContext.watch_rule_evaluation_id.in_(
+                owned_watch_rule_evaluation_ids
+            ),
+        ))
+    )).scalars().all())
+    alert_delivery_intents = await session.execute(
+        delete(AlertDeliveryIntent).where(or_(
+            AlertDeliveryIntent.owner_user_id.in_(keys),
+            AlertDeliveryIntent.alert_event_context_id.in_(owned_alert_context_ids),
+        ))
+    )
+    alert_delivery_intent_payloads_redacted = 0
+    retained_alert_delivery_intents = list((await session.execute(
+        select(AlertDeliveryIntent)
+    )).scalars().all())
+    for intent in retained_alert_delivery_intents:
+        destination_ref = _redact_delivery_destination(
+            intent.destination_ref,
+            keys=keys,
+            pseudonym=pseudonym,
+            intent_id=intent.id,
+        )
+        rendered_intent = _redact_embedded_identity(
+            intent.rendered_intent, keys, pseudonym
+        )
+        not_sent_reason = _redact_embedded_identity(
+            intent.not_sent_reason, keys, pseudonym
+        )
+        if all((
+            destination_ref == intent.destination_ref,
+            rendered_intent == intent.rendered_intent,
+            not_sent_reason == intent.not_sent_reason,
+        )):
+            continue
+        intent.destination_ref = destination_ref
+        intent.rendered_intent = rendered_intent
+        intent.not_sent_reason = not_sent_reason
+        alert_delivery_intent_payloads_redacted += 1
+    alert_event_contexts = await session.execute(
+        delete(AlertEventContext).where(
+            AlertEventContext.id.in_(owned_alert_context_ids)
+        )
+    )
+    watch_rule_evaluations = await session.execute(
+        delete(WatchRuleEvaluation).where(
+            WatchRuleEvaluation.id.in_(owned_watch_rule_evaluation_ids)
+        )
+    )
+    watch_rule_versions = await session.execute(
+        delete(WatchRuleVersion).where(
+            WatchRuleVersion.watch_rule_id.in_(owned_watch_rule_ids)
+        )
+    )
+    watch_rules = await session.execute(
+        delete(WatchRule).where(WatchRule.id.in_(owned_watch_rule_ids))
+    )
+
+    # Alerts and lifecycle states are retained institutional audit records.
+    # Scrub attribution and embedded identity without changing event/state ids,
+    # timestamps, evidence structure, or lifecycle outcomes.
+    alert_events_anonymized = await session.execute(
+        update(AlertEvent)
+        .where(AlertEvent.created_by.in_(keys))
+        .values(created_by=pseudonym)
+    )
+    alert_event_payloads_redacted = 0
+    retained_alert_events = list((await session.execute(
+        select(AlertEvent)
+    )).scalars().all())
+    for alert_event in retained_alert_events:
+        kind = _redact_embedded_identity(
+            alert_event.kind, keys, pseudonym
+        )
+        title = _redact_embedded_identity(
+            alert_event.title, keys, pseudonym
+        )
+        impact = _redact_embedded_identity(
+            alert_event.impact, keys, pseudonym
+        )
+        evidence = _redact_embedded_identity(
+            alert_event.evidence or {}, keys, pseudonym
+        )
+        authority = _redact_embedded_identity(
+            alert_event.authority or {}, keys, pseudonym
+        )
+        if all((
+            kind == alert_event.kind,
+            title == alert_event.title,
+            impact == alert_event.impact,
+            evidence == (alert_event.evidence or {}),
+            authority == (alert_event.authority or {}),
+        )):
+            continue
+        alert_event.kind = kind
+        alert_event.title = title
+        alert_event.impact = impact
+        alert_event.evidence = evidence
+        alert_event.authority = authority
+        alert_event_payloads_redacted += 1
+
+    alert_states_anonymized = 0
+    alert_state_text_redacted = 0
+    retained_alert_states = list((await session.execute(
+        select(AlertState)
+    )).scalars().all())
+    for alert_state in retained_alert_states:
+        if alert_state.analyst_id in keys:
+            alert_state.analyst_id = pseudonym
+            alert_states_anonymized += 1
+        text_changed = False
+        for field in ("assignee", "note", "resolution_note"):
+            prior = getattr(alert_state, field)
+            redacted = _redact_embedded_identity(prior, keys, pseudonym)
+            if redacted != prior:
+                setattr(alert_state, field, redacted)
+                text_changed = True
+        if text_changed:
+            alert_state_text_redacted += 1
 
     # Delete private versioned artifacts before their owning analysis contexts.
     # Reports reference checkpoints, while checkpoints and research jobs
@@ -2212,7 +3090,15 @@ async def erase_analyst_data(
     docs_anonymized = 0
     if email:
         docs = await session.execute(
-            update(Document).where(Document.uploaded_by == email).values(uploaded_by=None)
+            update(Document)
+            .where(
+                case_insensitive_email_match(
+                    session,
+                    Document.uploaded_by,
+                    email.strip(),
+                )
+            )
+            .values(uploaded_by=None)
         )
         docs_anonymized = docs.rowcount or 0  # type: ignore[attr-defined]  # CursorResult.rowcount, not on base Result
     await session.execute(
@@ -2221,6 +3107,16 @@ async def erase_analyst_data(
     profile = await session.execute(delete(Analyst).where(Analyst.id == analyst_id))
     await session.commit()
     return {
+        "alert_delivery_intents_deleted": alert_delivery_intents.rowcount or 0,  # type: ignore[attr-defined]
+        "alert_delivery_intent_payloads_redacted": alert_delivery_intent_payloads_redacted,
+        "alert_event_contexts_deleted": alert_event_contexts.rowcount or 0,  # type: ignore[attr-defined]
+        "watch_rule_evaluations_deleted": watch_rule_evaluations.rowcount or 0,  # type: ignore[attr-defined]
+        "watch_rule_versions_deleted": watch_rule_versions.rowcount or 0,  # type: ignore[attr-defined]
+        "watch_rules_deleted": watch_rules.rowcount or 0,  # type: ignore[attr-defined]
+        "alert_events_anonymized": alert_events_anonymized.rowcount or 0,  # type: ignore[attr-defined]
+        "alert_event_payloads_redacted": alert_event_payloads_redacted,
+        "alert_states_anonymized": alert_states_anonymized,
+        "alert_state_text_redacted": alert_state_text_redacted,
         "research_jobs_deleted": research.rowcount or 0,  # type: ignore[attr-defined]
         "source_manifests_deleted": manifests.rowcount or 0,  # type: ignore[attr-defined]
         "model_checkpoints_deleted": checkpoints.rowcount or 0,  # type: ignore[attr-defined]

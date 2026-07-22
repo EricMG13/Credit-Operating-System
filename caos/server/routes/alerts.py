@@ -14,24 +14,46 @@ alert_key is always allowed regardless of the state it opens at.
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timezone
+import hashlib
+import hmac
+import json
 import math
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, exists, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
-from database import AlertEvent, AlertState, get_db
+from config import get_settings
+from database import (
+    AlertEvent,
+    AlertEventContext,
+    AlertState,
+    Issuer,
+    Portfolio,
+    get_db,
+)
 from engine import pipeline
-from identity import CallerIdentity, get_identity, get_write_identity
+from identity import (
+    CallerIdentity,
+    c3_owner_id,
+    get_identity,
+    get_write_identity,
+    require_write_role,
+)
+from tenancy import tenancy_enabled
+from watch_rules import _scope_for_caller
 
 router = APIRouter()
 
 _WRITES_MAX_PER_MINUTE = 30
 _LIST_CAP = 200
+_CURSOR_MAX = 2048
+_CURSOR_VERSION = 1
 _STATE_RANK = {"open": 0, "ack": 1, "resolved": 2}
 _VALID_STATES = tuple(_STATE_RANK.keys())
 
@@ -99,6 +121,171 @@ class AlertEventPatch(BaseModel):
     assignee: Optional[str] = Field(default=None, max_length=120)
     note: Optional[str] = Field(default=None, max_length=2000)
     resolution_note: Optional[str] = Field(default=None, max_length=2000)
+
+
+def _cursor_time(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _alert_cursor_fingerprint(
+    caller: CallerIdentity, resource: str, filters: dict[str, object]
+) -> str:
+    canonical = json.dumps(
+        {
+            "caller": caller.id,
+            "team": caller.team_id,
+            "role": caller.role.strip().lower(),
+            "tenancy": tenancy_enabled(),
+            "resource": resource,
+            "filters": filters,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _encode_alert_cursor(
+    *, resource: str, fingerprint: str, created_at: datetime, row_id: str
+) -> str:
+    payload = {
+        "v": _CURSOR_VERSION,
+        "resource": resource,
+        "fingerprint": fingerprint,
+        "created_at": _cursor_time(created_at).isoformat(),
+        "id": row_id,
+    }
+    raw = (
+        base64.urlsafe_b64encode(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        .decode("ascii")
+        .rstrip("=")
+    )
+    signature = hmac.new(
+        get_settings().session_secret.encode("utf-8"),
+        raw.encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{raw}.{signature}"
+
+
+def _decode_alert_cursor(
+    cursor: str, *, resource: str, fingerprint: str
+) -> tuple[datetime, str]:
+    if len(cursor) > _CURSOR_MAX:
+        raise HTTPException(400, "invalid_alert_cursor")
+    try:
+        raw, signature = cursor.rsplit(".", 1)
+        expected = hmac.new(
+            get_settings().session_secret.encode("utf-8"),
+            raw.encode("ascii"),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature.encode("ascii"), expected.encode("ascii")):
+            raise ValueError
+        decoded = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+        payload = json.loads(decoded)
+        if (
+            not isinstance(payload, dict)
+            or payload.get("v") != _CURSOR_VERSION
+            or payload.get("resource") != resource
+            or payload.get("fingerprint") != fingerprint
+            or not isinstance(payload.get("created_at"), str)
+            or not isinstance(payload.get("id"), str)
+            or not payload["id"]
+        ):
+            raise ValueError
+        created_at = datetime.fromisoformat(payload["created_at"])
+        if created_at.tzinfo is None:
+            raise ValueError
+        return created_at.astimezone(timezone.utc), payload["id"]
+    except (UnicodeError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        raise HTTPException(400, "invalid_alert_cursor") from None
+
+
+def _alert_visibility_predicate(caller: CallerIdentity):
+    """Scope contextual C3 rows; retain only issuer-anchored legacy reads."""
+    profileless_proxy = caller.source == "proxy" and (
+        not caller.profile_backed or not caller.profile_id
+    )
+    if not tenancy_enabled():
+        if profileless_proxy:
+            return and_(
+                AlertEventContext.id.is_(None),
+                ~AlertEvent.alert_key.startswith("c3:"),
+            )
+        return true()
+
+    tenant_id, team_id = _scope_for_caller(caller)
+    role = caller.role.strip().lower()
+    contextual = and_(
+        not profileless_proxy,
+        AlertEventContext.id.is_not(None),
+        AlertEventContext.tenant_id == tenant_id,
+        or_(
+            AlertEventContext.owner_user_id == c3_owner_id(caller),
+            AlertEventContext.team_id_snapshot == team_id,
+            role == "admin",
+        ),
+        or_(
+            AlertEventContext.issuer_id.is_(None),
+            exists(
+                select(Issuer.id).where(
+                    Issuer.id == AlertEventContext.issuer_id,
+                    or_(
+                        Issuer.team_id.is_(None),
+                        Issuer.team_id == caller.team_id,
+                    ),
+                )
+            ),
+        ),
+        or_(
+            AlertEventContext.portfolio_id.is_(None),
+            exists(
+                select(Portfolio.id).where(
+                    Portfolio.id == AlertEventContext.portfolio_id,
+                    Portfolio.team_id == caller.team_id,
+                )
+            ),
+        ),
+    )
+    legacy = and_(
+        AlertEventContext.id.is_(None),
+        ~AlertEvent.alert_key.startswith("c3:"),
+        AlertEvent.issuer_id.is_not(None),
+        exists(
+            select(Issuer.id).where(
+                Issuer.id == AlertEvent.issuer_id,
+                or_(Issuer.team_id.is_(None), Issuer.team_id == caller.team_id),
+            )
+        ),
+    )
+    return or_(contextual, legacy)
+
+
+async def _require_c3_state_capability(
+    db: AsyncSession, caller: CallerIdentity, alert_key: str
+) -> None:
+    """Require a real, visible context before mutating a C3 alert state."""
+    if not alert_key.startswith("c3:"):
+        return
+    event_id = await db.scalar(
+        select(AlertEvent.id)
+        .join(
+            AlertEventContext,
+            AlertEventContext.alert_event_id == AlertEvent.id,
+        )
+        .where(
+            AlertEvent.alert_key == alert_key,
+            _alert_visibility_predicate(caller),
+        )
+        .limit(1)
+    )
+    if event_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert event not found.")
 
 
 def _alert_event_out(row: AlertEvent, state_row: Optional[AlertState]) -> AlertEventOut:
@@ -186,6 +373,10 @@ async def upsert_alert_state(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_write_identity),
 ):
+    await _require_c3_state_capability(db, caller, body.alert_key)
+    state_analyst_id = (
+        c3_owner_id(caller) if body.alert_key.startswith("c3:") else caller.id
+    )
     if not rate_limit.hit(f"alert-state:{caller.id}", max_attempts=_WRITES_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Alert-state rate limit reached — try again in a minute.")
     if body.state not in _VALID_STATES:
@@ -204,7 +395,7 @@ async def upsert_alert_state(
         existing.state = body.state
         existing.assignee = (body.assignee or "").strip() or None
         existing.note = (body.note or "").strip() or None
-        existing.analyst_id = caller.id
+        existing.analyst_id = state_analyst_id
         existing.resolved_at = resolved_at
         # A resolution note only ever REPLACES a prior one when the caller
         # actually sent one — an assignee-only PATCH on an already-resolved
@@ -218,7 +409,7 @@ async def upsert_alert_state(
             state=body.state,
             assignee=(body.assignee or "").strip() or None,
             note=(body.note or "").strip() or None,
-            analyst_id=caller.id,
+            analyst_id=state_analyst_id,
             resolved_at=resolved_at,
             resolution_note=resolution_note,
         )
@@ -230,15 +421,67 @@ async def upsert_alert_state(
 
 @router.get("/state", response_model=List[AlertStateOut])
 async def list_alert_states(
+    response: Response,
     alert_key: Optional[str] = Query(default=None, max_length=160),
+    limit: int = Query(default=_LIST_CAP, ge=1, le=_LIST_CAP),
+    cursor: Optional[str] = Query(default=None, max_length=_CURSOR_MAX),
     db: AsyncSession = Depends(get_db, scope="function"),
-    _caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_identity),
 ):
-    q = select(AlertState).order_by(AlertState.created_at.desc()).limit(_LIST_CAP)
+    fingerprint = _alert_cursor_fingerprint(
+        caller, "alert_states", {"alert_key": alert_key}
+    )
+    q = select(AlertState)
+    profileless_proxy = caller.source == "proxy" and (
+        not caller.profile_backed or not caller.profile_id
+    )
+    if tenancy_enabled() or profileless_proxy:
+        caller_owned_orphan = and_(
+            AlertEvent.id.is_(None),
+            AlertState.analyst_id == caller.id,
+        )
+        if profileless_proxy:
+            caller_owned_orphan = and_(
+                caller_owned_orphan,
+                ~AlertState.alert_key.startswith("c3:"),
+            )
+        q = (
+            q.outerjoin(AlertEvent, AlertEvent.alert_key == AlertState.alert_key)
+            .outerjoin(
+                AlertEventContext,
+                AlertEventContext.alert_event_id == AlertEvent.id,
+            )
+            .where(
+                or_(
+                    _alert_visibility_predicate(caller),
+                    caller_owned_orphan,
+                )
+            )
+        )
     if alert_key:
         q = q.where(AlertState.alert_key == alert_key)
+    if cursor:
+        created_at, row_id = _decode_alert_cursor(
+            cursor, resource="alert_states", fingerprint=fingerprint
+        )
+        q = q.where(
+            or_(
+                AlertState.created_at < created_at,
+                and_(AlertState.created_at == created_at, AlertState.id < row_id),
+            )
+        )
+    q = q.order_by(AlertState.created_at.desc(), AlertState.id.desc()).limit(limit + 1)
     rows = await db.execute(q)
-    return [AlertStateOut.model_validate(r) for r in rows.scalars().all()]
+    all_rows = rows.scalars().all()
+    page = all_rows[:limit]
+    if len(all_rows) > limit and page:
+        response.headers["X-Next-Cursor"] = _encode_alert_cursor(
+            resource="alert_states",
+            fingerprint=fingerprint,
+            created_at=page[-1].created_at,
+            row_id=page[-1].id,
+        )
+    return [AlertStateOut.model_validate(r) for r in page]
 
 
 @router.post("/refresh", response_model=List[AlertEventOut])
@@ -303,20 +546,86 @@ async def refresh_alert_events(
 
 @router.get("/events", response_model=List[AlertEventOut])
 async def list_alert_events(
+    response: Response,
     event_state: Optional[str] = Query(default=None, alias="state", max_length=16),
+    issuer_id: Optional[str] = Query(default=None, min_length=1, max_length=36),
+    kind: Optional[str] = Query(default=None, min_length=1, max_length=64),
+    limit: int = Query(default=_LIST_CAP, ge=1, le=_LIST_CAP),
+    cursor: Optional[str] = Query(default=None, max_length=_CURSOR_MAX),
     db: AsyncSession = Depends(get_db, scope="function"),
-    _caller: CallerIdentity = Depends(get_identity),
+    caller: CallerIdentity = Depends(get_identity),
 ):
-    events = (await db.execute(select(AlertEvent).order_by(
-        AlertEvent.created_at.desc()
-    ).limit(_LIST_CAP))).scalars().all()
+    try:
+        require_write_role(caller)
+    except HTTPException:
+        response.headers["X-Alert-Event-Can-Mutate"] = "false"
+    else:
+        response.headers["X-Alert-Event-Can-Mutate"] = "true"
+
+    fingerprint = _alert_cursor_fingerprint(
+        caller,
+        "alert_events",
+        {"state": event_state, "issuer_id": issuer_id, "kind": kind},
+    )
+    query = (
+        select(AlertEvent)
+        .outerjoin(AlertState, AlertState.alert_key == AlertEvent.alert_key)
+        .outerjoin(
+            AlertEventContext,
+            AlertEventContext.alert_event_id == AlertEvent.id,
+        )
+        .where(_alert_visibility_predicate(caller))
+    )
+    if event_state is not None:
+        query = query.where(func.coalesce(AlertState.state, "open") == event_state)
+    if issuer_id is not None:
+        query = query.where(AlertEvent.issuer_id == issuer_id)
+    if kind is not None:
+        query = query.where(AlertEvent.kind == kind)
+    if cursor is not None:
+        created_at, row_id = _decode_alert_cursor(
+            cursor, resource="alert_events", fingerprint=fingerprint
+        )
+        query = query.where(
+            or_(
+                AlertEvent.created_at < created_at,
+                and_(AlertEvent.created_at == created_at, AlertEvent.id < row_id),
+            )
+        )
+    events = (
+        (
+            await db.execute(
+                query.order_by(
+                    AlertEvent.created_at.desc(), AlertEvent.id.desc()
+                ).limit(limit + 1)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    page = events[:limit]
     states = {
-        row.alert_key: row for row in (await db.execute(select(AlertState).where(
-            AlertState.alert_key.in_([row.alert_key for row in events] or ["__none__"])
-        ))).scalars().all()
+        row.alert_key: row
+        for row in (
+            await db.execute(
+                select(AlertState).where(
+                    AlertState.alert_key.in_(
+                        [row.alert_key for row in page] or ["__none__"]
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
     }
-    output = [_alert_event_out(row, states.get(row.alert_key)) for row in events]
-    return [row for row in output if event_state is None or row.state == event_state]
+    if len(events) > limit and page:
+        response.headers["X-Next-Cursor"] = _encode_alert_cursor(
+            resource="alert_events",
+            fingerprint=fingerprint,
+            created_at=page[-1].created_at,
+            row_id=page[-1].id,
+        )
+    return [_alert_event_out(row, states.get(row.alert_key)) for row in page]
 
 
 @router.patch("/events/{event_id}", response_model=AlertEventOut)
@@ -326,16 +635,46 @@ async def patch_alert_event(
     db: AsyncSession = Depends(get_db, scope="function"),
     caller: CallerIdentity = Depends(get_write_identity),
 ):
-    event = await db.get(AlertEvent, event_id)
+    event = (
+        await db.execute(
+            select(AlertEvent)
+            .outerjoin(
+                AlertEventContext,
+                AlertEventContext.alert_event_id == AlertEvent.id,
+            )
+            .where(
+                AlertEvent.id == event_id,
+                _alert_visibility_predicate(caller),
+            )
+        )
+    ).scalar_one_or_none()
     if event is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Alert event not found.")
+    current_state = await db.scalar(
+        select(AlertState)
+        .where(AlertState.alert_key == event.alert_key)
+        .with_for_update()
+    )
+    supplied = body.model_fields_set
     state_row = await upsert_alert_state(
         AlertStateUpsert(
             alert_key=event.alert_key,
             state=body.state,
-            assignee=body.assignee,
-            note=body.note,
-            resolution_note=body.resolution_note,
+            assignee=(
+                body.assignee
+                if "assignee" in supplied
+                else current_state.assignee if current_state else None
+            ),
+            note=(
+                body.note
+                if "note" in supplied
+                else current_state.note if current_state else None
+            ),
+            resolution_note=(
+                body.resolution_note
+                if "resolution_note" in supplied
+                else current_state.resolution_note if current_state else None
+            ),
         ),
         db=db,
         caller=caller,

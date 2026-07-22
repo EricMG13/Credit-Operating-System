@@ -468,14 +468,15 @@ async def _cleanup() -> None:
                     ModelCheckpoint.context_id.in_(_CONTEXT_IDS)
                 )
             )
+        await db.execute(
+            delete(ModelDraftV2).where(ModelDraftV2.issuer_id.in_(_ISSUER_IDS))
+        )
+        if _CONTEXT_IDS:
             await db.execute(
                 delete(AnalysisContextRecord).where(
                     AnalysisContextRecord.id.in_(_CONTEXT_IDS)
                 )
             )
-        await db.execute(
-            delete(ModelDraftV2).where(ModelDraftV2.issuer_id.in_(_ISSUER_IDS))
-        )
         await db.execute(
             delete(SourceManifest).where(SourceManifest.issuer_id.in_(_ISSUER_IDS))
         )

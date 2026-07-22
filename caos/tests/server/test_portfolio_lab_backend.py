@@ -354,6 +354,7 @@ def test_command_snapshot_uses_only_exact_portfolio_bound_posture(portfolio_clie
                     created_at=now - timedelta(days=2), completed_at=now - timedelta(days=2),
                 )
                 db.add(bound)
+                await db.flush()
                 db.add(ModuleOutput(
                     run_id=bound.id, module_id="CP-3", module_name="RV",
                     runtime_output={"recommendation": "OVERWEIGHT"},
@@ -367,6 +368,7 @@ def test_command_snapshot_uses_only_exact_portfolio_bound_posture(portfolio_clie
                     created_at=now, completed_at=now,
                 )
                 db.add(unbound)
+                await db.flush()
                 db.add(ModuleOutput(
                     run_id=unbound.id, module_id="CP-3", module_name="RV",
                     runtime_output={"recommendation": "UNDERWEIGHT"},
@@ -696,6 +698,7 @@ def test_read_only_decision_vote_denied(portfolio_client, monkeypatch):
                     issuer_id="portfolio-decision-issuer",
                     status="complete",
                 ))
+                await db.flush()
                 db.add(Decision(
                     id="portfolio-read-only-decision",
                     issuer_id="portfolio-decision-issuer",

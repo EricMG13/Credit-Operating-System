@@ -18,7 +18,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from database import AsyncSessionLocal, Issuer, MetricFact, Run
+from database import (
+    AsyncSessionLocal,
+    Document,
+    DocumentChunk,
+    Issuer,
+    MetricFact,
+    Run,
+)
 from engine.metricfactlane import (
     _match_metric_keys,
     dedup_against_derivatives,
@@ -104,8 +111,31 @@ def test_match_multiple_metrics_ranked_by_score():
 
 # ── retrieve_metric_facts (integration) ──────────────────────────────────────
 
+def _seed_chunks(db, issuer_id, chunk_ids):
+    document_id = str(uuid.uuid4())
+    db.add(
+        Document(
+            id=document_id,
+            issuer_id=issuer_id,
+            doc_type="TestEvidence",
+            file_name=f"{document_id}.txt",
+            storage_key=f"test/metric-facts/{document_id}.txt",
+        )
+    )
+    for seq, chunk_id in enumerate(chunk_ids):
+        db.add(
+            DocumentChunk(
+                id=chunk_id,
+                document_id=document_id,
+                seq=seq,
+                text=f"Metric fact evidence {chunk_id}",
+            )
+        )
+
+
 def _seed_run_facts(db, issuer_id, run_id, facts):
     """facts: [(metric_key, period, value, unit, headline, chunk_id)]"""
+    _seed_chunks(db, issuer_id, [fact[5] for fact in facts])
     for key, period, value, unit, headline, chunk_id in facts:
         db.add(MetricFact(
             issuer_id=issuer_id, run_id=run_id, metric_key=key,
@@ -229,6 +259,7 @@ async def test_retrieve_metric_facts_blocked_excluded(seeded_db):
                    qa_status="Pass", created_at=datetime.now(timezone.utc),
                    model_id="t", prompt_version="v"))
         await db.flush()
+        _seed_chunks(db, acme_id, ["c"])
         db.add(MetricFact(
             issuer_id=acme_id, run_id=run_id, metric_key="net_leverage",
             period="FY2024", value=4.4, unit="x", headline=True,
@@ -308,6 +339,7 @@ async def test_retrieve_metric_facts_latest_per_issuer_key(seeded_db):
                 created_at=new_ts, model_id="t", prompt_version="v"),
         ])
         await db.flush()
+        _seed_chunks(db, acme_id, ["c-old", "c-new"])
         # Older run's fact
         db.add(MetricFact(
             issuer_id=acme_id, run_id=run_old, metric_key="net_leverage",

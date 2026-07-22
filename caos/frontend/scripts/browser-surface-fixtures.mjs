@@ -63,6 +63,53 @@ const decisionItem = {
   reopen_alert_key: null, created_at: '2026-07-13T10:00:00Z', votes: [],
 };
 
+const persistedAlertEvent = {
+  id: 'alert-event-1',
+  alert_key: 'c3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+  issuer_id: 'iss-1',
+  run_id: 'run-1',
+  kind: 'qa_gate',
+  title: 'Liquidity evidence requires review',
+  impact: 'Review the governed liquidity evidence before committee clearance.',
+  evidence: {
+    observed_at: '2026-07-20T09:00:00Z',
+    source_artifact_refs: ['run:run-1'],
+  },
+  authority: { watch_rule_id: '7f9e2d1c-4b3a-4e65-9d87-1a2b3c4d5e6f', rule_version: 1 },
+  state: 'open',
+  assignee: null,
+  note: null,
+  resolved_at: null,
+  resolution_note: null,
+  created_at: '2026-07-20T09:01:00Z',
+  updated_at: '2026-07-20T09:01:00Z',
+};
+
+const persistedWatchRule = {
+  id: '7f9e2d1c-4b3a-4e65-9d87-1a2b3c4d5e6f',
+  name: 'Liquidity evidence gate',
+  signal_type: 'qa_gate',
+  enabled: true,
+  paused: false,
+  issuer_id: 'iss-1',
+  portfolio_id: null,
+  can_mutate: true,
+  current_version: 1,
+  schedule_kind: 'event_driven',
+  schedule_interval_seconds: null,
+  next_evaluation_at: null,
+  last_evaluated_at: '2026-07-20T09:00:00Z',
+  config: {
+    operator: 'present',
+    threshold: null,
+    kind: 'qa_gate',
+    title: 'Liquidity evidence requires review',
+    impact: 'Review the governed liquidity evidence before committee clearance.',
+  },
+  created_at: '2026-07-20T08:55:00Z',
+  updated_at: '2026-07-20T09:00:00Z',
+};
+
 function agendaOperation(method, path) {
   const resource = path.endsWith('/finalize') ? 'finalize' : path.endsWith('/agenda') ? 'agenda' : 'item';
   return `${method}:${resource}`;
@@ -117,9 +164,33 @@ function decisionRouteResult(operation, input, currentDecision, identity) {
   return operation ? updates[operation]() : currentDecision;
 }
 
+function cloneFixture(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function fixtureJson(route, status, body, headers = {}) {
+  return route.fulfill({
+    status,
+    contentType: 'application/json',
+    headers,
+    body: JSON.stringify(cloneFixture(body)),
+  });
+}
+
+function fixtureRequestBody(request) {
+  try {
+    return request.postDataJSON() ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export async function installSurfaceStubs(target, identity) {
   let currentAgenda = { ...agendaItem };
   let currentDecision = { ...decisionItem };
+  let currentAlertEvents = [cloneFixture(persistedAlertEvent)];
+  let currentWatchRules = [cloneFixture(persistedWatchRule)];
+  let createdWatchRuleCount = 0;
   await target.route('**/api/auth/me', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(identity),
   }));
@@ -190,6 +261,7 @@ export async function installSurfaceStubs(target, identity) {
         market_xlsx_v2_enabled: false,
         model_engine_v2: false,
         model_engine_v2_enabled: false,
+        alert_rules_v1_enabled: true,
       },
     }),
   }));
@@ -209,6 +281,103 @@ export async function installSurfaceStubs(target, identity) {
   const fulfillAlertStates = (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   await target.route('**/api/alerts/state', fulfillAlertStates);
   await target.route('**/api/alerts/state?**', fulfillAlertStates);
+  await target.route('**/api/alerts/events**', (route) => {
+    const request = route.request();
+    const method = request.method();
+    const url = new URL(request.url());
+    const base = '/api/alerts/events';
+    const relative = url.pathname.slice(base.length);
+    if (!url.pathname.startsWith(base)) return fixtureJson(route, 404, { detail: 'Unknown alert-event fixture path' });
+    if (relative === '') {
+      if (method !== 'GET') return fixtureJson(route, 405, { detail: 'Method not allowed' });
+      const items = url.searchParams.has('cursor') ? [] : currentAlertEvents.filter((event) => (
+        (!url.searchParams.has('state') || url.searchParams.get('state') === event.state)
+        && (!url.searchParams.has('issuer_id') || url.searchParams.get('issuer_id') === event.issuer_id)
+        && (!url.searchParams.has('kind') || url.searchParams.get('kind') === event.kind)
+      ));
+      return fixtureJson(route, 200, items);
+    }
+    const segments = relative.split('/').filter(Boolean).map(decodeURIComponent);
+    if (segments.length !== 1) return fixtureJson(route, 404, { detail: 'Unknown alert-event fixture path' });
+    const index = currentAlertEvents.findIndex((event) => event.id === segments[0]);
+    if (index < 0) return fixtureJson(route, 404, { detail: 'Alert event not found' });
+    if (method === 'GET') return fixtureJson(route, 200, currentAlertEvents[index]);
+    if (method !== 'PATCH') return fixtureJson(route, 405, { detail: 'Method not allowed' });
+    const input = fixtureRequestBody(request);
+    const previous = currentAlertEvents[index];
+    const next = {
+      ...previous,
+      state: input.state ?? previous.state,
+      assignee: input.assignee === undefined ? previous.assignee : input.assignee,
+      note: input.note === undefined ? previous.note : input.note,
+      resolution_note: input.resolution_note === undefined ? previous.resolution_note : input.resolution_note,
+      resolved_at: input.state === 'resolved' ? '2026-07-20T09:02:00Z' : previous.resolved_at,
+      updated_at: '2026-07-20T09:02:00Z',
+    };
+    currentAlertEvents = currentAlertEvents.map((event, eventIndex) => eventIndex === index ? next : event);
+    return fixtureJson(route, 200, next);
+  });
+  await target.route('**/api/watch-rules**', (route) => {
+    const request = route.request();
+    const method = request.method();
+    const url = new URL(request.url());
+    const base = '/api/watch-rules';
+    const relative = url.pathname.slice(base.length);
+    const canCreateHeaders = { 'X-Watch-Rule-Can-Create': 'true' };
+    if (!url.pathname.startsWith(base)) return fixtureJson(route, 404, { detail: 'Unknown watch-rule fixture path' });
+    if (relative === '') {
+      if (method === 'GET') {
+        return fixtureJson(route, 200, url.searchParams.has('cursor') ? [] : currentWatchRules, canCreateHeaders);
+      }
+      if (method !== 'POST') return fixtureJson(route, 405, { detail: 'Method not allowed' });
+      const input = fixtureRequestBody(request);
+      createdWatchRuleCount += 1;
+      const created = {
+        ...cloneFixture(input),
+        id: `fixture-watch-rule-${createdWatchRuleCount}`,
+        can_mutate: true,
+        current_version: 1,
+        last_evaluated_at: null,
+        created_at: '2026-07-20T09:03:00Z',
+        updated_at: '2026-07-20T09:03:00Z',
+      };
+      currentWatchRules = [...currentWatchRules, created];
+      return fixtureJson(route, 201, created, canCreateHeaders);
+    }
+    const segments = relative.split('/').filter(Boolean).map(decodeURIComponent);
+    if (segments.length < 1 || segments.length > 2) return fixtureJson(route, 404, { detail: 'Unknown watch-rule fixture path' });
+    const index = currentWatchRules.findIndex((rule) => rule.id === segments[0]);
+    if (index < 0) return fixtureJson(route, 404, { detail: 'Watch rule not found' });
+    const previous = currentWatchRules[index];
+    if (segments.length === 2) {
+      if (segments[1] !== 'evaluate') return fixtureJson(route, 404, { detail: 'Unknown watch-rule fixture path' });
+      if (method !== 'POST') return fixtureJson(route, 405, { detail: 'Method not allowed' });
+      const evaluated = { ...previous, last_evaluated_at: '2026-07-20T09:04:00Z', updated_at: '2026-07-20T09:04:00Z' };
+      currentWatchRules = currentWatchRules.map((rule, ruleIndex) => ruleIndex === index ? evaluated : rule);
+      return fixtureJson(route, 200, {
+        rule_id: evaluated.id,
+        evaluated_at: evaluated.last_evaluated_at,
+        emitted_event_ids: [],
+      });
+    }
+    if (method === 'GET') return fixtureJson(route, 200, previous, canCreateHeaders);
+    if (method !== 'PATCH') return fixtureJson(route, 405, { detail: 'Method not allowed' });
+    const input = fixtureRequestBody(request);
+    if (input.expected_version !== previous.current_version) {
+      return fixtureJson(route, 409, { detail: 'Watch rule version conflict' });
+    }
+    const next = {
+      ...previous,
+      ...cloneFixture(input.patch ?? {}),
+      id: previous.id,
+      can_mutate: previous.can_mutate,
+      current_version: previous.current_version + 1,
+      created_at: previous.created_at,
+      updated_at: '2026-07-20T09:05:00Z',
+    };
+    currentWatchRules = currentWatchRules.map((rule, ruleIndex) => ruleIndex === index ? next : rule);
+    return fixtureJson(route, 200, next, canCreateHeaders);
+  });
   const portfolioBoard = {
     rows: [{ issuer_id: 'iss-1', name: 'VMO2', ticker: 'VMO2', sector: 'Telecom', run_id: 'run-1', qa_status: 'Passed', committee_status: 'Committee Ready', as_of: '2026-06-30', metrics: {}, rv_recommendation: null, rv_percentile: null, downside_fragility: null, gaps: [] }],
     issuer_count: 1, covered_count: 1,

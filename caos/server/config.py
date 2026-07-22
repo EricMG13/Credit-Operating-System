@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     caos_model_engine_v2_enabled: bool = False
     caos_cp_4d_enabled: bool = False
     caos_cp_2g_enabled: bool = False
+    # C3 durable watch-rule orchestration. The schema is always migrated, while
+    # every runtime entry point remains inert until an operator enables this
+    # single rollback seam explicitly.
+    caos_alert_rules_v1_enabled: bool = False
 
     # Anthropic — optional; chat degrades to demo replies without it.
     anthropic_api_key: str = ""

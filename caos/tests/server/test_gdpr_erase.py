@@ -7,11 +7,388 @@ import pytest
 
 
 @pytest.mark.asyncio
+async def test_erase_removes_owned_c3_graph_and_redacts_retained_audit_rows(
+    seeded_db,
+) -> None:
+    from datetime import datetime, timezone
+
+    from sqlalchemy import func, select
+
+    from database import (
+        AlertDeliveryIntent,
+        AlertEvent,
+        AlertEventContext,
+        AlertState,
+        Analyst,
+        AsyncSessionLocal,
+        WatchRule,
+        WatchRuleEvaluation,
+        WatchRuleVersion,
+        erase_analyst_data,
+    )
+
+    subject_id = "gdpr-c3-subject"
+    subject_email = "Gdpr-C3-Subject@Test.Local"
+    retained_subject_email = "gDPR-c3-sUBJECT@tEST.lOCAL"
+    bystander_id = "gdpr-c3-bystander"
+    bystander_email = "gdpr-c3-bystander@test.local"
+    now = datetime(2026, 7, 21, 12, tzinfo=timezone.utc)
+
+    async with AsyncSessionLocal() as session:
+        session.add_all(
+            [
+                Analyst(id=subject_id, name="Erase C3", email=subject_email),
+                Analyst(id=bystander_id, name="Keep C3", email=bystander_email),
+            ]
+        )
+        for index, (owner, email, suffix) in enumerate(
+            (
+                (subject_id, subject_email, "subject"),
+                (bystander_id, bystander_email, "bystander"),
+            ),
+            start=1,
+        ):
+            rule_id = f"91000000-0000-0000-0000-00000000000{index}"
+            version_id = f"92000000-0000-0000-0000-00000000000{index}"
+            evaluation_id = f"93000000-0000-0000-0000-00000000000{index}"
+            event_id = f"gdpr-c3-event-{suffix}"
+            context_id = f"94000000-0000-0000-0000-00000000000{index}"
+            intent_id = f"95000000-0000-0000-0000-00000000000{index}"
+            correlation_id = f"96000000-0000-0000-0000-00000000000{index}"
+            alert_key = f"c3:{str(index) * 64}"
+            session.add(
+                WatchRule(
+                    id=rule_id,
+                    tenant_id="gdpr-c3-tenant",
+                    owner_user_id=owner,
+                    team_id_snapshot="gdpr-c3-team",
+                    name=f"C3 {suffix}",
+                    signal_type="run_finding",
+                    enabled=True,
+                    paused=False,
+                    current_version=1,
+                    schedule_kind="event_driven",
+                    claim_attempt_count=0,
+                    config_json={"owner": owner},
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                AlertEvent(
+                    id=event_id,
+                    alert_key=alert_key,
+                    kind=f"finding:{owner}",
+                    title=f"C3 {suffix} by {email}",
+                    impact=f"Retained institutional alert for {owner}",
+                    evidence={
+                        "owner": owner,
+                        "nested": [f"evidence:{email}"],
+                        "identity_keys": {
+                            owner: "id-key-value",
+                            email: "email-key-value",
+                        },
+                    },
+                    authority={"actor": {"id": owner, "email": email}},
+                    created_by=owner,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            session.add(
+                AlertState(
+                    id=f"gdpr-c3-state-{suffix}",
+                    alert_key=alert_key,
+                    state="resolved",
+                    assignee=f"desk:{owner}",
+                    note=f"Assigned by {email}",
+                    analyst_id=owner,
+                    created_at=now,
+                    resolved_at=now,
+                    resolution_note=f"Resolved for {owner} / {email}",
+                )
+            )
+            await session.flush()
+            session.add(
+                WatchRuleVersion(
+                    id=version_id,
+                    watch_rule_id=rule_id,
+                    version=1,
+                    owner_user_id=owner,
+                    team_id_snapshot="gdpr-c3-team",
+                    signal_type="run_finding",
+                    config_json={"owner": owner},
+                    created_at=now,
+                )
+            )
+            await session.flush()
+            session.add(
+                WatchRuleEvaluation(
+                    id=evaluation_id,
+                    tenant_id="gdpr-c3-tenant",
+                    owner_user_id=owner,
+                    team_id_snapshot="gdpr-c3-team",
+                    watch_rule_id=rule_id,
+                    rule_version=1,
+                    signal_type="run_finding",
+                    subject_scope_json={
+                        "tenant_id": "gdpr-c3-tenant",
+                        "issuer_id": None,
+                        "portfolio_id": None,
+                    },
+                    source_identity=f"manual:{owner}",
+                    observation_key=str(index) * 64,
+                    outcome="matched",
+                    correlation_id=correlation_id,
+                    correlation_root_id=correlation_id,
+                    hop_count=0,
+                    evaluated_at=now,
+                    detail_json={"owner": owner},
+                )
+            )
+            await session.flush()
+            session.add(
+                AlertEventContext(
+                    id=context_id,
+                    tenant_id="gdpr-c3-tenant",
+                    owner_user_id=owner,
+                    team_id_snapshot="gdpr-c3-team",
+                    alert_event_id=event_id,
+                    watch_rule_evaluation_id=evaluation_id,
+                    watch_rule_id=rule_id,
+                    rule_version=1,
+                    signal_type="run_finding",
+                    correlation_root_id=correlation_id,
+                    hop_count=0,
+                    context_json={"owner": owner},
+                    created_at=now,
+                )
+            )
+            await session.flush()
+            session.add(
+                AlertDeliveryIntent(
+                    id=intent_id,
+                    tenant_id="gdpr-c3-tenant",
+                    owner_user_id=owner,
+                    team_id_snapshot="gdpr-c3-team",
+                    alert_event_id=event_id,
+                    alert_event_context_id=context_id,
+                    channel="email",
+                    destination_ref=(
+                        f"route:{retained_subject_email}"
+                        if suffix == "bystander"
+                        else email
+                    ),
+                    status=("rendered_intent" if suffix == "bystander" else "pending"),
+                    attempt_count=0,
+                    max_attempts=5,
+                    available_at=now,
+                    rendered_intent=(
+                        {
+                            "subject": f"Escalation for {retained_subject_email}",
+                            "case_variant_id": subject_id.upper(),
+                            "identity_keys": {
+                                subject_id: "id-key-value",
+                                retained_subject_email: "email-key-value",
+                            },
+                        }
+                        if suffix == "bystander"
+                        else None
+                    ),
+                    correlation_root_id=correlation_id,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        # Retained bystander-owned terminal payloads can duplicate subject PII
+        # independently of the parent event that erasure already redacts.
+        session.add(
+            AlertDeliveryIntent(
+                id="95000000-0000-0000-0000-000000000098",
+                tenant_id="gdpr-c3-tenant",
+                owner_user_id=bystander_id,
+                team_id_snapshot="gdpr-c3-team",
+                alert_event_id="gdpr-c3-event-bystander",
+                alert_event_context_id=(
+                    "94000000-0000-0000-0000-000000000002"
+                ),
+                channel="in_app",
+                destination_ref=f"inbox:{subject_id}",
+                status="not_sent",
+                attempt_count=1,
+                max_attempts=3,
+                available_at=now,
+                not_sent_reason=f"render failed for {retained_subject_email}",
+                correlation_root_id="96000000-0000-0000-0000-000000000002",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        # A malformed direct owner stamp must be erased even when its parent
+        # context belongs to a bystander; the clean bystander graph survives.
+        session.add(
+            AlertDeliveryIntent(
+                id="95000000-0000-0000-0000-000000000099",
+                tenant_id="gdpr-c3-tenant",
+                owner_user_id=subject_id,
+                team_id_snapshot="gdpr-c3-team",
+                alert_event_id="gdpr-c3-event-bystander",
+                alert_event_context_id=(
+                    "94000000-0000-0000-0000-000000000002"
+                ),
+                channel="email",
+                destination_ref=subject_email,
+                status="pending",
+                attempt_count=0,
+                max_attempts=5,
+                available_at=now,
+                correlation_root_id="96000000-0000-0000-0000-000000000002",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await session.commit()
+
+    async with AsyncSessionLocal() as session:
+        summary = await erase_analyst_data(
+            session,
+            analyst_id=subject_id,
+            email=subject_email,
+        )
+
+    assert summary["alert_delivery_intents_deleted"] == 2
+    assert summary["alert_delivery_intent_payloads_redacted"] == 2
+    assert summary["alert_event_contexts_deleted"] == 1
+    assert summary["watch_rule_evaluations_deleted"] == 1
+    assert summary["watch_rule_versions_deleted"] == 1
+    assert summary["watch_rules_deleted"] == 1
+    assert summary["alert_events_anonymized"] == 1
+    assert summary["alert_event_payloads_redacted"] == 1
+    assert summary["alert_states_anonymized"] == 1
+    assert summary["alert_state_text_redacted"] == 1
+
+    async with AsyncSessionLocal() as session:
+        bystander_rows = (
+            (AlertDeliveryIntent, "95000000-0000-0000-0000-000000000002"),
+            (AlertDeliveryIntent, "95000000-0000-0000-0000-000000000098"),
+            (AlertEventContext, "94000000-0000-0000-0000-000000000002"),
+            (WatchRuleEvaluation, "93000000-0000-0000-0000-000000000002"),
+            (WatchRuleVersion, "92000000-0000-0000-0000-000000000002"),
+            (WatchRule, "91000000-0000-0000-0000-000000000002"),
+        )
+        for model, row_id in bystander_rows:
+            assert await session.scalar(
+                select(func.count()).select_from(model).where(
+                    model.owner_user_id.in_([subject_id, subject_email])
+                )
+            ) == 0
+            row = await session.get(model, row_id)
+            assert row is not None
+            assert row.owner_user_id == bystander_id
+
+        retained_intents = (
+            (
+                await session.execute(
+                    select(AlertDeliveryIntent).where(
+                        AlertDeliveryIntent.owner_user_id == bystander_id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(retained_intents) == 2
+        retained_intent_audit = repr(
+            [
+                (
+                    intent.destination_ref,
+                    intent.rendered_intent,
+                    intent.not_sent_reason,
+                )
+                for intent in retained_intents
+            ]
+        )
+        assert subject_id not in retained_intent_audit
+        assert subject_email.casefold() not in retained_intent_audit.casefold()
+        rendered = next(
+            intent for intent in retained_intents if intent.rendered_intent is not None
+        )
+        assert rendered.rendered_intent["case_variant_id"] == subject_id.upper()
+        redacted_intent_keys = rendered.rendered_intent["identity_keys"]
+        assert len(redacted_intent_keys) == 2
+        assert set(redacted_intent_keys.values()) == {
+            "id-key-value",
+            "email-key-value",
+        }
+
+        assert await session.scalar(
+            select(func.count()).select_from(WatchRule).where(
+                WatchRule.enabled.is_(True),
+                WatchRule.owner_user_id.in_([subject_id, subject_email]),
+            )
+        ) == 0
+
+        subject_event = await session.get(AlertEvent, "gdpr-c3-event-subject")
+        subject_state = await session.get(AlertState, "gdpr-c3-state-subject")
+        assert subject_event is not None and subject_state is not None
+        assert subject_event.created_by.startswith("erased:")
+        retained_subject_audit = repr(
+            (
+                subject_event.kind,
+                subject_event.title,
+                subject_event.impact,
+                subject_event.evidence,
+                subject_event.authority,
+                subject_state.analyst_id,
+                subject_state.assignee,
+                subject_state.note,
+                subject_state.resolution_note,
+            )
+        )
+        assert subject_id not in retained_subject_audit
+        assert subject_email not in retained_subject_audit
+        redacted_identity_keys = subject_event.evidence["identity_keys"]
+        assert len(redacted_identity_keys) == 2
+        assert set(redacted_identity_keys.values()) == {
+            "id-key-value",
+            "email-key-value",
+        }
+        assert subject_state.state == "resolved"
+        assert subject_state.resolved_at == now.replace(tzinfo=None)
+
+        bystander_event = await session.get(AlertEvent, "gdpr-c3-event-bystander")
+        bystander_state = await session.get(AlertState, "gdpr-c3-state-bystander")
+        assert bystander_event is not None and bystander_state is not None
+        assert bystander_event.created_by == bystander_id
+        assert bystander_event.kind == f"finding:{bystander_id}"
+        assert bystander_event.title == f"C3 bystander by {bystander_email}"
+        assert bystander_event.impact == (
+            f"Retained institutional alert for {bystander_id}"
+        )
+        assert bystander_event.evidence == {
+            "owner": bystander_id,
+            "nested": [f"evidence:{bystander_email}"],
+            "identity_keys": {
+                bystander_id: "id-key-value",
+                bystander_email: "email-key-value",
+            },
+        }
+        assert bystander_event.authority == {
+            "actor": {"id": bystander_id, "email": bystander_email}
+        }
+        assert bystander_state.assignee == f"desk:{bystander_id}"
+        assert bystander_state.note == f"Assigned by {bystander_email}"
+        assert bystander_state.resolution_note == (
+            f"Resolved for {bystander_id} / {bystander_email}"
+        )
+
+
+@pytest.mark.asyncio
 async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
     from database import (
         Analyst, AnalysisContextRecord, AnalysisInsight, AsyncSessionLocal,
-            Document, Issuer, IssuerReportingProfile, LineageEdge, Portfolio,
-            NotificationEvent, PortfolioStressRun, ResearchJob, Run,
+        Document, Issuer, IssuerReportingProfile, LineageEdge, Portfolio,
+        NotificationEvent, PortfolioStressRun, ResearchJob, Run,
         SavedModel, erase_analyst_data,
     )
 
@@ -98,6 +475,16 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         summary = await erase_analyst_data(s, analyst_id=subj_id, email=subj_email)
 
     assert summary == {
+        "alert_delivery_intents_deleted": 0,
+        "alert_delivery_intent_payloads_redacted": 0,
+        "alert_event_contexts_deleted": 0,
+        "watch_rule_evaluations_deleted": 0,
+        "watch_rule_versions_deleted": 0,
+        "watch_rules_deleted": 0,
+        "alert_events_anonymized": 0,
+        "alert_event_payloads_redacted": 0,
+        "alert_states_anonymized": 0,
+        "alert_state_text_redacted": 0,
         "research_jobs_deleted": 1,
         "source_manifests_deleted": 0,
         "model_checkpoints_deleted": 0,
@@ -252,23 +639,36 @@ async def test_erase_deletes_model_v2_private_state_dependency_first(seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_erase_by_email_resolves_id_then_erases(seeded_db):
+async def test_erase_by_email_resolves_mixed_case_to_canonical_identity(seeded_db):
     """Operator CLI path (erase_analyst.erase_by_email): looks the departed analyst
     up by email, then erases by their id so runs stamped with the uuid are scrubbed."""
-    from database import Analyst, AsyncSessionLocal, Issuer, Run
+    from database import Analyst, AsyncSessionLocal, Document, Issuer, Run
     from erase_analyst import erase_by_email
 
     async with AsyncSessionLocal() as s:
         s.add(Issuer(id="gdpr-cli-issuer", name="CLI Co"))
-        s.add(Analyst(id="gdpr-cli-id", name="Departed One", email="gone@test.local"))
+        s.add(Analyst(id="gdpr-cli-id", name="Departed One", email="Gone@Test.Local"))
         s.add(Run(id="gdpr-cli-run", issuer_id="gdpr-cli-issuer", analyst_id="gdpr-cli-id"))
+        s.add(
+            Document(
+                id="gdpr-cli-document",
+                issuer_id="gdpr-cli-issuer",
+                doc_type="10-K",
+                file_name="gdpr-cli.pdf",
+                storage_key="gdpr/gdpr-cli.pdf",
+                uploaded_by="Gone@Test.Local",
+            )
+        )
         await s.commit()
 
-    summary = await erase_by_email("gone@test.local")
+    summary = await erase_by_email("gOnE@tEsT.lOcAl")
     assert summary["profile_deleted"] == 1
     assert summary["runs_anonymized"] == 1
+    assert summary["documents_anonymized"] == 1
 
     async with AsyncSessionLocal() as s:
         assert await s.get(Analyst, "gdpr-cli-id") is None
         run = await s.get(Run, "gdpr-cli-run")
         assert run is not None and run.analyst_id is None
+        document = await s.get(Document, "gdpr-cli-document")
+        assert document is not None and document.uploaded_by is None

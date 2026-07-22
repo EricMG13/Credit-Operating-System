@@ -33,15 +33,15 @@ import hashlib
 import hmac
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from access_log import sanitize_field
 from config import get_settings, is_deployed
-from database import Analyst, get_db
+from database import Analyst, case_insensitive_email_match, get_db
 
 # In-app login: the analyst profile id+name+token_version are signed into this
 # cookie. Resolution is mostly self-contained (HMAC + exp), plus one indexed
@@ -64,6 +64,18 @@ class CallerIdentity:
     # analyst's row; None for a proxy/local caller with no profile. Inert unless
     # CAOS_TENANCY_ENABLED (single-team default ignores it).
     team_id: str | None = None
+    # Internal ownership-continuity marker. True only when this request resolved
+    # a persisted Analyst row (profile cookie or matched proxy email). It is not
+    # included in /auth/me and defaults false for existing local/test callers.
+    profile_backed: bool = False
+    # Persisted Analyst UUID, carried separately so C3 can use its governed owner
+    # key without re-keying historical global records stamped with caller.id.
+    profile_id: str | None = None
+
+
+def normalize_email_identity(value: str) -> str:
+    """Return the bounded, case-insensitive key used for proxy email ownership."""
+    return sanitize_field(value, limit=255).strip().lower()
 
 
 _WRITE_SERVER_ROLES = {"analyst", "qa", "admin"}
@@ -213,6 +225,8 @@ async def get_identity(
                         role=getattr(analyst, "role", None) or "analyst",
                         source="profile",
                         team_id=analyst.team_id,  # multi-team tenancy scope (inert unless enabled)
+                        profile_backed=True,
+                        profile_id=ident_id,
                     )
 
     email = request.headers.get("x-forwarded-email")
@@ -226,13 +240,47 @@ async def get_identity(
             )
         return _LOCAL_DEV
     username = request.headers.get("x-forwarded-preferred-username") or email or user
+    normalized_email = normalize_email_identity(email) if email else None
     persisted_analyst = None
-    if email and hasattr(db, "execute"):
-        persisted_analyst = (await db.execute(
-            select(Analyst).where(
-                func.lower(Analyst.email) == email.strip().lower()
+    if normalized_email and hasattr(db, "execute"):
+        matching_analysts = list(
+            (
+                await db.execute(
+                    select(Analyst)
+                    .where(
+                        case_insensitive_email_match(
+                            db,
+                            Analyst.email,
+                            normalized_email,
+                        )
+                    )
+                    .order_by(Analyst.id)
+                    .limit(2)
+                )
             )
-        )).scalar_one_or_none()
+            .scalars()
+            .all()
+        )
+        if len(matching_analysts) > 1:
+            raise HTTPException(
+                409,
+                "Ambiguous analyst email identity; resolve duplicate profiles.",
+            )
+        persisted_analyst = matching_analysts[0] if matching_analysts else None
+    if persisted_analyst is not None:
+        # Preserve the historical global principal (forwarded user, falling back
+        # to email) so existing runs/settings/records remain reachable. Carry the
+        # persisted UUID separately for C3's governed ownership namespace.
+        return CallerIdentity(
+            id=sanitize_field(user or email or "unknown"),
+            email=sanitize_field(persisted_analyst.email or email),
+            full_name=sanitize_field(persisted_analyst.name),
+            role=persisted_analyst.role or "analyst",
+            source="proxy",
+            team_id=persisted_analyst.team_id,
+            profile_backed=True,
+            profile_id=sanitize_field(persisted_analyst.id),
+        )
     # Forwarded headers are attacker-influenced off-proxy; sanitize before they
     # become caller.email (→ Document.uploaded_by) or hit the exception logger. S7.
     return CallerIdentity(
@@ -247,6 +295,33 @@ async def get_identity(
         source="proxy",
         team_id=(persisted_analyst.team_id if persisted_analyst is not None else None),
     )
+
+
+def c3_owner_id(caller: CallerIdentity) -> str:
+    """Return the governed owner key used only by the C3 watch-rule surface."""
+    return caller.profile_id or caller.id
+
+
+async def get_c3_identity(
+    caller: CallerIdentity = Depends(get_identity),
+) -> CallerIdentity:
+    """Resolve a caller into C3's profile-backed ownership namespace."""
+    if caller.source == "proxy" and (
+        not caller.profile_backed or not caller.profile_id
+    ):
+        raise HTTPException(
+            403,
+            "A persisted analyst profile is required for watch rules.",
+        )
+    return replace(caller, id=c3_owner_id(caller))
+
+
+async def get_c3_write_identity(
+    caller: CallerIdentity = Depends(get_c3_identity),
+) -> CallerIdentity:
+    """Resolve the C3 owner and require its domain-write capability."""
+    require_write_role(caller)
+    return caller
 
 
 async def get_write_identity(

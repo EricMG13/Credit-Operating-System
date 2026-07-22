@@ -9,6 +9,38 @@ import pytest
 import pytest_asyncio
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _defer_runtime_sqlite_foreign_keys_for_test_transactions():
+    """Let unordered valid fixtures settle while retaining commit-time FK checks.
+
+    Production SQLite keeps immediate foreign-key semantics. The server suite has
+    legacy fixtures whose mappers do not declare ORM relationships, so SQLAlchemy
+    cannot topologically order valid parent/child rows within one transaction.
+    SQLite resets ``defer_foreign_keys`` after every commit/rollback; setting it
+    on each test-engine transaction defers enforcement only until that boundary.
+    """
+    from sqlalchemy import event
+
+    from database import engine as db_engine
+
+    if db_engine.dialect.name != "sqlite":
+        yield
+        return
+
+    def defer_foreign_keys(connection):  # noqa: ANN001
+        cursor = connection.connection.cursor()
+        try:
+            cursor.execute("PRAGMA defer_foreign_keys=ON")
+        finally:
+            cursor.close()
+
+    event.listen(db_engine.sync_engine, "begin", defer_foreign_keys)
+    try:
+        yield
+    finally:
+        event.remove(db_engine.sync_engine, "begin", defer_foreign_keys)
+
+
 @pytest.fixture(autouse=True)
 def _reset_rate_limit():
     """The rate limiter is process-global; reset it per test so the suite's many

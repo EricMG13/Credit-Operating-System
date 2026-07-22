@@ -304,6 +304,18 @@ for (const viewport of viewports) {
     const unexpectedHorizontalOffsets = [...document.querySelectorAll('.caos-enterprise-page, .persona-workbench__composition, .persona-workbench__slot--primary')]
       .filter((element) => element.scrollLeft > 1)
       .map((element) => ({ class_name: typeof element.className === 'string' ? element.className.slice(0, 160) : '', scroll_left: Math.round(element.scrollLeft) }));
+    // Context/inspector rails contain controls and compact prose, not a wide
+    // data table. Horizontal overflow here can hide the end of a button/label
+    // behind the rail even when the page itself has no overflow and a generic
+    // scroll-owner heuristic considers the control reachable.
+    const unexpectedSupportingOverflow = [...document.querySelectorAll('[data-slot="context"], [data-slot="inspector"]')]
+      .filter((element) => element.scrollWidth > element.clientWidth + 1)
+      .map((element) => ({
+        slot: element.getAttribute('data-slot'),
+        client_width: element.clientWidth,
+        scroll_width: element.scrollWidth,
+        overflow_px: element.scrollWidth - element.clientWidth,
+      }));
     const selectors = ['.caos-enterprise-page', '[data-testid="persona-workbench"]', '.persona-workbench__slot--primary', '.deepdive-analysis-grid', '.deepdive-analysis-primary', '.model-editor-layout', '.model-sheet-region'];
     const diagnosticRegions = selectors.flatMap((selector) => {
       const element = document.querySelector(selector);
@@ -314,6 +326,7 @@ for (const viewport of viewports) {
     return {
       page_overflow_px: Math.max(0, Math.round(pageOverflowPx)),
       unexpected_horizontal_offsets: unexpectedHorizontalOffsets,
+      unexpected_supporting_horizontal_overflow: unexpectedSupportingOverflow,
       diagnostic_regions: diagnosticRegions,
     };
   });
@@ -341,6 +354,7 @@ function layoutHasFailures(layout) {
     hasEntries(layout.target_size_failures),
     hasEntries(layout.overlay_collisions),
     hasEntries(layout.unexpected_horizontal_offsets),
+    hasEntries(layout.unexpected_supporting_horizontal_overflow),
   ];
   return counts.some(Boolean);
 }
