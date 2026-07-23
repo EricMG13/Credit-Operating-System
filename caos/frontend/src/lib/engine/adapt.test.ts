@@ -100,6 +100,26 @@ describe("adaptModule — LIVE-shaped payloads (mock↔live seam)", () => {
     expect(periods?.v).toBe("3");  // derived from the 3 revenue periods, not "—"
   });
 
+  it("CP-1B: lifts headline growth KPIs out of the nested summary (not a lone QA card)", () => {
+    const live = { ...base, module_id: "CP-1B", runtime_output: {
+      periods: [
+        { period: "FY2024", revenue: 2588, adj_ebitda: 392, ebitda_margin: 15.1 },
+        { period: "LTM_Q1_26", revenue: 2801, adj_ebitda: 421, ebitda_margin: 15.0 },
+      ],
+      summary: { revenue_growth_pct: 6, ebitda_growth_pct: 5.9, margin_change_pp: 0, latest_period: "LTM_Q1_26", prior_period: "FY2025" },
+      monitoring_signals: [],
+    } } as unknown as ModuleDetailDTO;
+    const out = adaptModule(live);
+    expect(out.kpis.map((k) => [k.l, k.v])).toEqual([
+      ["Revenue growth", "+6%"],
+      ["Adj. EBITDA growth", "+5.9%"],
+      ["Margin change", "0pp"],
+      ["Latest period", "LTM Q1-26"],   // humanized, never the machine key
+      ["Monitoring signals", "0"],
+    ]);
+    expect(out.kpis.find((k) => k.l === "Monitoring signals")?.sev).toBe("ok");
+  });
+
   it("CP-0: derives 'Gaps logged' from live gap_log, not '—'", () => {
     const live = { ...base, module_id: "CP-0", runtime_output: {
       readiness_score: 82, files_classified: 5,

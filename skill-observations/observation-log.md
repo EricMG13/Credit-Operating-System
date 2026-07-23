@@ -200,3 +200,13 @@ provide the complete non-development secret set when production-parity identity
 is intended. Also warn that an existing `caos_qa.db` can be migration-drifted;
 preserve it and use a fresh isolated QA database rather than deleting or stamping
 the schema during a preview refresh.
+
+## 2026-07-23 — skill-installer — OPEN
+
+The skill covers curated and GitHub-backed installation but not migration from
+an existing local skill catalog such as `~/.claude/skills`. Add a local-source
+workflow that validates frontmatter, adapts harness-specific instruction-file
+references, refuses unresolved destination collisions, preserves disabled-skill
+state in an ignored but recoverable directory, backs up global instructions,
+and notes that newly installed Codex skills become discoverable on the next
+turn.

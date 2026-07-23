@@ -5,7 +5,14 @@ export type OutSection =
   | { type: "table"; title: string; cols: string[]; align?: number[]; rows: string[][] }
   | { type: "text"; title: string; body: string; ev?: string[] }
   | { type: "flags"; title: string; items: OutFlag[] };
-export interface ModuleOutput { kpis: { l: string; v: string; sev?: string }[]; sections: OutSection[] }
+export interface ModuleOutput {
+  kpis: { l: string; v: string; sev?: string }[];
+  sections: OutSection[];
+  // Raw persisted runtime_output, threaded through by the live adapter so live
+  // renderers (LiveModuleCharts) can chart real payload numbers. Absent on the
+  // demo fixtures below.
+  runtime?: Record<string, unknown>;
+}
 
 export const PEER_CREDIT_METRIC_ROWS = [
   ["Atlas Forge (subject)", "B2 / B", "5.7x", "15.0%", "41%", "+388"],
@@ -359,6 +366,52 @@ export const MODULE_OUTPUTS: Record<string, ModuleOutput> = {
         { l: "RP builder basket", v: "$240M", sev: "warning" }, { l: "Nearest pressure point", v: "MFN Jun-27" },
       ],
       sections: [],
+    },
+    "CP-2G": {
+      kpis: [
+        { l: "Material ESG credit factors", v: "3" }, { l: "Transition exposure", v: "MODERATE", sev: "warning" },
+        { l: "Social event risk", v: "LOW", sev: "ok" }, { l: "ESG-linked ratchet", v: "NONE" },
+      ],
+      sections: [
+        { type: "table", title: "CP-2G-07 · ESG credit implication register", cols: ["Factor", "Credit channel", "Horizon", "Impact"], align: [0,0,0,0], rows: [
+          ["Energy intensity — electric furnace fleet (62% of conversion cost variance)", "Margin — pass-through lags spot power by ~1 qtr", "12–24mo", "−40 to −60bp EBITDA margin in stress"],
+          ["EU CBAM phase-in on exported components (~18% of revenue)", "Cost / demand — embedded-carbon levy on EU shipments", "2027+", "$6–9M annual pre-mitigation"],
+          ["Plant safety record — TRIR 1.9 vs 3.1 segment median", "Operational — lower disruption / insurance loading", "Ongoing", "Positive offset"],
+          ["No sustainability-linked margin ratchet in SFA or 2L", "Documentation — no KPI/SPT economics to model", "—", "None"],
+        ]},
+        { type: "flags", title: "CP-2G-05 · Transition & event-risk flags", items: [
+          { sev: "warning", text: "Energy transition capex guided at $18M/yr (furnace upgrades) but unfunded in the sponsor model beyond FY27 — competes with deleveraging for FCF.", ev: ["E-58"] },
+          { sev: "warning", text: "Meridian platform contract carries an emissions-disclosure clause; non-reporting is a commercial (not documentary) event risk on the largest revenue relationship.", ev: ["E-12"] },
+          { sev: "ok", text: "No KPI / SPT / ratchet mechanics in either credit document — ESG affects credit through cost and capex channels only, never coupon economics.", ev: ["E-09", "E-103"] },
+        ]},
+        { type: "text", title: "CP-2G-09 · Overall ESG credit view", body: "ESG is a cost-and-capex story, not a documentation or controversy story: no ESG-linked economics, no ratings-relevant controversies, safety record a modest positive. The credit-relevant tail is energy — pass-through lag compresses margin in a power spike, and CBAM adds a quantifiable 2027+ cost. Fold the −60bp stress case into CP-2B P2 and monitor pass-through realization in the Q3-26 print (T-2).", ev: ["E-58"] },
+      ],
+    },
+    "CP-4D": {
+      kpis: [
+        { l: "Guarantor EBITDA coverage", v: "87%", sev: "ok" }, { l: "Unrestricted subsidiaries", v: "1" },
+        { l: "Designation capacity", v: "$185M", sev: "warning" }, { l: "Uptier path", v: "OPEN", sev: "warning" },
+      ],
+      sections: [
+        { type: "table", title: "CP-4D-02 · Restricted / unrestricted entity register", cols: ["Entity", "Status", "EBITDA %", "Collateral"], align: [0,0,1,0], rows: [
+          ["Atlas Forge Industrials Inc. (borrower)", "Restricted · guarantor", "61%", "All-asset lien + fixtures"],
+          ["Atlas Forge GmbH", "Restricted · guarantor", "26%", "Share pledge + receivables"],
+          ["AF Components de México S.A.", "Restricted · non-guarantor (CFC carve-out)", "11%", "None"],
+          ["AF Digital Tooling S.r.l.", "UNRESTRICTED (designated at close)", "2%", "None — outside the group"],
+        ]},
+        { type: "table", title: "CP-4D-03 · Guarantor coverage matrix", cols: ["Measure", "Guarantors", "Non-guarantors", "Covenant test"], align: [0,1,1,0], rows: [
+          ["EBITDA", "87%", "13%", "≥ 85% — PASS, 2pt headroom"],
+          ["Total assets", "82%", "18%", "No test"],
+          ["Third-party debt", "100%", "$0", "No structural priming today"],
+        ]},
+        { type: "flags", title: "CP-4D-07 · Leakage & priming exposure", items: [
+          { sev: "ok", text: "Drop-down (J.Crew) path BLOCKED — material-IP and material-asset transfers to unrestricted subsidiaries are hard-blocked at SFA §7.05; Chewy-style guarantee release requires ratings + pro-forma leverage tests that fail today.", ev: ["E-103"] },
+          { sev: "warning", text: "Uptier (Serta) path OPEN — pro-rata sharing and payment waterfall amendable with majority consent; no all-lender sacred-right protection. Consistent with CP-3D T3D.4.", ev: ["E-103"] },
+          { sev: "warning", text: "Unrestricted-designation capacity ~$185M via general investments basket + $240M RP builder overlap — a Chewy-scale leak is capped but non-trivial against $421M LTM EBITDA.", ev: ["E-09"] },
+          { sev: "warning", text: "Mexico non-guarantor EBITDA share has grown 8% → 11% over two fiscal years; coverage test headroom erodes ~1pt per year at trend.", ev: ["E-58"] },
+        ]},
+        { type: "text", title: "CP-4D-09 · Overall structural view", body: "The guarantee net is tight today — 87% EBITDA coverage against an 85% test, all third-party debt inside the guarantor group, and the classic drop-down routes documented shut. Structural risk is forward-looking, not current: an open uptier amendment path, ~$185M of designation capacity, and a creeping CFC non-guarantor share that consumes coverage headroom mechanically. Watch designation notices and the coverage line in each compliance certificate (T-4); any unrestricted designation while leverage exceeds 5.5x is a posture-changing event.", ev: ["E-103", "E-09"] },
+      ],
     },
     "CP-6A": {
       kpis: [

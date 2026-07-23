@@ -350,7 +350,10 @@ function DeepDive() {
   // blocked, and never turns a missing status into a clean pass.
   const qaScope = (id: string) => LIVE_QA_SCOPE[id] ?? [id];
   const modState = (id: string) => isReference
-    ? gateState(GATE[id] || id)
+    // CP-2G / CP-4D carry seeded reference registers but are absent from the
+    // replay-sim DAG — the sim would hold them "idle" (padlocked) forever while
+    // their panes open fine. Show them as passed in reference mode.
+    ? (id === "CP-2G" || id === "CP-4D" ? "pass" : gateState(GATE[id] || id))
     : worstLiveQaState(qaScope(id).map((moduleId) => live.liveStatus[moduleId]));
   const meta = MODULES.find((m) => m.id === tab);
   const bespoke = BESPOKE[tab];
@@ -370,13 +373,16 @@ function DeepDive() {
   // analysis didn't complete. Drives a ✕ FAILED badge + an explicit failed pane
   // instead of an empty ModuleView under a ● LIVE badge.
   const moduleFailed = !isReference && moduleOwnQaState === "failed";
-  const referenceUnavailable = isReference && (tab === "CP-2G" || tab === "CP-4D");
+  // CP-2G / CP-4D have seeded reference registers but sit outside the replay-sim
+  // DAG, so the sim never "clears" them — bypass the sim gate and render the
+  // seeded register directly instead of holding it behind replay theater.
+  const referenceSimBypass = isReference && (tab === "CP-2G" || tab === "CP-4D");
   // The replay sim gates the reference showcase only. A real issuer is never
   // sim-locked (its honest empty state is the module view's own no-output
   // screen), and live output is never held behind replay theater — otherwise
   // the pane reads "awaiting upstream" under a ● LIVE badge. (critique: two
   // state machines disagreeing)
-  const unlocked = referenceUnavailable || !isReference || moduleIsLive || isCleared(gateState(gateId));
+  const unlocked = referenceSimBypass || !isReference || moduleIsLive || isCleared(gateState(gateId));
   // Use the bespoke title only when the bespoke tab is actually rendered; a live
   // generic render shows the module's own name, not the showcase label.
   const title = (bespoke && useBespoke) ? bespoke.label + " · " + bespoke.code : (meta?.name || tab) + " · " + tab;
@@ -782,10 +788,6 @@ function DeepDive() {
               ) : !isReference ? (
                 <span className="tabular text-caos-xs text-caos-muted" title="This module has no issuer-specific output available.">
                   ◦ NO OUTPUT
-                </span>
-              ) : referenceUnavailable ? (
-                <span className="tabular text-caos-xs text-caos-muted" title="No synthetic reference finding is supplied for this module.">
-                  ◦ NO REFERENCE OUTPUT
                 </span>
               ) : null}
             </span>

@@ -154,9 +154,23 @@ export const MODULE_CHARTS: Record<string, ModuleChartDef[]> = {
   ],
 };
 
-export function ModuleCharts({ id }: { id: string }) {
-  const defs = MODULE_CHARTS[id];
-  if (!defs) return null;
+// Shared grid renderer for both chart registries: the demo fixtures here and
+// the live builders in LiveModuleCharts.tsx render identically — only the
+// provenance badge differs, which is exactly the invariant (a live chart is
+// never mistakable for a fixture by anything except its declared status).
+export interface ChartGridDef {
+  kind: VisualizationKind;
+  title: string;
+  unit?: string;
+  sourceIds: string[];
+  accessibleSummary: string;
+  columns: VisualizationColumn[];
+  note?: string;
+  h?: number;
+  spec: G2Spec;
+}
+
+export function ModuleChartGrid({ defs, status }: { defs: ChartGridDef[]; status: { label: string; tone: "idle" | "success" } }) {
   return (
     <div className="module-chart-grid">
       {defs.map((c, i) => {
@@ -173,7 +187,7 @@ export function ModuleCharts({ id }: { id: string }) {
               sourceIds: c.sourceIds,
               accessibleSummary: c.accessibleSummary,
               note: c.note,
-              status: { label: "Reference fixture", tone: "idle" },
+              status,
               data,
               tabularFallback: { label: `${c.title} data`, columns: c.columns, data },
               chart,
@@ -183,4 +197,10 @@ export function ModuleCharts({ id }: { id: string }) {
       })}
     </div>
   );
+}
+
+export function ModuleCharts({ id }: { id: string }) {
+  const defs = MODULE_CHARTS[id];
+  if (!defs) return null;
+  return <ModuleChartGrid defs={defs} status={{ label: "Reference fixture", tone: "idle" }} />;
 }

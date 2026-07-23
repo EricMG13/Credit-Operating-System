@@ -591,6 +591,11 @@ class IssuerProfileResponse(BaseModel):
     # CP-1B latest earnings summary: period labels, YoY deltas, deterioration
     # watch-list. {} when fewer than two comparable periods.
     earnings: Dict[str, Any]
+    # Loan-mark / discount-margin history for this issuer's linked instrument(s),
+    # oldest -> newest across every market snapshot the caller can see. Empty when
+    # no snapshot's MarketInstrument has ever linked to this issuer (the profile
+    # keeps showing "feed pending" rather than a fabricated trend).
+    market_history: List[Dict[str, Any]]
 
 
 def _profile_signals(mods: Dict[str, ModuleOutput]) -> Dict[str, Any]:
@@ -752,6 +757,30 @@ async def get_issuer_profile(
         select(func.count()).select_from(Document).where(Document.issuer_id == issuer_id)
     )).scalar() or 0
 
+    market_rows = list((await db.execute(
+        select(MarketSnapshot, MarketInstrument)
+        .join(MarketInstrument, MarketInstrument.snapshot_id == MarketSnapshot.id)
+        .where(
+            MarketInstrument.issuer_id == issuer_id,
+            or_(MarketSnapshot.analyst_id == caller.id, MarketSnapshot.analyst_id.is_(None)),
+        )
+        .order_by(MarketSnapshot.as_of.desc())
+        .limit(120)
+    )).all())
+    market_rows.reverse()
+    market_history = [
+        {
+            "as_of": snap.as_of,
+            "dm_bps": (inst.payload or {}).get("mid3yDm"),
+            "price": (inst.payload or {}).get("price"),
+            "bid": (inst.payload or {}).get("bid"),
+            "ask": (inst.payload or {}).get("ask"),
+            "origin": snap.origin,
+            "source_label": snap.source_label,
+        }
+        for snap, inst in market_rows
+    ]
+
     signals: Dict[str, Any] = {}
     coverage: Dict[str, Any] = {"documents": doc_count}
     findings = {"CRITICAL": 0, "MATERIAL": 0, "MINOR": 0}
@@ -832,6 +861,7 @@ async def get_issuer_profile(
         strengths=strengths,
         weaknesses=weaknesses,
         earnings=earnings,
+        market_history=market_history,
     )
 
 

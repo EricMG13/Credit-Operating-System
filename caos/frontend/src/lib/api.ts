@@ -322,6 +322,15 @@ export interface EarningsSummary {
   margin_change_pp: number | null;
   monitoring_signals: string[];
 }
+export interface MarketHistoryPoint {
+  as_of: string;
+  dm_bps: number | null;
+  price: number | null;
+  bid: number | null;
+  ask: number | null;
+  origin: string | null;
+  source_label: string | null;
+}
 export interface IssuerProfile {
   issuer: Issuer;
   latest_run: ProfileRun | null;
@@ -337,6 +346,8 @@ export interface IssuerProfile {
   strengths: string[];
   weaknesses: string[];
   earnings: EarningsSummary;          // CP-1B latest earnings summary
+  // Optional at the client boundary for compatibility with older API payloads.
+  market_history?: MarketHistoryPoint[]; // loan-mark / DM history, oldest -> newest
 }
 export const getIssuerProfile = (id: string): Promise<IssuerProfile> =>
   api.get(`/api/issuers/${id}/profile`).then((r) => r.data);

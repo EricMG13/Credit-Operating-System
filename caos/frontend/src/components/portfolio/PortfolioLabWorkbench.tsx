@@ -694,8 +694,9 @@ function StressResult({ run }: { run: StressRun | null }) {
   return (
     <article className="portfolio-lab__stress-result" aria-label="Selected stress result">
       <h3>{run.label} result</h3>
-      <dl><div><dt>Base NAV</dt><dd>{run.output.base_nav == null ? "—" : money.format(run.output.base_nav)}</dd></div><div><dt>Stressed NAV</dt><dd>{run.output.stressed_nav == null ? "—" : money.format(run.output.stressed_nav)}</dd></div><div><dt>Loss</dt><dd>{numberText(run.output.loss_percent, "%")}</dd></div><div><dt>Authority</dt><dd>{run.authority.approval_state} · {run.authority.method}</dd></div></dl>
-      {run.output.missing_dependencies.length ? <><h4>Missing dependencies</h4><ul>{run.output.missing_dependencies.map((item) => <li key={item}>{item}</li>)}</ul></> : null}
+      <dl><div><dt>Base NAV</dt><dd>{run.output.base_nav == null ? "—" : money.format(run.output.base_nav)}</dd></div><div><dt>Stressed NAV</dt><dd>{run.output.stressed_nav == null ? "—" : money.format(run.output.stressed_nav)}</dd></div><div><dt>Loss</dt><dd>{numberText(run.output.loss_percent, "%")}</dd></div><div><dt>Authority</dt><dd>{run.authority ? `${run.authority.approval_state} · ${run.authority.method}` : "—"}</dd></div></dl>
+      {/* Older persisted stress runs predate missing_dependencies — tolerate its absence. */}
+      {run.output.missing_dependencies?.length ? <><h4>Missing dependencies</h4><ul>{run.output.missing_dependencies.map((item) => <li key={item}>{item}</li>)}</ul></> : null}
     </article>
   );
 }

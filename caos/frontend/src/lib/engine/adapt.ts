@@ -40,6 +40,9 @@ function claimsSection(claims: ClaimDTO[]): OutSection | null {
 function num(v: unknown): string {
   if (v == null) return "—";
   if (typeof v === "number") return v.toLocaleString("en-US");
+  // Payload booleans are flags ("rate_hedge_disclosed: false") — render desk
+  // copy, not a JS literal in a KPI card.
+  if (typeof v === "boolean") return v ? "Yes" : "No";
   // A nested object/array cell would otherwise stringify to "[object Object]".
   if (typeof v === "object") return Array.isArray(v) ? v.map(String).join(", ") : "{…}";
   return String(v);
@@ -369,6 +372,24 @@ function adaptCp5b(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { 
   };
 }
 
+// CP-1B earnings delta: headline growth KPIs from the emitted summary (the
+// generic adapter would bury them in a nested KV table and leave the header as
+// a lone QA-status card — a design mismatch vs the seeded module's KPI strip).
+function adaptCp1b(rt: Record<string, unknown>): Pick<ModuleOutput, "kpis"> & { sections: OutSection[] } {
+  const summary = (rt.summary ?? {}) as Record<string, unknown>;
+  const growth = (v: unknown, unit: string): string | null =>
+    typeof v === "number" && Number.isFinite(v) ? `${v > 0 ? "+" : ""}${num(v)}${unit}` : null;
+  const signals = Array.isArray(rt.monitoring_signals) ? rt.monitoring_signals.length : null;
+  const kpis = [
+    { l: "Revenue growth", v: growth(summary.revenue_growth_pct, "%") },
+    { l: "Adj. EBITDA growth", v: growth(summary.ebitda_growth_pct, "%") },
+    { l: "Margin change", v: growth(summary.margin_change_pp, "pp") },
+    { l: "Latest period", v: typeof summary.latest_period === "string" ? humanize(summary.latest_period) : null },
+    ...(signals !== null ? [{ l: "Monitoring signals", v: num(signals), sev: signals > 0 ? "warning" : "ok" }] : []),
+  ].filter((k): k is { l: string; v: string; sev?: string } => k.v != null);
+  return { kpis, sections: adaptGeneric(rt).sections };
+}
+
 function adaptSpecialized(
   moduleId: "CP-2G" | "CP-4D",
   rt: Record<string, unknown>,
@@ -428,6 +449,7 @@ function adaptRuntime(moduleId: string, runtime: Record<string, unknown>): Pick<
   switch (moduleId) {
     case "CP-0": return adaptCp0(runtime);
     case "CP-1": return adaptCp1(runtime);
+    case "CP-1B": return adaptCp1b(runtime);
     case "CP-2G": return adaptSpecialized("CP-2G", runtime);
     case "CP-4D": return adaptSpecialized("CP-4D", runtime);
     case "CP-4C": return adaptCp4c(runtime);
@@ -457,5 +479,6 @@ export function adaptModule(detail: ModuleDetailDTO): ModuleOutput {
       ? kpis
       : [{ l: "QA status", v: detail.qa_status, sev: qaSev(detail.qa_status) }],
     sections,
+    runtime: rt,
   };
 }

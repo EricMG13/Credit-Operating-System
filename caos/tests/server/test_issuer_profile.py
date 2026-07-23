@@ -82,6 +82,64 @@ def test_profile_after_run_populates(client):
     assert isinstance(body["strengths"], list) and isinstance(body["weaknesses"], list)
 
 
+def test_profile_market_history_is_tenant_scoped_bounded_and_chronological(client):
+    iid = client.post("/api/issuers/", json={"name": "Market History Co"}).json()["id"]
+
+    async def seed():
+        from database import AsyncSessionLocal, MarketInstrument, MarketSnapshot
+
+        start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        async with AsyncSessionLocal() as db:
+            for index in range(122):
+                snapshot_id = f"market-history-{iid}-{index}"
+                db.add(MarketSnapshot(
+                    id=snapshot_id,
+                    analyst_id=None,
+                    as_of=start + timedelta(days=index),
+                    source_label=f"Public mark {index}",
+                    origin="live",
+                    method="reported",
+                    status="ready",
+                    payload_hash=f"{iid}-{index:04d}".ljust(64, "0")[:64],
+                ))
+                db.add(MarketInstrument(
+                    snapshot_id=snapshot_id,
+                    instrument_key=f"{iid}:{index}",
+                    issuer_id=iid,
+                    borrower="Market History Co",
+                    payload={"mid3yDm": index, "price": 100 - index / 100},
+                ))
+
+            private_snapshot_id = f"market-history-{iid}-private"
+            db.add(MarketSnapshot(
+                id=private_snapshot_id,
+                analyst_id="another-analyst",
+                as_of=start + timedelta(days=999),
+                source_label="Private mark",
+                origin="live",
+                method="reported",
+                status="ready",
+                payload_hash=f"{iid}-private".ljust(64, "0")[:64],
+            ))
+            db.add(MarketInstrument(
+                snapshot_id=private_snapshot_id,
+                instrument_key=f"{iid}:private",
+                issuer_id=iid,
+                borrower="Market History Co",
+                payload={"mid3yDm": 999, "price": 1},
+            ))
+            await db.commit()
+
+    asyncio.run(seed())
+    history = client.get(f"/api/issuers/{iid}/profile").json()["market_history"]
+
+    assert len(history) == 120
+    assert history[0]["dm_bps"] == 2
+    assert history[-1]["dm_bps"] == 121
+    assert [row["as_of"] for row in history] == sorted(row["as_of"] for row in history)
+    assert all(row["source_label"] != "Private mark" for row in history)
+
+
 def test_profile_labels_retained_facts_and_excludes_blocked_signals(client):
     iid = client.post("/api/issuers/", json={"name": "Last Good Profile Co"}).json()["id"]
 

@@ -3392,3 +3392,22 @@ CP-MON is **PROVISIONAL**, PD-06 is **OPEN**, and release is **NO-GO** pending
 live PostgreSQL, H0 exact-image/config binding, external operation and flag
 observation, enterprise transport, target-host capacity/fault evidence, and the
 accepted low-volume scale closure.
+
+## 2026-07-23 — live analytical charts and market-history critic pass
+
+Decision under review: expose persisted Deep-Dive module charts and issuer
+loan-mark / discount-margin history without turning incomplete runtime data into
+apparently authoritative analysis.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-23-833 | Analytical-authority reviewer | A chart registry can silently fall back to design fixtures or partially shaped payloads, making illustrative data look like live engine output. | Critical | Resolved and verified | Live charts have a separate runtime-only registry, require the expected finite payload fields, label themselves as live engine output, and degrade to no chart for unknown, thin, or malformed payloads. Focused builder and interaction tests pin those states. |
+| RT-2026-07-23-834 | Numeric/provenance reviewer | `NaN`, infinities, missing units, or weak source labels can produce misleading marks and committee-unfit summaries. | High | Resolved and verified | Runtime chart builders accept only finite numbers, omit unknown units instead of inventing one, retain source identifiers, and generate an accessible textual summary plus equivalent columns from the same data rows. |
+| RT-2026-07-23-835 | Compatibility reviewer | Requiring `market_history` in every client fixture and cached response breaks older payloads even though the profile can safely render an empty state. | Medium | Resolved and verified | The server response remains explicit, while the TypeScript client boundary accepts an omitted legacy field and normalizes it to an empty history before rendering. Type checking and profile regressions cover the compatibility path. |
+| RT-2026-07-23-836 | Scale/tenancy reviewer | An unbounded history query can grow indefinitely; broadening it across analysts can also expose another desk's private snapshot. | High | Resolved and verified | The query retains issuer and caller/public ownership predicates, fetches only the latest 120 rows, and reverses that bounded result for oldest-to-newest chart display. Server route tests and lint cover the query path. |
+| RT-2026-07-23-837 | Regression reviewer | The combined Deep-Dive/Profile WIP touches high-risk shared UI and API flows and could merge on narrow visual evidence alone. | High | Resolved and verified | Merge is gated on GitNexus change detection, frontend lint/type/unit/build gates, focused server route tests and lint, PR CI, and post-merge main verification. |
+
+Decision: accept the contained live-chart and bounded market-history additions
+after the listed local and hosted gates pass. Missing or malformed analytical
+data must remain an explicit empty state; no demo fixture is an authorized
+fallback on a live run.
