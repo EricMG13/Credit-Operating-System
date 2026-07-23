@@ -71,7 +71,8 @@ describe("CommandPortfolioTable", () => {
       expect(screen.getByRole("columnheader", { name }).className).toContain("text-right");
     }
     expect(screen.getAllByRole("rowheader")).toHaveLength(2);
-    expect(screen.getAllByText("$100M")[0].closest("[role='gridcell']")?.className).toContain("text-right");
+    // ICU/CLDR renders compact currency as "$100M" (≤ICU 77) or "$100.0M" (ICU 78+); both satisfy maximumFractionDigits: 1.
+    expect(screen.getAllByText(/^\$100(\.0)?M$/)[0].closest("[role='gridcell']")?.className).toContain("text-right");
 
     const rows = screen.getAllByRole("row", { name: /position details/ });
     expect(rows.filter((item) => item.tabIndex === 0)).toHaveLength(1);
