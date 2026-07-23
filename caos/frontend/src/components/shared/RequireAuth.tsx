@@ -18,7 +18,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-caos-bg px-4">
-        <SurfaceState kind="loading" title="Checking analyst access" detail="Verifying your CAOS session." compact className="max-w-sm w-full" />
+        <SurfaceState kind="loading" title="Checking analyst access" detail="Verifying your CAOS session." headingLevel={2} compact className="max-w-sm w-full" />
       </div>
     );
   }
@@ -33,6 +33,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
         <SurfaceState
           kind="error"
           title="Analyst access could not be verified"
+          headingLevel={2}
           detail="The CAOS service did not respond. Check your connection, then retry. If it persists, contact your CAOS administrator."
           primaryAction={
             <button

@@ -25,6 +25,8 @@ const EMPTY_PROFILE_FINDINGS: IssuerProfile["findings"] = {};
 const EMPTY_PROFILE_BUSINESS: IssuerProfile["business"] = [];
 const EMPTY_PROFILE_SPONSOR: IssuerProfile["sponsor"] = {};
 const EMPTY_PROFILE_POINTS: string[] = [];
+type MarketHistory = NonNullable<IssuerProfile["market_history"]>;
+const EMPTY_MARKET_HISTORY: MarketHistory = [];
 import { RequireAuth } from "@/components/shared/RequireAuth";
 import { Panel } from "@/components/shared/Panel";
 import { CrossDefaultDominoes } from "@/components/shared/CrossDefaultDominoes";
@@ -172,6 +174,50 @@ function TrendCard({ title, pts, color, unit }: { title: string; pts: { period: 
       <TrendPlot pts={pts} color={color} unit={unit} />
       <TrendDelta delta={delta} periods={pts.length} />
     </div>
+  );
+}
+
+// Per-issuer loan-mark / discount-margin history from linked MarketInstrument
+// rows across every snapshot the caller can see. Below two finite DM points it
+// keeps the same honest "feed pending" empty state the panel always had — a
+// single quote or a run with no linked instrument never fakes a trend.
+function MarketPriceDmPanel({ history }: { history: MarketHistory }) {
+  const pts = history
+    .filter((h) => typeof h.dm_bps === "number" && Number.isFinite(h.dm_bps))
+    .map((h) => ({ period: h.as_of.slice(0, 10), value: h.dm_bps as number }));
+  const latestLabel = history.length ? history[history.length - 1].source_label : null;
+  if (pts.length < 2) {
+    return (
+      <Panel
+        title="Market · price & DM"
+        right={<span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}>Feed pending</span>}
+      >
+        <div className="px-3 py-4 flex flex-col items-center justify-center gap-2 text-center min-h-[120px]">
+          <span style={{ color: "var(--caos-muted)" }}><StatusGlyph kind="idle" size={16} /></span>
+          <p className="tabular text-caos-sm text-caos-muted m-0 max-w-[360px] leading-relaxed">
+            No loan mark or discount-margin series for this issuer yet — structured market data is a future phase.
+          </p>
+        </div>
+      </Panel>
+    );
+  }
+  const latest = pts[pts.length - 1].value;
+  const delta = pts[pts.length - 1].value - pts[0].value;
+  return (
+    <Panel
+      title="Market · price & DM"
+      right={<span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border border-caos-border text-caos-muted">3Y DM</span>}
+    >
+      <div className="px-3 py-2.5 flex flex-col gap-1.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">3Y DM (bp)</span>
+          <span className="tabular text-caos-metric font-semibold">{Math.round(latest)}</span>
+        </div>
+        <Sparkline pts={pts} color="#f5a524" fmt={(v) => `${Math.round(v)}bp`} />
+        <TrendDelta delta={delta} periods={pts.length} />
+        {latestLabel ? <div className="tabular text-caos-2xs text-caos-muted pt-1 border-t border-caos-border/40">{latestLabel}</div> : null}
+      </div>
+    </Panel>
   );
 }
 
@@ -528,6 +574,9 @@ export function Profile({
   const earnings = suppressUnpersistedValues
     ? EMPTY_EARNINGS
     : data.earnings ?? EMPTY_EARNINGS;  // trust boundary — old/odd payloads may omit it
+  const marketHistory = suppressUnpersistedValues
+    ? EMPTY_MARKET_HISTORY
+    : data.market_history ?? EMPTY_MARKET_HISTORY;
   const baseDeepHref = analysis.context
     ? contextHref("/deepdive", analysis.context.id, { issuer: id })
     : "/deepdive?issuer=" + encodeURIComponent(id);
@@ -914,17 +963,7 @@ export function Profile({
         <section hidden={activeTab !== "market"} className="grid gap-3">
         {/* Row 4 — lower-signal market feed placeholder | vault notes. */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-3 items-start">
-          <Panel
-            title="Market · price & DM"
-            right={<span className="tabular text-caos-2xs uppercase tracking-wider px-1.5 py-px rounded border" style={{ color: "var(--caos-warning)", borderColor: "color-mix(in srgb, var(--caos-warning) 40%, transparent)" }}>Feed pending</span>}
-          >
-            <div className="px-3 py-4 flex flex-col items-center justify-center gap-2 text-center min-h-[120px]">
-              <span style={{ color: "var(--caos-muted)" }}><StatusGlyph kind="idle" size={16} /></span>
-              <p className="tabular text-caos-sm text-caos-muted m-0 max-w-[360px] leading-relaxed">
-                No loan mark or discount-margin series for this issuer yet — structured market data is a future phase.
-              </p>
-            </div>
-          </Panel>
+          <MarketPriceDmPanel history={marketHistory} />
 
           <AnalystNotesPanel issuerId={id} issuerName={issuer.name} ticker={issuer.ticker} />
         </div>

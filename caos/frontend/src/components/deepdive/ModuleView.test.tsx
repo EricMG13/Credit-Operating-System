@@ -24,7 +24,7 @@ describe("ModuleView", () => {
     expect(screen.queryByText(/revenue/i)).toBeNull();
   });
 
-  it("labels CP-2G reference output as unavailable instead of fabricating or calling it infrastructure", () => {
+  it("renders CP-2G's seeded reference register with a passed tag, never the unavailable state", () => {
     render(
       <ModuleView
         id="CP-2G"
@@ -33,9 +33,10 @@ describe("ModuleView", () => {
         allowSeededFallback
       />,
     );
-    expect(screen.getByText(/no synthetic reference finding/i)).toBeTruthy();
-    expect(screen.queryByText(/is an infrastructure module/i)).toBeNull();
-    expect(screen.getByRole("link", { name: /open pipeline/i })).toBeTruthy();
+    expect(screen.getAllByText(/ESG credit implication register/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/no synthetic reference finding/i)).toBeNull();
+    // Outside the replay-sim DAG the identity tag mirrors the launcher: pass, not idle.
+    expect(screen.getByText("pass")).toBeTruthy();
   });
 
   it("summary layout keeps analysis output and summarizes workflow cards", () => {

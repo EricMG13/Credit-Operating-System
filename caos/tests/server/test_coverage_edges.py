@@ -1799,7 +1799,7 @@ def test_operator_cli_entry_points(
     assert erase_analyst.main([]) == 2
     assert "usage:" in capsys.readouterr().err
 
-    async def erased(_email):
+    async def erased(_email, _aliases=()):
         return {"profiles": 1}
 
     monkeypatch.setattr(erase_analyst, "erase_by_email", erased)

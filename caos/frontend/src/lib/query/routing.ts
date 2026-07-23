@@ -22,6 +22,10 @@ export const QUERY_KEYWORDS: [string, string][] = [
   ["coverage", "coverage-completeness"], ["finding", "open-findings"], ["lane", "gate-lane"],
   ["committee", "committee-board"], ["debate", "debate-digest"], ["tension", "tension"],
   ["disagree", "tension"], ["sponsor", "sponsor-graph"],
+  ["covenant", "covenant-register"], ["covenants", "covenant-register"],
+  ["compare", "head-to-head"], ["versus", "head-to-head"], ["head to head", "head-to-head"],
+  ["rating", "rating-distribution"], ["ratings", "rating-distribution"],
+  ["exposure", "portfolio-exposure"], ["portfolio", "portfolio-exposure"],
 ];
 
 export function rankQueryCapabilities(text: string, capabilities: Capability[]) {

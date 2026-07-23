@@ -301,8 +301,12 @@ describe("Deep-Dive reference interaction coverage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Portfolio Debate" }));
     expect(await screen.findByText("debate dynamic")).toBeTruthy();
 
+    // CP-2G now ships a seeded reference register (module-outputs.ts) — the pane
+    // renders the generic ModuleView (mocked here as "module dynamic") instead of
+    // the old "◦ NO REFERENCE OUTPUT" badge.
     fireEvent.click(screen.getByRole("button", { name: "finder CP-2G" }));
-    expect(await screen.findByText("◦ NO REFERENCE OUTPUT")).toBeTruthy();
+    expect(await screen.findByText("module dynamic")).toBeTruthy();
+    expect(screen.queryByText("◦ NO REFERENCE OUTPUT")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "finder invalid" }));
     fireEvent(window, new CustomEvent("caos:subview-cycle", { detail: { direction: 0 } }));
     expect(await screen.findByText(/Source Readiness.*CP-0/)).toBeTruthy();

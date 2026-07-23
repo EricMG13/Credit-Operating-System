@@ -22,6 +22,7 @@ import { SemanticVisualization } from "@/components/charts/SemanticVisualization
 import { CHART_HEX, TRANCHE_HEX } from "@/lib/chart-colors";
 import { OutSections } from "./OutSections";
 import { LiveOutputRegister, OutputRegister, StepOutputGrid } from "./OutputRegister";
+import { LiveModuleCharts } from "./LiveModuleCharts";
 import { ModuleCharts } from "./ModuleCharts";
 import { type DeepDiveLayout } from "@/lib/deepdive/layout-pref";
 
@@ -497,7 +498,7 @@ function ModuleAnalysis({ id, live, onOpenEvidence, output }: { id: string; live
       <ModuleKpis live={live} output={output} />
       {live ? null : <ModuleLead lead={lead} onOpenEvidence={onOpenEvidence} />}
       {live ? null : <OutSections sections={rest} onOpenEvidence={onOpenEvidence} />}
-      {live ? null : <ModuleCharts id={id} />}
+      {live ? <LiveModuleCharts id={id} runtime={output.runtime} /> : <ModuleCharts id={id} />}
     </>
   );
 }
@@ -539,7 +540,10 @@ export function ModuleView({ id, sim, onOpenEvidence, liveOut, allowSeededFallba
   const output = liveOut ?? (allowSeededFallback ? MODULE_OUTPUTS[id] : undefined);
   if (!output || !meta) return <MissingModuleView allowSeededFallback={allowSeededFallback} id={id} meta={meta} />;
   const live = Boolean(liveOut);
-  const state = sim.mods[id]?.state || "idle";
+  // CP-2G / CP-4D ship seeded registers but sit outside the replay-sim DAG, so
+  // sim.mods never carries them — mirror the launcher and show them as passed
+  // rather than a contradictory IDLE tag above a fully rendered register.
+  const state = sim.mods[id]?.state || (id === "CP-2G" || id === "CP-4D" ? "pass" : "idle");
 
   return (
     <div className="p-3 flex flex-col gap-3">
