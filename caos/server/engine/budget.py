@@ -16,7 +16,8 @@ each LLM call site consults it:
 
 It is carried in a ``ContextVar`` so it threads through the whole run (including a
 background task) without changing every function signature. ``limit <= 0`` means
-unlimited (the default), so this is inert unless an operator sets a budget.
+unlimited — but note the config default is a real cap (``run_token_budget``,
+120k), so the budget is ACTIVE on a stock deployment; set it to 0 to disable.
 """
 
 from __future__ import annotations

@@ -3,8 +3,9 @@ import { loadMode } from "@/lib/model-mode";
 import type { Issuer } from "@/types/issuers";
 
 // Same-origin API: the FastAPI server serves both /api and the static
-// frontend in deployment (Databricks Apps). In `next dev`, the rewrite in
-// next.config.js proxies /api to the local server on :8000.
+// frontend in deployment (self-hosted Docker stack: Caddy → oauth2-proxy →
+// FastAPI). In `next dev`, the rewrite in next.config.js proxies /api to the
+// local server on :8000.
 export const api = axios.create({
   headers: { "Content-Type": "application/json" },
   // Default timeout so a hung/dead API (or a proxy to a dead :8000) can't strand
@@ -121,8 +122,9 @@ export function toErrorMessage(err: unknown, fallback: string): string {
 }
 
 // ─── Identity ─────────────────────────────────────────────────────────────
-// Authentication is platform-managed (Databricks workspace OAuth at the
-// edge). /api/auth/me reflects the forwarded identity.
+// Authentication is edge-managed (oauth2-proxy Google Workspace OIDC behind
+// Caddy), layered with the in-app analyst profile. /api/auth/me reflects the
+// resolved identity.
 // Bounded: a down/hung API (or proxy to a dead :8000) must not strand the whole
 // app on the RequireAuth "Loading…" gate — on timeout the request rejects and
 // the error card (with RETRY) shows instead. Long-running calls set their own.
@@ -253,8 +255,10 @@ export const register = (data: {
   name: string;
   email: string;
   passcode: string;
-  coverage_area: string;
-  location: string;
+  // Optional profile metadata (server treats both as nullable) — the signup
+  // form deliberately no longer collects them; a future profile editor will.
+  coverage_area?: string;
+  location?: string;
   recovery_words: string[];
   recovery_hints: string[];
 }) =>
@@ -830,7 +834,7 @@ export interface EdgarVaultResult {
   warning?: string | null;
 }
 
-export const edgarVaultUrl = (
+const edgarVaultUrl = (
   issuerId: string,
   exhibitUrl: string,
   runMode = "legal",
@@ -927,7 +931,7 @@ const _detail = (detail: string) => ({ response: { data: { detail } } });
 // Sentinel thrown when a poll loop is aborted (unmount / analyst detach). The
 // durable server-side job is untouched — the caller just stops watching it — so
 // the page must NOT surface this as a run failure.
-export const RESEARCH_ABORTED = Symbol("research-aborted");
+const RESEARCH_ABORTED = Symbol("research-aborted");
 const _aborted = () => ({ [RESEARCH_ABORTED]: true });
 export const isResearchAborted = (e: unknown): boolean =>
   typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[RESEARCH_ABORTED] === true;
@@ -936,7 +940,7 @@ export const isResearchAborted = (e: unknown): boolean =>
 // job, or a foreign id under a shared machine). Distinct from a transient blip:
 // retrying a 404 is pointless, so resume drops the stale id quietly rather than
 // spinning ~20s into a "Lost contact" error.
-export const RESEARCH_GONE = Symbol("research-gone");
+const RESEARCH_GONE = Symbol("research-gone");
 const _gone = () => ({ [RESEARCH_GONE]: true });
 export const isResearchGone = (e: unknown): boolean =>
   typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[RESEARCH_GONE] === true;
@@ -1512,9 +1516,6 @@ function nextCursor(headers: Record<string, unknown>): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-export const refreshAlertEvents = (): Promise<AlertEventDTO[]> =>
-  api.post("/api/alerts/refresh").then((r) => r.data);
-
 export const getAlertEventPage = ({
   state,
   issuerId,
@@ -1538,11 +1539,6 @@ export const getAlertEventPage = ({
     canMutate: (response.headers as Record<string, unknown>)["x-alert-event-can-mutate"] === "true",
   }));
 
-// Compatibility export for consumers that intentionally own only one bounded
-// page. Monitor uses getAlertEventPage and drains the signed cursor itself so
-// its counts and filters cannot silently truncate persisted authority.
-export const getAlertEvents = (state?: AlertEventDTO["state"]): Promise<AlertEventDTO[]> =>
-  getAlertEventPage({ state }).then((page) => page.items);
 export const patchAlertEvent = (
   id: string,
   state: AlertEventDTO["state"],

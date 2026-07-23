@@ -250,7 +250,7 @@ The mission requires measured evidence as your baseline. Mechanics:
    .venv311/bin/python -m pytest caos/tests/server -q          # 139 files
    .venv311/bin/python -m pytest caos/tests/server/golden -q   # byte-for-byte CP goldens
    ```
-   (Use the designated venv per `CLAUDE.md`; do not downgrade the FastAPI `0.138` pin.)
+   (Use the designated venv per `CLAUDE.md`; do not downgrade the FastAPI pin in `requirements.txt` — currently `0.139.*`.)
 4. **If GitNexus is connected**, prefer it for blast radius:
    `impact({target, direction:"upstream"})`, `context({name})`, `detect_changes({scope:"compare", base_ref:"main"})`.
    The §2 baseline was produced without it (not connected in-session) — reconcile

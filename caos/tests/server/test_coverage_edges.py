@@ -1529,6 +1529,96 @@ def test_cp1_edgar_vault_refreshes_or_recreates_existing_chunk() -> None:  # noq
     assert len(recreated_db.added) == 1
 
 
+def test_cp1_source_precedence_edgar_beats_available_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EDGAR > reported is an ordering guarantee, not an accident of inputs: with
+    BOTH sources able to produce a payload, EDGAR must win and the reported
+    extractor must never run (previously only implied by the early return)."""
+    edgar_payload = _payload("CP-1", {})
+    build = SimpleNamespace(payload=edgar_payload, facts_text="facts", cik="123")
+
+    async def to_thread(*_args):
+        return build
+
+    async def vault(*_args):
+        return "chunk"
+
+    reported_calls: list[str] = []
+
+    async def reported(issuer_name, _retrieve):
+        reported_calls.append(issuer_name)
+        return _payload("CP-1", {})
+
+    class Synth:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def synthesize(self, module_id, **_kwargs):
+            self.calls.append(module_id)
+            return _payload("CP-1", {})
+
+    synth = Synth()
+    monkeypatch.setattr(
+        cp1_sources, "get_settings",
+        lambda: SimpleNamespace(edgar_user_agent="configured"),
+    )
+    monkeypatch.setattr(cp1_sources.asyncio, "to_thread", to_thread)
+    monkeypatch.setattr(cp1_sources, "vault_edgar_facts", vault)
+    monkeypatch.setattr(cp1_sources.reported_cp1, "build_reported_cp1_payload", reported)
+    issuer = SimpleNamespace(id="issuer", ticker="TICK")
+    result = asyncio.run(cp1_sources.synthesize_cp1_reported(
+        None, issuer, "Issuer", synth, {}, None,
+    ))
+    assert result is edgar_payload
+    assert reported_calls == []
+    assert synth.calls == []
+
+
+def test_cp1_source_edgar_none_falls_through_to_reported_then_synth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A configured-EDGAR issuer whose XBRL fetch yields no build degrades to the
+    reported extractor; the reference/demo issuer skips reported (its stub docs
+    would preempt the curated fixture) and lands on the synthesizer."""
+    async def to_thread(*_args):
+        return None  # EDGAR configured + ticker, but no usable XBRL build
+
+    reported_payload = _payload("CP-1", {})
+
+    async def reported(_issuer_name, _retrieve):
+        return reported_payload
+
+    class Synth:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def synthesize(self, module_id, **_kwargs):
+            self.calls.append(module_id)
+            return _payload("CP-1", {})
+
+    monkeypatch.setattr(
+        cp1_sources, "get_settings",
+        lambda: SimpleNamespace(edgar_user_agent="configured"),
+    )
+    monkeypatch.setattr(cp1_sources.asyncio, "to_thread", to_thread)
+    monkeypatch.setattr(cp1_sources.reported_cp1, "build_reported_cp1_payload", reported)
+    synth = Synth()
+    issuer = SimpleNamespace(id="issuer", ticker="TICK")
+    result = asyncio.run(cp1_sources.synthesize_cp1_reported(
+        None, issuer, "Issuer", synth, {}, None,
+    ))
+    assert result is reported_payload
+    assert synth.calls == []
+
+    reference = SimpleNamespace(id=cp1_sources.REFERENCE_ISSUER_ID, ticker="TICK")
+    fixture_result = asyncio.run(cp1_sources.synthesize_cp1_reported(
+        None, reference, "Atlas Forge", synth, {}, None,
+    ))
+    assert synth.calls == ["CP-1"]
+    assert fixture_result is not reported_payload
+
+
 def test_specialized_runtime_evidence_tree_and_unsupported_gate() -> None:
     with pytest.raises(ValueError, match="unsupported specialized module"):
         specialized_modules.source_gate("CP-1", [])

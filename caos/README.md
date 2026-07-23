@@ -1,8 +1,11 @@
 # CAOS — Credit Agent OS
 
-Credit analysis workspace: a six-concept analyst UI (Command Center,
-Pipeline, Deep-Dive, Model Builder, Report Studio, Monitor) plus a global
-**Ask (⌘K)** launcher, backed by a FastAPI service. The application container
+Credit analysis workspace: a 15-destination analyst UI in five workflow
+groups (Intake / Analyze / Decide / Publish / Monitor — anchored by Command
+Center, Pipeline, Deep-Dive, Model Builder, Report Studio, and Monitor, with
+Directory/Upload, Research, Query, Sector Review, RV Screener, Sponsors,
+Portfolio Lab, and IC Book alongside) plus a global **Ask (⌘K)** launcher,
+backed by a FastAPI service. The application container
 runs one FastAPI service that serves the JSON API under `/api` and the
 statically-exported Next.js frontend at `/`; the supported deployment is the
 self-hosted multi-service **Docker stack** (`caos/deploy/`).
@@ -24,10 +27,12 @@ is the source of truth for what runs: **19 core implemented analytical modules**
 (CP-0, CP-1/1A/1B/1C, CP-2/2B/2C/2D/2E/2F, CP-3/3B/3C/3D, CP-4/4C, CP-6A/6E),
 plus independently default-off **CP-2G** and **CP-4D** modules,
 gated by the **CP-5 QA phase** (CP-5B lineage + the deterministic CP-5 severity
-gate). Four further corpus modules are registered **spec-only**
-(`implemented=False`, never executed) so the CP-X route plan reflects the full
-methodology mesh honestly: **CP-SR**/**CP-MON** (L7 sector / monitoring) and
-**CP-RENDER**/**CP-EXTRACT** (Infra). The `Modular OS/` corpus documents the
+gate). Two further corpus modules are registered **spec-only**
+(`implemented=False`, never executed) so the CP-X route plan reflects the
+methodology mesh honestly: **CP-SR**/**CP-MON** (L7 sector / monitoring).
+**CP-RENDER** and **CP-EXTRACT** are deliberately *not* registered (PD-06,
+2026-07-22 — Report Studio is CP-RENDER's equivalent service; CP-EXTRACT is
+retired; see the registry docstring). The `Modular OS/` corpus documents the
 broader methodology; only the registry list above is wired in the engine.
 
 ## Architecture
@@ -37,7 +42,7 @@ broader methodology; only the registry list above is wired in the engine.
 | Auth           | The app trusts forwarded identity headers (`X-Forwarded-User` / `-Email` / `-Preferred-Username`) set by an authenticating edge (**oauth2-proxy** in the Docker stack), layered with an in-app analyst profile login. The gate fails closed in production. |
 | Database       | SQLite by default (ephemeral); set `DATABASE_URL` to any Postgres (`postgresql+asyncpg://…`) for durability — the Docker stack bundles one. Schema is managed by **Alembic** (migrations run on boot). |
 | Document vault | Local dir by default; set `CAOS_STORAGE_DIR` to a durable mount — the Docker stack uses a volume at `/vault`. |
-| LLM chat       | Anthropic Claude (`claude-opus-4-8`) via `ANTHROPIC_API_KEY` (env / secret). Without a key the chat endpoint returns canned demo replies. |
+| LLM chat       | Tiered multi-provider (`engine/presets.py`): DeepSeek via OpenRouter on the light tiers, Anthropic Claude (`claude-opus-4-8` top tier, Haiku/Sonnet fallbacks), Gemini embeddings. Keys via env / secret; without keys the chat endpoint returns canned demo replies. |
 | Frontend       | Next.js static export served by FastAPI's StaticFiles — no Node process in deployment. |
 
 ## Deploy (self-hosted Docker)

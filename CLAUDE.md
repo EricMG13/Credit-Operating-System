@@ -7,9 +7,11 @@ repository. This is the single canonical source: `AGENTS.md` is a symlink to
 ## Project
 
 **CAOS — Credit Agent OS**: an institutional leveraged-finance credit analysis
-platform. A six-concept Next.js 16 analyst UI (Command Center, Pipeline,
-Deep-Dive, Model Builder, Report Studio, Monitor — plus the global Ask ⌘K
-launcher) backed by a FastAPI service, deployed
+platform. A Next.js 16 analyst UI with 15 destinations in five workflow groups
+(Intake / Analyze / Decide / Publish / Monitor — anchored by Command Center,
+Pipeline, Deep-Dive, Model Builder, Report Studio, Monitor, plus the global
+Ask ⌘K launcher; `frontend/src/lib/nav.ts` is the source of truth) backed by a
+FastAPI service, deployed
 as a self-hosted Docker stack (Caddy → oauth2-proxy → FastAPI → Postgres). The analytical methodology is the 27-module
 "Modular OS" prompt corpus under `Modular OS/`. The app lives under `caos/`
 (`frontend/` Next.js, `server/` FastAPI). See [caos/README.md](caos/README.md)
@@ -115,7 +117,7 @@ visible focus ring.
 - **Git Branch Comparisons**: For `detect_changes()` and general diffs, compare against `origin/main` as the default branch/base reference, as local `main` might be stale or shallow.
 - **Turbopack Dev Cache**: Ensure `turbopackFileSystemCacheForDev: false` remains in `next.config.js` to prevent persistent development server cache crashes and high disk write overhead.
 - **Accessibility Verification**: Use the local axe-core runner `node caos/frontend/scripts/a11y-axe.mjs` for actual accessibility validation rather than relying on static regex-based audits which are prone to false positives.
-- **FastAPI Server Environment**: Execute the server suite and check scripts using the designated virtual environment path: `/Users/ericguei/Claude/Projects/Credit Operating System/caos/server/.venv/bin/python` or `.venv311`. Do not downgrade the FastAPI `0.138` package pin.
+- **FastAPI Server Environment**: Execute the server suite and check scripts with the project virtual environment when one exists (`caos/server/.venv` or `caos/server/.venv311`); otherwise install `caos/server/requirements.txt` + `requirements-dev.txt` into a fresh venv. Do not downgrade the FastAPI pin in `requirements.txt` (currently `0.139.*` — it clears the starlette CVE set).
 
 ## Skill improvement observations
 
@@ -133,6 +135,8 @@ permanently integrated during a later review pass.
 # GitNexus — Code Intelligence
 
 This project is indexed by GitNexus as **Credit-Operating-System** (26665 symbols, 48283 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> **Availability check first:** the `.gitnexus/` index is local-only (not committed), and the GitNexus MCP server is not attached in every session — cloud/CI checkouts have neither. The MUST rules below apply **only when the GitNexus MCP tools are actually available in the session**; when they are not, fall back to careful manual review (read the symbol's callers before editing, diff against `origin/main` before committing) and note in your summary that impact analysis was unavailable.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

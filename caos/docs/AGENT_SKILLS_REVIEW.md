@@ -116,7 +116,7 @@ The value is the **catalogs**, re-filtered to free/OSS only:
 - **Observability without a paid SaaS** — skip **Sentry / Datadog**; instrument
   with **OpenTelemetry** (free SDK) and self-host a backend (**SigNoz**,
   **GlitchTip**, or **Grafana Tempo + Loki**) if/when you want traces on the
-  Databricks App + engine runs.
+  deployed app + engine runs.
 - **Doc extraction** — **Azure Doc Intelligence is paid**; already covered free by
   the landed **markitdown** out-of-process spike (TOOLING_REVIEW §1).
 - **Design catalogs** — excluded; redundant with `.impeccable.md`.

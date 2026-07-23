@@ -110,7 +110,7 @@ Each item is an invariant, not a step. PASS = cite the guard in current code; FA
 - EDGAR `file_name` and URL tail are display metadata only; all bytes enter the same `ingest.store` UUID/basename path. No request value is passed to `open`, `Path.write_*`, `FileResponse`, `tar`, or a shell as a path. Rollback deletion accepts only `<32-hex>/<basename>` and proves the resolved path remains under the vault root.
 
 **3.8 Security headers**
-- Every response, including edge-guard 401s, carries CSP (`default-src 'self'`, `object-src 'none'`, `frame-ancestors 'self'`; `unsafe-inline` is the accepted static-export exception), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, HSTS, `X-Frame-Options: SAMEORIGIN`, and the deny-by-default `Permissions-Policy`. No CORSMiddleware exists (same-origin single process) — its introduction is a finding.
+- Every response, including edge-guard 401s, carries CSP (`default-src 'self'`, `object-src 'none'`, `frame-ancestors 'self'`; `script-src` is hash-locked to the static export's inline bootstrap blocks — `unsafe-inline` survives only on `style-src`, the accepted static-export exception), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, HSTS, `X-Frame-Options: SAMEORIGIN`, and the deny-by-default `Permissions-Policy`. No CORSMiddleware exists (same-origin single process) — its introduction is a finding.
 
 **3.9 AV scan — fail-closed both directions**
 - With `CLAMAV_HOST` set: signature hit → 422; unreachable/timeout/dropped/oversized-or-garbled reply → **503 fail-closed** (never a silent pass). Unset → documented no-op (accepted, opt-in `av` profile).
@@ -202,7 +202,7 @@ docker compose -f caos/deploy/docker-compose.yml config --images | sort -u | \
 ```
 
 Offline test legs for the §3 invariants (interpreter: `caos/server/.venv311/bin/python`,
-prod-parity — never downgrade the fastapi 0.138 pin; run from the repo root; conftest
+prod-parity — never downgrade the fastapi pin (requirements.txt, currently 0.139.*); run from the repo root; conftest
 provisions a throwaway SQLite DB and blanks LLM keys):
 
 ```bash
@@ -269,7 +269,7 @@ adjudicated-accepted register. Re-flag one only if its stated trigger occurs.
 | Edge-secret / forwarded-header trust (S-3) | Edge is the sole network path; Caddy strips identity headers, oauth2-proxy re-sets them, edge proof is enforced | App port published, bypass route added, or secret/header forwarding removed |
 | Compromised edge proxy | Explicit threat-model non-goal (SECURITY.md §8) | Threat model expands |
 | In-process limiter/advisory-lock scale | Shipped default is one worker/one app container | `WEB_CONCURRENCY > 1` or app replicas > 1 |
-| CSP `unsafe-inline` script/style | Static export cannot carry per-request nonces | SSR/nonce-capable serving |
+| CSP `unsafe-inline` style-src (script-src is hash-locked) | Static export cannot carry per-request nonces; inline style attributes remain on chart/layout surfaces | SSR/nonce-capable serving, or styles migrated off inline attributes |
 | Register 409 confirms email existence | Throttled, invite-code-gated; accepted UX tradeoff | External/self-serve signup |
 | On-host backup (`backup.sh`) | Pilot posture; off-host is a deploy-phase item | Production data beyond the pilot |
 | EDGAR in-process throttle | Same single-process scale assumption | `WEB_CONCURRENCY > 1` or app replicas > 1 |

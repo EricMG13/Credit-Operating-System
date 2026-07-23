@@ -3411,3 +3411,20 @@ Decision: accept the contained live-chart and bounded market-history additions
 after the listed local and hosted gates pass. Missing or malformed analytical
 data must remain an explicit empty state; no demo fixture is an authorized
 fallback on a live run.
+
+## 2026-07-23 — First-run UX intervention batch (post-freeze)
+
+**Decision:** apply the 2026-07-23 UX/IA audit interventions — Pipeline moves
+to the Intake & Runs nav group; signup staged into identity → security with
+coverage/location dropped; intake result step pushes "Watch run in Pipeline";
+PM/QA cold-start states teach the prerequisite path; IC-decision drawer nudges
+watch-rule creation; onboarding doc reframed to five stages / six flagship
+concepts and its golden path corrected to Directory → Upload → Pipeline.
+
+| ID | Date | Decision / Plan | Objection | Impact | Status | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| RT-2026-07-23-01 | 2026-07-23 | Pipeline → Intake & Runs group | Moving Pipeline breaks steady-state muscle memory and any test or spec pinning it to the Monitor group. | Medium | Resolved | Every nav consumer derives from `NAV_GROUPS` (ConceptNav, ConceptHotkeys, WorkflowRail, palette); grep found no unit or e2e assertion pinning `/pipeline` to `monitor`; `nav.test.ts` now pins `/pipeline` → `intake` deliberately. |
+| RT-2026-07-23-02 | 2026-07-23 | Staged signup | A client-side step split could desync from the server contract or strand a user mid-registration. | High | Resolved | The split is presentation-only: one `POST /api/auth/register` fires on the final step; identity values persist across Back; `LoginLanding.test.tsx` walks both steps including the Back path and asserts the single register payload. |
+| RT-2026-07-23-03 | 2026-07-23 | Drop coverage/location from signup | Silently loses profile-metadata capture with no replacement surface. | Medium | Accepted | Both fields are write-only today (no UI or server read path); `RegisterRequest` keeps them Optional (auth.py:109-110) and the columns remain (migration 0017), so capture returns intact with a future profile editor. |
+| RT-2026-07-23-04 | 2026-07-23 | Decision→watch-rule nudge | Adds a network call to the decision path and could over- or under-claim rule coverage. | Medium | Resolved | The check fires only after the decision persists and is failure-silent (never blocks recording); coverage counts issuer-scoped + team-scoped rules; portfolio-scoped rules are conservatively not counted, and the copy claims only "no issuer or team watch rule". |
+| RT-2026-07-23-05 | 2026-07-23 | Landing UI changes while H0 candidate `3b66da67` is frozen | Merging would invalidate the frozen release candidate. | High | Resolved | Ships as a post-freeze draft PR on `claude/start-5t1kuy` (same pattern as #169/#191); nothing merges to `main` before the release decision. |

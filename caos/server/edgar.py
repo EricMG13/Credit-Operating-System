@@ -12,9 +12,10 @@ Provenance discipline (mirrors the CP-5/CP-5B gate):
     document (E-xx eligible) by fetching the exhibit and running it through the
     same ingest path as an uploaded file.
 
-Dependency-light by design: stdlib ``urllib`` only, so it stays importable on the
-server's Python 3.9 runtime (the MCP wrapper, which needs 3.10+, is a separate
-process under ``caos/mcp/edgar/`` that calls the API).
+Dependency-light by design: stdlib ``urllib`` only — no HTTP-client dependency
+to version-manage on this security-sensitive fetch path (the deploy image runs
+Python 3.14; the MCP wrapper under ``caos/mcp/edgar/`` is a separate process
+that calls the API).
 """
 
 from __future__ import annotations

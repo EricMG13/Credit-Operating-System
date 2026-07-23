@@ -10,7 +10,6 @@ const getWatchRulePage = vi.fn();
 const patchAlertEvent = vi.fn();
 const getSettings = vi.fn().mockResolvedValue({ features: { alert_rules_v1_enabled: true } });
 const forbiddenDraft = vi.fn();
-const forbiddenRefresh = vi.fn();
 const forbiddenLegacyStates = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -20,7 +19,6 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   getWatchRulePage: (...args: unknown[]) => getWatchRulePage(...args),
   patchAlertEvent: (...args: unknown[]) => patchAlertEvent(...args),
   getAutonomyDraft: (...args: unknown[]) => forbiddenDraft(...args),
-  refreshAlertEvents: (...args: unknown[]) => forbiddenRefresh(...args),
   getAlertStates: (...args: unknown[]) => forbiddenLegacyStates(...args),
 }));
 
@@ -103,7 +101,6 @@ beforeEach(() => {
   getWatchRulePage.mockReset();
   patchAlertEvent.mockReset();
   forbiddenDraft.mockReset();
-  forbiddenRefresh.mockReset();
   forbiddenLegacyStates.mockReset();
   getAlertEventPage.mockResolvedValue({ items: [], nextCursor: null });
   getWatchRulePage.mockResolvedValue({ items: [], nextCursor: null });
@@ -138,7 +135,6 @@ describe("persisted Monitor controller", () => {
     expect(screen.getAllByText("QA gate moved to blocked")).toHaveLength(2);
     expect(screen.getByText("2 persisted alerts")).toBeTruthy();
     expect(forbiddenDraft).not.toHaveBeenCalled();
-    expect(forbiddenRefresh).not.toHaveBeenCalled();
     expect(forbiddenLegacyStates).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Show acknowledged alerts" }));

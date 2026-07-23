@@ -1,8 +1,10 @@
-"""Issuer Q&A chat backed by Claude.
+"""Issuer Q&A chat.
 
-Uses the official Anthropic SDK with claude-opus-4-8. The API key comes from
-ANTHROPIC_API_KEY (injected from the environment in deployment). When no key is
-configured the endpoint degrades to a deterministic demo reply so the app
+Tier-routed through ``engine/presets.py`` (the LIGHT lane — DeepSeek via
+OpenRouter on the default tiers, with Anthropic Haiku/Sonnet as the Anthropic
+fallback mapping), dispatched via the single ``engine/llm_client.create`` seam.
+Provider keys come from the environment (injected in deployment). When no key
+is configured the endpoint degrades to a deterministic demo reply so the app
 remains fully demoable.
 """
 

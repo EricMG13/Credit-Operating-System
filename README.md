@@ -21,9 +21,9 @@ Report Studio), with secondary lenses for the **PM/CIO** (portfolio posture) and
 | Path | What it is |
 |------|------------|
 | [`Modular OS/`](Modular%20OS/) | The credit methodology corpus — CP-0…CP-6E, CP-SR/MON/X, plus canonical schemas. Analytical **prose**, the single source of truth for module behaviour. |
-| [`caos/`](caos/) | The app: Next.js 15 analyst UI (`frontend/`) + FastAPI engine/service (`server/`), deployed as a **self-hosted Docker stack** (`caos/deploy/`). See [caos/README.md](caos/README.md). |
+| [`caos/`](caos/) | The app: Next.js 16 analyst UI (`frontend/`) + FastAPI engine/service (`server/`), deployed as a **self-hosted Docker stack** (`caos/deploy/`). See [caos/README.md](caos/README.md). |
 
-> **Module inventory (source of truth: [`caos/server/engine/registry.py`](caos/server/engine/registry.py)).** The engine routing index wires **19 implemented analytical modules** (CP-0, CP-1/1A/1B/1C, CP-2/2B/2C/2D/2E/2F, CP-3/3B/3C/3D, CP-4/4C, CP-6A/6E), gated by the **CP-5 QA phase** (CP-5B lineage + the CP-5 severity gate, which run as a gate step rather than routed graph nodes). A further **4 corpus modules are registered spec-only** (`implemented=False`) so the route plan reflects the full mesh honestly but they are never executed: **CP-SR** (SectorReview) and **CP-MON** (CreditPulse) on L7, and **CP-RENDER** / **CP-EXTRACT** on Infra. The broader corpus names ~27 modules; older planning docs that cite "27" / "24" / "7" are describing aspirations or earlier slices — the registry above is what actually runs.
+> **Module inventory (source of truth: [`caos/server/engine/registry.py`](caos/server/engine/registry.py)).** The engine routing index wires **19 implemented analytical modules** in the default route plan (CP-0, CP-1/1A/1B/1C, CP-2/2B/2C/2D/2E/2F, CP-3/3B/3C/3D, CP-4/4C, CP-6A/6E) plus feature-flagged, default-off **CP-2G** and **CP-4D**, gated by the **CP-5 QA phase** (CP-5B lineage + the CP-5 severity gate, which run as a gate step rather than routed graph nodes). Two further corpus modules are registered **spec-only** (`implemented=False`, never executed) so the route plan reflects the mesh honestly: **CP-SR** (SectorReview) and **CP-MON** (CreditPulse) on L7. **CP-RENDER** and **CP-EXTRACT** are deliberately *not* registered (PD-06, 2026-07-22): Report Studio is CP-RENDER's equivalent service, and CP-EXTRACT is retired — see the registry docstring. The broader corpus names ~27 modules; older planning docs that cite "27" / "24" / "7" are describing aspirations or earlier slices — the registry above is what actually runs.
 | [`caos/docs/`](caos/docs/) | Architecture, audit, security, and planning docs (index below). |
 
 ## Capabilities
@@ -37,8 +37,11 @@ Report Studio), with secondary lenses for the **PM/CIO** (portfolio posture) and
   legal, market-RV, schema and export lanes run only under the **opt-in LLM council**
   (requires an API key). Runs use a fixture synthesizer offline and live Claude when
   a key is set.
-- **Six-concept analyst UI** — Command Center, Pipeline, Deep-Dive, Model
-  Builder, Report Studio, and Monitor, plus a global **Ask (⌘K)** launcher.
+- **Analyst UI — 15 destinations in five workflow groups** (Intake / Analyze /
+  Decide / Publish / Monitor), anchored by the six core concepts — Command
+  Center, Pipeline, Deep-Dive, Model Builder, Report Studio, Monitor — plus
+  Directory/Upload, Research, Query, Sector Review, RV Screener, Sponsors,
+  Portfolio Lab, IC Book, and a global **Ask (⌘K)** launcher.
 - **Cross-issuer natural-language query** (Command Center) — structured metric
   ranking, semantic evidence retrieval, and a hybrid of both, with a
   **run / derived / seed provenance** ladder and **click-to-source** citations.
@@ -60,8 +63,10 @@ the gate **fails closed in production** (Caddy strips client-supplied
 `X-Forwarded-*`). Storage is SQLite + a local vault by default; set `DATABASE_URL`
 to the bundled Postgres and `CAOS_STORAGE_DIR` to a durable volume mount for
 persistence. Schema is managed by **Alembic** (migrations run on boot); LLM
-features use Anthropic Claude (`claude-opus-4-8`) and degrade to deterministic
-demo behaviour without a key. See [caos/docs/LAUNCH_PHASE1.md](caos/docs/LAUNCH_PHASE1.md)
+features run on a tiered multi-provider mesh — Anthropic Claude
+(`claude-opus-4-8`) on the top tier, DeepSeek via OpenRouter on the
+cheap/fast/strong tiers, Gemini for embeddings — and degrade to deterministic
+demo behaviour without keys. See [caos/docs/LAUNCH_PHASE1.md](caos/docs/LAUNCH_PHASE1.md)
 for the launch runbook and [caos/docs/SECURITY.md](caos/docs/SECURITY.md) for the
 trust model.
 
@@ -69,7 +74,7 @@ trust model.
 Credit Operating System/
   Modular OS/        methodology corpus (CP-0…CP-6E, schemas)
   caos/
-    frontend/        Next.js 15 (output: "export")
+    frontend/        Next.js 16 (output: "export")
     server/          FastAPI app + analytical engine (serves /api and the built UI)
     deploy/          self-hosted Docker stack (Dockerfile, docker-compose, Caddy, oauth2-proxy)
     scripts/         build_frontend.sh (stages the UI into server/static)
@@ -95,8 +100,8 @@ Healthy and deploy-ready (no P0/P1 — see [AUDIT.md](caos/docs/AUDIT.md)).
 
 | Check | State |
 |-------|-------|
-| Server tests | 73 pytest ✓ |
-| Frontend | eslint ✓ · `tsc --noEmit` (strict) ✓ · 98 vitest ✓ · `next build` ✓ |
+| Server tests | 2,925 pytest ✓ (39 skipped · 2026-07-23) |
+| Frontend | eslint ✓ · `tsc --noEmit` (strict) ✓ · 1,824 vitest ✓ (2026-07-23) · `next build` ✓ |
 | CI | [ci.yml](.github/workflows/ci.yml) runs all of the above |
 
 **Engine-derived vs seeded (honest line):** the engine genuinely produces

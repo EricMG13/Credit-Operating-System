@@ -2,7 +2,7 @@
 
 **Board ruling:** **NO-GO for enterprise multi-user deployment** until every Critical and High item below is closed and its acceptance test passes; close the Medium queue before general availability unless the security owner records an explicit, time-bounded exception.
 
-**Scope audited:** `caos/frontend/src/` (Next.js 15 / React 19) and `caos/server/` (FastAPI), with the root security detector included because it gates those sources.
+**Scope audited:** `caos/frontend/src/` (Next.js 16 / React 19) and `caos/server/` (FastAPI), with the root security detector included because it gates those sources.
 **Vectors:** Concurrency & State; Data Integrity; Silent Failures.
 **Audit date:** 2026-07-15.
 **Execution law:** Apply items top-to-bottom; do not add tenant/issuer ACLs to the intentional single-team model, alter the trusted-proxy boundary, or turn intentional document parsing into fail-closed ingestion.

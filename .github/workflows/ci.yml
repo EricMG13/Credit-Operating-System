@@ -220,6 +220,19 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Verify immutable app resources
         run: docker run --rm --entrypoint python caos-app:ci verify_image_resources.py
+      # OS-layer CVE gate on every image build. Previously Trivy ran only as a
+      # manual per-release step (SCAN_DISPOSITION.md), so a new digest could ship
+      # un-scanned between releases. --ignore-unfixed keeps the accepted no-fix
+      # Debian findings out of the gate: CI fails only on FIXABLE HIGH/CRITICAL
+      # findings — exactly the class the disposition's rebuild trigger exists for.
+      # The signed per-release disposition (full SARIF, no-fix set included)
+      # remains the H0 release gate; this step is the between-releases backstop.
+      - name: Trivy scan — fixable HIGH/CRITICAL gate
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b "$RUNNER_TEMP/trivy-bin" v0.72.0
+          "$RUNNER_TEMP/trivy-bin/trivy" image --scanners vuln \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 caos-app:ci
 
   deploy-assets:
     name: Deploy — shell + compose lint

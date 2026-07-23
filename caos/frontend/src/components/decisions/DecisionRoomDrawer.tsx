@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { ActionReason } from "@/components/shared/ActionReason";
 import { SlideOver } from "@/components/shared/SlideOver";
 import { TextInput } from "@/components/shared/TextInput";
-import { createDecision, getDecisions, voteDecision, type IcDecision } from "@/lib/api";
+import { createDecision, getDecisions, getWatchRulePage, voteDecision, type IcDecision } from "@/lib/api";
 
 export function DecisionRoomDrawer({
   issuerId, runId, reportId, onClose,
@@ -19,8 +20,21 @@ export function DecisionRoomDrawer({
   const [dissent, setDissent] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Watch-rule creation is prompted at the lifecycle moment it becomes
+  // meaningful — a recorded decision means coverage is live. Failure-silent
+  // and after the decision persists: it never blocks or delays recording.
+  const [watchNudge, setWatchNudge] = useState(false);
 
   useEffect(() => { getDecisions(issuerId).then(setDecisions).catch(() => setError("Couldn’t load prior decisions.")); }, [issuerId]);
+
+  const checkWatchCoverage = () => {
+    getWatchRulePage({ limit: 100 })
+      .then((page) => {
+        const covered = page.items.some((rule) => rule.issuer_id === issuerId || (rule.issuer_id === null && rule.portfolio_id === null));
+        setWatchNudge(!covered);
+      })
+      .catch(() => {});
+  };
 
   const submit = async () => {
     // ActionReason only wires this callback while the trimmed thesis is non-empty.
@@ -33,6 +47,7 @@ export function DecisionRoomDrawer({
       });
       setDecisions((current) => [next, ...current]);
       setThesis(""); setConditions("");
+      checkWatchCoverage();
     } catch (e) {
       const detail = (e as { response?: { data?: { detail?: { message?: string } | string } } })?.response?.data?.detail;
       setError(typeof detail === "string" ? detail : detail?.message || "Decision capture failed.");
@@ -67,6 +82,12 @@ export function DecisionRoomDrawer({
         </label>
         <ActionReason reason={busy ? "Recording decision…" : !thesis.trim() ? "Enter a thesis first" : null} onClick={submit} className="tabular text-caos-xs min-h-9 rounded bg-caos-accent text-caos-bg aria-disabled:opacity-40 focus-ring">{busy ? "Recording…" : "Record IC decision"}</ActionReason>
         {error ? <div role="alert" className="tabular text-caos-xs" style={{ color: "var(--caos-critical)" }}>{error}</div> : null}
+        {watchNudge ? (
+          <div className="rounded border border-caos-border bg-caos-elevated/40 px-2 py-1.5 flex items-center gap-2">
+            <span className="text-caos-xs text-caos-muted">Decision recorded — no issuer or team watch rule covers this name yet.</span>
+            <Link href="/monitor" className="caos-action-secondary no-underline focus-ring ml-auto whitespace-nowrap">Set triggers in Monitor →</Link>
+          </div>
+        ) : null}
 
         <div className="border-t border-caos-border pt-2 flex flex-col gap-2">
           <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Decision history</div>

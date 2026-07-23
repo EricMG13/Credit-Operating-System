@@ -290,12 +290,12 @@ test.describe("Sector Review — versioned dossier governance", () => {
     await expect(page.getByRole("combobox", { name: "Active sector" })).toHaveValue("telecom");
     for (const label of ["Overview", "Signals", "Comparables", "Risks"]) {
       await page.getByRole("button", { name: label, exact: true }).click();
-      await expect(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-current", "page");
+      await expect(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-current", "true");
     }
     await page.getByText("More", { exact: true }).click();
     for (const label of ["Early Warning", "Sources"]) {
       await page.getByRole("button", { name: label, exact: true }).click();
-      await expect(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-current", "page");
+      await expect(page.getByRole("button", { name: label, exact: true })).toHaveAttribute("aria-current", "true");
     }
 
     await page.getByRole("button", { name: "Open context drawer" }).click();
