@@ -821,7 +821,7 @@ export interface EdgarVaultResult {
   warning?: string | null;
 }
 
-export const edgarVaultUrl = (
+const edgarVaultUrl = (
   issuerId: string,
   exhibitUrl: string,
   runMode = "legal",
@@ -918,7 +918,7 @@ const _detail = (detail: string) => ({ response: { data: { detail } } });
 // Sentinel thrown when a poll loop is aborted (unmount / analyst detach). The
 // durable server-side job is untouched — the caller just stops watching it — so
 // the page must NOT surface this as a run failure.
-export const RESEARCH_ABORTED = Symbol("research-aborted");
+const RESEARCH_ABORTED = Symbol("research-aborted");
 const _aborted = () => ({ [RESEARCH_ABORTED]: true });
 export const isResearchAborted = (e: unknown): boolean =>
   typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[RESEARCH_ABORTED] === true;
@@ -927,7 +927,7 @@ export const isResearchAborted = (e: unknown): boolean =>
 // job, or a foreign id under a shared machine). Distinct from a transient blip:
 // retrying a 404 is pointless, so resume drops the stale id quietly rather than
 // spinning ~20s into a "Lost contact" error.
-export const RESEARCH_GONE = Symbol("research-gone");
+const RESEARCH_GONE = Symbol("research-gone");
 const _gone = () => ({ [RESEARCH_GONE]: true });
 export const isResearchGone = (e: unknown): boolean =>
   typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[RESEARCH_GONE] === true;
@@ -1502,9 +1502,6 @@ function nextCursor(headers: Record<string, unknown>): string | null {
   const value = headers["x-next-cursor"] ?? headers["X-Next-Cursor"];
   return typeof value === "string" && value.length > 0 ? value : null;
 }
-
-export const refreshAlertEvents = (): Promise<AlertEventDTO[]> =>
-  api.post("/api/alerts/refresh").then((r) => r.data);
 
 export const getAlertEventPage = ({
   state,
