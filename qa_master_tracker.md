@@ -156,3 +156,12 @@ Environment note (harness, not product): the container's preinstalled Playwright
 4. **No broken user journeys** — PASS (65/65 journey nodes across all 16 specs, real API, retries disabled; recovery boundaries preserve state with exactly one autosave).
 
 **All four termination criteria hold. Iteration 1 closes the loop; continuous mode re-arms on the next code change (rerun Phases 3–5 against the new diff).**
+
+### DEF-002 — upstream Next.js advisory cluster trips the repo-wide `npm audit` CI gate — **OPEN (owner-gated), not caused by any diff**
+
+- **Detected:** 2026-07-23 ~17:31Z, PR #215 CI job "Security — deps, SAST, secrets" (`npm audit --audit-level=high` exits 1).
+- **Finding:** advisories published upstream against `next 16.0.0 – 16.2.10` (middleware/proxy bypass GHSA-6gpp-xcg3-4w24, Server Actions DoS/SSRF, cache confusion, SVG image-DoS, Server Function endpoint disclosure). Repo pins `next 16.2.10`; fixed in `16.2.11`.
+- **Base reproduction:** verified in-container against the **untouched lockfile** (PR #215 changes no dependency files) — the same audit failure fires for every branch including `main`; the last green runs (tip CI 29953934449, Nightly 29991927198 at 08:41Z) predate the advisory publication.
+- **Severity:** HIGH per npm; **production exposure ≈ nil for CAOS** — the app ships a `next build` static export served by FastAPI (no Next server runtime, middleware, Server Actions, or Image Optimization API in production), same pattern as the resolved D-1 build-chain class in `AUDIT.md`.
+- **Fix path:** dependabot **PR #214** (`next 16.2.10 → 16.2.11`) is already queued. Merge timing is an **owner decision** under the post-H0 freeze discipline (A5/L14: dependency bumps deferred because any bump invalidates frozen candidate `3b66da67` and forces a re-freeze). Until it merges (or the gate carries a dated allowlist), every CI run repo-wide fails this job.
+- **Not remediable in this PR:** bumping `next` here would smuggle a dependency change into a docs/test PR and break the freeze discipline; deliberately left to #214 + owner scheduling.
