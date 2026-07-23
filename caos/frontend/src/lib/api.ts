@@ -255,8 +255,10 @@ export const register = (data: {
   name: string;
   email: string;
   passcode: string;
-  coverage_area: string;
-  location: string;
+  // Optional profile metadata (server treats both as nullable) — the signup
+  // form deliberately no longer collects them; a future profile editor will.
+  coverage_area?: string;
+  location?: string;
   recovery_words: string[];
   recovery_hints: string[];
 }) =>

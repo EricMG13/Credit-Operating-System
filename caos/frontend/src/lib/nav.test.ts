@@ -54,6 +54,9 @@ describe("nav registry", () => {
 
   it("activeGroupId resolves nested routes to their workflow group", () => {
     expect(activeGroupId("/issuers/profile")).toBe("intake");
+    // Pipeline is golden-path step 2 (watch the run triggered from Upload) —
+    // it belongs to Intake & Runs, not the steady-state Monitor group.
+    expect(activeGroupId("/pipeline")).toBe("intake");
     expect(activeGroupId("/sector-rv")).toBe("analyze");
     expect(activeGroupId("/deepdive")).toBe("decide");
     expect(activeGroupId("/decisions/decision-1")).toBe("decide");

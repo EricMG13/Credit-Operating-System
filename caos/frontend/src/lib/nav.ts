@@ -15,10 +15,14 @@ export type NavGroup = { id: NavGroupId; label: string; items: NavItem[] };
 export const NAV_GROUPS: NavGroup[] = [
   {
     id: "intake",
-    label: "Intake",
+    label: "Intake & Runs",
     items: [
       { href: "/issuers", icon: "directory", label: "Directory" },
       { href: "/upload", icon: "upload", label: "Upload" },
+      // Pipeline lives with intake, not Monitor: it is step 2 of the golden
+      // path (watch the run you just triggered from Upload) and concept B in
+      // the A–E story. Steady-state alerting stays in the Monitor group.
+      { href: "/pipeline", icon: "pipeline", label: "Pipeline" },
     ],
   },
   {
@@ -51,10 +55,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     id: "monitor",
     label: "Monitor",
-    items: [
-      { href: "/pipeline", icon: "pipeline", label: "Pipeline" },
-      { href: "/monitor", icon: "monitor", label: "Alert Monitor" },
-    ],
+    items: [{ href: "/monitor", icon: "monitor", label: "Alert Monitor" }],
   },
 ];
 
