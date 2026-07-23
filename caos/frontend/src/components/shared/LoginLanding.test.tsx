@@ -56,10 +56,12 @@ describe("LoginLanding", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Access denied");
   });
 
-  it("validates and submits the full analyst registration", async () => {
+  it("stages registration as identity then security and submits one register call", async () => {
     const onSuccess = vi.fn();
     render(<LoginLanding onSuccess={onSuccess} />);
     fireEvent.click(screen.getByRole("tab", { name: "Create" }));
+    // Step 1 — identity only: no recovery inputs yet.
+    expect(screen.queryByLabelText("Recovery word 1")).toBeNull();
     fireEvent.change(screen.getByLabelText("Analyst name"), { target: { value: " Ada Credit " } });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: " ada@desk.test " } });
     fireEvent.change(screen.getByLabelText("Login passcode"), { target: { value: "short" } });
@@ -67,29 +69,43 @@ describe("LoginLanding", () => {
     fireEvent.change(screen.getByLabelText("Login passcode"), { target: { value: "long-passcode" } });
     fireEvent.change(screen.getByLabelText("Confirm passcode"), { target: { value: "different" } });
     fireEvent.change(screen.getByLabelText("Invite code"), { target: { value: " 1234 " } });
-    fireEvent.change(screen.getByLabelText("Coverage area"), { target: { value: "Industrials" } });
-    fireEvent.change(screen.getByLabelText("Location"), { target: { value: "EMEA" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue to recovery words" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Passcodes don't match");
+
+    fireEvent.change(screen.getByLabelText("Confirm passcode"), { target: { value: "long-passcode" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue to recovery words" }));
+    // Step 2 — the security ceremony: identity inputs gone, Back available.
+    expect(screen.getByText("Secure your account")).toBeTruthy();
+    expect(screen.queryByLabelText("Analyst name")).toBeNull();
     for (let i = 1; i <= 3; i += 1) {
       fireEvent.change(screen.getByLabelText(`Recovery word ${i}`), { target: { value: ` word-${i} ` } });
       fireEvent.change(screen.getByLabelText(`Confirm word ${i}`), { target: { value: ` word-${i} ` } });
       fireEvent.change(screen.getByLabelText(`Hint ${i}`), { target: { value: ` hint-${i} ` } });
     }
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
-    expect((await screen.findByRole("alert")).textContent).toContain("Passcodes don't match");
-
-    fireEvent.change(screen.getByLabelText("Confirm passcode"), { target: { value: "long-passcode" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     await waitFor(() => expect(register).toHaveBeenCalledWith({
       code: "1234",
       name: "Ada Credit",
       email: "ada@desk.test",
       passcode: "long-passcode",
-      coverage_area: "Industrials",
-      location: "EMEA",
       recovery_words: ["word-1", "word-2", "word-3"],
       recovery_hints: ["hint-1", "hint-2", "hint-3"],
     }));
     expect(onSuccess).toHaveBeenCalled();
+  });
+
+  it("keeps identity values when stepping back from the security ceremony", () => {
+    render(<LoginLanding onSuccess={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Create" }));
+    fireEvent.change(screen.getByLabelText("Analyst name"), { target: { value: "Ada Credit" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@desk.test" } });
+    fireEvent.change(screen.getByLabelText("Login passcode"), { target: { value: "long-passcode" } });
+    fireEvent.change(screen.getByLabelText("Confirm passcode"), { target: { value: "long-passcode" } });
+    fireEvent.change(screen.getByLabelText("Invite code"), { target: { value: "1234" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue to recovery words" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect((screen.getByLabelText("Analyst name") as HTMLInputElement).value).toBe("Ada Credit");
+    expect((screen.getByLabelText("Invite code") as HTMLInputElement).value).toBe("1234");
   });
 
   it("recovers access and clears a prior mode error when switching tabs", async () => {
@@ -106,8 +122,17 @@ describe("LoginLanding", () => {
   });
 
   it("keeps recovery words masked by default, reveals only on request, and clears them on a mode change", () => {
+    const toSecurityStep = () => {
+      fireEvent.change(screen.getByLabelText("Analyst name"), { target: { value: "Ada Credit" } });
+      fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@desk.test" } });
+      fireEvent.change(screen.getByLabelText("Login passcode"), { target: { value: "long-passcode" } });
+      fireEvent.change(screen.getByLabelText("Confirm passcode"), { target: { value: "long-passcode" } });
+      fireEvent.change(screen.getByLabelText("Invite code"), { target: { value: "1234" } });
+      fireEvent.click(screen.getByRole("button", { name: "Continue to recovery words" }));
+    };
     render(<LoginLanding onSuccess={vi.fn()} />);
     fireEvent.click(screen.getByRole("tab", { name: "Create" }));
+    toSecurityStep();
     const word = screen.getByLabelText("Recovery word 1") as HTMLInputElement;
     fireEvent.change(word, { target: { value: "private-word" } });
     expect(word.type).toBe("password");
@@ -115,6 +140,7 @@ describe("LoginLanding", () => {
     expect((screen.getByLabelText("Recovery word 1") as HTMLInputElement).type).toBe("text");
     fireEvent.click(screen.getByRole("tab", { name: "Sign in" }));
     fireEvent.click(screen.getByRole("tab", { name: "Create" }));
+    toSecurityStep();
     expect((screen.getByLabelText("Recovery word 1") as HTMLInputElement).value).toBe("");
   });
 });

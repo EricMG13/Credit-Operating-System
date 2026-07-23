@@ -31,12 +31,16 @@ async function fillSignup(page: import("@playwright/test").Page, code: string) {
   // Unique per run: the display name AND email are both unique-constrained.
   const stamp = `${Date.now()}-${crypto.randomUUID()}`;
   await page.getByRole("tab", { name: "Create" }).click();
+  // Step 1 of 2 — identity. The invite code is only checked server-side at the
+  // final submit, so a wrong code still advances past this step.
   await page.getByLabel("Analyst name").fill(`E2E Login ${stamp}`);
   const email = `e2e-login-${stamp}@firm.test`;
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Login passcode").fill("testpass1234");
   await page.getByLabel("Confirm passcode").fill("testpass1234");
   await page.getByLabel("Invite code").fill(code);
+  await page.getByRole("button", { name: "Continue to recovery words" }).click();
+  // Step 2 of 2 — the security ceremony (recovery words, each confirmed).
   await page.getByLabel("Recovery word 1").fill("alpha");
   await page.getByLabel("Confirm word 1").fill("alpha");
   await page.getByLabel("Recovery word 2").fill("bravo");

@@ -253,8 +253,10 @@ export const register = (data: {
   name: string;
   email: string;
   passcode: string;
-  coverage_area: string;
-  location: string;
+  // Optional profile metadata (server treats both as nullable) — the signup
+  // form deliberately no longer collects them; a future profile editor will.
+  coverage_area?: string;
+  location?: string;
   recovery_words: string[];
   recovery_hints: string[];
 }) =>
@@ -1501,9 +1503,6 @@ function nextCursor(headers: Record<string, unknown>): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-export const refreshAlertEvents = (): Promise<AlertEventDTO[]> =>
-  api.post("/api/alerts/refresh").then((r) => r.data);
-
 export const getAlertEventPage = ({
   state,
   issuerId,
@@ -1527,11 +1526,6 @@ export const getAlertEventPage = ({
     canMutate: (response.headers as Record<string, unknown>)["x-alert-event-can-mutate"] === "true",
   }));
 
-// Compatibility export for consumers that intentionally own only one bounded
-// page. Monitor uses getAlertEventPage and drains the signed cursor itself so
-// its counts and filters cannot silently truncate persisted authority.
-export const getAlertEvents = (state?: AlertEventDTO["state"]): Promise<AlertEventDTO[]> =>
-  getAlertEventPage({ state }).then((page) => page.items);
 export const patchAlertEvent = (
   id: string,
   state: AlertEventDTO["state"],

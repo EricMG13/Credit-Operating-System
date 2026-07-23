@@ -426,7 +426,9 @@ function CommandCoverageContent({ view }: { view: CommandViewProps }) {
   }, [view.portfolio.error, view.portfolio.loading, view.portfolio.rows.length]);
   if (view.portfolio.loading) return <SurfaceState kind="loading" title="Loading live coverage" className="m-auto max-w-md" />;
   if (view.portfolio.error && !view.portfolio.rows.length) return <SurfaceState kind="offline" title="Live coverage unavailable" detail="Latest-run coverage could not be loaded." className="m-auto max-w-md" />;
-  if (!view.portfolio.rows.length) return <SurfaceState kind="empty" title="No live coverage" detail="No completed analytical runs are available." className="m-auto max-w-md" primaryAction={<Link href="/upload" className="caos-action-primary no-underline focus-ring">Start document intake</Link>} />;
+  // Cold desk: teach the prerequisite path, not just the absence — posture on
+  // this surface only forms from analyst-side work (persona: PM/CIO cold-start).
+  if (!view.portfolio.rows.length) return <SurfaceState kind="empty" title="Coverage not started" detail="Posture forms when the first run clears the CP-5 gate: onboard an issuer in the Directory, attach documents and start a run in Upload, then follow it in Pipeline." className="m-auto max-w-md" primaryAction={<Link href="/upload" className="caos-action-primary no-underline focus-ring">Start document intake</Link>} />;
   return <div ref={scrollOwnerRef} tabIndex={scrollable ? 0 : undefined} aria-label={scrollable ? "Live coverage worklist" : undefined} className={`overflow-x-auto h-full flex flex-col${scrollable ? " focus-ring" : ""}`}><LiveCoverage rows={view.portfolio.rows} selected={view.selected} onSelect={(value) => view.updateUrlState({ selected: value }, "replace")} /></div>;
 }
 
