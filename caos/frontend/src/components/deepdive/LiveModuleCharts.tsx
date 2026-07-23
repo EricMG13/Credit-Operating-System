@@ -29,16 +29,34 @@ const ordinal = (n: number) => {
   return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
 };
 
-/** {"FY2022": n, ...} -> sorted [{fy, v}] keeping only finite numbers.
- * Lexicographic sort on the RAW keys (correct for the engine's uniform FY####
- * keys, and "FY…" < "LTM…" keeps a trailing LTM last); display labels are then
- * humanized so a machine key like LTM_Q1_26 reads "LTM Q1-26", matching the
- * adapter's table rendering. */
+// ponytail: mirrors engine/periods.py's (year, intra-year rank) sort_key —
+// keep the two in sync by hand, they run in different runtimes. A raw string
+// sort broke down for exactly this label mix once already (audit ENG-18/B3,
+// fixed server-side in periods.py); synth.py's LLM-synthesized CP-1 payloads
+// can freely mix "FY2024" / "Q3 2025" / bare "LTM" labels, so the same bug
+// class is reachable here too — e.g. localeCompare puts "LTM_2025" before
+// "Q3_2025" even though Q3 2025 precedes the current LTM figure.
+// fallow-ignore-next-line complexity -- one guard per period-label shape (year digits, LTM prefix, quarter, half-year), mirroring periods.py's own branching one-for-one
+function periodRank(period: string): number {
+  const nums = period.match(/\d{2,4}/g);
+  const raw = nums?.length ? Number(nums[nums.length - 1]) : -1;
+  const isLtm = /^LTM/i.test(period);
+  const year = raw < 0 ? (isLtm ? 9999 : -1) : raw < 100 ? raw + 2000 : raw;
+  const q = period.match(/Q\s*([1-4])/i);
+  const h = period.match(/\bH\s*([12])\b/i);
+  const base = q ? Number(q[1]) : h ? (h[1] === "1" ? 2 : 4) : 4;
+  return year + (base + (isLtm ? 0.5 : 0)) / 10;
+}
+
+/** {"FY2022": n, ...} -> sorted [{fy, v}] keeping only finite numbers, ordered
+ * by chronological rank (not raw key text — see periodRank). Display labels
+ * are then humanized so a machine key like LTM_Q1_26 reads "LTM Q1-26",
+ * matching the adapter's table rendering. */
 function fySeries(obj: unknown): { fy: string; v: number }[] {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return [];
   return Object.entries(obj as Rt)
     .filter((e): e is [string, number] => isNum(e[1]))
-    .sort((a, b) => a[0].localeCompare(b[0]))
+    .sort((a, b) => periodRank(a[0]) - periodRank(b[0]))
     .map(([fy, v]) => ({ fy: humanize(fy), v }));
 }
 

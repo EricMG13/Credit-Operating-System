@@ -97,6 +97,23 @@ describe("buildLiveCharts", () => {
     expect(defs.map((d) => d.title)).toEqual(["CP-1 · Free cash flow"]);
   });
 
+  it("CP-1 orders a mixed FY/quarter/LTM series chronologically, not by raw key text", () => {
+    // synth.py's LLM-synthesized CP-1 payloads can freely mix these label
+    // shapes (period-label schema is unconstrained past the top-level keys —
+    // test_cp1_forces_canonical_normalized_financials_schema only pins
+    // net_leverage_adj_ltm/revenue/etc., not what's inside each series). A raw
+    // string sort puts "LTM_2025" before "Q3_2025" (L < Q); chronologically
+    // the current LTM figure trails the same year's Q3, so it must sort last.
+    const defs = buildLiveCharts("CP-1", {
+      normalized_financials: {
+        revenue: { FY2024: 100, LTM_2025: 120, Q3_2025: 110 },
+        adj_ebitda: { FY2024: 30, LTM_2025: 36, Q3_2025: 33 },
+      },
+    });
+    const bars = defs[0].spec.data as { fy: string; s: string }[];
+    expect(bars.filter((d) => d.s === "Revenue").map((d) => d.fy)).toEqual(["FY2024", "Q3 2025", "LTM 2025"]);
+  });
+
   it("CP-3 charts percentiles on a fixed 0-100 scale with raw values in the table", () => {
     const [def] = buildLiveCharts("CP-3", CP3);
     expect(def.kind).toBe("bar");
