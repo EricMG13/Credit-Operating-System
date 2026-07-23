@@ -120,9 +120,13 @@ Single process: FastAPI serves the JSON API and the static Next.js export on the
 same origin (no CORS surface). A middleware in [main.py](../server/main.py) sets,
 on every response:
 
-- **Content-Security-Policy** — `default-src 'self'` with `'unsafe-inline'` for
-  script/style (a static export cannot carry a per-request nonce), `object-src
-  'none'`, `base-uri`/`form-action`/`frame-ancestors 'self'`, and
+- **Content-Security-Policy** — `default-src 'self'`; `script-src 'self'` plus
+  **sha256 hashes of the static export's inline bootstrap blocks** (computed at
+  boot from the built HTML — a static export cannot carry a per-request nonce,
+  so hashes replace `unsafe-inline` for script; production refuses to boot if no
+  hashable blocks are found). `style-src` keeps `'unsafe-inline'` (inline style
+  attributes remain necessary for current chart/layout surfaces). Plus
+  `object-src 'none'`, `base-uri`/`form-action`/`frame-ancestors 'self'`, and
   `connect`/`img`/`font 'self'`. Relax `frame-ancestors` only if the app must be
   embedded cross-origin.
 - **X-Content-Type-Options: nosniff**, **Referrer-Policy:

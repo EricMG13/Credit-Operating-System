@@ -3,8 +3,9 @@ import { loadMode } from "@/lib/model-mode";
 import type { Issuer } from "@/types/issuers";
 
 // Same-origin API: the FastAPI server serves both /api and the static
-// frontend in deployment (Databricks Apps). In `next dev`, the rewrite in
-// next.config.js proxies /api to the local server on :8000.
+// frontend in deployment (self-hosted Docker stack: Caddy → oauth2-proxy →
+// FastAPI). In `next dev`, the rewrite in next.config.js proxies /api to the
+// local server on :8000.
 export const api = axios.create({
   headers: { "Content-Type": "application/json" },
   // Default timeout so a hung/dead API (or a proxy to a dead :8000) can't strand
@@ -121,8 +122,9 @@ export function toErrorMessage(err: unknown, fallback: string): string {
 }
 
 // ─── Identity ─────────────────────────────────────────────────────────────
-// Authentication is platform-managed (Databricks workspace OAuth at the
-// edge). /api/auth/me reflects the forwarded identity.
+// Authentication is edge-managed (oauth2-proxy Google Workspace OIDC behind
+// Caddy), layered with the in-app analyst profile. /api/auth/me reflects the
+// resolved identity.
 // Bounded: a down/hung API (or proxy to a dead :8000) must not strand the whole
 // app on the RequireAuth "Loading…" gate — on timeout the request rejects and
 // the error card (with RETRY) shows instead. Long-running calls set their own.

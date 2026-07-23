@@ -30,9 +30,6 @@ logger = logging.getLogger("caos.ingest")
 _PDF_MAGIC = b"%PDF-"
 _OOXML_MAGIC = b"PK\x03\x04"
 
-CHUNK_CHARS = 2400
-CHUNK_OVERLAP = 240
-
 # Surfaced (not raised) when a document parses to zero chunks. Upload stays
 # intentionally lenient — a scanned/encrypted/empty file still vaults — but a
 # silent ``chunks_created: 0`` reads as success and an analyst could build a view

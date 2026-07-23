@@ -7,7 +7,7 @@
 
 ## Mission prompt
 
-I'm hardening the CAOS frontend — an institutional leveraged-finance credit workspace (Next.js 15 + FastAPI) — ahead of a production deploy. Analysts work in dense, numbers-heavy views and real money rides on a wrong read, so two properties are non-negotiable: no upstream AI or database credential may reach the browser bundle, and the workspace must hold 60fps while rendering large datasets. The output of this task is a blueprint that will be handed to Claude Fable 5 to execute, so it must be precise enough to act on without re-deriving your analysis. With that in mind:
+I'm hardening the CAOS frontend — an institutional leveraged-finance credit workspace (Next.js 16 + FastAPI) — ahead of a production deploy. Analysts work in dense, numbers-heavy views and real money rides on a wrong read, so two properties are non-negotiable: no upstream AI or database credential may reach the browser bundle, and the workspace must hold 60fps while rendering large datasets. The output of this task is a blueprint that will be handed to Claude Fable 5 to execute, so it must be precise enough to act on without re-deriving your analysis. With that in mind:
 
 Produce a single Markdown blueprint — "Secure Performance Frontend" — that Fable 5 can implement directly. Analyze the frontend codebase, environment configuration, component render tree, and data-fetching hooks, then design the changes across three objectives:
 

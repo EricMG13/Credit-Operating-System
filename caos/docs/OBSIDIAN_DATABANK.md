@@ -95,8 +95,8 @@ VAULT_EXPORT_DIR=/path/to/ObsidianVault   # empty (default) = feature off, route
 VAULT_EXPORT_AUTO=true                     # optional: also export Committee-Ready runs on finish
 ```
 
-On Databricks, point `VAULT_EXPORT_DIR` at a UC Volume mount (same pattern as
-`CAOS_STORAGE_DIR`). The Report Studio runs on mock data today, so the UI button
+On the self-hosted stack, point `VAULT_EXPORT_DIR` at a durable volume mount
+(same pattern as `CAOS_STORAGE_DIR`). The Report Studio runs on mock data today, so the UI button
 mounts only once a page passes a live `runId` into `ExportPanel`; the
 `POST .../vault` route and auto path work independently of the UI.
 

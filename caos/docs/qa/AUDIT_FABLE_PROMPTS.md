@@ -124,7 +124,7 @@ State invariants to prove. Deliverable is the playbook file only — specify, do
 ### Prompt 5 — Frontend Functional & E2E
 
 ```
-I'm building the frontend audit program for CAOS, a Next.js 15 analyst UI of five dense workspaces (Command Center, Pipeline, Deep-Dive, Model Builder, Report Studio) over a FastAPI backend. Analysts do multi-window, numbers-heavy work; a broken run-state sync or a misrendered metric silently corrupts their read. I need a durable functional playbook a Sonnet 5 agent re-runs every PR — you author it once, you do not run the audit yourself.
+I'm building the frontend audit program for CAOS, a Next.js 16 analyst UI of five dense workspaces (Command Center, Pipeline, Deep-Dive, Model Builder, Report Studio) over a FastAPI backend. Analysts do multi-window, numbers-heavy work; a broken run-state sync or a misrendered metric silently corrupts their read. I need a durable functional playbook a Sonnet 5 agent re-runs every PR — you author it once, you do not run the audit yourself.
 
 Produce caos/docs/qa/playbooks/frontend-functional.md: a standalone, re-runnable Sonnet goal-prompt for frontend correctness. Explore caos/frontend/src/{app,components,lib}, the engine hooks in lib/engine, the vitest suites, and the Playwright e2e specs in caos/tests/frontend/e2e first.
 

@@ -75,7 +75,7 @@ accessibility/layout are closed on the working tree and remain required
 regression gates for the frozen candidate.
 
 > **Status (as of the shipped engine):** the engine now wires **21 implemented
-> modules** (+ 4 spec-only) per [`registry.py`](../server/engine/registry.py) — the
+> modules** (+ 2 spec-only; CP-RENDER/CP-EXTRACT deliberately unregistered, PD-06) per [`registry.py`](../server/engine/registry.py) — the
 > "7-module DAG" below was an earlier snapshot. The full implemented set is CP-0,
 > CP-1/1A/1B/1C, CP-2/2B/2C/2D/2E/2F/2G, CP-3/3B/3C/3D,
 > CP-4/4C/4D, CP-6A/6E.

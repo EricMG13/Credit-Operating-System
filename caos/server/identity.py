@@ -178,8 +178,9 @@ async def get_identity(
     # because the edge proxy is the sole network path to the app; when an edge
     # secret is configured, require it on every deployed-context request, proving
     # the request didn't reach the app port directly. Constant-time compare.
-    # Empty secret = enforcement off (main.py logs a startup warning in prod);
-    # identity then rests on network isolation alone. See SECURITY.md §1.
+    # Empty secret = enforcement off in dev only — production refuses to boot
+    # without it (main.py fail-closed guard), so a deployed request always faces
+    # this check. See SECURITY.md §1.
     if deployed and settings.edge_proxy_secret:
         presented = request.headers.get("x-edge-authorization", "")
         # Compare as bytes: header values decode latin-1, so a non-ASCII presented

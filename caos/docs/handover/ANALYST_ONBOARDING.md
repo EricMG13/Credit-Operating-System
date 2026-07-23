@@ -10,7 +10,12 @@ Audience: a new buy-side credit analyst joining the CAOS pilot.
    three recovery words, and the private invite code from the platform owner.
    Your profile is your identity on every run, note, and decision record.
 
-## The six concepts (plus Ask)
+## The six core concepts (plus Ask)
+
+The full workspace has 15 destinations in five nav groups (Intake / Analyze /
+Decide / Publish / Monitor) — Directory, Upload, Research, Query, Sector
+Review, RV Screener, Sponsors, Portfolio Lab, IC Book, and Settings sit
+alongside the six below, which anchor the daily workflow:
 
 | Surface | What you do there |
 |---|---|
