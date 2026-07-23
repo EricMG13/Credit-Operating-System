@@ -63,7 +63,7 @@ export function FindingsTray({ contextId, refreshKey = 0 }: { contextId: string;
             <li key={finding.id} className="rounded-sm border border-caos-border/70 bg-caos-bg/40 p-2">
               <div className="flex items-center gap-2">
                 <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent">{finding.source_surface}</span>
-                <span className="ml-auto tabular text-caos-2xs uppercase text-caos-muted">{finding.status}</span>
+                <span className="ml-auto tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{finding.status}</span>
                 <button
                   type="button"
                   onClick={() => unpin(finding.id)}

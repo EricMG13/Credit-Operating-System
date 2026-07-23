@@ -55,7 +55,7 @@ function CompletionAxis({ axis, value }: { axis: string; value: keyof typeof VIE
         <span className="xl:hidden">{shortAxis}</span>
         <span className="hidden xl:inline">{axis}</span>
       </span>
-      <span className="inline-flex min-w-0 items-center gap-1 tabular text-caos-2xs uppercase whitespace-nowrap" style={{ color: view.color }}>
+      <span className="inline-flex min-w-0 items-center gap-1 tabular text-caos-2xs uppercase tracking-wider whitespace-nowrap" style={{ color: view.color }}>
         <StatusGlyph kind={view.glyph} size={9} className={value === "running" ? "caos-running" : ""} />
         <span>{view.label}</span>
       </span>

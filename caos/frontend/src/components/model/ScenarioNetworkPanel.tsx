@@ -54,7 +54,7 @@ function ScenarioNode({ node, index }: { node: ScenarioPropagationResult["nodes"
           <StatusGlyph kind={status.glyph} />
           <span className="tabular text-caos-3xs uppercase tracking-wider" style={{ color: status.color }}>{status.label}</span>
         </div>
-        <div className="tabular text-caos-xs uppercase text-caos-muted mt-1">{node.node}</div>
+        <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mt-1">{node.node}</div>
         <div className="text-caos-xs text-caos-text leading-snug mt-0.5">{node.label}</div>
       </div>
     </div>

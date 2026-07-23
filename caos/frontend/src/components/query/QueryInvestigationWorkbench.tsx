@@ -272,7 +272,7 @@ function GroundedClaim({ index, model, onCitation }: { index: number; model: Gro
       <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted">{claimType}</span>
       {chunks.map((id, sourceIndex) => <GroundedChunk key={id} id={id} index={sourceIndex} labels={model.citationLabels} onCitation={onCitation} />)}
       {facts.map((id, factIndex) => <GroundedFact key={id} id={id} index={factIndex} labels={model.factLabels} />)}
-      {!chunks.length && !facts.length ? <span className="tabular text-caos-3xs uppercase text-caos-warning">Uncited · keep in draft</span> : null}
+      {!chunks.length && !facts.length ? <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-warning">Uncited · keep in draft</span> : null}
     </div>
   </li>;
 }
@@ -280,7 +280,7 @@ function GroundedClaim({ index, model, onCitation }: { index: number; model: Gro
 function GroundedAnswer({ model, onCitation }: { model: GroundedModel; onCitation: CitationHandler }) {
   if (!model.sentences.length) return <div className="mt-2">
     <p className="text-caos-sm leading-relaxed text-caos-text">{model.fallbackAnswer}</p>
-    <p className="mt-2 tabular text-caos-2xs uppercase text-caos-warning">No sentence-level citations attached · keep in draft</p>
+    <p className="mt-2 tabular text-caos-2xs uppercase tracking-wider text-caos-warning">No sentence-level citations attached · keep in draft</p>
   </div>;
   return <ol className="mt-2 space-y-3">{model.sentences.map((_sentence, index) => <GroundedClaim key={index} index={index} model={model} onCitation={onCitation} />)}</ol>;
 }
@@ -815,7 +815,7 @@ function QueryIdentity({ context }: { context: QueryContextState["context"] }) {
 function QueryStatus({ contextState }: { contextState: QueryContextState }) {
   if (contextState.loading) return <span className="tabular text-caos-2xs text-caos-muted">Loading context…</span>;
   if (contextState.error) return <span className="text-caos-xs text-caos-critical">{contextState.error}</span>;
-  return <span className="tabular text-caos-2xs uppercase text-caos-accent">Shared governed workspace</span>;
+  return <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent">Shared governed workspace</span>;
 }
 
 function QueryPrimaryAction({ controller }: { controller: QueryController }): PageAction {

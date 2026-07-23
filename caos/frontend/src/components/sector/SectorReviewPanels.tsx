@@ -101,7 +101,7 @@ function OverviewPanel({
                   <span className="text-caos-sm font-semibold text-caos-text">{section.title}</span>
                   <span className="mt-1 block text-caos-xs leading-relaxed text-caos-muted">{section.summary}</span>
                 </span>
-                <span className="tabular text-caos-2xs uppercase text-caos-muted">{section.posture} · {review.ratifications[section.id] ?? section.freshness}</span>
+                <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{section.posture} · {review.ratifications[section.id] ?? section.freshness}</span>
               </button>
             </li>
           ))}
@@ -178,7 +178,7 @@ function RisksPanel({ review }: { review: SectorReviewV2 }) {
     <div className="space-y-2">
       {review.risks.map((risk) => (
         <article key={risk.id} className="rounded-md border border-caos-border bg-caos-panel p-3">
-          <div className="flex items-center gap-2"><span className="tabular text-caos-2xs uppercase text-caos-warning">{risk.severity}</span><h3 className="text-caos-sm font-semibold text-caos-text">{risk.title}</h3><span className="ml-auto tabular text-caos-2xs uppercase text-caos-muted">Likelihood {risk.likelihood}</span></div>
+          <div className="flex items-center gap-2"><span className="tabular text-caos-2xs uppercase tracking-wider text-caos-warning">{risk.severity}</span><h3 className="text-caos-sm font-semibold text-caos-text">{risk.title}</h3><span className="ml-auto tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Likelihood {risk.likelihood}</span></div>
           <p className="mt-2 text-caos-xs text-caos-muted">Residual risk · {risk.residual_risk}</p>
           <SourceRefs review={review} sourceIds={risk.source_ids} />
         </article>
@@ -192,7 +192,7 @@ function SourcesPanel({ review, contextId }: { review: SectorReviewV2; contextId
     <div className="space-y-3">
       <section className="rounded-md border border-caos-border bg-caos-panel">
         <div className="border-b border-caos-border px-3 py-2"><h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-text">Source register</h2></div>
-        <ol>{review.source_register.map((source) => <li key={source.id} className="border-t border-caos-border/70 px-3 py-2 first:border-t-0"><div className="flex flex-wrap items-center gap-2"><span className="text-caos-xs font-semibold text-caos-text">{source.title}</span><span className="ml-auto tabular text-caos-2xs uppercase text-caos-muted">{source.origin} · {source.freshness}</span></div><div className="mt-1"><SourceRef source={sourceRef(source, source.id)} /></div></li>)}</ol>
+        <ol>{review.source_register.map((source) => <li key={source.id} className="border-t border-caos-border/70 px-3 py-2 first:border-t-0"><div className="flex flex-wrap items-center gap-2"><span className="text-caos-xs font-semibold text-caos-text">{source.title}</span><span className="ml-auto tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{source.origin} · {source.freshness}</span></div><div className="mt-1"><SourceRef source={sourceRef(source, source.id)} /></div></li>)}</ol>
       </section>
       <section className="rounded-md border border-caos-warning/50 bg-caos-warning/5 p-3">
         <h2 className="tabular text-caos-xs font-semibold uppercase tracking-widest text-caos-warning">Contradictions and uncertainty</h2>

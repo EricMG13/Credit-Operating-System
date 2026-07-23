@@ -447,7 +447,7 @@ function Research() {
         onChange={(e) => set(e.target.value)}
         placeholder={placeholder}
         maxLength={maxLength}
-        className={"w-full px-2 " + (big ? "py-2.5 text-[16px] leading-tight" : "py-1.5 text-caos-md")}
+        className={"w-full px-2 " + (big ? "py-2.5 text-caos-metric" : "py-1.5 text-caos-md")}
       />
     </label>
   );

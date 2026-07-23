@@ -81,7 +81,7 @@ function Counter({ n, label }: { n: number; label: string }) {
   const shown = useCountUp(n);
   return (
     <div className="border border-caos-border rounded px-3 py-2 bg-caos-panel/40">
-      <div className="tabular tabular-nums text-[22px] text-caos-text leading-none">{shown}</div>
+      <div className="tabular tabular-nums text-[1.375rem] text-caos-text leading-none">{shown}</div>
       <div className={labelCls + " mt-1"}>{label}</div>
     </div>
   );

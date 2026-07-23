@@ -282,7 +282,7 @@ export function DecisionRail({
           <div className="grid grid-cols-3 gap-2 mt-2 items-start">
             {([["Initial", SIZING.initial], ["Max", SIZING.max], ["Entry", SIZING.entry]] as const).map(([l, v]) => (
               <div key={l}>
-                <div className="tabular text-caos-2xs uppercase text-caos-muted">{l}</div>
+                <div className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{l}</div>
                 <div className="tabular text-caos-lg text-caos-text mt-0.5 leading-tight">
                   {v.split(" / ").map((part, i) => (
                     <span key={i} className="block whitespace-nowrap">{part}</span>

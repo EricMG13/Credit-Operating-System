@@ -1,5 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+
+const fontSans = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+const fontMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 import { AuthProvider } from "@/components/shared/AuthProvider";
 import { RoleViewProvider } from "@/components/shared/RoleViewProvider";
 import { ConceptHotkeys } from "@/components/shared/ConceptHotkeys";
@@ -26,7 +30,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${fontSans.variable} ${fontMono.variable}`}>
       <body
         className="font-sans bg-caos-bg text-caos-text min-h-screen"
       >

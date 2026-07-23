@@ -1,11 +1,20 @@
 @import "tailwindcss";
 @config "../../tailwind.config.js";
 
+/* Layered (not plain :root) so next/font's unlayered class rule on <html> —
+   equal specificity, same custom properties — always wins the cascade tie
+   regardless of stylesheet load order. Unlayered rules beat layered rules
+   unconditionally in CSS, independent of specificity/source order. */
+@layer base {
+  :root {
+    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+}
+
 :root {
   /* Dark single-mode: fixes native scrollbars, inputs, and form controls. */
   color-scheme: dark;
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   /* CAOS dark theme (Blueprint §5.1) */
   --caos-bg: #0a0a0f;
   --caos-panel: #11131d;

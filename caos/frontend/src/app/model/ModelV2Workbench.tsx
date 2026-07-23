@@ -10,6 +10,7 @@ import { CompletionStateSummary } from "@/components/shared/CompletionStateSumma
 import { useNavigationGuard } from "@/components/shared/NavigationGuardProvider";
 import { ScenarioNetworkPanel } from "@/components/model/ScenarioNetworkPanel";
 import { Button } from "@/components/ui/Button";
+import { downloadBlob } from "@/lib/csv";
 import {
   calculateModelV2,
   commitModelV2Workbook,
@@ -1150,9 +1151,7 @@ function useWorkbookExport(issuerId: string, record: ModelV2DraftRecord | null, 
     setBusy("export"); setError(null);
     try {
       const exported = await exportModelV2Workbook(issuerId);
-      const url = URL.createObjectURL(exported.blob);
-      const anchor = document.createElement("a"); anchor.href = url; anchor.download = exported.filename;
-      document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+      downloadBlob(exported.filename, exported.blob);
       setNotice(`Workbook exported from revision ${exported.revision ?? record.revision}.`);
     } catch (reason) { setError(toErrorMessage(reason, "Model workbook export failed.")); }
     finally { setBusy(null); }
@@ -1898,7 +1897,7 @@ function CheckpointControls({ state }: { state: ReadyModelV2Controller }) {
 function HistoryEvent({ event }: { event: ModelHistoryEvent }) {
   return (
     <article aria-label={`Override event ${event.node_id} revision ${event.revision}`} className="space-y-1 border-b border-caos-border/60 px-2 py-2 text-caos-2xs last:border-0">
-      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2"><span className="min-w-0 truncate font-mono text-caos-text">{event.node_id}</span><span className="uppercase text-caos-muted">{event.action} · REV {event.revision}</span></div>
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2"><span className="min-w-0 truncate font-mono text-caos-text">{event.node_id}</span><span className="uppercase tracking-wider text-caos-muted">{event.action} · REV {event.revision}</span></div>
       <div className="grid gap-x-3 gap-y-1 text-caos-muted md:grid-cols-2">
         <span>ACTOR <strong className="font-normal text-caos-text">{event.actor_id}</strong> · {formatAuditTime(event.created_at)}</span>
         <span>BEFORE <strong className="font-mono font-normal text-caos-text">{formatOverrideSnapshot(event.before_value)}</strong> → AFTER <strong className="font-mono font-normal text-caos-text">{formatOverrideSnapshot(event.after_value)}</strong></span>

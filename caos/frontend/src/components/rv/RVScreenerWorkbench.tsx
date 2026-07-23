@@ -382,7 +382,7 @@ function RVViewTabs({ controller }: { controller: RVController }) {
 function RVCompareView({ candidates }: { candidates: RVCandidate[] }) {
   return (
     <div className="min-h-0 flex-1 overflow-auto"><div className="grid gap-3 xl:grid-cols-2">
-      {candidates.map((candidate) => <article key={candidate.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><h2 className="text-caos-sm font-semibold text-caos-text">{candidate.borrower}</h2><span className="ml-auto tabular text-caos-2xs uppercase text-caos-warning">{classificationLabel(candidate.classification)}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-caos-xs"><div><dt className="text-caos-muted">Discount margin (bp)</dt><dd className="tabular text-caos-text">{display(candidate.market.dm)}</dd></div><div><dt className="text-caos-muted">Pickup (bp)</dt><dd className="tabular text-caos-text">{display((candidate.pitch.market_relative_value as Record<string, unknown>).dm_pickup_bps)}</dd></div><div><dt className="text-caos-muted">Ranking</dt><dd className="text-caos-text">{display(candidate.market.ranking)}</dd></div><div><dt className="text-caos-muted">Maturity</dt><dd className="text-caos-text">{display(candidate.market.maturity)}</dd></div></dl><p className="mt-3 text-caos-xs text-caos-warning">{candidate.missing_gates.join(" · ") || "All gates satisfied"}</p></article>)}
+      {candidates.map((candidate) => <article key={candidate.id} className="rounded-md border border-caos-border bg-caos-panel p-3"><div className="flex items-center gap-2"><h2 className="text-caos-sm font-semibold text-caos-text">{candidate.borrower}</h2><span className="ml-auto tabular text-caos-2xs uppercase tracking-wider text-caos-warning">{classificationLabel(candidate.classification)}</span></div><dl className="mt-3 grid grid-cols-2 gap-2 text-caos-xs"><div><dt className="text-caos-muted">Discount margin (bp)</dt><dd className="tabular text-caos-text">{display(candidate.market.dm)}</dd></div><div><dt className="text-caos-muted">Pickup (bp)</dt><dd className="tabular text-caos-text">{display((candidate.pitch.market_relative_value as Record<string, unknown>).dm_pickup_bps)}</dd></div><div><dt className="text-caos-muted">Ranking</dt><dd className="text-caos-text">{display(candidate.market.ranking)}</dd></div><div><dt className="text-caos-muted">Maturity</dt><dd className="text-caos-text">{display(candidate.market.maturity)}</dd></div></dl><p className="mt-3 text-caos-xs text-caos-warning">{candidate.missing_gates.join(" · ") || "All gates satisfied"}</p></article>)}
     </div></div>
   );
 }
@@ -461,12 +461,12 @@ function RVScreenerPage({ controller }: { controller: RVController }) {
     <EnterprisePage
       kind="analytical"
       identity={<><ConceptNav compact /><span className="h-4 w-px bg-caos-border" /><span className="text-caos-sm font-semibold text-caos-text shrink-0">RV Screener</span>{screen ? <span className="tabular text-caos-2xs text-caos-muted min-w-0 truncate" title={`${screen.snapshot_source_label ?? "Snapshot"} · ${screen.snapshot_id}`}>{screen.snapshot_source_label ?? "Snapshot"} · {screen.snapshot_id.slice(0, 8)}</span> : null}</>}
-      status={<span className="tabular text-caos-2xs uppercase text-caos-accent">Shared governed workspace</span>}
+      status={<span className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent">Shared governed workspace</span>}
       primaryAction={RVPrimaryAction({ controller })}
       contextualControls={<RVContextualControls controller={controller} />}
       utilityLabel="RV utilities"
       utilityControls={<RVUtilities controller={controller} />}
-      narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase text-caos-muted">{screen?.candidates.length ?? 0} instruments</span> }}
+      narrowContract={{ essentialControls: <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{screen?.candidates.length ?? 0} instruments</span> }}
     >
       <section aria-label="Relative value screening workspace" className="caos-persona-route rv-workbench min-h-0 flex-1 overflow-hidden p-2">
         {screen ? <PersonaWorkbench

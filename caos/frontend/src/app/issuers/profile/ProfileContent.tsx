@@ -39,7 +39,7 @@ import { Tag, ToggleGroup } from "@/components/pipeline/atoms";
 import { sevSurface } from "@/lib/pipeline/sev";
 import { buildCharts, buildHeadline, buildSeries, filterSeriesByGranularity, latestPointDelta } from "@/lib/issuer-profile-charts";
 import { issuerSector } from "@/lib/issuers";
-import { fmtPct, fmtUsdM } from "@/lib/format";
+import { fmtPct, fmtUsdCompact, fmtUsdM } from "@/lib/format";
 import { EnterprisePage } from "@/components/shared/EnterprisePage";
 import { DecisionHeader } from "@/components/shared/DecisionHeader";
 import { PersonaWorkbench } from "@/components/shared/PersonaWorkbench";
@@ -78,7 +78,7 @@ const GRAN_OPTS = [{ k: "FY" as const, l: "Full year" }, { k: "Q" as const, l: "
 // series so it renders an honest feed-pending card.
 const TREND_ORDER = ["revenue", "adj_ebitda", "ebitda_margin", "net_leverage", "interest_coverage"] as const;
 const TREND_FMT: Record<string, { title: string; color: string; unit: (v: number) => string }> = {
-  revenue:           { title: "Revenue",       color: "#63a1ff", unit: (v) => (v >= 1000 ? "$" + (v / 1000).toFixed(1) + "bn" : "$" + Math.round(v) + "m") },
+  revenue:           { title: "Revenue",       color: "#63a1ff", unit: fmtUsdCompact },
   adj_ebitda:        { title: "Adj. EBITDA",   color: "#2dd4bf", unit: (v) => "$" + Math.round(v) + "m" },
   ebitda_margin:     { title: "EBITDA margin", color: "#22c55e", unit: (v) => v.toFixed(1) + "%" },
   net_leverage:      { title: "Net leverage",  color: "#f5a524", unit: (v) => v.toFixed(1) + "×" },
@@ -131,7 +131,7 @@ function Sparkline({ pts, color, fmt }: { pts: { period: string; value: number }
         ) : null}
       </svg>
       {cur ? (
-        <div className="absolute pointer-events-none tabular" style={{ left: `${(px(activeIdx) / W) * 100}%`, top: 0, transform: "translate(-50%,-105%)", background: "#1d2030", border: "1px solid #34384a", color: "#e6e6ef", fontSize: 10.5, padding: "3px 6px", borderRadius: 4, whiteSpace: "nowrap", zIndex: 20 }}>
+        <div className="absolute pointer-events-none tabular" style={{ left: `${(px(activeIdx) / W) * 100}%`, top: 0, transform: "translate(-50%,-105%)", background: "#1d2030", border: "1px solid #34384a", color: "#e6e6ef", fontSize: "0.65625rem", padding: "3px 6px", borderRadius: 4, whiteSpace: "nowrap", zIndex: 20 }}>
           {cur.period} · {fmt(cur.value)}
         </div>
       ) : null}
@@ -259,8 +259,7 @@ const bandSev = (v: unknown) => BAND_SEV[String(v).toUpperCase()] ?? "low";
 function fmt(value: number, unit: string): string {
   if (unit === "x") return value.toFixed(1) + "×";
   if (unit === "%") return value.toFixed(1) + "%";
-  if (unit === "$M")
-    return Math.abs(value) >= 1000 ? "$" + (value / 1000).toFixed(1) + "bn" : "$" + value.toFixed(0) + "m";
+  if (unit === "$M") return fmtUsdCompact(value);
   return value.toFixed(1);
 }
 const signed = (v: number, suffix = "", digits = 1) => {
@@ -398,7 +397,7 @@ function KpiTile({ m, delta, deepHref, provMixed, anyPriorDelta }: {
       <div className="flex items-baseline gap-2 mt-1">
         <span
           className="tabular font-semibold leading-none inline-flex items-center gap-1"
-          style={{ fontSize: 18, color: sev ? sevSurface(sev).color : isLive ? "var(--caos-text)" : "var(--caos-muted)" }}
+          style={{ fontSize: "1.125rem", color: sev ? sevSurface(sev).color : isLive ? "var(--caos-text)" : "var(--caos-muted)" }}
         >
           {sev ? (
             // role="img" so the threshold note is an accessible name AT announces —
@@ -416,7 +415,7 @@ function KpiTile({ m, delta, deepHref, provMixed, anyPriorDelta }: {
         <span className="tabular text-caos-2xs text-caos-muted truncate">{m.period}</span>
         {m.provenance !== "run" && (provMixed || m.provenance === "demo_fixture") ? (
           <span
-            className="tabular text-caos-2xs uppercase"
+            className="tabular text-caos-2xs uppercase tracking-wider"
             style={{ color: sevSurface(PROV[m.provenance]?.sev || "low").color }}
             title={PROV[m.provenance]?.label}
           >
@@ -1050,13 +1049,13 @@ export function Profile({
             </span>
           ) : <Tag sev="low">no run</Tag>}
         >
-          <span className="text-caos-muted truncate text-caos-xs shrink-0 max-w-[110px]" style={{ fontSize: 11 }}>
+          <span className="text-caos-muted truncate text-caos-xs shrink-0 max-w-[110px]">
             {[issuerSector(issuer), issuer.country].filter(Boolean).join(" · ")}
           </span>
           {ratings.length ? (
             <span className="flex items-center gap-1 shrink-0">
               {ratings.map((r) => (
-                <span key={r.ag} className="tabular text-[10px] border border-caos-border rounded px-1 py-px" title={`${r.ag} rating`}>
+                <span key={r.ag} className="tabular text-caos-3xs border border-caos-border rounded px-1 py-px" title={`${r.ag} rating`}>
                   <span className="text-caos-muted">{r.short}</span> <span className="text-caos-text font-semibold">{r.v}</span>
                 </span>
               ))}
@@ -1205,7 +1204,7 @@ function DeltaRow({ label, v, suffix }: { label: string; v: unknown; suffix: str
   return (
     <div className="flex items-baseline justify-between">
       <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{label}</span>
-      <span className="tabular font-medium leading-none" style={{ fontSize: 15, color: sevSurface(sev).color }}>{signed(v, suffix)}</span>
+      <span className="tabular font-medium leading-none" style={{ fontSize: "0.9375rem", color: sevSurface(sev).color }}>{signed(v, suffix)}</span>
     </div>
   );
 }

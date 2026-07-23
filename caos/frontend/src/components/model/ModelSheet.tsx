@@ -239,7 +239,7 @@ function SheetCell({ row, column, options, hlGroup, hlCells, sel, editing, onSel
 function GroupHeader({ groups, hlGroup }: { groups: GroupDef[]; hlGroup?: string }) {
   return (
     <div role="row" className="flex sticky top-0 z-30" style={{ background: "var(--caos-bg)" }}>
-      <div role="presentation" className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none" style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }} />
+      <div role="presentation" className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[0.5625rem] font-mono select-none" style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }} />
       <div role="columnheader" className="sticky z-10 shrink-0 px-2 flex items-center" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}><span className="tabular text-caos-2xs uppercase tracking-widest text-caos-muted whitespace-nowrap overflow-hidden">YE 31-Dec · $m</span></div>
       {groups.map((group) => (
         <div key={group.group} role="columnheader" className="shrink-0 flex items-center justify-center" data-period-group={group.group} style={{ width: group.w, marginLeft: group.gap ? GROUP_GUTTER : 0 }}>
@@ -255,13 +255,13 @@ function GroupHeader({ groups, hlGroup }: { groups: GroupDef[]; hlGroup?: string
 function PeriodHeader({ columns }: { columns: ColDef[] }) {
   return (
     <div role="row" className="flex sticky z-30 border-b border-caos-border" style={{ top: 24, background: "var(--caos-bg)" }}>
-      <div role="presentation" className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none" style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }} />
+      <div role="presentation" className="sticky left-0 z-30 shrink-0 flex items-center justify-end pr-1 text-[0.5625rem] font-mono select-none" style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)" }} />
       <div role="columnheader" className="sticky z-10 shrink-0 flex items-end justify-end pr-1.5 pb-0.5" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)" }}>
         {columns.some((column) => column.ctx.derived) ? <span className="tabular text-caos-2xs leading-[11px] whitespace-nowrap select-none" style={{ color: "var(--caos-warning)" }}>* derived period</span> : null}
       </div>
       {columns.map((column, index) => (
         <div key={column.key} role="columnheader" className="shrink-0 flex flex-col justify-end items-end pl-1 pr-1.5 pb-0.5" data-period-group-start={column.gap ? column.group : undefined} style={{ width: column.w, marginLeft: column.gap ? GROUP_GUTTER : 0, borderRight: "1px solid var(--caos-border)" }}>
-          <span className="tabular text-[9px] font-bold text-caos-accent leading-[10px] select-none">{getColLetter(index)}</span>
+          <span className="tabular text-[0.5625rem] font-bold text-caos-accent leading-[10px] select-none">{getColLetter(index)}</span>
           <span className="tabular text-caos-xs font-semibold whitespace-nowrap truncate" style={{ color: columnLabelColor(column) }}>{column.ctx.label + (column.ctx.derived ? "*" : "")}</span>
         </div>
       ))}
@@ -272,7 +272,7 @@ function PeriodHeader({ columns }: { columns: ColDef[] }) {
 function SectionRow({ row, rowNumber, columns }: { row: RowDef; rowNumber: number; columns: ColDef[] }) {
   return (
     <div role="presentation" className="flex mt-1.5">
-      <div className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none" style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)", borderBottom: "1px solid var(--caos-border)", color: "var(--caos-muted)" }}>{rowNumber}</div>
+      <div className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[0.5625rem] font-mono select-none" style={{ width: 24, background: "var(--caos-panel)", borderRight: "1px solid var(--caos-border)", borderBottom: "1px solid var(--caos-border)", color: "var(--caos-muted)" }}>{rowNumber}</div>
       <div className="sticky z-10 shrink-0 px-2 flex items-center" style={{ left: 24, width: LBL, background: "var(--caos-bg)", borderRight: "1px solid var(--caos-border)", borderBottom: "1px solid var(--caos-border)" }}><span className="text-caos-md font-semibold text-caos-text">{row.sec}</span></div>
       {columns.map((column) => <div key={column.key} className="shrink-0 flex items-center" style={{ width: column.w, marginLeft: column.gap ? GROUP_GUTTER : 0, borderRight: "1px solid var(--caos-border)", borderBottom: "1px solid var(--caos-border)" }}><div className="w-full mx-px h-[13px] rounded-sm" style={{ background: "color-mix(in srgb, var(--tranche-2l) 16%, transparent)" }} /></div>)}
     </div>
@@ -296,7 +296,7 @@ function DataRow({ row, rowNumber, columns, hl, hlGroup, hlCells, collapsedRows,
   const options = { bold: row.bold, pct: row.pct, shade: row.shade, line: row.line, isHl: highlighted };
   return (
     <div role="row" className="flex group" style={{ background: highlighted ? "color-mix(in srgb, var(--tranche-2l) 10%, transparent)" : "transparent" }}>
-      <div role="presentation" className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[9px] font-mono select-none" style={{ width: 24, background: highlighted ? "color-mix(in srgb, var(--caos-accent) 10%, var(--caos-bg))" : "var(--caos-panel)", borderRight: "1px solid var(--caos-border)", borderBottom: "1px solid var(--caos-border)", color: "var(--caos-muted)" }}>{rowNumber}</div>
+      <div role="presentation" className="sticky left-0 z-10 shrink-0 flex items-center justify-end pr-1 text-[0.5625rem] font-mono select-none" style={{ width: 24, background: highlighted ? "color-mix(in srgb, var(--caos-accent) 10%, var(--caos-bg))" : "var(--caos-panel)", borderRight: "1px solid var(--caos-border)", borderBottom: "1px solid var(--caos-border)", color: "var(--caos-muted)" }}>{rowNumber}</div>
       <DataRowLabel row={row} highlighted={highlighted} collapsed={collapsed} collapsible={collapsible} onToggleRow={onToggleRow} />
       {columns.map((column) => <SheetCell key={column.key} row={row} column={column} options={options} hlGroup={hlGroup} hlCells={hlCells} sel={sel} editing={editing} onSel={onSel} onEdit={onEdit} onCommit={onCommit} />)}
     </div>

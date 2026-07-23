@@ -62,7 +62,7 @@ export function AuthorityBlock({
         padding: "4px 8px",
         border: `1px solid ${unknown ? "var(--caos-critical)" : "var(--paper-ink)"}`,
         color: unknown ? "var(--paper-critical)" : "var(--paper-ink)",
-        fontSize: "10px",
+        fontSize: "0.625rem",
         letterSpacing: "0.05em",
         textTransform: "uppercase",
         fontFamily: "var(--font-mono, monospace)",

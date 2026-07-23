@@ -352,7 +352,7 @@ function SectorReviewRequired({ active, review }: { active: boolean; review: Sec
 }
 
 function SectorActiveState({ active, review }: { active: boolean; review: SectorReviewV2 | null }) {
-  return active ? <span className="mt-1 block tabular text-caos-2xs uppercase text-caos-muted">{review?.status ?? "not reviewed"}</span> : null;
+  return active ? <span className="mt-1 block tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{review?.status ?? "not reviewed"}</span> : null;
 }
 
 function SectorFeedSignal({ subscribed }: { subscribed: boolean }) {
@@ -438,7 +438,7 @@ function SelectedSectorSection({ controller }: { controller: SectorController })
   return <section className="mt-4">
     <h3 className="text-caos-sm font-semibold text-caos-text">{selected.title}</h3>
     <p className="mt-2 text-caos-xs leading-relaxed text-caos-muted">{selected.summary}</p>
-    <p className="mt-2 tabular text-caos-2xs uppercase text-caos-muted">Confidence {Math.round(selected.confidence * 100)}% · {selected.signal_ids.length} signals</p>
+    <p className="mt-2 tabular text-caos-2xs uppercase tracking-wider text-caos-muted">Confidence {Math.round(selected.confidence * 100)}% · {selected.signal_ids.length} signals</p>
     <div className="mt-3 flex gap-2">
       <button type="button" onClick={() => void controller.ratifySection(selected.id)} disabled={busy || ratified} className="caos-action-secondary focus-ring disabled:opacity-40">{ratified ? "Ratified" : "Ratify section"}</button>
       {contextState.context ? <Link href={contextHref("/query", contextState.context.id, { section: selected.id })} className="caos-action-secondary focus-ring no-underline">Open in Query</Link> : null}
@@ -481,7 +481,7 @@ function SectorContextStats({ controller }: { controller: SectorController }) {
 }
 
 function SectorNarrowControl({ review }: { review: SectorReviewV2 | null }) {
-  return <span className="tabular text-caos-2xs uppercase text-caos-muted">{review?.sector_label ?? "Sector"}</span>;
+  return <span className="tabular text-caos-2xs uppercase tracking-wider text-caos-muted">{review?.sector_label ?? "Sector"}</span>;
 }
 
 function SectorReviewPage({ controller }: { controller: SectorController }) {
@@ -498,7 +498,7 @@ function SectorReviewPage({ controller }: { controller: SectorController }) {
           ? "A sector review action is already in progress"
           : null,
     }}
-    status={<span className="tabular text-caos-2xs uppercase text-caos-accent">Shared governed workspace</span>}
+    status={<span className="tabular text-caos-2xs uppercase tracking-wider text-caos-accent">Shared governed workspace</span>}
     contextualControls={<SectorContextStats controller={controller} />}
     utilityLabel="Review utilities"
     utilityControls={<SectorUtilities controller={controller} />}

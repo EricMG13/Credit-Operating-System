@@ -110,7 +110,7 @@ function LineageNodeCard({ node, focusId, selectedNodeId, lineage, onSelect, onH
       className={`w-full max-w-[170px] bg-caos-panel/90 border rounded p-2 cursor-pointer transition-colors duration-150 motion-reduce:transition-none flex flex-col gap-1 text-left relative focus-ring ${focused || selected ? "shadow-pop bg-caos-elevated" : "hover:border-caos-accent/50"}`}
     >
       <div className="flex items-center justify-between gap-1 w-full">
-        <span className="tabular text-[8px] uppercase tracking-wider text-caos-muted font-mono truncate max-w-[70%]">{node.kind.replace("-", " ")}</span>
+        <span className="tabular text-caos-3xs uppercase tracking-wider text-caos-muted font-mono truncate max-w-[70%]">{node.kind.replace("-", " ")}</span>
         <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: nodeColor === "var(--caos-muted)" ? "var(--caos-border)" : nodeColor }} />
       </div>
       <span className={`tabular text-caos-xs text-caos-text font-sans font-medium line-clamp-2 leading-tight break-words ${focused || selected ? "text-caos-accent" : ""}`} title={node.label}>{node.label}</span>
