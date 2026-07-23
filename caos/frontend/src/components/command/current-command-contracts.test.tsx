@@ -113,7 +113,8 @@ describe("Current Command Center component contracts", () => {
     const row = within(grid).getByRole("row", { name: /Atlas Forge position details/i });
     expect(row.className).toContain("[content-visibility:auto]");
     expect(row.className).toContain("[contain-intrinsic-size:auto_36px]");
-    expect(within(row).getByText("$100M")).toBeTruthy();
+    // ICU/CLDR renders compact currency as "$100M" (≤ICU 77) or "$100.0M" (ICU 78+); both satisfy maximumFractionDigits: 1.
+    expect(within(row).getByText(/^\$100(\.0)?M$/)).toBeTruthy();
     expect(within(row).getByText("475bp")).toBeTruthy();
     expect(within(row).getByText("B2 / B")).toBeTruthy();
     expect(within(row).getByText("OVERWEIGHT")).toBeTruthy();
@@ -139,7 +140,7 @@ describe("Current Command Center component contracts", () => {
     const strip = render(<CommandPositionStrip position={position} onClose={onClose} />);
 
     expect(screen.getByText("First Lien Term Loan B 2031")).toBeTruthy();
-    expect(screen.getByText("$100M")).toBeTruthy();
+    expect(screen.getByText(/^\$100(\.0)?M$/)).toBeTruthy();
     expect(screen.getByText("98.5")).toBeTruthy();
     expect(screen.getByText("475bp")).toBeTruthy();
     expect(screen.getByText("2031-06-30")).toBeTruthy();
