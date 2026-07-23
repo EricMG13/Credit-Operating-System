@@ -557,7 +557,22 @@ function IssuerProfileAction({ issuer }: { issuer: Issuer | null }) {
   return <button onClick={() => openProfile(issuer.id)} className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos">OPEN ISSUER PROFILE →</button>;
 }
 
+// The run the analyst just spent, if any — auto-queued (FE-1) or manually
+// started (FE-2). Present ⇒ "watch it" is the next step, not another intake.
+function watchRunHref(props: ResultStepProps): string | null {
+  const runId = props.runCreated?.id
+    ?? (props.runOutcome?.state === "queued" ? props.runOutcome.runId : null);
+  if (!runId || !props.selectedIssuer) return null;
+  return pipelineRunHref(props.selectedIssuer.id, runId, props.contextId);
+}
+
 function ResultActions({ props }: { props: ResultStepProps }) {
+  // Intake→watch is a push, not a hunt: once a run exists, the primary action
+  // is following it in Pipeline; the register link demotes to neutral.
+  const watchHref = watchRunHref(props);
+  const registerCls = watchHref
+    ? "border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60"
+    : "border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg";
   return <div className="p-3 flex gap-2">
     <RetryFailedAction props={props} />
     <ActionReason
@@ -566,7 +581,10 @@ function ResultActions({ props }: { props: ResultStepProps }) {
       className="focus-ring flex-1 tabular text-caos-md py-1.5 rounded border border-caos-border text-caos-muted hover:text-caos-text hover:border-caos-accent/60 transition-caos aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
     >UPLOAD ANOTHER</ActionReason>
     <IssuerProfileAction issuer={props.selectedIssuer} />
-    <Link href="/issuers" className="focus-ring flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">ISSUER REGISTER →</Link>
+    {watchHref ? (
+      <Link href={watchHref} className="focus-ring flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border border-caos-accent text-caos-accent hover:bg-caos-accent hover:text-caos-bg transition-caos">WATCH RUN IN PIPELINE →</Link>
+    ) : null}
+    <Link href="/issuers" className={`focus-ring flex-1 no-underline text-center tabular text-caos-md py-1.5 rounded border transition-caos ${registerCls}`}>ISSUER REGISTER →</Link>
   </div>;
 }
 
