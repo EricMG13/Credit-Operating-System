@@ -32,8 +32,13 @@ class AmbiguousAnalystEmailError(RuntimeError):
     """A case-insensitive operator lookup resolved to more than one profile."""
 
 
-async def erase_by_email(email: str) -> dict[str, int]:
+async def erase_by_email(email: str, aliases: tuple[str, ...] = ()) -> dict[str, int]:
     lookup_email = normalize_email_identity(email)
+    # Historical identities (old email addresses, proxy principals) the operator
+    # knows for the departed analyst. The self-service route already anonymizes
+    # by alias set (routes/auth.py); without this, documents stamped with a
+    # pre-rename email would survive an operator-initiated erasure.
+    alias_keys = tuple({normalize_email_identity(a) for a in aliases if a.strip()} | {lookup_email})
     async with AsyncSessionLocal() as session:
         matching_analysts = list(
             (
@@ -66,15 +71,16 @@ async def erase_by_email(email: str) -> dict[str, int]:
             session,
             analyst_id=analyst_id,
             email=canonical_email,
+            identity_aliases=alias_keys,
         )
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 1 or not argv[0].strip():
-        print("usage: python -m erase_analyst <email>", file=sys.stderr)
+    if not argv or not argv[0].strip():
+        print("usage: python -m erase_analyst <email> [former-email ...]", file=sys.stderr)
         return 2
-    summary = asyncio.run(erase_by_email(argv[0].strip()))
+    summary = asyncio.run(erase_by_email(argv[0].strip(), tuple(argv[1:])))
     print(f"erased {argv[0].strip()}: {summary}")
     return 0
 

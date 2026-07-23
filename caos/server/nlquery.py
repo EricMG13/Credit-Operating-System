@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Dict, List, Optional, Tuple, Union
 
 from pydantic import BaseModel, Field
@@ -27,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from engine import llm_client, presets
+from engine.llm_safety import first_json_value
 from database import Issuer, MetricFact
 from engine.metrics import CATALOG_BY_KEY, MetricDef, catalog_dicts, DERIVED_PROVENANCE, provenance_tier
 from retrieval import retrieve_corpus, retrieve_corpus_by_issuer
@@ -252,10 +252,13 @@ async def _llm_translate(question: str) -> QuerySpec:
         messages=[{"role": "user", "content": question}],
     )
     text = next((b.text for b in resp.content if b.type == "text"), "")
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    # raw_decode-based extraction (not a greedy {.*} regex): a reply with two JSON
+    # blocks would otherwise mangle into unparseable text, and plain json.loads
+    # accepts Infinity/NaN into QuerySpec floats. Same helper as the other lanes.
+    parsed = first_json_value(text)
+    if not isinstance(parsed, dict):
         raise QueryError("model returned no JSON spec")
-    return QuerySpec(**json.loads(match.group(0)))
+    return QuerySpec(**parsed)
 
 
 async def translate(question: str) -> QuerySpec:
@@ -317,10 +320,9 @@ async def _llm_plan(question: str) -> Tuple[str, Union[QuerySpec, SemanticSpec, 
         messages=[{"role": "user", "content": question}],
     )
     text = next((b.text for b in resp.content if b.type == "text"), "")
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    data = first_json_value(text)
+    if not isinstance(data, dict):
         raise QueryError("model returned no JSON spec")
-    data = json.loads(match.group(0))
     mode = data.pop("mode", "structured")
     if mode == "semantic":
         return "semantic", SemanticSpec(**data)

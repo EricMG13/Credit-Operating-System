@@ -23,7 +23,7 @@
     },
     {
       "file": "caos/frontend/src/lib/api.ts",
-      "exports": ["DecisionVote"]
+      "exports": ["DecisionVote", "refreshAlertEvents", "getAlertEvents"]
     },
     {
       "file": "caos/frontend/src/lib/ic-book.ts",
