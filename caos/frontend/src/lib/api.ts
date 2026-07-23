@@ -1529,11 +1529,6 @@ export const getAlertEventPage = ({
     canMutate: (response.headers as Record<string, unknown>)["x-alert-event-can-mutate"] === "true",
   }));
 
-// Compatibility export for consumers that intentionally own only one bounded
-// page. Monitor uses getAlertEventPage and drains the signed cursor itself so
-// its counts and filters cannot silently truncate persisted authority.
-export const getAlertEvents = (state?: AlertEventDTO["state"]): Promise<AlertEventDTO[]> =>
-  getAlertEventPage({ state }).then((page) => page.items);
 export const patchAlertEvent = (
   id: string,
   state: AlertEventDTO["state"],

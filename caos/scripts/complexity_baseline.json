@@ -14,6 +14,7 @@
     {"path": "caos/server/engine/specialized_modules.py", "symbol": "source_gate", "max_complexity": 11},
     {"path": "caos/server/engine/synth.py", "symbol": "synthesize", "max_complexity": 16},
     {"path": "caos/server/freshness.py", "symbol": "evaluate_freshness", "max_complexity": 22},
+    {"path": "caos/server/identity.py", "symbol": "get_identity", "max_complexity": 12},
     {"path": "caos/server/ingest.py", "symbol": "extract_xlsx_text", "max_complexity": 11},
     {"path": "caos/server/lineage_reconciliation.py", "symbol": "_ref_status", "max_complexity": 39},
     {"path": "caos/server/lineage_reconciliation.py", "symbol": "reconcile_lineage", "max_complexity": 48},
