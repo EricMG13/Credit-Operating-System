@@ -10,9 +10,9 @@ Caddy (TLS, :443)  →  oauth2-proxy (auth)  →  app (FastAPI + UI)  →  db (P
                                                    vault volume
 ```
 
-All five services (db, app, oauth2-proxy, caddy, backup — plus the opt-in
-clamav profile) are free / OSS. Only the Anthropic API carries usage cost
-(and is optional — without a key, chat/synthesis fall back to demo replies).
+All eight services (db, vault-init, app, oauth2-proxy, caddy, backup,
+backup-sync, clamav) are free / OSS. Only the LLM provider APIs carry usage
+cost (and are optional — without keys, chat/synthesis fall back to demo replies).
 
 ## Prerequisites
 

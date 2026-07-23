@@ -538,9 +538,16 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
         cap_pct, cid, cap_exact = cap
         recon = (cp1.runtime_output or {}).get("adjusted_ebitda_reconciliation") or {}
         load = recon.get("addback_pct")
-        if is_finite_number(load) and is_finite_number(cap_pct) and cap_pct > 0:
+        # safe_* (not raw ops): finite-but-huge operands would overflow to inf and
+        # only be caught at the persistence gate — degrade the audit instead.
+        if (
+            is_finite_number(load) and is_finite_number(cap_pct) and cap_pct > 0
+            and (util_raw := safe_mul(safe_div(float(load), cap_pct), 100.0)) is not None
+            and (num_raw := safe_mul(float(load), 100.0)) is not None
+            and (den_raw := safe_mul(cap_pct, 100.0)) is not None
+        ):
             load_f = float(load)
-            util = round(load_f / cap_pct * 100, 1)
+            util = round(util_raw, 1)
             breach = load_f > cap_pct
             addback_audit = {
                 "disclosed_addback_pct": round(load_f, 4),
@@ -551,7 +558,7 @@ async def synthesize_covenants(cp1: ModulePayload, retrieve) -> ModulePayload:  
             calcs.append({
                 "name": "EBITDA add-back cap utilization",
                 "formula": "disclosed add-backs / covenant add-back cap",
-                "numerator": round(load_f * 100, 1), "denominator": round(cap_pct * 100, 1),
+                "numerator": round(num_raw, 1), "denominator": round(den_raw, 1),
                 "period": "LTM", "value": util, "unit": "%",
                 "source": "Add-back cap (governing document) + CP-1 add-back disclosure",
             })

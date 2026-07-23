@@ -26,15 +26,31 @@ const POSTURE_COLOR: Record<CommandPosture, string> = {
   UNKNOWN: "var(--caos-muted)",
 };
 
-const fmtMoney = (value: number | null) =>
-  typeof value === "number" && Number.isFinite(value)
-    ? new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        notation: "compact",
-        maximumFractionDigits: 1,
-      }).format(value)
-    : "—";
+// Deterministic compact USD (100_000_000 -> "$100M", 1_250_000_000 -> "$1.3B").
+// Not Intl compact notation: its trailing-zero handling differs across ICU
+// versions (Node <=22 renders "$100.0M" — nodejs/node#57137), so the grid's
+// rendered strings would depend on the viewer's runtime. One decimal max,
+// trailing ".0" dropped, unit bumped when rounding carries (999.96M -> "$1B").
+const fmtMoney = (value: number | null) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const units = [
+    [1e12, "T"],
+    [1e9, "B"],
+    [1e6, "M"],
+    [1e3, "K"],
+    [1, ""],
+  ] as const;
+  const abs = Math.abs(value);
+  let index = units.findIndex(([div]) => abs >= div);
+  if (index === -1) index = units.length - 1;
+  let scaled = Math.round((abs / units[index][0]) * 10) / 10;
+  if (scaled >= 1000 && index > 0) {
+    index -= 1;
+    scaled = Math.round((abs / units[index][0]) * 10) / 10;
+  }
+  const text = scaled.toLocaleString("en-US", { maximumFractionDigits: 1 });
+  return `${value < 0 ? "-" : ""}$${text}${units[index][1]}`;
+};
 
 const fmtNumber = (value: number | null, suffix = "") =>
   typeof value === "number" && Number.isFinite(value)

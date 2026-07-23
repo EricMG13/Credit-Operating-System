@@ -50,7 +50,8 @@ class Settings(BaseSettings):
     # any deployed-context request whose X-Edge-Authorization does not match —
     # turning "sole ingress" from an operational assumption into an enforced check,
     # so a directly-reachable app port can't be hit with forged identity headers.
-    # Empty = enforcement off (a loud startup warning fires in production). Env:
+    # Empty = enforcement off in dev only — production REFUSES TO BOOT without it
+    # (main.py fail-closed guard, incl. a minimum-strength check). Env:
     # EDGE_PROXY_SECRET. Generate with e.g. `python -c "import secrets;print(secrets.token_urlsafe(32))"`.
     edge_proxy_secret: str = ""
 

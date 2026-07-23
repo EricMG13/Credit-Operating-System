@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from engine import locks, pipeline
 from identity import CallerIdentity, get_identity, get_write_identity
+from tenancy import block_if_tenancy_unscoped
 
 logger = logging.getLogger("caos.autonomy_route")
 
@@ -83,6 +84,9 @@ async def get_autonomy_draft(
     _caller: CallerIdentity = Depends(get_identity),
 ):
     """Return the latest draft without creating work or mutating state."""
+    # Outside the fault-isolation net below: the 501 must reach the caller, not
+    # be swallowed into an empty draft. Book-wide anomaly roll-up is not team-scoped.
+    block_if_tenancy_unscoped()
     try:
         return await _latest_draft_envelope(db)
     except Exception:  # noqa: BLE001 — fault-isolated: never 500 the page
@@ -100,6 +104,8 @@ async def refresh_autonomy_draft(
     """Request a stale/missing autonomy refresh and return the current envelope."""
     if action != _ACTION_HEADER:
         raise HTTPException(403, "Missing or invalid autonomy action header.")
+    # Same gate as GET /draft: don't enqueue book-wide work no team could read.
+    block_if_tenancy_unscoped()
     try:
         # The advisory lock guards the single-flight decision+write only; the
         # continuous executor owns the durable queued row after commit.

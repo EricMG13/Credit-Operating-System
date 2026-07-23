@@ -36,6 +36,22 @@ ships **off**. Flip only with a recorded decision; `CAOS_ALERT_RULES_V1_ENABLED`
 has a rehearsed on→observe→off rollback
 ([C3_LIVE_OPERATION_EVIDENCE_2026-07-22.md](../qa/C3_LIVE_OPERATION_EVIDENCE_2026-07-22.md)).
 
+**C3 alert delivery requires an external scheduler — the app deliberately runs
+none.** With the flag on, only run-completion *materializes* alert events;
+scheduled rule evaluation and sink delivery are operator-driven, exactly as the
+evidence run operated them. When you enable the flag, also schedule (host cron
+or systemd timers, in the app container's environment):
+
+1. `python -m reconcile_alert_rules --limit 100` on a recurring cadence
+   (persist and pass back the printed `next_cursor`; rerun the same cursor on
+   exit 1) — replays completed runs through the rules.
+2. A dispatcher loop draining `AlertDeliveryIntent` rows (the
+   `alert_dispatch.dispatch_once` seam) — without it, rendered intents queue in
+   the database and nothing is ever delivered.
+
+Until both are scheduled, treat Monitor as materialize-only and keep the
+external probe (MONITORING_INVENTORY) as the alerting spine.
+
 ## Backup / restore / DR
 
 - Local cycle + scripted scratch-target drill: `caos/deploy/backup.sh`,

@@ -44,6 +44,7 @@ from engine.locks import key_from_str
 from engine.periods import is_finite_number
 from sector_taxonomy import CANONICAL_SECTORS, canonical_sector_id
 from sector_logic import sector_materiality_score, sector_signal_dedup_hash
+from tenancy import block_if_tenancy_unscoped
 
 router = APIRouter()
 
@@ -633,6 +634,7 @@ async def read_signals(
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_guard(caller)
+    block_if_tenancy_unscoped()  # cross-issuer signal roll-up is not team-scoped
     return await _query_signals(
         db,
         sector=sector,
@@ -654,6 +656,7 @@ async def read_review(
     caller: CallerIdentity = Depends(get_identity),
 ):
     _read_guard(caller)
+    block_if_tenancy_unscoped()  # sector dossier aggregates issuers across the book
     return await _review_response(
         db,
         sector=sector,
@@ -686,6 +689,7 @@ async def ask_sector_topic(
     caller: CallerIdentity = Depends(get_identity),
 ):
     _ask_guard(caller)
+    block_if_tenancy_unscoped()  # answers expose cross-issuer signal linkage
     signals = await _query_signals(db, limit=_MAX_SIGNALS)
     signal = next((s for s in signals if s.id == body.signal_id), None)
     if signal is None:

@@ -3,8 +3,9 @@ import { loadMode } from "@/lib/model-mode";
 import type { Issuer } from "@/types/issuers";
 
 // Same-origin API: the FastAPI server serves both /api and the static
-// frontend in deployment (Databricks Apps). In `next dev`, the rewrite in
-// next.config.js proxies /api to the local server on :8000.
+// frontend in deployment (self-hosted Docker stack: Caddy → oauth2-proxy →
+// FastAPI). In `next dev`, the rewrite in next.config.js proxies /api to the
+// local server on :8000.
 export const api = axios.create({
   headers: { "Content-Type": "application/json" },
   // Default timeout so a hung/dead API (or a proxy to a dead :8000) can't strand
@@ -121,8 +122,9 @@ export function toErrorMessage(err: unknown, fallback: string): string {
 }
 
 // ─── Identity ─────────────────────────────────────────────────────────────
-// Authentication is platform-managed (Databricks workspace OAuth at the
-// edge). /api/auth/me reflects the forwarded identity.
+// Authentication is edge-managed (oauth2-proxy Google Workspace OIDC behind
+// Caddy), layered with the in-app analyst profile. /api/auth/me reflects the
+// resolved identity.
 // Bounded: a down/hung API (or proxy to a dead :8000) must not strand the whole
 // app on the RequireAuth "Loading…" gate — on timeout the request rejects and
 // the error card (with RETRY) shows instead. Long-running calls set their own.
@@ -821,7 +823,7 @@ export interface EdgarVaultResult {
   warning?: string | null;
 }
 
-export const edgarVaultUrl = (
+const edgarVaultUrl = (
   issuerId: string,
   exhibitUrl: string,
   runMode = "legal",
@@ -918,7 +920,7 @@ const _detail = (detail: string) => ({ response: { data: { detail } } });
 // Sentinel thrown when a poll loop is aborted (unmount / analyst detach). The
 // durable server-side job is untouched — the caller just stops watching it — so
 // the page must NOT surface this as a run failure.
-export const RESEARCH_ABORTED = Symbol("research-aborted");
+const RESEARCH_ABORTED = Symbol("research-aborted");
 const _aborted = () => ({ [RESEARCH_ABORTED]: true });
 export const isResearchAborted = (e: unknown): boolean =>
   typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[RESEARCH_ABORTED] === true;
@@ -927,7 +929,7 @@ export const isResearchAborted = (e: unknown): boolean =>
 // job, or a foreign id under a shared machine). Distinct from a transient blip:
 // retrying a 404 is pointless, so resume drops the stale id quietly rather than
 // spinning ~20s into a "Lost contact" error.
-export const RESEARCH_GONE = Symbol("research-gone");
+const RESEARCH_GONE = Symbol("research-gone");
 const _gone = () => ({ [RESEARCH_GONE]: true });
 export const isResearchGone = (e: unknown): boolean =>
   typeof e === "object" && e !== null && (e as Record<symbol, unknown>)[RESEARCH_GONE] === true;

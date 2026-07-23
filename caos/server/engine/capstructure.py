@@ -20,7 +20,7 @@ import re
 from itertools import groupby
 from typing import List, Optional, Tuple
 
-from engine.periods import is_finite_number, latest_annual
+from engine.periods import is_finite_number, latest_annual, safe_mul
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import amount_musd, scan
 
@@ -98,7 +98,10 @@ def _distressed_ev(cp1: Optional[ModulePayload]) -> Optional[float]:
     # which is truthy, so the waterfall would run with remaining_ev<0 and assert a
     # High-confidence "~0% expected recovery" across every tranche. A 5x multiple on
     # negative EBITDA is meaningless — degrade to the seniority-only branch instead.
-    return round(eb * _DISTRESS_EV_MULTIPLE, 1) if is_finite_number(eb) and eb > 0 else None
+    # safe_mul (not raw *): a finite-but-huge EBITDA would overflow to inf and only
+    # be caught at the persistence gate — degrade to the seniority-only branch instead.
+    ev = safe_mul(eb, _DISTRESS_EV_MULTIPLE) if is_finite_number(eb) and eb > 0 else None
+    return round(ev, 1) if ev is not None else None
 
 
 async def synthesize_recovery_preference(retrieve, cp1: Optional[ModulePayload] = None) -> ModulePayload:

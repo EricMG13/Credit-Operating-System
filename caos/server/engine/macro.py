@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from engine.periods import is_finite_number, latest_annual, safe_div
+from engine.periods import is_finite_number, latest_annual, safe_add, safe_div, safe_mul
 from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 from engine.textscan import scan
 
@@ -88,14 +88,22 @@ def compute_rate_sensitivity(nf: dict) -> Optional[dict]:
     _bi = safe_div(eb, cov)  # None on non-finite/zero cov or overflow (denormal cov)
     base_interest = round(_bi, 1) if _bi is not None else None
 
-    scenarios = []
+    scenarios: list[dict[str, float | None]] = []
     for bps in _SHOCKS_BPS:
         # Incremental annual interest from the shock: net debt x (bps / 10000), $M to 1dp.
-        add = round(net_debt * bps / 10000, 1)  # $M incremental annual interest
+        # safe_* (not raw ops): a finite-but-huge net debt would overflow to inf and
+        # only be caught at the persistence gate — degrade the scenario instead.
+        _add = safe_div(safe_mul(net_debt, float(bps)), 10000.0)
+        if _add is None:
+            scenarios.append({"rate_shock_bps": bps, "incremental_interest_musd": None,
+                              "stressed_interest_coverage": None})
+            continue
+        add = round(_add, 1)  # $M incremental annual interest
         # Stressed interest = base + incremental; coverage = EBITDA / stressed interest.
         # Both fall through to None when base interest was not derivable (no coverage input).
         # Note: stressed coverage divides by the ROUNDED stressed interest so the two reconcile.
-        new_interest = round(base_interest + add, 1) if base_interest else None
+        _ni = safe_add(base_interest, add) if base_interest else None
+        new_interest = round(_ni, 1) if _ni is not None else None
         _nc = safe_div(eb, new_interest)  # None on non-finite/zero interest or overflow
         new_cov = round(_nc, 2) if _nc is not None else None
         scenarios.append({"rate_shock_bps": bps, "incremental_interest_musd": add,

@@ -42,7 +42,7 @@ institutionally defensible.
 ## 1. Why this slice first
 
 > **Status (as of the shipped engine):** this plan is historical — the engine now
-> wires **19 implemented modules** (+ 4 spec-only) per [`server/engine/registry.py`](../server/engine/registry.py),
+> wires **19 implemented modules** in the default plan (+ flagged CP-2G/CP-4D, + 2 spec-only) per [`server/engine/registry.py`](../server/engine/registry.py),
 > not the "27" / "CP-0 → CP-1 → CP-2 slice" framing below. The "27" counts the
 > broader `Modular OS/` corpus, not what executes. Numbers in this doc are kept as
 > originally written.

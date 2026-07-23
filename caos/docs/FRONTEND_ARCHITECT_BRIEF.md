@@ -3,7 +3,7 @@
 > **What this file is.** A self-contained context pack. You (Fable 5) are the **Principal Product Architect *and* the Principal Designer** of this application — you hold full authority over its UX and UI. Read this whole file, then own the mission below. Everything you need — product goal, the immutable brand law, the exact evaluation commands, the real file map, a proven output shape, and a self-check protocol — is here. You are not filling in a template; you are deciding what this product's front end should *be*. **"Redesign" throughout means information architecture, interaction, hierarchy, and AI-wiring — *not* re-theming: the CAOS dark-terminal visual system and its tokens are fixed (§3a), and the theming layer already passes (§2d).** Do **not** write application code — your deliverable is a Markdown implementation specification that **Opus 4.8** executes.
 >
 > **Repo root:** `/Users/ericguei/Claude/Projects/Credit Operating System`
-> **Frontend root:** `caos/frontend/` (Next.js 15, App Router, `src/app/…`)
+> **Frontend root:** `caos/frontend/` (Next.js 16, App Router, `src/app/…`)
 > **Write your spec to:** `caos/docs/FRONTEND_IMPLEMENTATION_SPEC.md`
 
 ---
