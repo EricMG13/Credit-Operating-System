@@ -183,28 +183,48 @@ async def _load_sources(
     sources: list[_SourceArtifact] = []
     missing: list[str] = []
 
-    for issuer_id in dict.fromkeys(context.issuer_ids or []):
-        issuer_row = await db.get(Issuer, issuer_id)
-        if issuer_row is not None:  # existence/access was enforced by the caller
-            version = _row_version(issuer_row)
-            sources.append(_SourceArtifact(
-                evidence_id=f"issuer:{issuer_row.id}", label=issuer_row.name, version=version,
-                numeric_facts=_numeric_facts(version),
-            ))
-
-    for instrument_id in dict.fromkeys(context.instrument_ids or []):
-        instrument_row = await db.get(MarketInstrument, instrument_id)
-        if instrument_row is None:
-            continue
-        snapshot = await db.get(MarketSnapshot, instrument_row.snapshot_id)
-        version = {
-            "instrument": _row_version(instrument_row),
-            "snapshot": _row_version(snapshot) if snapshot is not None else None,
+    unique_issuer_ids = list(dict.fromkeys(context.issuer_ids or []))
+    if unique_issuer_ids:
+        issuers_by_id = {
+            row.id: row for row in (await db.execute(
+                select(Issuer).where(Issuer.id.in_(unique_issuer_ids))
+            )).scalars().all()
         }
-        sources.append(_SourceArtifact(
-            evidence_id=f"market-instrument:{instrument_row.id}", label=instrument_row.borrower,
-            version=version, numeric_facts=_numeric_facts(version),
-        ))
+        for issuer_id in unique_issuer_ids:
+            issuer_row = issuers_by_id.get(issuer_id)
+            if issuer_row is not None:  # existence/access was enforced by the caller
+                version = _row_version(issuer_row)
+                sources.append(_SourceArtifact(
+                    evidence_id=f"issuer:{issuer_row.id}", label=issuer_row.name, version=version,
+                    numeric_facts=_numeric_facts(version),
+                ))
+
+    unique_instrument_ids = list(dict.fromkeys(context.instrument_ids or []))
+    if unique_instrument_ids:
+        instruments_by_id = {
+            row.id: row for row in (await db.execute(
+                select(MarketInstrument).where(MarketInstrument.id.in_(unique_instrument_ids))
+            )).scalars().all()
+        }
+        snapshot_ids = {row.snapshot_id for row in instruments_by_id.values()}
+        snapshots_by_id = {
+            row.id: row for row in (await db.execute(
+                select(MarketSnapshot).where(MarketSnapshot.id.in_(snapshot_ids))
+            )).scalars().all()
+        } if snapshot_ids else {}
+        for instrument_id in unique_instrument_ids:
+            instrument_row = instruments_by_id.get(instrument_id)
+            if instrument_row is None:
+                continue
+            snapshot = snapshots_by_id.get(instrument_row.snapshot_id)
+            version = {
+                "instrument": _row_version(instrument_row),
+                "snapshot": _row_version(snapshot) if snapshot is not None else None,
+            }
+            sources.append(_SourceArtifact(
+                evidence_id=f"market-instrument:{instrument_row.id}", label=instrument_row.borrower,
+                version=version, numeric_facts=_numeric_facts(version),
+            ))
 
     ref_specs: tuple[tuple[Optional[str], Any, str, str], ...] = (
         (refs.issuer_run_id, Run, "run", "Issuer run"),

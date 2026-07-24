@@ -487,6 +487,38 @@ async def list_alert_states(
     return [AlertStateOut.model_validate(r) for r in page]
 
 
+async def _rows_by_key(db: AsyncSession, model, keys: list[str]) -> dict:
+    """Fetch `model` rows whose alert_key is in `keys`, indexed by alert_key."""
+    result = await db.execute(select(model).where(model.alert_key.in_(keys or ["__none__"])))
+    return {row.alert_key: row for row in result.scalars().all()}
+
+
+def _new_alert_event(item: dict, caller: CallerIdentity, as_of: datetime) -> AlertEvent:
+    return AlertEvent(
+        alert_key=item["key"],
+        issuer_id=item["issuer_id"],
+        kind=item["kind"],
+        title=item["title"],
+        impact=item["impact"],
+        evidence=item["evidence"],
+        authority={
+            "origin": "live",
+            "method": item["method"],
+            "freshness": "current",
+            "as_of": as_of.isoformat(),
+            "source_ids": item["source_ids"],
+            "run_id": None,
+            "version_id": None,
+            "confidence": None,
+            "approval_state": "draft",
+            "analyst_override": None,
+        },
+        created_by=caller.id,
+        created_at=as_of,
+        updated_at=as_of,
+    )
+
+
 @router.post("/refresh", response_model=List[AlertEventOut])
 async def refresh_alert_events(
     db: AsyncSession = Depends(get_db, scope="function"),
@@ -498,52 +530,40 @@ async def refresh_alert_events(
     draft = await pipeline.latest_draft(db)
     if not draft:
         return []
+    alerts = _draft_alerts(draft)
+    if not alerts:
+        return []
+
     generated_at = draft.get("generated_at")
     try:
         as_of = datetime.fromisoformat(generated_at.replace("Z", "+00:00")) if generated_at else datetime.now(timezone.utc)
     except (TypeError, ValueError):
         as_of = datetime.now(timezone.utc)
-    existing = {
-        row.alert_key: row for row in (await db.execute(select(AlertEvent).where(
-            AlertEvent.alert_key.in_([item["key"] for item in _draft_alerts(draft)] or ["__none__"])
-        ))).scalars().all()
-    }
+
+    keys = [item["key"] for item in alerts]
+    existing = await _rows_by_key(db, AlertEvent, keys)
+
     events: list[AlertEvent] = []
-    for item in _draft_alerts(draft):
+    new_rows: list[AlertEvent] = []
+    for item in alerts:
         row = existing.get(item["key"])
         if row is None:
-            row = AlertEvent(
-                alert_key=item["key"],
-                issuer_id=item["issuer_id"],
-                kind=item["kind"],
-                title=item["title"],
-                impact=item["impact"],
-                evidence=item["evidence"],
-                authority={
-                    "origin": "live",
-                    "method": item["method"],
-                    "freshness": "current",
-                    "as_of": as_of.isoformat(),
-                    "source_ids": item["source_ids"],
-                    "run_id": None,
-                    "version_id": None,
-                    "confidence": None,
-                    "approval_state": "draft",
-                    "analyst_override": None,
-                },
-                created_by=caller.id,
-                created_at=as_of,
-                updated_at=as_of,
-            )
+            row = _new_alert_event(item, caller, as_of)
             db.add(row)
-            await db.flush()
-            row.authority = {**row.authority, "version_id": row.id}
+            new_rows.append(row)
         events.append(row)
-    states = {
-        row.alert_key: row for row in (await db.execute(select(AlertState).where(
-            AlertState.alert_key.in_([row.alert_key for row in events] or ["__none__"])
-        ))).scalars().all()
-    }
+
+    if new_rows:
+        # AlertEvent.id is a Python-side default assigned by SQLAlchemy during
+        # flush, not at construction, so no new row has an .id yet. Flush once
+        # for the whole batch here, then stamp version_id from the now-populated
+        # ids -- flushing inside the loop instead would assign ids one at a time
+        # and regress this to an N+1 round-trip per new alert.
+        await db.flush()
+        for row in new_rows:
+            row.authority = {**row.authority, "version_id": row.id}
+
+    states = await _rows_by_key(db, AlertState, keys)
     return [_alert_event_out(row, states.get(row.alert_key)) for row in events]
 
 

@@ -266,10 +266,19 @@ async def _resolve_issuer_links(
             {"code": "unknown_issuer_mapping_key", "keys": unknown[:25]},
         )
 
+    explicit_issuer_ids = sorted(set(explicit.values()))
+    explicit_issuer_rows: dict[str, Issuer] = {}
+    for start in range(0, len(explicit_issuer_ids), 500):
+        chunk = explicit_issuer_ids[start:start + 500]
+        for issuer in (await db.execute(
+            select(Issuer).where(Issuer.id.in_(chunk))
+        )).scalars().all():
+            explicit_issuer_rows[issuer.id] = issuer
+
     explicit_issuers: dict[str, Issuer] = {}
-    for issuer_id in sorted(set(explicit.values())):
+    for issuer_id in explicit_issuer_ids:
         try:
-            explicit_issuers[issuer_id] = require_issuer(caller, await db.get(Issuer, issuer_id))
+            explicit_issuers[issuer_id] = require_issuer(caller, explicit_issuer_rows.get(issuer_id))
         except HTTPException as exc:
             if exc.status_code == status.HTTP_404_NOT_FOUND:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Issuer not found.") from exc

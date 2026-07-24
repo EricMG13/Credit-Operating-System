@@ -242,3 +242,38 @@ async def test_refresh_requires_exact_action_header(seeded_db):
                 _mock_request(), db, _caller=SimpleNamespace(), action=""
             )
     assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_refresh_alert_events_batches_flush_for_multiple_new_alerts(seeded_db):
+    """refresh_alert_events flushes once after the loop (not once per new row) —
+    a single flush must still assign every new AlertEvent its own id and let the
+    version_id back-fill pass stamp authority.version_id == id for each row."""
+    from identity import CallerIdentity
+    from routes import alerts as alerts_route
+
+    draft = {
+        "generated_at": "2026-07-24T00:00:00+00:00",
+        "sections": [
+            # issuer_id omitted (None) to avoid needing FK-satisfying Issuer rows —
+            # the two claims still get distinct alert_keys via anomaly_kind.
+            {"issuer_name": "Batch Issuer 1",
+             "claims": [{"anomaly_kind": "cusum-shift", "text": "claim one",
+                         "anomaly_severity": 2.0}]},
+            {"issuer_name": "Batch Issuer 2",
+             "claims": [{"anomaly_kind": "peer-outlier", "text": "claim two",
+                         "anomaly_severity": 3.0}]},
+        ],
+    }
+    await _persist_complete(draft=draft)
+    caller = CallerIdentity(id="qa-batch-caller", email="qa@example.test", full_name="QA Caller")
+
+    async with AsyncSessionLocal() as db:
+        events = await alerts_route.refresh_alert_events(db, caller=caller)
+        await db.commit()
+
+    assert len(events) == 2
+    assert len({event.id for event in events}) == 2  # distinct ids from one flush
+    for event in events:
+        assert event.id
+        assert event.authority["version_id"] == event.id

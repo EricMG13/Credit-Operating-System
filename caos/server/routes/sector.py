@@ -1103,20 +1103,27 @@ async def ratify_sector_review(
         valid_sections = {section.id for section in review.sections}
         if any(item.section_id not in valid_sections for item in body.sections):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown sector-review section.")
-        for item in body.sections:
-            existing = (await db.execute(select(SectorReviewRatification).where(
+        section_ids = [item.section_id for item in body.sections]
+        existing_by_section = {
+            ratification.section_id: ratification
+            for ratification in (await db.execute(select(SectorReviewRatification).where(
                 SectorReviewRatification.review_run_id == row.id,
                 SectorReviewRatification.analyst_id == caller.id,
-                SectorReviewRatification.section_id == item.section_id,
-            ))).scalar_one_or_none()
+                SectorReviewRatification.section_id.in_(section_ids),
+            ))).scalars().all()
+        } if section_ids else {}
+        for item in body.sections:
+            existing = existing_by_section.get(item.section_id)
             if existing is None:
-                db.add(SectorReviewRatification(
+                new_ratification = SectorReviewRatification(
                     review_run_id=row.id,
                     analyst_id=caller.id,
                     section_id=item.section_id,
                     decision=item.decision,
                     override_text=item.override_text,
-                ))
+                )
+                db.add(new_ratification)
+                existing_by_section[item.section_id] = new_ratification
             else:
                 existing.decision = item.decision
                 existing.override_text = item.override_text

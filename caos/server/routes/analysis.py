@@ -415,6 +415,41 @@ async def _validate_typed_artifact_ref(
         raise
 
 
+_INSTRUMENT_NOT_FOUND = "Market instrument not found."
+
+
+async def _fetch_by_id(db: AsyncSession, model, ids) -> dict:
+    """Batch-load rows into an {id: row} map. No query when ids is empty."""
+    if not ids:
+        return {}
+    rows = (await db.execute(select(model).where(model.id.in_(ids)))).scalars().all()
+    return {row.id: row for row in rows}
+
+
+def _assert_instrument_authorized(
+    instrument: MarketInstrument,
+    snapshot: MarketSnapshot,
+    caller: CallerIdentity,
+    legacy_issuers_by_id: dict,
+) -> None:
+    """Enforce instrument visibility: private snapshots need a caller match;
+    shared/legacy snapshots need exact issuer authorization under tenancy."""
+    if snapshot.analyst_id is not None:
+        if snapshot.analyst_id != caller.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, _INSTRUMENT_NOT_FOUND)
+        return
+    if not tenancy_enabled():
+        return
+    # Preserve the pre-v2 contract for legacy shared snapshots while
+    # requiring exact issuer authorization under team tenancy.
+    if not instrument.issuer_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _INSTRUMENT_NOT_FOUND)
+    try:
+        require_issuer(caller, legacy_issuers_by_id.get(instrument.issuer_id))
+    except HTTPException as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, _INSTRUMENT_NOT_FOUND) from exc
+
+
 async def _validate_context_subjects(
     db: AsyncSession,
     *,
@@ -423,29 +458,33 @@ async def _validate_context_subjects(
     caller: CallerIdentity,
 ) -> None:
     """Resolve all context subjects and fail closed before analytical use."""
-    for issuer_id in dict.fromkeys(issuer_ids):
-        require_issuer(caller, await db.get(Issuer, issuer_id))
-    for instrument_id in dict.fromkeys(instrument_ids):
-        instrument = await db.get(MarketInstrument, instrument_id)
+    unique_issuer_ids = list(dict.fromkeys(issuer_ids))
+    issuers_by_id = await _fetch_by_id(db, Issuer, unique_issuer_ids)
+    for issuer_id in unique_issuer_ids:
+        require_issuer(caller, issuers_by_id.get(issuer_id))
+
+    unique_instrument_ids = list(dict.fromkeys(instrument_ids))
+    if not unique_instrument_ids:
+        return
+
+    instruments_by_id = await _fetch_by_id(db, MarketInstrument, unique_instrument_ids)
+    snapshot_ids = {instrument.snapshot_id for instrument in instruments_by_id.values()}
+    snapshots_by_id = await _fetch_by_id(db, MarketSnapshot, snapshot_ids)
+    legacy_issuer_ids = {
+        instrument.issuer_id for instrument in instruments_by_id.values() if instrument.issuer_id
+    }
+    legacy_issuers_by_id = await _fetch_by_id(
+        db, Issuer, legacy_issuer_ids if tenancy_enabled() else ()
+    )
+
+    for instrument_id in unique_instrument_ids:
+        instrument = instruments_by_id.get(instrument_id)
         if instrument is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
-        snapshot = await db.get(MarketSnapshot, instrument.snapshot_id)
+            raise HTTPException(status.HTTP_404_NOT_FOUND, _INSTRUMENT_NOT_FOUND)
+        snapshot = snapshots_by_id.get(instrument.snapshot_id)
         if snapshot is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
-        if snapshot.analyst_id is not None:
-            if snapshot.analyst_id != caller.id:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
-        elif tenancy_enabled():
-            # Preserve the pre-v2 contract for legacy shared snapshots while
-            # requiring exact issuer authorization under team tenancy.
-            if not instrument.issuer_id:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "Market instrument not found.")
-            try:
-                require_issuer(caller, await db.get(Issuer, instrument.issuer_id))
-            except HTTPException as exc:
-                raise HTTPException(
-                    status.HTTP_404_NOT_FOUND, "Market instrument not found."
-                ) from exc
+            raise HTTPException(status.HTTP_404_NOT_FOUND, _INSTRUMENT_NOT_FOUND)
+        _assert_instrument_authorized(instrument, snapshot, caller, legacy_issuers_by_id)
 
 
 def _active_refs_by_kind(
