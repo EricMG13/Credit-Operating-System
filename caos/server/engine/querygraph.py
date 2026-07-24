@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 from statistics import median
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,7 +86,7 @@ GROUPS: List[dict] = [
     {"id": "issuer", "label": "Issuer links", "icon": "affiliate", "caps": [
         _cap("peer-set", "Peer set", "peers", {}, "facts"),
         _cap("peer-profile", "Peer-by-profile", "peers", {}, "facts"),
-        _cap("shared-theme", "Shared-theme links", "contagion", {"theme": "energy input-cost pressure"}, "docs"),
+        _cap("shared-theme", "Shared-theme links", "co-mention", {"theme": "energy input-cost pressure"}, "docs"),
         _cap("concentration-map", "Concentration map", "concentration", {"by": "industry"}, "issuers"),
         _cap("rating-distribution", "Rating distribution", "concentration", {"by": "rating"}, "rated"),
         _cap("portfolio-exposure", "Portfolio exposure", "concentration", {"by": "portfolio"}, "portfolio"),
@@ -468,35 +468,32 @@ def _spread(n: int, y: float, x0: float = 0.1, x1: float = 0.9) -> List[Tuple[fl
 
 
 # ── Builder: concentration (clustered / scatter / rollup views) ──────────────
-async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict,  # noqa: C901  # pre-existing multi-view builder; split per-view when reworked
+# by-value → builder, keyed on the same signature (session, issuer_id, issuer_id_b, cap)
+# so dispatch is a pure lookup; views that ignore an arg just don't use it.
+_CONCENTRATION_VIEWS: Dict[str, Callable] = {
+    "industry": lambda s, iid, iid_b, cap: _cluster_by_field(s, "industry", cap),
+    "country": lambda s, iid, iid_b, cap: _cluster_by_field(s, "country", cap),
+    "rating": lambda s, iid, iid_b, cap: _rating_distribution(s, cap),
+    "portfolio": lambda s, iid, iid_b, cap: _portfolio_exposure(s, cap),
+    "wiki": lambda s, iid, iid_b, cap: _cluster_by_wiki(s, cap),
+    "provenance": lambda s, iid, iid_b, cap: _provenance_split(s, cap),
+    "scatter": lambda s, iid, iid_b, cap: _scatter(s, cap),
+    "percentile": lambda s, iid, iid_b, cap: _percentile(s, iid, cap),
+    "trend": lambda s, iid, iid_b, cap: _trend(s, cap),
+    "coverage": lambda s, iid, iid_b, cap: _coverage(s, cap),
+    "committee": lambda s, iid, iid_b, cap: _committee(s, cap),
+    "gate_lane": lambda s, iid, iid_b, cap: _gate_lane(s, cap),
+    "covenant": lambda s, iid, iid_b, cap: _covenant_register(s, cap),
+    "head_to_head": lambda s, iid, iid_b, cap: _head_to_head(s, iid, iid_b, cap),
+}
+
+
+async def _concentration(session: AsyncSession, by: str, issuer_id: Optional[str], cap: dict,
                          issuer_id_b: Optional[str] = None) -> dict:
-    if by in ("industry", "country"):
-        return await _cluster_by_field(session, by, cap)
-    if by == "rating":
-        return await _rating_distribution(session, cap)
-    if by == "portfolio":
-        return await _portfolio_exposure(session, cap)
-    if by == "wiki":
-        return await _cluster_by_wiki(session, cap)
-    if by == "provenance":
-        return await _provenance_split(session, cap)
-    if by == "scatter":
-        return await _scatter(session, cap)
-    if by == "percentile":
-        return await _percentile(session, issuer_id, cap)
-    if by == "trend":
-        return await _trend(session, cap)
-    if by == "coverage":
-        return await _coverage(session, cap)
-    if by == "committee":
-        return await _committee(session, cap)
-    if by == "gate_lane":
-        return await _gate_lane(session, cap)
-    if by == "covenant":
-        return await _covenant_register(session, cap)
-    if by == "head_to_head":
-        return await _head_to_head(session, issuer_id, issuer_id_b, cap)
-    return _empty(cap, "Concentration", f"unknown view {by!r}")
+    builder = _CONCENTRATION_VIEWS.get(by)
+    if builder is None:
+        return _empty(cap, "Concentration", f"unknown view {by!r}")
+    return await builder(session, issuer_id, issuer_id_b, cap)
 
 
 async def _cluster_by_field(session: AsyncSession, field: str, cap: dict) -> dict:
@@ -518,18 +515,18 @@ async def _cluster_by_field(session: AsyncSession, field: str, cap: dict) -> dic
     for iss in issuers:
         groups.setdefault(getattr(iss, field) or "Unclassified", []).append(iss)
     ordered = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
-    centers = _grid_centers(len(ordered))
-    nodes: List[dict] = []
-    edges: List[dict] = []
     total = len(issuers)
-    for (name, members), (cx, cy) in zip(ordered, centers):
-        gid = f"grp:{name}"
-        pct = round(100 * len(members) / total)
-        nodes.append(_node(gid, f"{name} · {len(members)}", "sector", cx, cy,
-                           group=name, sub=f"{pct}% of book", flag=pct > 30 or None))
-        for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            nodes.append(_node(iss.id, iss.name, "issuer", mx, my, group=name, compact=True))
-            edges.append(_edge(gid, iss.id, kind="member"))
+    nodes, edges = _emit_clusters(
+        ordered,
+        group_id=lambda name: f"grp:{name}",
+        group_label=lambda name, members: f"{name} · {len(members)}",
+        group_extra=lambda name, members: {
+            "group": name, "sub": f"{round(100 * len(members) / total)}% of book",
+            "flag": round(100 * len(members) / total) > 30 or None,
+        },
+        member_node=lambda gid, name, iss, mx, my: _node(
+            iss.id, iss.name, "issuer", mx, my, group=name, compact=True),
+    )
     # Only claim a single "largest" cluster when there is a strict maximum. On a
     # tie (e.g. four one-name sectors all at 25%) naming one "largest" is a false
     # superlative — mirror the client synthesis line and report the tie honestly.
@@ -570,21 +567,19 @@ async def _rating_distribution(session: AsyncSession, cap: dict) -> dict:
         b = rating_bucket(rating_index(iss.rating_moody, iss.rating_sp, iss.rating_fitch))
         groups.setdefault(b, []).append(iss)
     ordered = [(b, groups[b]) for b in order if b in groups]
-    centers = _grid_centers(len(ordered))
-    nodes: List[dict] = []
-    edges: List[dict] = []
     total = len(issuers)
-    for (name, members), (cx, cy) in zip(ordered, centers):
-        gid = f"grp:{name}"
-        pct = round(100 * len(members) / total)
-        nodes.append(_node(gid, f"{name} · {len(members)}", "sector", cx, cy,
-                           group=name, sub=f"{pct}% of rated book",
-                           flag=(name == "CCC") or None))
-        for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            nodes.append(_node(iss.id, iss.name, "issuer", mx, my, group=name,
-                               sub=iss.rating_moody or iss.rating_sp or iss.rating_fitch,
-                               compact=True))
-            edges.append(_edge(gid, iss.id, kind="member"))
+    nodes, edges = _emit_clusters(
+        ordered,
+        group_id=lambda name: f"grp:{name}",
+        group_label=lambda name, members: f"{name} · {len(members)}",
+        group_extra=lambda name, members: {
+            "group": name, "sub": f"{round(100 * len(members) / total)}% of rated book",
+            "flag": (name == "CCC") or None,
+        },
+        member_node=lambda gid, name, iss, mx, my: _node(
+            iss.id, iss.name, "issuer", mx, my, group=name,
+            sub=iss.rating_moody or iss.rating_sp or iss.rating_fitch, compact=True),
+    )
     ccc = len(groups.get("CCC", []))
     meta = [f"{total} rated issuers", f"{len(ordered)} rating buckets",
             f"{ccc} in CCC/below" if ccc else "none in CCC/below"]
@@ -617,20 +612,20 @@ async def _portfolio_exposure(session: AsyncSession, cap: dict) -> dict:
         if name not in bucket:
             bucket.append(name)
 
-    centers = _grid_centers(len(sectors))
-    nodes: List[dict] = []
-    edges: List[dict] = []
-    for sec, (cx, cy) in zip(sectors, centers):
-        name = sec["sector"]
-        pct = sec["pct_nav"]
-        gid = f"grp:{name}"
-        nodes.append(_node(gid, f"{name} · {pct}%", "sector", cx, cy, group=name,
-                           sub=f"{sec['n_obligors']} obligors", flag=(pct is not None and pct > 10) or None))
-        members = per_sector.get(name, [])[:24]
-        for oname, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            oid = f"pos:{name}:{oname}"
-            nodes.append(_node(oid, oname, "issuer", mx, my, group=name, compact=True))
-            edges.append(_edge(gid, oid, kind="member"))
+    sec_by_name = {sec["sector"]: sec for sec in sectors}
+    ordered = [(sec["sector"], per_sector.get(sec["sector"], [])[:24]) for sec in sectors]
+    nodes, edges = _emit_clusters(
+        ordered,
+        group_id=lambda name: f"grp:{name}",
+        group_label=lambda name, members: f"{name} · {sec_by_name[name]['pct_nav']}%",
+        group_extra=lambda name, members: {
+            "group": name, "sub": f"{sec_by_name[name]['n_obligors']} obligors",
+            "flag": (sec_by_name[name]["pct_nav"] is not None
+                    and sec_by_name[name]["pct_nav"] > 10) or None,
+        },
+        member_node=lambda gid, name, oname, mx, my: _node(
+            f"pos:{name}:{oname}", oname, "issuer", mx, my, group=name, compact=True),
+    )
     top = sectors[0]
     meta = [f"${ex['total_nav']:,.0f} NAV · {ex['n_positions']} positions · {ex['n_obligors']} obligors",
             f"{len(sectors)} sectors shown",
@@ -671,6 +666,33 @@ def _member_grid(cx: float, cy: float, n: int, sp: float = 0.032) -> List[Tuple[
         y = cy + clearance + r * sp
         out.append((min(0.97, max(0.03, x)), min(0.96, max(0.04, y))))
     return out
+
+
+def _emit_clusters(
+    ordered_groups: Sequence[Tuple[str, Sequence]],
+    *,
+    group_id: Callable[[str], str],
+    group_label: Callable[[str, Sequence], str],
+    member_node: Callable[[str, str, object, float, float], dict],
+    group_extra: Callable[[str, Sequence], dict] = lambda name, members: {},
+) -> Tuple[List[dict], List[dict]]:
+    """Shared cluster-graph shape (8 concentration/register views): one "sector"
+    node per group positioned by ``_grid_centers``, its members dot-gridded
+    underneath (``_member_grid``) with a "member" edge back to the group. Callers
+    own the label/flag/sub text and the per-member node shape; this owns the
+    layout and edge wiring that was duplicated across every view."""
+    centers = _grid_centers(len(ordered_groups))
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    for (name, members), (cx, cy) in zip(ordered_groups, centers):
+        gid = group_id(name)
+        nodes.append(_node(gid, group_label(name, members), "sector", cx, cy,
+                           **group_extra(name, members)))
+        for member, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
+            node = member_node(gid, name, member, mx, my)
+            nodes.append(node)
+            edges.append(_edge(gid, node["id"], kind="member"))
+    return nodes, edges
 
 
 async def _provenance_split(session: AsyncSession, cap: dict) -> dict:
@@ -869,14 +891,14 @@ async def _committee(session: AsyncSession, cap: dict) -> dict:
     for status, iid, name in rows:
         groups.setdefault(status or "Draft Only", []).append((iid, name))
     ordered = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
-    centers = _grid_centers(len(ordered))
-    nodes, edges = [], []
-    for (status, members), (cx, cy) in zip(ordered, centers):
-        gid = f"cs:{status}"
-        nodes.append(_node(gid, f"{status} · {len(members)}", "sector", cx, cy, group=status))
-        for (iid, name), (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            nodes.append(_node(f"{gid}:{iid}", name, "issuer", mx, my, compact=True))
-            edges.append(_edge(gid, f"{gid}:{iid}", kind="member"))
+    nodes, edges = _emit_clusters(
+        ordered,
+        group_id=lambda name: f"cs:{name}",
+        group_label=lambda name, members: f"{name} · {len(members)}",
+        group_extra=lambda name, members: {"group": name},
+        member_node=lambda gid, name, member, mx, my: _node(
+            f"{gid}:{member[0]}", member[1], "issuer", mx, my, compact=True),
+    )
     meta = [f"{sum(len(m) for _s, m in ordered)} issuer-states", f"{len(ordered)} committee states"]
     return _result(cap, "Committee-readiness board", nodes, edges, meta, [])
 
@@ -907,17 +929,17 @@ async def _gate_lane(session: AsyncSession, cap: dict) -> dict:
     for f in rows:
         groups.setdefault(f"Lane {f.lane}" if f.lane is not None else "Unscoped", []).append(f)
     ordered = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
-    centers = _grid_centers(len(ordered))
-    nodes, edges = [], []
     sev_kind = {"CRITICAL": "finding-crit", "MATERIAL": "finding-mat", "MINOR": "finding-min"}
-    for (lane, members), (cx, cy) in zip(ordered, centers):
-        gid = f"lane:{lane}"
-        nodes.append(_node(gid, f"{lane} · {len(members)}", "sector", cx, cy, group=lane))
-        for f, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            nodes.append(_node(f"f:{f.id}", f.finding_id, sev_kind.get(f.severity, "finding-min"),
-                               mx, my, sub=f.severity, module=f.module_id, compact=True,
-                               title=f"{f.finding_id} · {f.severity}: {_clip(f.description, 80)}"))
-            edges.append(_edge(gid, f"f:{f.id}", kind="member"))
+    nodes, edges = _emit_clusters(
+        ordered,
+        group_id=lambda name: f"lane:{name}",
+        group_label=lambda name, members: f"{name} · {len(members)}",
+        group_extra=lambda name, members: {"group": name},
+        member_node=lambda gid, name, f, mx, my: _node(
+            f"f:{f.id}", f.finding_id, sev_kind.get(f.severity, "finding-min"), mx, my,
+            sub=f.severity, module=f.module_id, compact=True,
+            title=f"{f.finding_id} · {f.severity}: {_clip(f.description, 80)}"),
+    )
     shown = f" ({len(rows)} shown)" if len(rows) < total else ""
     meta = [f"{total} findings{shown}", f"{len(ordered)} CP-5 lanes", f"{crit} CRITICAL"]
     return _result(cap, "Gate findings by lane", nodes, edges, meta, [])
@@ -940,16 +962,16 @@ async def _sponsor_graph(session: AsyncSession, cap: dict) -> dict:
     for iss in issuers:
         groups.setdefault((iss.sponsor or "").strip(), []).append(iss)
     ordered = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
-    centers = _grid_centers(len(ordered))
-    nodes: List[dict] = []
-    edges: List[dict] = []
-    for (sponsor, members), (cx, cy) in zip(ordered, centers):
-        gid = f"sp:{sponsor}"
-        nodes.append(_node(gid, f"{sponsor} · {len(members)}", "sector", cx, cy,
-                           group=sponsor, sub="sponsor", flag=len(members) > 2 or None))
-        for iss, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            nodes.append(_node(iss.id, iss.name, "issuer", mx, my, group=sponsor, compact=True))
-            edges.append(_edge(gid, iss.id, kind="member"))
+    nodes, edges = _emit_clusters(
+        ordered,
+        group_id=lambda name: f"sp:{name}",
+        group_label=lambda name, members: f"{name} · {len(members)}",
+        group_extra=lambda name, members: {
+            "group": name, "sub": "sponsor", "flag": len(members) > 2 or None,
+        },
+        member_node=lambda gid, name, iss, mx, my: _node(
+            iss.id, iss.name, "issuer", mx, my, group=name, compact=True),
+    )
     multi = sum(1 for _s, m in ordered if len(m) > 1)
     meta = [f"{len(issuers)} sponsor-owned issuers", f"{len(ordered)} sponsors",
             f"{multi} sponsor(s) with >1 name"]
@@ -1005,25 +1027,24 @@ async def _covenant_register(session: AsyncSession, cap: dict) -> dict:
         clusters.append(("Maintenance covenant", maint))
     if covlite:
         clusters.append(("Cov-lite", covlite))
-    centers = _grid_centers(len(clusters))
-    nodes: List[dict] = []
-    edges: List[dict] = []
-    for (label, members), (cx, cy) in zip(clusters, centers):
-        gid = f"cov:{label}"
-        nodes.append(_node(gid, f"{label} · {len(members)}", "sector", cx, cy, group=label))
-        for member, (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            iid, name = member[0], member[1]
-            if label == "Maintenance covenant":
-                _iid, _name, lev_cov, basis, head, is_thin = member
-                sub = f"{lev_cov:g}x cov" + (f" · {head:g}x headroom" if head is not None else "")
-                nodes.append(_node(iid, name, "issuer", mx, my, group=label, compact=True,
-                                   sub=sub, basis=basis, flag=is_thin or None,
-                                   title=f"{name}: {lev_cov:g}x maintenance covenant"
-                                         + (f", {head:g}x headroom" if head is not None else "")))
-            else:
-                nodes.append(_node(iid, name, "issuer", mx, my, group=label, compact=True,
-                                   sub="cov-lite"))
-            edges.append(_edge(gid, iid, kind="member"))
+    def _cov_member(gid: str, label: str, member: Tuple, mx: float, my: float) -> dict:
+        iid, name = member[0], member[1]
+        if label == "Maintenance covenant":
+            _iid, _name, lev_cov, basis, head, is_thin = member
+            sub = f"{lev_cov:g}x cov" + (f" · {head:g}x headroom" if head is not None else "")
+            return _node(iid, name, "issuer", mx, my, group=label, compact=True,
+                        sub=sub, basis=basis, flag=is_thin or None,
+                        title=f"{name}: {lev_cov:g}x maintenance covenant"
+                              + (f", {head:g}x headroom" if head is not None else ""))
+        return _node(iid, name, "issuer", mx, my, group=label, compact=True, sub="cov-lite")
+
+    nodes, edges = _emit_clusters(
+        clusters,
+        group_id=lambda name: f"cov:{name}",
+        group_label=lambda name, members: f"{name} · {len(members)}",
+        group_extra=lambda name, members: {"group": name},
+        member_node=_cov_member,
+    )
     meta = [f"{len(latest)} covenant-analyzed issuers",
             f"{len(maint)} maintenance · {len(covlite)} cov-lite",
             f"{thin} thin headroom (<1.0x)"]
@@ -1173,19 +1194,18 @@ async def _head_to_head(session: AsyncSession, issuer_id_a: Optional[str],
     if not rows:
         return _empty(cap, title, "Neither issuer has comparable facts yet.")
 
-    centers = _grid_centers(len(rows))
-    nodes: List[dict] = []
-    edges: List[dict] = []
-    for (label, sub_a, sub_b), (cx, cy) in zip(rows, centers):
-        gid = f"h2h:{label}"
-        nodes.append(_node(gid, label, "sector", cx, cy, group=label))
-        members = [m for m in (
-            (f"{issuer_id_a}:{label}", name_a, sub_a),
-            (f"{issuer_id_b}:{label}", name_b, sub_b),
-        ) if m[2] is not None]
-        for (mid, mname, sub), (mx, my) in zip(members, _member_grid(cx, cy, len(members))):
-            nodes.append(_node(mid, mname, "issuer", mx, my, group=label, compact=True, sub=sub))
-            edges.append(_edge(gid, mid, kind="member"))
+    ordered = [(label, [m for m in (
+        (f"{issuer_id_a}:{label}", name_a, sub_a),
+        (f"{issuer_id_b}:{label}", name_b, sub_b),
+    ) if m[2] is not None]) for label, sub_a, sub_b in rows]
+    nodes, edges = _emit_clusters(
+        ordered,
+        group_id=lambda name: f"h2h:{name}",
+        group_label=lambda name, members: name,
+        group_extra=lambda name, members: {"group": name},
+        member_node=lambda gid, name, member, mx, my: _node(
+            member[0], member[1], "issuer", mx, my, group=name, compact=True, sub=member[2]),
+    )
 
     meta = [f"{len(rows)} compared rows", f"{name_a} vs {name_b}"]
     cav = ["Leverage / EBITDA-based figures may mix reported and modeled bases "
@@ -1609,13 +1629,9 @@ async def build_graph(session: AsyncSession, capability_id: str,
     if mode == "peers":
         graph = await _peers(session, issuer_id, cap)
     elif mode == "contagion":
-        # Two overlays share the render mode but not the anchor: shared-theme is
-        # a generic corpus co-mention driven by the analyst's ``theme``; contagion
-        # stays the energy-fact overlay and ignores any supplied theme.
-        if capability_id == "shared-theme":
-            graph = await _shared_theme(session, theme or cap["params"].get("theme"), cap)
-        else:
-            graph = await _contagion(session, cap["params"].get("theme"), cap)
+        graph = await _contagion(session, cap["params"].get("theme"), cap)
+    elif mode == "co-mention":
+        graph = await _shared_theme(session, theme or cap["params"].get("theme"), cap)
     elif mode == "concentration":
         graph = await _concentration(session, cap["params"].get("by", "industry"), issuer_id, cap,
                                      issuer_id_b)
@@ -1631,7 +1647,7 @@ if __name__ == "__main__":  # ponytail: DB-free self-check over the pure logic
     ids = [c["id"] for g in GROUPS for c in g["caps"]]
     assert len(ids) == len(set(ids)), "duplicate capability id"
     assert all(c["requires"] in _REASONS for g in GROUPS for c in g["caps"]), "unknown requires flag"
-    assert all(c["mode"] in {"peers", "contagion", "concentration", "provenance"}
+    assert all(c["mode"] in {"peers", "contagion", "co-mention", "concentration", "provenance"}
                for c in CAP_BY_ID.values()), "unknown builder mode"
 
     # peer ranking: closest profile wins, similarity in (0,1], self excluded

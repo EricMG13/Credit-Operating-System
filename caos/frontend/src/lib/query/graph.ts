@@ -34,7 +34,7 @@ export interface GraphEdge {
 
 export interface GraphResult {
   capability_id: string;
-  mode: string; // peers | contagion | concentration | provenance
+  mode: string; // peers | contagion | co-mention | concentration | provenance
   title: string;
   nodes: GraphNode[];
   edges: GraphEdge[];

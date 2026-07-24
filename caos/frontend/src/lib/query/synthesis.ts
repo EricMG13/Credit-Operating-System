@@ -28,6 +28,7 @@ export function synthesize(g: GraphResult): string {
   switch (g.mode) {
     case "peers": return peers(g);
     case "contagion": return contagion(g);
+    case "co-mention": return contagion(g);
     case "concentration": return concentration(g);
     case "provenance": return provenance(g);
     default: return fallback(g);
