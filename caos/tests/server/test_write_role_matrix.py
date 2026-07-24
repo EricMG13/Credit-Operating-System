@@ -16,6 +16,7 @@ _WRITE_DEPENDENCY_HANDLERS = {
     "patch_finding",
     "vault_exhibit",
     "upload_document",
+    "okf_ingest_route",
     "upload_pricing_sheet",
     "upload_memo",
     "put_reporting_profile",

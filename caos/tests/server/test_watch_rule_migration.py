@@ -377,6 +377,7 @@ def test_0068_upgrades_legacy_rules_with_nullable_retry_identity(
     # "head" made it fail the moment any later revision existed — it broke on 0069
     # for no reason connected to watch rules. The sibling offline-downgrade test
     # above already pins explicit revisions; this line was the outlier.
+    # (This branch reached the same fix independently when it added 0069/0070.)
     upgraded_0068 = _alembic("upgrade", "0068", db_url=db_url)
     assert upgraded_0068.returncode == 0, upgraded_0068.stderr
     with sqlite3.connect(db_path) as connection:

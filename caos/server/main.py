@@ -40,7 +40,7 @@ from database import AsyncSessionLocal, init_db
 from engine import presets
 from engine.fixtures import ensure_reference_deal
 from feature_gates import AlertRulesActivationGateMiddleware
-from routes import analysis, analysis_insights, alerts, auth, chat, committee, decisions, digest, edgar, health, ingestion, issuers, market_import, model_v2, model_workbook as model_workbook_routes, models, notifications, opinions, portfolio, portfolios, qa, query, reports, research, runs, rv, scenario, sector, settings as settings_routes, sponsors, thesis, autonomy, watch_rules
+from routes import analysis, analysis_insights, alerts, auth, chat, committee, decisions, digest, edgar, health, ingestion, issuers, market_import, model_v2, model_workbook as model_workbook_routes, models, notifications, okf, opinions, portfolio, portfolios, qa, query, reports, research, runs, rv, scenario, sector, settings as settings_routes, sponsors, thesis, autonomy, watch_rules
 from research_executor import get_research_executor
 from research_report_executor import get_report_executor
 from request_limits import RequestBodyLimitMiddleware
@@ -488,6 +488,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(issuers.router, prefix="/api/issuers", tags=["issuers"])
 app.include_router(opinions.router, prefix="/api/issuers", tags=["analyst-opinions"])
 app.include_router(ingestion.router, prefix="/api/ingestion", tags=["ingestion"])
+app.include_router(okf.router, prefix="/api/okf", tags=["okf"])
 app.include_router(edgar.router, prefix="/api/edgar", tags=["edgar"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
