@@ -6,6 +6,7 @@
 // reads LIVE ENGINE OUTPUT so a live chart can never be mistaken for the
 // reference fixtures (which stay demo-only in ModuleCharts.tsx).
 
+import { useMemo } from "react";
 import { CHART_HEX } from "@/lib/chart-colors";
 import { humanize } from "@/lib/engine/adapt";
 import type { VisualizationColumn } from "@/components/charts/SemanticVisualization";
@@ -562,7 +563,7 @@ export function buildLiveCharts(id: string, runtime: unknown): LiveChartDef[] {
 }
 
 export function LiveModuleCharts({ id, runtime }: { id: string; runtime?: Record<string, unknown> }) {
-  const defs = buildLiveCharts(id, runtime);
+  const defs = useMemo(() => buildLiveCharts(id, runtime), [id, runtime]);
   if (!defs.length) return null;
   return <ModuleChartGrid defs={defs} status={LIVE_STATUS} />;
 }

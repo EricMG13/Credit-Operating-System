@@ -8,9 +8,12 @@ import { SurfaceState } from "@/components/shared/SurfaceState";
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
 import { useModelAuthority } from "@/lib/engine/useModelAuthority";
 import type { LegacyModelRuntime } from "./LegacyCalculatorBridge";
-import { ModelV2Workbench } from "./ModelV2Workbench";
+import type { ModelV2Workbench as ModelV2WorkbenchComponent } from "./ModelV2Workbench";
 
 const LazyLegacyCalculatorBridge = lazy(() => import("./LegacyCalculatorBridge"));
+const LazyModelV2Workbench = lazy(() =>
+  import("./ModelV2Workbench").then((m) => ({ default: m.ModelV2Workbench }))
+);
 
 interface ModelAuthorityRouteProps {
   renderLegacy?: (runtime: LegacyModelRuntime) => ReactNode;
@@ -18,7 +21,7 @@ interface ModelAuthorityRouteProps {
     issuerId: string;
     contextId: string | null;
     exactRunId: string | null;
-    initialResponse: Parameters<typeof ModelV2Workbench>[0]["initialResponse"];
+    initialResponse: Parameters<typeof ModelV2WorkbenchComponent>[0]["initialResponse"];
   }) => ReactNode;
 }
 
@@ -26,7 +29,9 @@ interface ModelAuthorityRouteProps {
 export function ModelAuthorityRoute({
   renderLegacy = () => null,
   renderV2 = (props) => (
-    <ModelV2Workbench key={`${props.issuerId}|${props.exactRunId ?? "latest"}`} {...props} />
+    <Suspense fallback={<ModelAuthorityState loading />}>
+      <LazyModelV2Workbench key={`${props.issuerId}|${props.exactRunId ?? "latest"}`} {...props} />
+    </Suspense>
   ),
 }: ModelAuthorityRouteProps = {}) {
   const searchParams = useSearchParams();
