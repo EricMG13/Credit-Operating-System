@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import ingest
 import okf_notes
 import okf_structure
+import okf_vision
 from config import get_settings
 from identity import CallerIdentity
 from tenancy import require_issuer
@@ -457,6 +458,18 @@ async def ingest_pdf(
     )
 
     report = okf_structure.structure(extracted, issuer, overrides)
+
+    # The unstructured class (sponsor/lender decks) carries its meaning in slide
+    # layout, which no deterministic parser recovers. When the vision lane is
+    # configured, a multimodal model reads the pages and its facts are folded in;
+    # the lane is off by default and every failure leaves `report` untouched, so
+    # this can only ever add information.
+    if report.doc_type in okf_vision.VISION_DOC_TYPES and okf_vision.enabled():
+        vision_facts, vision_warnings = await okf_vision.extract_facts(
+            content, extracted, report.doc_type
+        )
+        report = okf_vision.apply_to_report(report, vision_facts, vision_warnings)
+
     chunks = chunk_report(report, issuer)
     return await persist(
         db, report, extracted, chunks, issuer, caller.email, background_tasks

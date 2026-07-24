@@ -183,6 +183,7 @@ _REVIEWED_LLM_CALL_SITES = {
     "engine/queryanswer.py",   # Grounded answer: chunks via wrap_untrusted (+ rule); sentences gated to retrieved chunk ids + numeric grounding gate
     "engine/rerank.py",        # LLM re-rank: chunks via wrap_untrusted (+ UNTRUSTED_RULE in system); output is a 0-1 score list, no free-text content surfaced
     "engine/entailment.py",    # Phase 2 NLI demote: evidence wrapped via wrap_untrusted (+ UNTRUSTED_RULE in system); verdict-driven demote, no new content
+    "okf_vision.py",         # OKF vision extractor: the DOCUMENT ITSELF is untrusted (injection can sit inside a slide image, where wrap_untrusted cannot reach) — defended by an explicit untrusted-document rule + FORCED tool-use into a closed schema (no free text, no action, no write tools), closed enums, a page-anchor requirement, and a numeric gate against the text layer
     "llm.py",                # issuer chat (system prompt carries untrusted rule)
     "nlquery.py",            # NL→spec; output allowlist-validated to the catalog
     "scenario.py",           # scenario prompt (user text)
