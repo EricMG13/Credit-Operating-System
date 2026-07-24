@@ -210,3 +210,26 @@ references, refuses unresolved destination collisions, preserves disabled-skill
 state in an ignored but recoverable directory, backs up global instructions,
 and notes that newly installed Codex skills become discoverable on the next
 turn.
+
+## 2026-07-24 — caos-review-sweep — OPEN
+
+The skill is advertised in the session skill catalog ("Item-by-item review sweep
+with adversarial verify + matrix synthesis. Pick a plan via args.plan: fe | be |
+security | perf | seam") but no `SKILL.md` for it exists anywhere on disk — not
+in `.claude/skills/`, not in `.agents/skills/`, and not in any plugin directory.
+Invoking it during a whole-codebase review was therefore impossible, and the
+listing gives no signal that the body is missing until the call fails. Either
+commit the skill body alongside its catalog entry or drop the entry; a catalog
+that advertises an unresolvable skill costs a turn on every review task that
+correctly routes to it.
+
+## 2026-07-24 — gitnexus — OPEN
+
+`CLAUDE.md`'s GitNexus section already carries an availability caveat, but the
+skill files themselves still open with unconditional MUST-run-`impact`-before-
+editing rules. In a cloud checkout with no `.gitnexus/` index and no MCP server
+attached, every one of those rules is unsatisfiable, and the fallback (read the
+symbol's callers manually, diff against `origin/main`) lives only in the root
+guide, not in the five `gitnexus-*/SKILL.md` files an agent actually loads. Move
+the availability preflight and the manual-review fallback into each skill file
+so the routing table entries stay correct off-index.
