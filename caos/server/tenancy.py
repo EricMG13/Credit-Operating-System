@@ -82,7 +82,10 @@ def require_portfolio_access(
     caller_or_team: CallerIdentity | str | None, portfolio: Optional[Portfolio]
 ) -> Portfolio:
     """Return an accessible portfolio or a non-enumerable 404."""
-    if not portfolio_visible(caller_or_team, portfolio):
+    # The explicit None arm is what require_issuer already does. portfolio_visible
+    # returns False for None so the raise covered it either way, but spelling it
+    # out is what lets the return type be Portfolio rather than Optional.
+    if portfolio is None or not portfolio_visible(caller_or_team, portfolio):
         raise HTTPException(404, "Portfolio not found")
     return portfolio
 

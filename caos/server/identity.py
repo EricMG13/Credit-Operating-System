@@ -274,7 +274,11 @@ async def get_identity(
         # persisted UUID separately for C3's governed ownership namespace.
         return CallerIdentity(
             id=sanitize_field(user or email or "unknown"),
-            email=sanitize_field(persisted_analyst.email or email),
+            # `email` is non-empty here (persisted_analyst is only set when
+            # normalized_email was truthy), but that invariant runs through
+            # normalize_email_identity and does not narrow. Analyst.email is
+            # itself nullable, so spell the fallback out.
+            email=sanitize_field(persisted_analyst.email or email or ""),
             full_name=sanitize_field(persisted_analyst.name),
             role=persisted_analyst.role or "analyst",
             source="proxy",
