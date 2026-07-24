@@ -70,7 +70,14 @@ def csrf_rejection(request: Request) -> str | None:
         signed = session.get("csrf") if session else None
         cookie = request.cookies.get(CSRF_COOKIE_NAME)
         header = request.headers.get(CSRF_HEADER_NAME)
-        if not all(isinstance(value, str) and value for value in (signed, cookie, header)):
+        # Checked per-name rather than via all(...) over the tuple: the generator
+        # form is equivalent at runtime but narrows nothing, so every later
+        # len()/encode() below reads as Optional to the type gate.
+        if not (
+            isinstance(signed, str) and signed
+            and isinstance(cookie, str) and cookie
+            and isinstance(header, str) and header
+        ):
             return "Missing CSRF token."
         if any(
             len(value) > _MAX_CSRF_VALUE_BYTES
