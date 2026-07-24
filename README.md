@@ -48,6 +48,10 @@ Report Studio), with secondary lenses for the **PM/CIO** (portfolio posture) and
 - **Model Builder** — a sourced cash-flow grid grounded in the live CP-1 run,
   a forward Scenario & Sensitivity lens (tornado), and a **Scenario Builder**
   (presets + natural language) that re-centers base/downside forecasts.
+- **Deep-Dive** — live module charts rendered from each module's persisted
+  run output (badged *live engine output*, distinct from the seeded reference
+  fixtures) plus a bounded loan-mark / discount-margin **market history** on
+  the issuer profile.
 - **Report Studio** — a print-ready institutional tear-sheet, gated on
   committee-ready status.
 
@@ -100,15 +104,19 @@ Healthy and deploy-ready (no P0/P1 — see [AUDIT.md](caos/docs/AUDIT.md)).
 
 | Check | State |
 |-------|-------|
-| Server tests | 2,925 pytest ✓ (39 skipped · 2026-07-23) |
-| Frontend | eslint ✓ · `tsc --noEmit` (strict) ✓ · 1,824 vitest ✓ (2026-07-23) · `next build` ✓ |
+| Server tests | 2,928 pytest ✓ (39 skipped · 2026-07-24) |
+| Frontend | eslint ✓ · `tsc --noEmit` (strict) ✓ · 1,837 vitest ✓ (2026-07-24) · `next build` ✓ |
 | CI | [ci.yml](.github/workflows/ci.yml) runs all of the above |
 
 **Engine-derived vs seeded (honest line):** the engine genuinely produces
 CP-0/CP-1/CP-2 outputs, the QA gate, evidence lineage, and the metric store that
-backs NL query. Much of the broader deep-dive/report UI is still high-fidelity
-**seeded** demo data — tracked as finding A-1 in the audit. Values carry a
-`run` / `derived` / `seed` provenance badge so the distinction is visible in-product.
+backs NL query; Deep-Dive additionally renders live-run module charts and
+issuer market history wherever a run has persisted output. The reference deal
+(*Atlas Forge Industrials*) still ships labelled, high-fidelity **seed** data
+for the offline/demo path — audit finding A-1 tracks this as resolved for
+Phase 1 (remaining seed content is explicit demo/Phase-2 scope, never a hidden
+live fallback). Values carry a `run` / `derived` / `seed` provenance badge so
+the distinction is visible in-product.
 
 ## Docs
 
