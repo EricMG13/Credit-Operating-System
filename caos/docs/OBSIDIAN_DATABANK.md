@@ -51,6 +51,40 @@ Run completes ──> export_run(session, run_id, dir)  ──> {dir}/Issuers/{I
 An analyst who wants in-vault RAG points a **local, free** Obsidian plugin (e.g.
 Smart Connections) at the folder. CAOS keeps its own BM25/evidence stack.
 
+## `Sources/` — the inbound OKF family (posture change)
+
+The three families above (`credit-run`, `issuer`, `analyst-memo`) are **engine
+output**. The OKF ingestion pipeline adds a fourth, `type: "source-document"`,
+written only under `{VAULT_EXPORT_DIR}/Sources/` — a projection of an *inbound*
+source PDF (rating report, offering memo, sponsor deck, lender update).
+
+```
+PDF uploaded ──> POST /api/okf/ingest ──> document_chunks   (canonical, retrievable on commit)
+   (new)              (okf_ingest.py)  └─> {dir}/Sources/{Issuer - type - source - date}.md
+```
+
+**This is still one-way.** The note is *derived from the stored blob* and keyed to
+its `document_id`; canonical facts stay in the engine DB and the note never feeds
+back. Two-way sync remains never.
+
+Two consequences worth stating plainly:
+
+- **These notes contain extracted source text by design** — they *are* the
+  document. That changes the posture from "the vault is safe to sync
+  unconditionally" to "**the `Sources/` subtree holds source text and syncing it is
+  a data-handling decision**". Every OKF note therefore declares
+  `contains_source_text: true` in its frontmatter so sync tooling or a local-embed
+  plugin can select or exclude the subtree deliberately. The outbound families keep
+  `vault_export._redact` untouched — engine output still never carries raw source
+  text off-machine.
+- **`Sources/` is pruned from the analyst-memo scan.** `_scan_memo_files` skips it
+  alongside `Runs/` and `Issuers/`, so an ingested document is never mistaken for
+  analyst commentary and registered as an `AnalystLink`.
+
+Vault-side embedding stays analyst-side and local (Smart Connections / Ollama) —
+CAOS ships no embedder for the `Sources/` files. The machine-RAG corpus embeds on
+the existing engine lane, which is a pre-existing path, not a new egress.
+
 ## What shipped
 
 The spoke note stores the **full** agent output, not a preview: each module

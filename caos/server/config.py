@@ -313,6 +313,23 @@ class Settings(BaseSettings):
     ocrmypdf_cmd: str = "ocrmypdf"
     ocrmypdf_timeout_s: int = 300
 
+    # Optional: vision-LLM structured extraction for the UNSTRUCTURED source class
+    # (sponsor / lender presentations), whose meaning lives in slide layout —
+    # callout boxes, Sources-&-Uses tables, add-back bridges — rather than in a
+    # text layer that markitdown or pypdf can linearize. Empty = lane OFF
+    # (default), so OKF ingestion stays fully deterministic and keyless.
+    #
+    # Set to a MULTIMODAL model id that engine.llm_client routes (an Anthropic id,
+    # or a gemini-* id). Providers whose adapter would silently drop the document
+    # block are refused by okf_vision rather than sending a text-only prompt.
+    # Enabling also requires CAOS_DOCUMENT_EGRESS_ENABLED: the source document
+    # itself is transmitted, which is a permission decision, not a key check.
+    vision_extractor_model: str = ""
+    # Per-request page ceiling. Over this the deck is page-windowed and the read
+    # is reported as partial — never a silent truncation presented as complete.
+    vision_max_pages: int = 30
+    vision_timeout_s: int = 180
+
     # Optional: SEC EDGAR free filing-retrieval lane — covenant/legal source
     # acquisition for CP-4 (credit agreements = Ex-10.x, indentures = Ex-4.x,
     # covenant "Description of Notes" = S-4/424B). Off by default. SEC fair-access

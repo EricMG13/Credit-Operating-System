@@ -422,6 +422,58 @@ class DocumentChunk(Base):
     )
 
 
+class OkfNote(Base):
+    """Registry for one inbound OKF source document and its Obsidian note.
+
+    ``document_id`` and ``issuer_id`` are **soft references — deliberately no
+    ForeignKey**, matching the three existing precedents (``DocumentChunkEmbedding``
+    keyed by ``chunk_hash``, ``LineageEdge``'s string ids, and ``AnalystQaFlag``
+    "so the flag survives its subject"). The registry is a durable audit row that
+    must outlive a superseded ``Document``, and a FK would only ever be enforced
+    under Postgres — SQLite CI cannot test it.
+
+    There is deliberately **no analyst-email column**: attribution lives on
+    ``Document.uploaded_by``, which ``erase_analyst_data`` already scrubs. Adding
+    one here would create a second, un-scrubbable PII sink — a real GDPR-erasure
+    gap.
+
+    ``note_path`` is UNIQUE and carries the supersede identity: it is built from
+    the same slug ``okf_notes.okf_note_title`` renders, so the path lookup *is* the
+    identity lookup and the two cannot drift.
+    """
+
+    __tablename__ = "okf_notes"
+    __table_args__ = (
+        UniqueConstraint("document_id", name="uq_okf_notes_document_id"),
+        UniqueConstraint("note_path", name="uq_okf_notes_note_path"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(String(36), nullable=False)  # SOFT ref
+    issuer_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    note_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    note_title: Mapped[Optional[str]] = mapped_column(String(512))
+    doc_type: Mapped[Optional[str]] = mapped_column(String(64))
+    source: Mapped[Optional[str]] = mapped_column(String(64))
+    report_date: Mapped[Optional[str]] = mapped_column(String(32))
+    fiscal_period: Mapped[Optional[str]] = mapped_column(String(64))
+    # pending | pending_note | full | partial | empty | note_failed
+    extraction_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending"
+    )
+    contains_source_text: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    content_sha256: Mapped[Optional[str]] = mapped_column(String(64))
+    okf_version: Mapped[Optional[str]] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+
 # ─── Analytical engine: runs, outputs, evidence, QA ─────────────────────────
 # These tables map 1:1 onto the canonical methodology schemas in
 # Modular OS/KNOWLEDGE SOURCES/02_SCHEMA/. A Run carries the shared envelope

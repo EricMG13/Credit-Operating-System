@@ -454,7 +454,10 @@ def _scan_memo_files(vault_path: Path) -> "tuple[list[Path], float, int]":
     # grew with total run history (BE5-6). Both trees live at the vault root.
     for root, dirs, files in os.walk(vault_path):
         if Path(root) == vault_path:
-            dirs[:] = [d for d in dirs if d not in ("Runs", "Issuers")]
+            # Sources/ is the inbound OKF family: those notes carry extracted
+            # source text, not analyst commentary, so sweeping them in here would
+            # register every ingested document as an analyst memo.
+            dirs[:] = [d for d in dirs if d not in ("Runs", "Issuers", "Sources")]
         md_files.extend(Path(root) / f for f in files if f.endswith(".md"))
     if not md_files:
         return [], 0.0, 0

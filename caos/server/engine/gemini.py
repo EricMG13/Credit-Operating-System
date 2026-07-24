@@ -76,6 +76,30 @@ def _system_text(system) -> Optional[str]:
     return "\n".join(p for p in parts if p) or None
 
 
+def _media_part(block: dict):
+    """Anthropic ``image``/``document`` block -> a Gemini inline-data Part.
+
+    Only base64 sources are translated; anything else returns None so the block is
+    skipped rather than sent as a broken part. Callers that REQUIRE the media to
+    arrive (the vision extractor) must not route to a provider whose adapter would
+    drop it — silently degrading a multimodal read to a text-only prompt would
+    produce confident output about a document the model never saw.
+    """
+    import base64
+
+    source = block.get("source")
+    if not isinstance(source, dict) or source.get("type") != "base64":
+        return None
+    data, media_type = source.get("data"), source.get("media_type")
+    if not data or not media_type:
+        return None
+    try:
+        raw = base64.b64decode(data)
+    except Exception:  # noqa: BLE001 — a malformed block is skipped, never fatal
+        return None
+    return _types().Part(inline_data=_types().Blob(mime_type=media_type, data=raw))
+
+
 def _to_contents(messages: List[dict]):
     types = _types()
     out = []
@@ -85,8 +109,16 @@ def _to_contents(messages: List[dict]):
         if isinstance(content, str):
             parts = [types.Part(text=content)]
         else:
-            parts = [types.Part(text=b["text"]) for b in content
-                     if isinstance(b, dict) and b.get("type") == "text"]
+            parts = []
+            for b in content:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "text":
+                    parts.append(types.Part(text=b["text"]))
+                elif b.get("type") in ("image", "document"):
+                    media = _media_part(b)
+                    if media is not None:
+                        parts.append(media)
         out.append(types.Content(role=role, parts=parts))
     return out
 
