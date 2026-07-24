@@ -12,12 +12,14 @@ Off by default: every endpoint 503s until ``EDGAR_USER_AGENT`` is configured
 
 from __future__ import annotations
 
+import hashlib
 from datetime import date, datetime, time, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import avscan
@@ -197,73 +199,119 @@ async def vault_exhibit(
         raise HTTPException(502, str(exc))
 
     # Same vault, same scan: every path that writes caller-influenced bytes into
-    # the vault goes through avscan (no-op unless CLAMAV_HOST is set).
+    # the vault goes through avscan (no-op unless CLAMAV_HOST is set). Always
+    # runs, even on a dedupe hit below — this endpoint fetches fresh bytes
+    # from EDGAR on every call, and the malware-scan invariant applies to
+    # every fetch, not just ones that end up creating a new Document row.
     await avscan.scan(content)
-    file_name = body.file_name or body.exhibit_url.rsplit("/", 1)[-1] or "edgar-exhibit.htm"
-    # Offload the sync pypdf / HTML-regex parse so it doesn't block the event loop
-    # (matches the sibling run_in_threadpool calls on the EDGAR entrypoints above).
-    text = await run_in_threadpool(ingest.extract_text, content, file_name)
-    # Off-thread the vault disk write too (up to 25 MB) — a sync write on the event
-    # loop stalls every other request, same reason the extract above is offloaded
-    # and matching the upload path (routes/ingestion.py).
-    key = await run_in_threadpool(ingest.store, content, file_name)
-    def cleanup_uncommitted() -> None:
-        ingest.remove_uncommitted(key)
-
-    register_rollback_cleanup(db, cleanup_uncommitted)
-    chunks = ingest.chunk_text(text)
 
     normalized_run_mode = body.run_mode.strip().lower()
-    doc = Document(
-        issuer_id=body.issuer_id,
-        analyst_id=caller.id,
-        doc_type=body.doc_type,
-        run_mode=normalized_run_mode,
-        file_name=file_name,
-        storage_key=key,
-        source_kind="legal_document",
-        source_published_at=(
-            datetime.combine(body.filed_date, time.min, tzinfo=timezone.utc)
-            if body.filed_date else None
-        ),
-        chunk_count=len(chunks),
-        uploaded_by=caller.email,
-    )
-    db.add(doc)
-    await db.flush()
-    if chunks:
-        import hashlib
-        from database import LineageEdge
-        for i, chunk in enumerate(chunks):
-            chash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
-            db_chunk = DocumentChunk(document_id=doc.id, seq=i, text=chunk, chunk_hash=chash)
-            db.add(db_chunk)
-            db.add(LineageEdge(
-                artifact_id=f"chunk:{db_chunk.id}",
-                parent_id=f"doc:{doc.id}",
-                transform="chunking",
-                transform_version="1.0"
-            ))
-    await db.refresh(doc)
-    if chunks:
-        from engine.embeddings import embed_chunks_for_document
-        async def run_embed_task():
-            async with AsyncSessionLocal() as session:
-                await embed_chunks_for_document(session, doc.id)
-                await session.commit()
-        background_tasks.add_task(run_embed_task)
 
+    # Content-identity dedupe (audit fix): documents carried no unique
+    # constraint, so re-vaulting byte-identical content (e.g. re-running
+    # vault-exhibit on the same exhibit URL) created a second Document row
+    # with a fresh id and fresh chunk ids — retrieval.rrf_fusion keys results
+    # by chunk_id, so the same paragraph could be returned and cited as two
+    # independent sources in a memo. Same scope as the migrations/0069
+    # partial unique index (issuer_id, content_sha256) WHERE status='active'
+    # AND chunk_count > 0, which is the race-safe backstop if two identical
+    # vaults land concurrently. A prior 0-chunk copy (failed parse) is
+    # deliberately excluded — it was never citable, so a re-vault should get
+    # a genuine reprocessing attempt rather than being trapped behind a stale
+    # empty document. Checked before parse/store/chunk so a repeat vault of
+    # the same exhibit doesn't also leave a second, unreferenced copy of the
+    # bytes sitting in the vault.
+    content_sha256 = hashlib.sha256(content).hexdigest()
+    existing_doc = (await db.execute(
+        select(Document).where(
+            Document.issuer_id == body.issuer_id,
+            Document.content_sha256 == content_sha256,
+            Document.status == "active",
+            Document.chunk_count > 0,
+        )
+    )).scalar_one_or_none()
+
+    dedupe_hit = existing_doc is not None
+    if dedupe_hit:
+        # A re-vault of identical content isn't erroneous, just redundant —
+        # 200 with the existing document, no duplicate row, no re-parse, no
+        # re-store, no re-chunk, no re-embed. The existing document's own
+        # fields are left untouched rather than overwritten from this call's
+        # doc_type/run_mode/filed_date.
+        doc = existing_doc
+        key = existing_doc.storage_key
+        file_name = existing_doc.file_name
+        chunks_created = existing_doc.chunk_count
+    else:
+        file_name = body.file_name or body.exhibit_url.rsplit("/", 1)[-1] or "edgar-exhibit.htm"
+        # Offload the sync pypdf / HTML-regex parse so it doesn't block the event loop
+        # (matches the sibling run_in_threadpool calls on the EDGAR entrypoints above).
+        text = await run_in_threadpool(ingest.extract_text, content, file_name)
+        # Off-thread the vault disk write too (up to 25 MB) — a sync write on the event
+        # loop stalls every other request, same reason the extract above is offloaded
+        # and matching the upload path (routes/ingestion.py).
+        key = await run_in_threadpool(ingest.store, content, file_name)
+        def cleanup_uncommitted() -> None:
+            ingest.remove_uncommitted(key)
+
+        register_rollback_cleanup(db, cleanup_uncommitted)
+        chunks = ingest.chunk_text(text)
+
+        doc = Document(
+            issuer_id=body.issuer_id,
+            analyst_id=caller.id,
+            doc_type=body.doc_type,
+            run_mode=normalized_run_mode,
+            file_name=file_name,
+            storage_key=key,
+            source_kind="legal_document",
+            source_published_at=(
+                datetime.combine(body.filed_date, time.min, tzinfo=timezone.utc)
+                if body.filed_date else None
+            ),
+            chunk_count=len(chunks),
+            uploaded_by=caller.email,
+            content_sha256=content_sha256,
+        )
+        db.add(doc)
+        await db.flush()
+        if chunks:
+            from database import LineageEdge
+            for i, chunk in enumerate(chunks):
+                chash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+                db_chunk = DocumentChunk(document_id=doc.id, seq=i, text=chunk, chunk_hash=chash)
+                db.add(db_chunk)
+                db.add(LineageEdge(
+                    artifact_id=f"chunk:{db_chunk.id}",
+                    parent_id=f"doc:{doc.id}",
+                    transform="chunking",
+                    transform_version="1.0"
+                ))
+        await db.refresh(doc)
+        if chunks:
+            from engine.embeddings import embed_chunks_for_document
+            async def run_embed_task():
+                async with AsyncSessionLocal() as session:
+                    await embed_chunks_for_document(session, doc.id)
+                    await session.commit()
+            background_tasks.add_task(run_embed_task)
+        chunks_created = len(chunks)
+
+    message = (
+        f"{file_name} matches already-vaulted content for this issuer "
+        f"(document {doc.id}); reusing the existing document — no duplicate created."
+        if dedupe_hit else
+        f"{file_name} fetched from EDGAR and vaulted ({chunks_created} chunks). "
+        "Now a primary source — E-xx eligible; run CP-4 to interpret covenants."
+    )
     return VaultExhibitResponse(
         document_id=doc.id,
         issuer_id=body.issuer_id,
         storage_key=key,
-        doc_type=body.doc_type,
+        doc_type=doc.doc_type,
         run_mode=normalized_run_mode,
-        chunks_created=len(chunks),
+        chunks_created=chunks_created,
         provenance=edgar.PROV_VAULTED,
-        message=(
-            f"{file_name} fetched from EDGAR and vaulted ({len(chunks)} chunks). "
-            "Now a primary source — E-xx eligible; run CP-4 to interpret covenants."
-        ),
-        warning=ingest.NO_CHUNKS_WARNING if not chunks else None,
+        message=message,
+        warning=ingest.NO_CHUNKS_WARNING if not chunks_created else None,
     )

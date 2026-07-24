@@ -16,10 +16,8 @@ attribution is not an authorization boundary.
 from __future__ import annotations
 
 import asyncio
-import base64
 import binascii
 import hashlib
-import hmac
 import json
 import logging
 from datetime import date, datetime, timezone
@@ -34,6 +32,7 @@ import avscan
 import ingest
 import portfolio_ingest
 import rate_limit
+import signed_tokens
 from config import get_settings
 from database import (
     Issuer, ModuleOutput, Portfolio, PortfolioConstraint, PortfolioPosition,
@@ -273,7 +272,8 @@ async def create_portfolio(
     if not name.strip():
         raise HTTPException(400, "Portfolio name is required.")
     content = await _read_xlsx(holdings)
-    positions = await asyncio.to_thread(portfolio_ingest.parse_holdings_xlsx, content)
+    holdings_result = await asyncio.to_thread(portfolio_ingest.parse_holdings_xlsx, content)
+    positions, holdings_ledger = holdings_result["positions"], holdings_result["ledger"]
     if not positions:
         raise HTTPException(422, "No CLO positions found — the holdings sheet needs a 'Holdings' par column with values.")
 
@@ -289,6 +289,12 @@ async def create_portfolio(
                     created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
     db.add(prt)
     await db.flush()
+    if holdings_ledger["truncated"] or holdings_ledger["dropped_unparseable_par"]:
+        logger.warning(
+            "portfolio %s holdings ingest incomplete: rows_read=%d truncated=%s dropped_unparseable_par=%d",
+            prt.id, holdings_ledger["rows_read"], holdings_ledger["truncated"],
+            holdings_ledger["dropped_unparseable_par"],
+        )
     await _persist_positions(db, prt.id, positions, caller)
     if constraints is not None:
         cc = await ingest.read_capped(constraints)
@@ -317,9 +323,16 @@ async def update_holdings(
     prt = require_portfolio_access(caller, await db.get(Portfolio, portfolio_id))
     require_write_role(caller)
     content = await _read_xlsx(holdings)
-    positions = await asyncio.to_thread(portfolio_ingest.parse_holdings_xlsx, content)
+    holdings_result = await asyncio.to_thread(portfolio_ingest.parse_holdings_xlsx, content)
+    positions, holdings_ledger = holdings_result["positions"], holdings_result["ledger"]
     if not positions:
         raise HTTPException(422, "No CLO positions found in the holdings sheet.")
+    if holdings_ledger["truncated"] or holdings_ledger["dropped_unparseable_par"]:
+        logger.warning(
+            "portfolio %s holdings ingest incomplete: rows_read=%d truncated=%s dropped_unparseable_par=%d",
+            portfolio_id, holdings_ledger["rows_read"], holdings_ledger["truncated"],
+            holdings_ledger["dropped_unparseable_par"],
+        )
     await _persist_positions(db, portfolio_id, positions, caller)
     prt.updated_at = datetime.now(timezone.utc)
     await db.flush()
@@ -384,20 +397,7 @@ def _filter_fingerprint(
 
 
 def _encode_cursor(payload: Dict[str, Any]) -> str:
-    raw = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-        ensure_ascii=False,
-    ).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-    signature = hmac.new(
-        get_settings().session_secret.encode("utf-8"),
-        encoded.encode("ascii"),
-        hashlib.sha256,
-    ).hexdigest()
-    return f"{encoded}.{signature}"
+    return signed_tokens.sign_json(payload, secret=get_settings().session_secret)
 
 
 def _decode_cursor(
@@ -409,16 +409,7 @@ def _decode_cursor(
     filter_fingerprint: str,
 ) -> Dict[str, Any]:
     try:
-        encoded, signature = cursor.rsplit(".", 1)
-        expected = hmac.new(
-            get_settings().session_secret.encode("utf-8"),
-            encoded.encode("ascii"),
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            raise ValueError
-        raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
-        payload = json.loads(raw)
+        payload = signed_tokens.verify_json(cursor, secret=get_settings().session_secret)
         if (
             payload.get("v") != _CURSOR_VERSION
             or payload.get("portfolio_id") != portfolio.id

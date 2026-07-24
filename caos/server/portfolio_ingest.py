@@ -69,35 +69,95 @@ def _num(v: Any) -> Optional[float]:
     return f if math.isfinite(f) else None
 
 
-def parse_holdings_xlsx(content: bytes, max_rows: int = 20000) -> List[Dict[str, Any]]:
-    """Holdings sheet → position dicts for rows the CLO actually holds (par > 0)."""
+def _empty_ledger() -> Dict[str, Any]:
+    return {"rows_read": 0, "truncated": False, "dropped_unparseable_par": 0}
+
+
+def parse_holdings_xlsx(content: bytes, max_rows: int = 20000) -> Dict[str, Any]:
+    """Holdings sheet → {"positions": [...], "ledger": {...}}.
+
+    ``positions`` is the same list this function used to return bare. ``ledger``
+    is a row-accounting dict so callers can tell a complete parse from a silent
+    partial one — otherwise a truncation or a batch of unparseable rows reads
+    identically to "every row was a legitimate reference row" (n_positions looks
+    complete either way):
+      * ``rows_read`` — count of all non-header rows actually iterated, before
+        any ``max_rows`` break.
+      * ``truncated`` — True if the ``max_rows`` break fired (rows beyond it
+        were never read at all).
+      * ``dropped_unparseable_par`` — rows where the par cell held SOME value
+        (non-empty, non-None) that numeric coercion couldn't turn into a finite
+        float — e.g. text-formatted "2,500,000", or a formula whose cached
+        value is None under ``data_only=True``. This is deliberately distinct
+        from a legitimate ``par <= 0`` market-universe reference row (empty/None
+        par cell, or a genuine non-positive number) — only a present-but-broken
+        value counts as dropped.
+    """
     validate_xlsx_package(content)
     try:
         from openpyxl import load_workbook
 
         wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
     except Exception:
-        return []
+        return {"positions": [], "ledger": _empty_ledger()}
     # Prefer a sheet literally named Holdings; else the first sheet.
     ws = next((s for s in wb.worksheets if s.title.strip().lower() == "holdings"), wb.worksheets[0])
     rows = ws.iter_rows(values_only=True)
     header = next(rows, None)
     if not header:
-        return []
+        return {"positions": [], "ledger": _empty_ledger()}
     cols = _hdr_map(header, _HOLD_COLS)
     if "par" not in cols:
-        return []  # no CLO-holdings column → nothing to ingest as positions
+        return {"positions": [], "ledger": _empty_ledger()}  # no CLO-holdings column → nothing to ingest
+
+    # data_only=True (above) gives cached values but collapses an un-recalculated
+    # formula (workbook never reopened in Excel since the formula was entered) to
+    # the SAME None a genuinely blank cell produces — undercounting
+    # dropped_unparseable_par. Cross-reference a data_only=False pass, Cell
+    # objects only, so a None-valued par cell can be told apart from a real
+    # formula that just lacks a cache. Best-effort: any failure here degrades to
+    # the pre-existing (blank-cell) behavior rather than breaking the parse.
+    par_formula_rows: Any = iter(())
+    try:
+        wb_formulas = load_workbook(io.BytesIO(content), read_only=True, data_only=False)
+        ws_formulas = next(
+            (s for s in wb_formulas.worksheets if s.title.strip().lower() == "holdings"),
+            wb_formulas.worksheets[0],
+        )
+        formula_rows = ws_formulas.iter_rows()
+        next(formula_rows, None)  # skip header, mirroring the values-only pass
+        par_formula_rows = formula_rows
+    except Exception:
+        pass
 
     def cell(row, key):
         i = cols.get(key)
         return row[i] if i is not None and i < len(row) else None
 
+    par_col = cols.get("par")
     out: List[Dict[str, Any]] = []
+    rows_read = 0
+    truncated = False
+    dropped_unparseable_par = 0
     for n, row in enumerate(rows):
         if n >= max_rows:
+            truncated = True
             break
-        par = _num(cell(row, "par"))
+        rows_read += 1
+        frow = next(par_formula_rows, None)
+        raw_par = cell(row, "par")
+        par = _num(raw_par)
         if not par or par <= 0:
+            # A genuinely empty/None par cell is a legitimate market-universe
+            # reference row, not a defect. A cell that HAD a value but failed
+            # numeric coercion (text, broken formula cache, ...) is a real
+            # parse failure — count it so callers can see the loss.
+            par_present = not (raw_par is None or (isinstance(raw_par, str) and not raw_par.strip()))
+            if not par_present and raw_par is None and frow is not None and par_col is not None:
+                if par_col < len(frow) and frow[par_col].data_type == "f":
+                    par_present = True  # uncached formula, not actually blank
+            if par is None and par_present:
+                dropped_unparseable_par += 1
             continue  # not a CLO position (market-universe reference row)
         moody, sp = ratings.parse_rating_cell(cell(row, "ratings"))
         bid, ask = _num(cell(row, "bid")), _num(cell(row, "ask"))
@@ -125,7 +185,11 @@ def parse_holdings_xlsx(content: bytes, max_rows: int = 20000) -> List[Dict[str,
             "ytm": _num(cell(row, "ytm")),
             "dm": _num(cell(row, "dm")),
         })
-    return out
+    return {"positions": out, "ledger": {
+        "rows_read": rows_read,
+        "truncated": truncated,
+        "dropped_unparseable_par": dropped_unparseable_par,
+    }}
 
 
 def _s(v: Any) -> Optional[str]:
@@ -144,7 +208,15 @@ _WORD_MAX = re.compile(r"\b(?:max(?:imum)?|at\s+most|no\s+(?:more|greater|higher
 # A cp1252/Excel-legacy save degrades the ≥/≤ glyphs to "?": the direction is
 # gone, and guessing one would silently invert half of them. Un-inferable → the
 # row stays "Info" (value dropped), never a guessed ceiling.
-_DEGLYPHED = re.compile(r"^\?\s*[0-9]")
+# A second mangling hits the same failure mode from a different byte: a legacy
+# Symbol-font ">=" (0xB3) decoded via _read_csv's "utf-8-sig" + errors="replace"
+# lands as U+FFFD (the Unicode replacement character), not a literal "?". Left
+# unhandled, U+FFFD matches neither this pattern nor _WORD_MIN/_WORD_MAX, so it
+# fell through to the bare-number default (op="<=") and silently inverted a
+# hard floor into a ceiling — e.g. "≥ 90.0% NAV" mangled to "� 90.0% NAV"
+# would flip a 99.4% first-lien book from compliant to a rendered breach.
+# Treat a leading U+FFFD exactly like a leading "?": un-inferable, stays Info.
+_DEGLYPHED = re.compile(r"^[?\ufffd]\s*[0-9]")
 
 _CONS_COLS = {
     "code": ("id",),
@@ -159,8 +231,10 @@ _CONS_COLS = {
 def _parse_limit(text: str) -> Tuple[Optional[float], Optional[str], Optional[str]]:
     """'≤ 2.5% NAV' → (2.5, '%', '<='). 'Info only' / '—' → (None, None, None).
     Direction precedence: an explicit glyph wins; else a word form ('Min 90%' →
-    '>=', 'Max 40%' / 'up to' → '<='); a de-glyphed '? 90%' (cp1252 save) is
-    un-inferable and stays Info; only a genuinely bare number defaults to a max.
+    '>=', 'Max 40%' / 'up to' → '<='); a de-glyphed '? 90%' (cp1252 save) or a
+    replacement-character '� 90%' (legacy Symbol-font glyph mangled through
+    utf-8-sig/replace decoding) is un-inferable and stays Info; only a genuinely
+    bare number defaults to a max.
     Rating-floor style text with a name before the number (e.g. '≥ Caa1
     (numeric ≤ 17)') yields the first numeric it finds, but such rows aren't
     category-mapped so they stay 'Info'."""
@@ -281,14 +355,18 @@ if __name__ == "__main__":
                1500, 325, 90.5, 91.5, 517, 1_000_000])
     ws.append(["NOISE", "Market Ref Co", "Software", "BBG02", "1L Sr. Secd", "B1 / B+",
                800, 400, 99, 100, 300, None])  # no Holdings → market row, skipped
+    ws.append(["BROKEN", "Bad Par Co", "Software", "BBG03", "1L Sr. Secd", "B1 / B+",
+               800, 400, 99, 100, 300, "2,500,000"])  # text-formatted par → coercion fails, dropped
     buf = io.BytesIO()
     wb.save(buf)
-    pos = parse_holdings_xlsx(buf.getvalue())
+    result = parse_holdings_xlsx(buf.getvalue())
+    pos, ledger = result["positions"], result["ledger"]
     assert len(pos) == 1, pos
     p = pos[0]
     assert p["par_usd"] == 1_000_000 and p["facility_musd"] == 1500
     assert (p["rating_moody"], p["rating_sp"]) == ("B2", "B")
     assert p["price"] == 91.0 and p["sector"] == "Insurance" and p["ranking"].startswith("1L")
+    assert ledger == {"rows_read": 3, "truncated": False, "dropped_unparseable_par": 1}, ledger
 
     cons_csv = (
         "ID,Constraint Category,Parameter,Limit,Breach Type,Source Document,Current Value,Status\r\n"

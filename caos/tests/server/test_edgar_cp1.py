@@ -436,3 +436,20 @@ def test_ebitda_and_leverage_computed_when_da_missing():
     # Leverage and coverage should still be computed
     assert nf["net_leverage_adj_ltm"] == pytest.approx(2391.0 / 300.0, abs=0.01)
     assert nf["interest_coverage_ltm"] == pytest.approx(300.0 / 200.0, abs=0.01)
+    # The silent EBIT-as-EBITDA default must be disclosed, not pass through unflagged.
+    assert any("excludes D&A" in fl and "FY2025" in fl for fl in p.limitation_flags)
+
+
+# ── D&A missing for the headline year specifically (undisclosed EBIT-as-EBITDA) ──
+def test_da_missing_for_headline_year_flags_ebitda_gap():
+    # D&A resolves only for FY2023, not FY2025 (the headline year) — EBITDA silently
+    # defaults FY2025's D&A component to 0.0 (EBIT-as-EBITDA for that year, distinct
+    # from the total-absence case above where no D&A concept exists at all); the gap
+    # must be flagged so the reported figure isn't cited without a caveat.
+    f = _facts()
+    f["facts"]["us-gaap"].update(_flow("DepreciationDepletionAndAmortization",
+        [("2023-01-01", "2023-12-31", 90_000_000, 2023, "acc23", "2024-02-01")]))
+    p = build_cp1_payload("Test Co", f)
+    nf = p.runtime_output["normalized_financials"]
+    assert nf["adj_ebitda"]["FY2025"] == 300.0  # 300 operating income + 0.0 D&A default
+    assert any("excludes D&A" in fl and "FY2025" in fl for fl in p.limitation_flags)

@@ -21,7 +21,9 @@ that calls the API).
 from __future__ import annotations
 
 import json
+import logging
 import os
+import random
 import re
 import threading
 import time
@@ -34,6 +36,7 @@ from typing import List, Optional, Tuple
 from config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger("caos.edgar")
 
 # EDGAR endpoints (all free, no key).
 _EFTS_URL = "https://efts.sec.gov/LATEST/search-index"  # full-text search (2001+)
@@ -50,6 +53,15 @@ PROV_VAULTED = "primary · vaulted"
 _MIN_INTERVAL_S = 0.15
 _rate_lock = threading.Lock()
 _last_request = 0.0
+
+# Retry on transient failures only (SEC rate-limit/5xx, network hiccups) — never
+# on a non-transient HTTP error (400/403/404/...), which retrying won't fix and
+# only burns the fair-access budget for.
+_MAX_ATTEMPTS = 3
+_RETRY_BASE_DELAY_S = 0.5
+_RETRY_MAX_DELAY_S = 4.0
+_RETRY_AFTER_CAP_S = 30.0  # cap a hostile/misconfigured Retry-After from hanging us
+_RETRYABLE_HTTP_CODES = {429, 500, 502, 503, 504}
 
 
 def _rate_partitions() -> int:
@@ -122,11 +134,35 @@ class _SecOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _retry_delay_s(attempt: int, http_exc: Optional[urllib.error.HTTPError]) -> float:
+    """Backoff before the retry following ``attempt``. Honors a Retry-After header
+    when SEC sends one (capped, so a hostile/misconfigured value can't hang the
+    request); otherwise exponential backoff off ``_RETRY_BASE_DELAY_S``, capped at
+    ``_RETRY_MAX_DELAY_S``, plus up to 25% jitter so concurrent callers don't
+    retry in lockstep."""
+    retry_after = getattr(http_exc, "headers", None)
+    retry_after = retry_after.get("Retry-After") if retry_after is not None else None
+    if retry_after is not None:
+        try:
+            return min(float(retry_after), _RETRY_AFTER_CAP_S)
+        except (TypeError, ValueError):
+            pass
+    base = min(_RETRY_BASE_DELAY_S * (2 ** (attempt - 1)), _RETRY_MAX_DELAY_S)
+    return base + random.uniform(0, base * 0.25)
+
+
 def _http_get(url: str, accept: str = "application/json", cap_bytes: Optional[int] = None) -> bytes:
     """GET ``url`` with the configured fair-access User-Agent and throttle.
 
     Raises EdgarError if no User-Agent is configured (SEC 403s those) — this is
     also the off-switch: the lane is disabled until ``EDGAR_USER_AGENT`` is set.
+
+    Retries up to ``_MAX_ATTEMPTS`` times on transient failures only — an
+    HTTPError in ``_RETRYABLE_HTTP_CODES`` (429/500/502/503/504) or a
+    network-level error (URLError/TimeoutError/OSError). A non-transient HTTP
+    error (400/403/404/...) raises immediately: retrying wastes the fair-access
+    budget and won't succeed. Every attempt, including retries, goes through the
+    same fair-access throttle below — a retry never bypasses it.
     """
     ua = settings.edgar_user_agent.strip()
     if not ua:
@@ -137,32 +173,74 @@ def _http_get(url: str, accept: str = "application/json", cap_bytes: Optional[in
         )
 
     _validate_sec_url(url)
-    global _last_request
-    with _rate_lock:
-        wait = _process_min_interval_s() - (time.monotonic() - _last_request)
-        if wait > 0:
-            time.sleep(wait)
-        _last_request = time.monotonic()
-
-    req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": accept})
     opener = urllib.request.build_opener(_SecOnlyRedirectHandler())
-    try:
-        with opener.open(req, timeout=settings.edgar_timeout_s) as resp:
-            # The redirect handler rejects an unsafe target before dispatch. Keep
-            # the final check as defense in depth against a custom handler/response.
-            _validate_sec_url(resp.url)
-            if cap_bytes is not None:
-                data = resp.read(cap_bytes + 1)
-                if len(data) > cap_bytes:
-                    raise EdgarError(f"Document exceeds the {cap_bytes // (1024*1024)} MB cap")
-                return data
-            return resp.read()
-    except urllib.error.HTTPError as exc:
-        raise EdgarError(f"EDGAR HTTP {exc.code} for {url}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        # Don't surface the raw network/OS error text to the client; keep the
-        # cause chained for the server-side traceback.
-        raise EdgarError("EDGAR request failed — network error or timeout.") from exc
+    url_path = urllib.parse.urlsplit(url).path
+    global _last_request
+    last_exc: BaseException
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        with _rate_lock:
+            wait = _process_min_interval_s() - (time.monotonic() - _last_request)
+            if wait > 0:
+                time.sleep(wait)
+            _last_request = time.monotonic()
+
+        req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": accept})
+        try:
+            with opener.open(req, timeout=settings.edgar_timeout_s) as resp:
+                # The redirect handler rejects an unsafe target before dispatch.
+                # Keep this check as defense in depth against a custom
+                # handler/response.
+                _validate_sec_url(resp.url)
+                if cap_bytes is not None:
+                    data = resp.read(cap_bytes + 1)
+                    if len(data) > cap_bytes:
+                        raise EdgarError(f"Document exceeds the {cap_bytes // (1024*1024)} MB cap")
+                else:
+                    data = resp.read()
+            if attempt > 1:
+                logger.info(
+                    "EDGAR %s succeeded after %d retr%s",
+                    url_path, attempt - 1, "y" if attempt == 2 else "ies",
+                )
+            return data
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _RETRYABLE_HTTP_CODES:
+                raise EdgarError(f"EDGAR HTTP {exc.code} for {url}") from exc
+            last_exc = exc
+            if attempt == _MAX_ATTEMPTS:
+                break
+            delay = _retry_delay_s(attempt, exc)
+            logger.warning(
+                "EDGAR HTTP %d on attempt %d/%d for %s; retrying in %.2fs",
+                exc.code, attempt, _MAX_ATTEMPTS, url_path, delay,
+            )
+            time.sleep(delay)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_exc = exc
+            if attempt == _MAX_ATTEMPTS:
+                break
+            delay = _retry_delay_s(attempt, None)
+            logger.warning(
+                "EDGAR %s on attempt %d/%d for %s; retrying in %.2fs",
+                type(exc).__name__, attempt, _MAX_ATTEMPTS, url_path, delay,
+            )
+            time.sleep(delay)
+
+    # Retries exhausted — same exception type/message shape as a first-try
+    # failure so existing callers/tests see no difference, just a delayed one.
+    if isinstance(last_exc, urllib.error.HTTPError):
+        logger.warning(
+            "EDGAR request failed after %d attempts: HTTP %d for %s",
+            _MAX_ATTEMPTS, last_exc.code, url,
+        )
+        raise EdgarError(f"EDGAR HTTP {last_exc.code} for {url}") from last_exc
+    logger.warning(
+        "EDGAR request failed after %d attempts: %s for %s",
+        _MAX_ATTEMPTS, type(last_exc).__name__, url,
+    )
+    # Don't surface the raw network/OS error text to the client; keep the
+    # cause chained for the server-side traceback.
+    raise EdgarError("EDGAR request failed — network error or timeout.") from last_exc
 
 
 def _reject_non_finite(tok: str) -> float:

@@ -153,93 +153,129 @@ async def _vault_document(
         select(Issuer).where(Issuer.id == issuer_id).with_for_update()
     )).scalar_one_or_none()
     require_issuer(caller, issuer)
-    chunks = ingest.chunk_text(text)
-    settings = get_settings()
-    owned_docs = or_(Document.analyst_id == caller.id, Document.analyst_id.is_(None))
-    active_docs = (await db.execute(
-        select(func.count(Document.id)).where(
+
+    # Content-identity dedupe (audit fix): documents carried no unique
+    # constraint, so re-uploading/re-vaulting byte-identical content created a
+    # second Document row with a fresh id and fresh chunk ids —
+    # retrieval.rrf_fusion keys results by chunk_id, so the same paragraph
+    # could be returned and cited as two independent sources in a memo. Same
+    # scope as the migrations/0069 partial unique index (issuer_id,
+    # content_sha256) WHERE status='active' AND chunk_count > 0, which is the
+    # race-safe backstop if two identical uploads land concurrently. A prior
+    # 0-chunk copy (failed parse) is deliberately excluded — it was never
+    # citable, so a re-upload should get a genuine reprocessing attempt
+    # rather than being trapped behind a stale empty document.
+    content_sha256 = hashlib.sha256(content).hexdigest()
+    existing_doc = (await db.execute(
+        select(Document).where(
             Document.issuer_id == issuer_id,
+            Document.content_sha256 == content_sha256,
             Document.status == "active",
-            owned_docs,
+            Document.chunk_count > 0,
         )
-    )).scalar() or 0
-    active_chunks = (await db.execute(
-        select(func.count(DocumentChunk.id))
-        .join(Document, Document.id == DocumentChunk.document_id)
-        .where(
-            Document.issuer_id == issuer_id,
-            Document.status == "active",
-            owned_docs,
-        )
-    )).scalar() or 0
-    if active_docs >= settings.max_documents_per_issuer:
-        raise HTTPException(
-            409,
-            "Issuer document limit reached; withdraw superseded sources before uploading more.",
-        )
-    if active_chunks + len(chunks) > settings.max_chunks_per_issuer:
-        raise HTTPException(
-            413,
-            "Upload would exceed the issuer corpus chunk limit; split scope or withdraw superseded sources.",
-        )
+    )).scalar_one_or_none()
 
-    # Off-thread the vault write (up to MAX_UPLOAD_MB) so a large/slow disk write
-    # doesn't block the event loop — matching the extract_* calls in the callers.
-    key = await asyncio.to_thread(ingest.store, content, file.filename or "upload.bin")
-    def cleanup_uncommitted() -> None:
-        ingest.remove_uncommitted(key)
+    dedupe_hit = existing_doc is not None
+    if dedupe_hit:
+        # A re-upload of identical content isn't erroneous, just redundant —
+        # this endpoint otherwise only errors on real problems (quota,
+        # malformed input), so mirror that convention: 200 with the existing
+        # document, no duplicate row, no re-chunk, no re-embed. The existing
+        # document's own fields (doc_type/fiscal_period/etc.) are left
+        # untouched rather than overwritten from this request's metadata.
+        doc = existing_doc
+        key = existing_doc.storage_key
+        chunks_created = existing_doc.chunk_count
+    else:
+        chunks = ingest.chunk_text(text)
+        settings = get_settings()
+        owned_docs = or_(Document.analyst_id == caller.id, Document.analyst_id.is_(None))
+        active_docs = (await db.execute(
+            select(func.count(Document.id)).where(
+                Document.issuer_id == issuer_id,
+                Document.status == "active",
+                owned_docs,
+            )
+        )).scalar() or 0
+        active_chunks = (await db.execute(
+            select(func.count(DocumentChunk.id))
+            .join(Document, Document.id == DocumentChunk.document_id)
+            .where(
+                Document.issuer_id == issuer_id,
+                Document.status == "active",
+                owned_docs,
+            )
+        )).scalar() or 0
+        if active_docs >= settings.max_documents_per_issuer:
+            raise HTTPException(
+                409,
+                "Issuer document limit reached; withdraw superseded sources before uploading more.",
+            )
+        if active_chunks + len(chunks) > settings.max_chunks_per_issuer:
+            raise HTTPException(
+                413,
+                "Upload would exceed the issuer corpus chunk limit; split scope or withdraw superseded sources.",
+            )
 
-    register_rollback_cleanup(db, cleanup_uncommitted)
-    doc = Document(
-        issuer_id=issuer_id,
-        analyst_id=caller.id,
-        doc_type=doc_type,
-        run_mode=run_mode,
-        file_name=file.filename or "upload.bin",
-        storage_key=key,
-        source_kind=source_kind,
-        fiscal_period=fiscal_period,
-        effective_period_end=effective_period_end,
-        source_published_at=source_published_at,
-        chunk_count=len(chunks),
-        uploaded_by=caller.email,
-    )
-    db.add(doc)
-    await db.flush()
-    if chunks:
-        import uuid
-        from database import LineageEdge
+        # Off-thread the vault write (up to MAX_UPLOAD_MB) so a large/slow disk write
+        # doesn't block the event loop — matching the extract_* calls in the callers.
+        key = await asyncio.to_thread(ingest.store, content, file.filename or "upload.bin")
+        def cleanup_uncommitted() -> None:
+            ingest.remove_uncommitted(key)
 
-        chunk_dicts = []
-        lineage_dicts = []
-        for i, chunk in enumerate(chunks):
-            cid = str(uuid.uuid4())
-            chash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
-            chunk_dicts.append({
-                "id": cid,
-                "document_id": doc.id,
-                "seq": i,
-                "text": chunk,
-                "chunk_hash": chash,
-                "prov": chunk_prov,
-            })
-            lineage_dicts.append({
-                "id": str(uuid.uuid4()),
-                "artifact_id": f"chunk:{cid}",
-                "parent_id": f"doc:{doc.id}",
-                "transform": "chunking",
-                "transform_version": "1.0",
-            })
-        await db.execute(insert(DocumentChunk), chunk_dicts)
-        await db.execute(insert(LineageEdge), lineage_dicts)
-    await db.refresh(doc)
-    if chunks:
-        from engine.embeddings import embed_chunks_for_document
-        async def run_embed_task():
-            async with AsyncSessionLocal() as session:
-                await embed_chunks_for_document(session, doc.id)
-                await session.commit()
-        background_tasks.add_task(run_embed_task)
+        register_rollback_cleanup(db, cleanup_uncommitted)
+        doc = Document(
+            issuer_id=issuer_id,
+            analyst_id=caller.id,
+            doc_type=doc_type,
+            run_mode=run_mode,
+            file_name=file.filename or "upload.bin",
+            storage_key=key,
+            source_kind=source_kind,
+            fiscal_period=fiscal_period,
+            effective_period_end=effective_period_end,
+            source_published_at=source_published_at,
+            chunk_count=len(chunks),
+            uploaded_by=caller.email,
+            content_sha256=content_sha256,
+        )
+        db.add(doc)
+        await db.flush()
+        if chunks:
+            import uuid
+            from database import LineageEdge
+
+            chunk_dicts = []
+            lineage_dicts = []
+            for i, chunk in enumerate(chunks):
+                cid = str(uuid.uuid4())
+                chash = hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+                chunk_dicts.append({
+                    "id": cid,
+                    "document_id": doc.id,
+                    "seq": i,
+                    "text": chunk,
+                    "chunk_hash": chash,
+                    "prov": chunk_prov,
+                })
+                lineage_dicts.append({
+                    "id": str(uuid.uuid4()),
+                    "artifact_id": f"chunk:{cid}",
+                    "parent_id": f"doc:{doc.id}",
+                    "transform": "chunking",
+                    "transform_version": "1.0",
+                })
+            await db.execute(insert(DocumentChunk), chunk_dicts)
+            await db.execute(insert(LineageEdge), lineage_dicts)
+        await db.refresh(doc)
+        if chunks:
+            from engine.embeddings import embed_chunks_for_document
+            async def run_embed_task():
+                async with AsyncSessionLocal() as session:
+                    await embed_chunks_for_document(session, doc.id)
+                    await session.commit()
+            background_tasks.add_task(run_embed_task)
+        chunks_created = len(chunks)
 
     as_of = datetime.now(timezone.utc)
     # The upload wizard's Authority declaration is an explicit analyst action.
@@ -248,7 +284,7 @@ async def _vault_document(
     # draft, as do reference/demo/derived/modelled/empty artifacts.
     approval_state = (
         "ratified"
-        if chunks and origin == "live" and method == "reported" and malware_scan == "clean"
+        if chunks_created and origin == "live" and method == "reported" and malware_scan == "clean"
         else "draft"
     )
     manifest = SourceManifest(
@@ -256,17 +292,18 @@ async def _vault_document(
         issuer_id=issuer_id,
         origin=origin,
         method=method,
-        status="ready" if chunks else "partial",
+        status="ready" if chunks_created else "partial",
         files=[{
             "document_id": doc.id,
             "file_name": doc.file_name,
-            "sha256": hashlib.sha256(content).hexdigest(),
+            "sha256": content_sha256,
             "media_type": file.content_type or "application/octet-stream",
             "size_bytes": len(content),
-            "chunks_created": len(chunks),
+            "chunks_created": chunks_created,
             "extraction": chunk_prov or "native",
             "malware_scan": malware_scan,
-            "warning": ingest.NO_CHUNKS_WARNING if not chunks else None,
+            "warning": ingest.NO_CHUNKS_WARNING if not chunks_created else None,
+            "duplicate_of_existing_document": dedupe_hit or None,
             "source_kind": source_kind,
             "fiscal_period": fiscal_period,
             "effective_period_end": effective_period_end.isoformat() if effective_period_end else None,
@@ -282,7 +319,7 @@ async def _vault_document(
             "source_ids": [doc.id],
             "run_id": None,
             "version_id": None,
-            "confidence": 1.0 if chunks else 0.0,
+            "confidence": 1.0 if chunks_created else 0.0,
             "approval_state": approval_state,
             "ratified_by": caller.id if approval_state == "ratified" else None,
             "ratified_at": as_of.isoformat() if approval_state == "ratified" else None,
@@ -315,14 +352,20 @@ async def _vault_document(
             transform_version="2",
             enabled=True,
         )
+    message = (
+        f"{file.filename} matches already-vaulted content for this issuer "
+        f"(document {doc.id}); reusing the existing document — no duplicate created."
+        if dedupe_hit else
+        f"{file.filename} vaulted and chunked ({chunks_created} chunks) — {run_mode} run."
+    )
     return IngestionResponse(
         document_id=doc.id,
         issuer_id=issuer_id,
         minio_key=key,
         run_mode=run_mode,
-        chunks_created=len(chunks),
-        message=f"{file.filename} vaulted and chunked ({len(chunks)} chunks) — {run_mode} run.",
-        warning=ingest.NO_CHUNKS_WARNING if not chunks else None,
+        chunks_created=chunks_created,
+        message=message,
+        warning=ingest.NO_CHUNKS_WARNING if not chunks_created else None,
         source_manifest_id=manifest.id,
     )
 

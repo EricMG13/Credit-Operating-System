@@ -241,6 +241,14 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
     # Pin the actual heavy-lane model the mode selected (reproducibility).
     run.model_id = presets.model_for(presets.HEAVY) if synthesizer.name == "live" else "fixture"
     run.prompt_version = _stamp_prompt_version(synthesizer.name)
+    # Release the runs-row lock early: without this, the row stays dirty-but-
+    # unflushed until the first flush deep in this function (_persist_output),
+    # then locked by Postgres until run_executor.py's final commit — i.e. for
+    # the run's whole multi-minute duration. QueueWorker._heartbeat() updates
+    # this same row every poll tick to extend lease_expires_at; while it's
+    # locked, the heartbeat blocks, the lease never actually extends, and a
+    # long-running run risks being reaped and re-executed by another worker.
+    await session.commit()
 
     issuer = await session.get(Issuer, run.issuer_id)
     issuer_name = issuer.name if issuer else run.issuer_id

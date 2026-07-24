@@ -92,7 +92,7 @@ def test_nominal_workbook_still_crosses_every_shared_parser():
     validate_xlsx_package(content)
     ingest.sniff_xlsx(content)
     assert "Safe Co" in ingest.extract_xlsx_text(content)
-    assert portfolio_ingest.parse_holdings_xlsx(content)[0]["borrower_name"] == "Safe Co"
+    assert portfolio_ingest.parse_holdings_xlsx(content)["positions"][0]["borrower_name"] == "Safe Co"
     assert ratings.extract_ratings_from_workbook(content)[0]["moody"] == "B2"
 
 

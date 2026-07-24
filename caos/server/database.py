@@ -379,6 +379,30 @@ class Analyst(Base):
 
 class Document(Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        # Content-identity dedupe backstop (migrations/0069): a byte-identical
+        # re-upload/re-vault must not create a second citable Document for the
+        # same issuer — retrieval.rrf_fusion keys results by chunk_id, so two
+        # Document rows sharing content_sha256 could return/cite the same
+        # paragraph as two independent sources in a memo. Scoped to
+        # status='active' (a withdrawn document doesn't block a future
+        # re-upload) and chunk_count > 0 (a zero-chunk document has nothing in
+        # document_chunks to double-cite, so it's deliberately excluded — this
+        # lets a re-upload of content that previously failed to parse/chunk
+        # try again rather than being trapped behind a stale empty copy). See
+        # routes/ingestion.py::_vault_document and routes/edgar.py::
+        # vault_exhibit for the matching application-level short-circuit.
+        Index(
+            "uq_documents_issuer_content_hash_active", "issuer_id", "content_sha256",
+            unique=True,
+            postgresql_where=text(
+                "status = 'active' AND content_sha256 IS NOT NULL AND chunk_count > 0"
+            ),
+            sqlite_where=text(
+                "status = 'active' AND content_sha256 IS NOT NULL AND chunk_count > 0"
+            ),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     issuer_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("issuers.id"), index=True)
@@ -390,6 +414,11 @@ class Document(Base):
     run_mode: Mapped[Optional[str]] = mapped_column(String(16))
     file_name: Mapped[str] = mapped_column(String(512), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    # Hex sha256 of the raw uploaded content bytes. Nullable (backfill-free for
+    # existing rows and for construction sites that don't have raw bytes, e.g.
+    # demo-seeded synthetic text). See __table_args__ above for the partial
+    # unique index this powers.
+    content_sha256: Mapped[Optional[str]] = mapped_column(String(64), index=True, nullable=True)
     fiscal_period: Mapped[Optional[str]] = mapped_column(String(64))
     source_kind: Mapped[Optional[str]] = mapped_column(String(32))
     effective_period_end: Mapped[Optional[date]] = mapped_column(Date)

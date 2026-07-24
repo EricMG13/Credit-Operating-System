@@ -507,6 +507,14 @@ async def commit_market_snapshot_import(
             chunk_count=0,
             uploaded_by=caller.email,
             uploaded_at=now,
+            # parsed.workbook_sha256 IS a sha256(content).hexdigest() (see
+            # market_xlsx.py) — reuse it rather than re-hashing. No dedupe
+            # CHECK added here: this path already has its own fingerprint-
+            # based idempotency above (_owned_snapshot), and issuer_id is
+            # always NULL for these analyst-owned workbooks, so the new
+            # partial unique index never applies to these rows anyway (NULL
+            # is never equal to NULL in a unique index).
+            content_sha256=parsed.workbook_sha256,
         )
         db.add(document)
         await db.flush()

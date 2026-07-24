@@ -70,6 +70,60 @@ def test_sec_url_allowlist_accepts_expected_hosts(url):
     assert edgar._validate_sec_url(url) is None
 
 
+def test_http_get_retries_transient_5xx_then_succeeds(monkeypatch):
+    # A 503 (transient) followed by a 200 succeeds via the retry loop.
+    monkeypatch.setattr(edgar.settings, "edgar_user_agent", "Test UA t@e.st")
+    monkeypatch.setattr(edgar.time, "sleep", lambda s: None)  # skip real backoff
+
+    class _FakeResp:
+        def __init__(self, url, body):
+            self.url = url
+            self._body = body
+
+        def read(self, *a, **k):
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    calls = {"n": 0}
+
+    class _FakeOpener:
+        def open(self, req, timeout=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise edgar.urllib.error.HTTPError(req.full_url, 503, "Service Unavailable", {}, None)
+            return _FakeResp(req.full_url, b'{"ok": true}')
+
+    monkeypatch.setattr(edgar.urllib.request, "build_opener", lambda *a: _FakeOpener())
+
+    data = edgar._http_get("https://efts.sec.gov/LATEST/search-index?q=x")
+    assert data == b'{"ok": true}'
+    assert calls["n"] == 2
+
+
+def test_http_get_does_not_retry_non_transient_4xx(monkeypatch):
+    # A 403 is not in the retryable set — fails on the first attempt, no retry.
+    monkeypatch.setattr(edgar.settings, "edgar_user_agent", "Test UA t@e.st")
+    monkeypatch.setattr(edgar.time, "sleep", lambda s: None)
+
+    calls = {"n": 0}
+
+    class _FakeOpener:
+        def open(self, req, timeout=None):
+            calls["n"] += 1
+            raise edgar.urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(edgar.urllib.request, "build_opener", lambda *a: _FakeOpener())
+
+    with pytest.raises(edgar.EdgarError):
+        edgar._http_get("https://efts.sec.gov/LATEST/search-index?q=x")
+    assert calls["n"] == 1
+
+
 def test_process_throttle_partitions_aggregate_rate(monkeypatch):
     monkeypatch.setenv("WEB_CONCURRENCY", "2")
     monkeypatch.delenv("CAOS_SEC_RATE_PARTITIONS", raising=False)

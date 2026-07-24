@@ -19,6 +19,7 @@ adds no new dependency and stays importable on Python 3.9.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import date
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -404,7 +405,7 @@ def _claims(rev: Dict[int, Tuple[float, str]], rev_c: Optional[str], ly: int,
 def _limitation_flags(impair: Dict[int, Tuple[float, str]], imp_c: Optional[str], ly: int,
                       opinc: Dict[int, Tuple[float, str]], interest: Dict[int, Tuple[float, str]],
                       eb_ly: Optional[float], ebitda: Dict[int, float], financials: dict,
-                      lev: _LevFacts, bs_stale: bool) -> List[str]:
+                      lev: _LevFacts, bs_stale: bool, da_fresh: bool) -> List[str]:
     """The reported-vs-adjusted caveat plus the not-derived reasons (impairment add-back,
     stale interest / balance-sheet / debt tags, net-cash) that make a reported figure
     something to verify against the filing."""
@@ -417,6 +418,11 @@ def _limitation_flags(impair: Dict[int, Tuple[float, str]], imp_c: Optional[str]
         limitations.append(
             f"FY{ly} reported EBITDA adds back a ${_m(impair[ly][0]):,.0f}M non-cash impairment "
             f"(us-gaap:{imp_c}) that drove reported operating income negative.")
+    if eb_ly is not None and not da_fresh:
+        limitations.append(
+            f"FY{ly} reported EBITDA excludes D&A because no XBRL D&A concept resolved for that "
+            "period; the reported figure is closer to EBIT and net leverage may be overstated — "
+            "verify against the filing.")
     if interest and eb_ly and eb_ly > 0 and "interest_coverage_ltm" not in financials and not lev.int_fresh:
         limitations.append(
             "Interest coverage not derived: the latest interest-expense XBRL tag predates the "
@@ -494,6 +500,13 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     ly = max(ebitda) if ebitda else max(years)
     eb_ly = ebitda.get(ly)
     eb_accn = opinc[ly][1] if ly in opinc else ""
+    # Whether the headline year itself has a resolved D&A fact — distinct from
+    # "no D&A concept anywhere" (da_c is None, in which case da is {} and this is
+    # False too). _ebitda_proxy defaults a missing year's D&A to 0.0 (EBIT-as-EBITDA
+    # for that year) with no signal that it did so; da_fresh lets _limitation_flags
+    # disclose it, mirroring debt_fresh/int_fresh above. (ENG-7 companion: that case
+    # understated leverage, this one overstates it — still an undisclosed gap.)
+    da_fresh = ly in da
 
     # normalized_financials matches the CP-1 contract the adapter + metric-facts
     # projection consume; adj_ebitda is the reported proxy (see limitation_flags).
@@ -523,7 +536,7 @@ def build_cp1_payload(entity_name: str, facts: dict, max_years: int = 4) -> Opti
     z, bs_stale = _altman_distress(us, ly, opinc, nf)
     claims = _claims(rev, rev_c, ly, op_c, eb_accn, eb_ly, lev, z)
     limitations = _limitation_flags(
-        impair, imp_c, ly, opinc, interest, eb_ly, ebitda, financials, lev, bs_stale)
+        impair, imp_c, ly, opinc, interest, eb_ly, ebitda, financials, lev, bs_stale, da_fresh)
 
     return ModulePayload(
         module_id="CP-1",
@@ -563,6 +576,22 @@ def render_facts_text(entity_name: str, payload: ModulePayload) -> str:
 # ── Network (reuses edgar.py's throttled, UA-gated _get_json) ─────────────────
 _TICKER_CACHE: Dict[str, str] = {}  # ticker(upper) -> 10-digit CIK; filled once per process
 
+_FACTS_CACHE_TTL_S = 6 * 60 * 60  # company facts change on filings, not intraday
+_FACTS_CACHE: Dict[str, Tuple[float, dict]] = {}  # cik -> (fetched_at, facts payload)
+
+
+def _cached_facts(cik: str) -> dict:
+    """The XBRL company-facts payload is the largest, most rate-limited EDGAR
+    call CP-1 makes; re-running an issuer same-day re-fetched it every time.
+    TTL-cached per process, same pattern as _TICKER_CACHE."""
+    now = time.monotonic()
+    cached = _FACTS_CACHE.get(cik)
+    if cached is not None and now - cached[0] < _FACTS_CACHE_TTL_S:
+        return cached[1]
+    facts = edgar._get_json(_FACTS_URL.format(cik=cik))
+    _FACTS_CACHE[cik] = (now, facts)
+    return facts
+
 
 def resolve_cik(ticker: str) -> Optional[str]:
     """Map a ticker to its zero-padded CIK via SEC's ticker map (cached). Returns
@@ -589,7 +618,7 @@ def fetch_cp1(ticker: str, entity_name: str) -> Optional[Cp1Build]:
         cik = resolve_cik(ticker)
         if not cik:
             return None
-        facts = edgar._get_json(_FACTS_URL.format(cik=cik))
+        facts = _cached_facts(cik)
         payload = build_cp1_payload(entity_name or str(facts.get("entityName") or ticker), facts)
         if payload is None:
             return None

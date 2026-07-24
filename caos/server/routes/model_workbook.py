@@ -855,6 +855,23 @@ async def commit_model_workbook_import(
             chunk_count=0,
             uploaded_by=caller.email,
             uploaded_at=now,
+            # content_sha256 deliberately left unset (NULL) here, unlike the
+            # other construction sites: this path's design intentionally
+            # creates a fresh, distinct Document per commit — the SAME
+            # workbook bytes are legitimately re-imported at a later draft
+            # revision (see _existing_import's fingerprint, which is
+            # revision-aware, and test_model_workbook_api.py::
+            # test_same_legacy_workbook_replays_once_but_can_be_reimported_
+            # at_later_revision, which asserts exactly that succeeds with a
+            # second, distinct import_id). Populating content_sha256 would
+            # make those legitimate repeat-content commits collide on the
+            # new partial unique index (issuer_id, content_sha256) WHERE
+            # status='active' and turn a 200 into a 409, breaking existing
+            # caller behavior. Safe to skip: this document always carries
+            # chunk_count=0 (no DocumentChunk rows are ever created for a
+            # model workbook), so it can never be double-cited via
+            # retrieval.rrf_fusion — the root cause this column exists to
+            # fix does not apply to this construction site.
         )
         manifest = SourceManifest(
             id=str(token["manifest_id"]),

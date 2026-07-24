@@ -106,6 +106,21 @@ async def embed_chunks_for_document(db, document_id: str) -> int:
     if not to_embed:
         return 0
 
+    # Dedup by chunk_hash within this batch: a document with repeated boilerplate
+    # text (e.g. a governing-law clause repeated verbatim) produces multiple
+    # DocumentChunk rows that share the same chunk_hash (see warmup_embeddings_task's
+    # dedup below). Embedding is keyed by (model, chunk_hash) (unique index
+    # ix_chunk_embeddings_lookup), so inserting duplicates within one batch trips
+    # the unique index and loses the WHOLE document's embeddings, not just the dupes.
+    seen: set[str] = set()
+    deduped = []
+    for c in to_embed:
+        if c.chunk_hash in seen:
+            continue
+        seen.add(c.chunk_hash)
+        deduped.append(c)
+    to_embed = deduped
+
     logger.info("Embedding %d chunks for document %s", len(to_embed), document_id)
 
     # Batch process in sizes of 100

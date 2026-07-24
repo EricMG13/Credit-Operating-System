@@ -8,6 +8,8 @@ seeded, so existing local/dev databases pick them up on restart.
 
 from __future__ import annotations
 
+import hashlib
+
 from sqlalchemy import func, select
 
 from database import AsyncSessionLocal, Document, DocumentChunk, Issuer, MetricFact
@@ -146,6 +148,12 @@ async def seed_demo_documents() -> None:
                     issuer_id=issuer_id, doc_type=doc_type, file_name=file_name,
                     storage_key=f"reference/demo/{issuer_id}/{seq}", chunk_count=1,
                     uploaded_by="demo-seed",
+                    # No raw uploaded bytes here (synthetic seed text, not a real
+                    # file) — hash the text itself so the column is populated for
+                    # future dedupe coverage. No dedupe CHECK here: seeding is
+                    # already idempotent per-issuer (has_docs guard above), and a
+                    # demo issuer's docs are all distinct text by construction.
+                    content_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
                 )
                 session.add(doc)
                 await session.flush()  # assign doc.id

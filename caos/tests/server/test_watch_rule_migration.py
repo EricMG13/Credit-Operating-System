@@ -372,7 +372,13 @@ def test_0068_upgrades_legacy_rules_with_nullable_retry_identity(
         rule_id, version_id = _insert_rule_and_version(connection)
         connection.commit()
 
-    upgraded_0068 = _alembic("upgrade", "head", db_url=db_url)
+    # Pinned to the explicit revision "0068" rather than "head" (matching this
+    # file's own convention elsewhere, e.g. the "0067:0068" range a few tests
+    # up): this test is about 0068's specific upgrade behavior, and "head"
+    # moves every time a later migration lands (e.g. 0069) — chasing head
+    # here would make this test about migration 0069+ N's compatibility with
+    # 0068's legacy-row backfill, not about 0068 itself.
+    upgraded_0068 = _alembic("upgrade", "0068", db_url=db_url)
     assert upgraded_0068.returncode == 0, upgraded_0068.stderr
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(
