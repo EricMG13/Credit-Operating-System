@@ -75,6 +75,9 @@ def _frontmatter(
         "document_id": document_id,
         "doc_type": report.doc_type.value,
         "extraction_status": report.extraction_status,
+        # Which extractor produced this note — a vision read must stay visibly
+        # distinguishable from a deterministic one for any programmatic reader.
+        "extractor": report.extractor,
         "contains_source_text": True,  # real bool → unquoted YAML `true`
         # Optional — dropped when None/"".
         "ticker": issuer.ticker,
@@ -113,8 +116,15 @@ def _body(
         lines.append("## Key facts")
         for fact in report.key_facts:
             agency = f" ({fact.unit})" if fact.unit and fact.kind == "rating" else ""
+            # Basis and confidence are shown inline because a marketed
+            # ("sponsor-adjusted") figure and a reported one are different claims
+            # about the same company — an analyst must never have to guess which
+            # they are reading.
+            qualifiers = [q for q in (fact.basis, fact.confidence) if q]
+            suffix = f" — {' · '.join(qualifiers)}" if qualifiers else ""
             lines.append(
-                f"- **{fact.label}:** {fact.value}{agency}{_page_suffix(fact.page, None)}"
+                f"- **{fact.label}:** {fact.value}{agency}"
+                f"{_page_suffix(fact.page, None)}{suffix}"
             )
         lines.append("")
 
@@ -129,6 +139,7 @@ def _body(
         "## Extraction notes",
         f"- status: {report.extraction_status}",
         f"- method: {report.method}",
+        f"- extractor: {report.extractor}",
         f"- pages: {report.page_count}",
         f"- document_id: {document_id}",
     ])

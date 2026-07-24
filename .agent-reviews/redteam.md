@@ -3467,3 +3467,35 @@ lands** — they do not merge on design assurance alone. Keyless/offline posture
 preserved (zero vision calls without a key; deterministic fallback); no legacy
 schema alter; every seam degrades. Re-run this pass against the real diff at each
 phase before merge.
+
+### Phase-1 + Phase-2 verification addendum — 2026-07-24
+
+The design pass above was **design-time only**; its dispositions were commitments,
+not verified facts. The code has now landed and each is re-checked against it. The
+two **Critical** objections were explicitly held to "must be re-verified with
+adversarial tests when the code lands" — both now have them.
+
+| ID | Verified how | Result |
+|----|--------------|--------|
+| RT-2026-07-24-01 (sponsor-basis contamination) | `KeyFact.basis` is a closed set (`FACT_BASES`); the promotional doc types default to `sponsor-adjusted`, and an out-of-vocabulary basis from the model is **replaced, not stored**. Tests: `test_deck_figures_are_tagged_sponsor_adjusted_by_default`, `test_an_out_of_vocabulary_basis_is_replaced_not_stored`. | Verified — **partial**. Tagging and defaulting are enforced in code; the CP-4C *routing* itself is Phase-3 and remains unbuilt, so the objection is not fully discharged. Vision facts currently reach only the OKF note/registry, never reported CP-1 — the contamination path does not exist yet. |
+| RT-2026-07-24-02 (image-borne injection) | Forced tool-use (`tool_choice={"type":"tool"}`), a single read-only tool, an explicit untrusted-document rule naming in-image text, closed enums, and no free-text channel. Tests: `test_injected_instructions_cannot_change_the_output_shape` (a fixture whose text instructs the model to abandon the tool and declare 1.0x leverage), `test_the_request_is_forced_into_the_closed_tool` (asserts the actual outbound call shape), `test_a_reply_that_is_not_the_expected_tool_call_is_discarded`. | Verified. Note the residual: these prove the *harness* cannot be redirected, not that a model never mis-reads a slide. The blast radius is bounded to an in-range wrong number, which the -04 gate then filters. |
+| RT-2026-07-24-03 (discountability) | `prov="vision"` on chunks; confidence capped at `Medium`, downgraded to `Low` with a warning when no text layer exists; `extractor` in frontmatter + note body; basis/confidence rendered inline per fact. Tests: `test_vision_confidence_is_capped_at_medium`, `test_an_unverifiable_scanned_deck_is_downgraded_not_trusted`. | Verified. |
+| RT-2026-07-24-04 (hallucination) | Numeric gate: every digit run in a value must occur in the document's text layer (separator-tolerant), else the fact is dropped with a warning; page anchor mandatory and range-checked. Tests: `test_a_figure_absent_from_the_document_is_dropped`, `test_formatting_differences_do_not_drop_a_real_figure`, `test_a_fact_with_no_usable_page_anchor_is_dropped`. | Verified — **with a stated limit**. The gate cannot run on a scanned deck with no text layer; those facts are kept at `Low` and flagged rather than silently trusted. That is the honest residual, not a closed hole. |
+| RT-2026-07-24-05 (cost/latency) | Lane gated to `VISION_DOC_TYPES` only; off unless `vision_extractor_model` is set AND `document_egress_allowed`. Tests: `test_vision_lane_is_off_by_default`, `test_vision_lane_requires_document_egress_not_just_a_model`, `test_vision_makes_no_call_when_disabled`, `test_ordinary_doc_types_never_reach_the_vision_lane`. | Verified. |
+| RT-2026-07-24-06 (lean image) | Native base64 PDF document blocks; no rasterizer added. A provider whose adapter would silently drop the block is **refused** (`test_a_provider_that_would_drop_the_document_is_refused`) rather than sent a text-only prompt. | Verified. |
+| RT-2026-07-24-07 (fault isolation) | Any transport failure returns no facts and leaves the deterministic report intact (`test_a_transport_failure_degrades_to_deterministic`); Phase-1 extraction runs through `parse_bounded` before the DB session opens. | Verified. |
+| RT-2026-07-24-09 (large decks) | Over the page ceiling the read is reported partial with a warning (`test_an_oversized_deck_is_reported_partial_not_silently_truncated`). | Verified. |
+| RT-2026-07-24-12 (migration/compat) | Migration `0069` is additive; `prov="vision"` is a new value in an existing column. Phase-1 CI passed both `Server — pytest` lanes **under Postgres**, where the `EvidenceItem`/`MetricFact` FKs the supersede depends on are actually enforced (SQLite does not enforce them). | Verified. |
+
+Two design commitments deliberately **not** yet met, and not claimed as met:
+
+- **CP-4C routing of sponsor-basis facts (Phase-3).** Facts are tagged but not yet
+  routed to the adjusted layer, and the reported↔marketed gap is not yet surfaced
+  as a signal. Until Phase-3, RT-2026-07-24-01 is mitigated by absence (no path to
+  reported CP-1), not by construction.
+- **PPTX-native rendering (RT-2026-07-24-10).** Still an accepted deferral; Phase-2
+  covers PDF only, and a PPTX deck does not reach the vision lane at all.
+
+Decision: Phase-1 and Phase-2 accepted. Phase-3 must re-open RT-2026-07-24-01 and
+discharge it against the real CP-4C wiring — a passing basis-tagging test is not
+evidence that routing is correct.

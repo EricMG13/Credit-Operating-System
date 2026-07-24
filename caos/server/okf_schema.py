@@ -88,8 +88,20 @@ class ExtractedDocument(BaseModel):
 # ── Stage 2: structuring ─────────────────────────────────────────────────────
 
 
+# What accounting basis a figure is stated on. This is the single most
+# consequential tag on a credit platform: a sponsor deck's "4.2x pro-forma" and a
+# filing's reported "6.8x" are different claims about the same company, and the
+# GAP between them is itself the credit signal. A marketed figure that silently
+# entered the reported foundation would understate leverage — so marketed bases
+# route to CP-1's adjusted layer + CP-4C and never to reported CP-1.
+FACT_BASES = frozenset({"sponsor-adjusted", "management-pro-forma", "reported"})
+
+# Which extractor produced a report. Load-bearing for provenance, not cosmetic.
+EXTRACTORS = frozenset({"deterministic", "vision"})
+
+
 class KeyFact(BaseModel):
-    """One typed fact pulled deterministically from the source text.
+    """One typed fact pulled from the source.
 
     ``value`` is stored **verbatim** — never re-formatted ("4.25x" must not become
     "4.3x"). The downstream grounding gate compares formatting-tolerantly, so
@@ -102,6 +114,14 @@ class KeyFact(BaseModel):
     kind: str  # "rating" | "tranche" | "maturity" | "leverage" | "other"
     page: Optional[int] = None  # source page when has_page_map, else None
     source_span: Optional[str] = None  # the line it came from (audit; not chunk text)
+    # One of FACT_BASES. None on the deterministic lane (the basis is whatever the
+    # document states); always set on the vision lane, where the document class is
+    # promotional and the distinction decides downstream routing.
+    basis: Optional[str] = None
+    # One of engine.schemas.CONFIDENCE. None on the deterministic lane; a vision
+    # read is capped at "Medium" — it is never committee-ready the way an XBRL
+    # fact is, and must stay discountable.
+    confidence: Optional[str] = None
 
 
 class DocSection(BaseModel):
@@ -128,6 +148,9 @@ class StructuredReport(BaseModel):
     method: str  # carried through from ExtractedDocument
     page_count: int  # carried through from ExtractedDocument
     extraction_status: str  # carried through from ExtractedDocument
+    # One of EXTRACTORS. "vision" means a multimodal model read the pages; the
+    # note and every fact stay tagged so the read is discountable downstream.
+    extractor: str = "deterministic"
     warnings: list[str] = Field(default_factory=list)
 
 
