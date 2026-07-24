@@ -723,17 +723,20 @@ async def _load_freshness_inputs(
     db: AsyncSession,
     ref: ArtifactRef,
 ) -> _FreshnessInputs | FreshnessEvaluation:
+    # One variable per branch: a single reused `row` takes its inferred type from
+    # the first assignment (Run | None), so every later db.get of a different
+    # model fails the type gate even though the branches never overlap.
     if ref.kind == "issuer_run":
-        row = await db.get(Run, ref.id)
+        run_row = await db.get(Run, ref.id)
         return _FreshnessInputs(
             source_kind="run",
-            observed_at=(row.completed_at or row.created_at) if row else None,
+            observed_at=(run_row.completed_at or run_row.created_at) if run_row else None,
         )
     if ref.kind == "market_snapshot":
-        row = await db.get(MarketSnapshot, ref.id)
+        snapshot_row = await db.get(MarketSnapshot, ref.id)
         return _FreshnessInputs(
             source_kind="price",
-            observed_at=row.as_of if row else None,
+            observed_at=snapshot_row.as_of if snapshot_row else None,
         )
     if ref.kind == "document":
         row = await db.get(Document, ref.id)
@@ -767,22 +770,22 @@ async def _load_freshness_inputs(
             grace_days=grace_days,
         )
 
-    observed_at = None
+    observed_at: datetime | None = None
     if ref.kind == "model_checkpoint":
-        row = await db.get(ModelCheckpoint, ref.id)
-        observed_at = row.created_at if row else None
+        checkpoint_row = await db.get(ModelCheckpoint, ref.id)
+        observed_at = checkpoint_row.created_at if checkpoint_row else None
     elif ref.kind == "report_version":
-        row = await db.get(ReportVersion, ref.id)
-        observed_at = row.created_at if row else None
+        report_row = await db.get(ReportVersion, ref.id)
+        observed_at = report_row.created_at if report_row else None
     elif ref.kind == "insight":
-        row = await db.get(AnalysisInsight, ref.id)
-        observed_at = row.generated_at if row else None
+        insight_row = await db.get(AnalysisInsight, ref.id)
+        observed_at = insight_row.generated_at if insight_row else None
     elif ref.kind == "research_job":
-        row = await db.get(ResearchJob, ref.id)
-        observed_at = (row.completed_at or row.created_at) if row else None
+        job_row = await db.get(ResearchJob, ref.id)
+        observed_at = (job_row.completed_at or job_row.created_at) if job_row else None
     elif ref.kind == "source_manifest":
-        row = await db.get(SourceManifest, ref.id)
-        observed_at = row.created_at if row else None
+        manifest_row = await db.get(SourceManifest, ref.id)
+        observed_at = manifest_row.created_at if manifest_row else None
     return _FreshnessInputs(observed_at=observed_at)
 
 
