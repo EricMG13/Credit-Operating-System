@@ -28,7 +28,9 @@ from engine.schemas import ClaimSpec, EvidenceSpec, ModulePayload
 _CATEGORIES = {
     "financials": (("audit", "edgar-xbrl"), ("financ", "10-k", "10k", "annual", "audited", "xbrl")),
     "agreement": (("sfa", "indenture"), ("agreement", "indenture", "facilit")),
-    "offering": (("prospectus",), ("offering", "prospectus", "memorandum")),
+    # "offering" in the doc_type set so an OKF-ingested `offering-memo` counts
+    # toward CP-0 coverage (its doc_type contains no "prospectus").
+    "offering": (("prospectus", "offering"), ("offering", "prospectus", "memorandum")),
     "covenant": (("covenant",), ("covenant", "compliance", "certificate")),
 }
 _LABEL = {

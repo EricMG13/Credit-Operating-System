@@ -372,7 +372,10 @@ def test_0068_upgrades_legacy_rules_with_nullable_retry_identity(
         rule_id, version_id = _insert_rule_and_version(connection)
         connection.commit()
 
-    upgraded_0068 = _alembic("upgrade", "head", db_url=db_url)
+    # Target 0068 explicitly rather than "head": this test asserts the state
+    # produced by the 0068 migration, so it must not drift every time a later
+    # revision is added on top.
+    upgraded_0068 = _alembic("upgrade", "0068", db_url=db_url)
     assert upgraded_0068.returncode == 0, upgraded_0068.stderr
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(

@@ -341,6 +341,35 @@ def extract_pdf_text(content: bytes, filename: str = "upload.pdf") -> tuple[str,
     return ocr_text, bool(ocr_text.strip())
 
 
+def extract_pdf_pages(content: bytes) -> List[tuple]:
+    """Per-page text for a physical page map: ``[(page_no_1based, text), ...]``.
+
+    Additive and deliberately independent of :func:`extract_pdf_text`: that
+    function's text may come from markitdown or an OCR sidecar, neither of which
+    carries page boundaries, so the page map is always read from pypdf. Callers
+    derive ``has_page_map`` from ``len(pages) > 0`` — never from the text method —
+    which is what lets a markitdown ``full_text`` and a pypdf page map coexist
+    without desyncing.
+
+    The map is advisory (it only supplies best-effort citation anchors), so this
+    never raises: any parser failure returns ``[]`` and the caller degrades to
+    "no page anchors" rather than failing the upload.
+    """
+    from pypdf import PdfReader
+
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        # Mirror extract_pdf_text's page ceiling. Over the cap we return no map at
+        # all (caller degrades to extraction_status="partial") rather than doing
+        # unbounded per-page work — the same limit, expressed as degradation
+        # because an advisory map must not fail an upload.
+        if len(reader.pages) > get_settings().max_pdf_pages:
+            return []
+        return [(i + 1, page.extract_text() or "") for i, page in enumerate(reader.pages)]
+    except Exception:  # noqa: BLE001 — advisory map; any parser failure degrades to []
+        return []
+
+
 def extract_xlsx_text(content: bytes, filename: str = "upload.xlsx") -> str:
     # Validate before either extraction engine sees attacker-controlled XML.
     # Routes call sniff_xlsx after AV scanning too; this local gate keeps direct
