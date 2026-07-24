@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal, Optional, cast
 
@@ -705,7 +706,228 @@ async def get_context_lineage(
     )
 
 
-@router.get("/contexts/{context_id}/freshness", response_model=ContextFreshness)
+_FreshnessArtifactKey = tuple[ArtifactKind, str, Optional[str]]
+
+
+@dataclass(frozen=True)
+class _FreshnessInputs:
+    source_kind: FreshnessSourceKind = "derived_artifact"
+    observed_at: datetime | date | str | None = None
+    effective_period_end: date | datetime | str | None = None
+    cadence: ReportingCadence = "unknown"
+    reporting_lag_days: Optional[int] = None
+    grace_days: int = 7
+
+
+async def _load_freshness_inputs(
+    db: AsyncSession,
+    ref: ArtifactRef,
+) -> _FreshnessInputs | FreshnessEvaluation:
+    # One variable per branch: a single reused `row` takes its inferred type from
+    # the first assignment (Run | None), so every later db.get of a different
+    # model fails the type gate even though the branches never overlap.
+    if ref.kind == "issuer_run":
+        run_row = await db.get(Run, ref.id)
+        return _FreshnessInputs(
+            source_kind="run",
+            observed_at=(run_row.completed_at or run_row.created_at) if run_row else None,
+        )
+    if ref.kind == "market_snapshot":
+        snapshot_row = await db.get(MarketSnapshot, ref.id)
+        return _FreshnessInputs(
+            source_kind="price",
+            observed_at=snapshot_row.as_of if snapshot_row else None,
+        )
+    if ref.kind == "document":
+        row = await db.get(Document, ref.id)
+        if row is None or row.source_kind not in {
+            "reported_financials",
+            "legal_document",
+            "price",
+        }:
+            return FreshnessEvaluation(
+                state="unknown",
+                source_kind="derived_artifact",
+                reason="document_source_kind_unknown",
+            )
+
+        source_kind = cast(FreshnessSourceKind, row.source_kind)
+        cadence: ReportingCadence = "unknown"
+        reporting_lag_days = None
+        grace_days = 7
+        if source_kind == "reported_financials":
+            profile = await db.get(IssuerReportingProfile, row.issuer_id)
+            if profile:
+                cadence = cast(ReportingCadence, profile.cadence)
+                reporting_lag_days = profile.reporting_lag_days
+                grace_days = profile.grace_days
+        return _FreshnessInputs(
+            source_kind=source_kind,
+            observed_at=row.source_published_at or row.uploaded_at,
+            effective_period_end=row.effective_period_end,
+            cadence=cadence,
+            reporting_lag_days=reporting_lag_days,
+            grace_days=grace_days,
+        )
+
+    observed_at: datetime | None = None
+    if ref.kind == "model_checkpoint":
+        checkpoint_row = await db.get(ModelCheckpoint, ref.id)
+        observed_at = checkpoint_row.created_at if checkpoint_row else None
+    elif ref.kind == "report_version":
+        report_row = await db.get(ReportVersion, ref.id)
+        observed_at = report_row.created_at if report_row else None
+    elif ref.kind == "insight":
+        insight_row = await db.get(AnalysisInsight, ref.id)
+        observed_at = insight_row.generated_at if insight_row else None
+    elif ref.kind == "research_job":
+        job_row = await db.get(ResearchJob, ref.id)
+        observed_at = (job_row.completed_at or job_row.created_at) if job_row else None
+    elif ref.kind == "source_manifest":
+        manifest_row = await db.get(SourceManifest, ref.id)
+        observed_at = manifest_row.created_at if manifest_row else None
+    return _FreshnessInputs(observed_at=observed_at)
+
+
+async def _lineage_version_state(
+    db: AsyncSession,
+    *,
+    context_id: str,
+    analyst_id: str,
+    ref: ArtifactRef,
+    current_by_kind: dict[ArtifactKind, set[tuple[str, Optional[str]]]],
+) -> tuple[SourceVersionState, set[_FreshnessArtifactKey]]:
+    edges = (await db.execute(
+        select(LineageEdge).where(
+            LineageEdge.context_id == context_id,
+            LineageEdge.analyst_id == analyst_id,
+            LineageEdge.artifact_id == f"{ref.kind}:{ref.id}",
+            LineageEdge.artifact_version == ref.version
+            if ref.version is not None
+            else LineageEdge.artifact_version.is_(None),
+            LineageEdge.v2_idempotency_key.is_not(None),
+        )
+    )).scalars().all()
+    if not edges:
+        return "unknown", set()
+
+    incomplete = False
+    parents_by_kind: dict[
+        ArtifactKind, set[tuple[str, Optional[str]]]
+    ] = {}
+    transforms_by_kind: dict[ArtifactKind, set[str]] = {}
+    parent_keys: set[_FreshnessArtifactKey] = set()
+    for edge in edges:
+        raw_parent_kind = edge.parent_kind or ""
+        parent_id = (
+            edge.parent_id.split(":", 1)[1]
+            if ":" in edge.parent_id
+            else ""
+        )
+        if raw_parent_kind not in ARTIFACT_KINDS or not parent_id:
+            incomplete = True
+            continue
+        parent_kind = cast(ArtifactKind, raw_parent_kind)
+        parents_by_kind.setdefault(parent_kind, set()).add(
+            (parent_id, edge.parent_version)
+        )
+        transforms_by_kind.setdefault(parent_kind, set()).add(edge.transform)
+        parent_keys.add((parent_kind, parent_id, edge.parent_version))
+
+    state: SourceVersionState = "match"
+    for parent_kind, expected_parents in parents_by_kind.items():
+        candidates = current_by_kind.get(parent_kind)
+        if not candidates:
+            incomplete = True
+            continue
+        subset_scoped = transforms_by_kind.get(parent_kind) == {"ingestion"}
+        changed = (
+            not expected_parents.issubset(candidates)
+            if subset_scoped
+            else candidates != expected_parents
+        )
+        if changed:
+            state = "changed"
+            break
+    if state != "changed" and incomplete:
+        state = "unknown"
+    return state, parent_keys
+
+
+def _propagate_freshness(
+    results: list[ArtifactFreshness],
+    parents_by_artifact: dict[
+        _FreshnessArtifactKey, set[_FreshnessArtifactKey]
+    ],
+) -> list[ArtifactFreshness]:
+    by_key = {
+        (item.artifact.kind, item.artifact.id, item.artifact.version): item
+        for item in results
+    }
+    resolved: dict[_FreshnessArtifactKey, ArtifactFreshness] = {}
+
+    def resolve(
+        key: _FreshnessArtifactKey,
+        visiting: set[_FreshnessArtifactKey],
+    ) -> ArtifactFreshness:
+        if key in resolved:
+            return resolved[key]
+        item = by_key[key]
+        if key in visiting:
+            cycled = item.model_copy(update={
+                "evaluation": item.evaluation.model_copy(update={
+                    "state": "unknown",
+                    "reason": "lineage_cycle",
+                })
+            })
+            resolved[key] = cycled
+            return cycled
+
+        parent_states: list[str] = []
+        missing_parent = False
+        for parent_key in parents_by_artifact.get(key, set()):
+            if parent_key not in by_key:
+                missing_parent = True
+                continue
+            parent = resolve(parent_key, {*visiting, key})
+            parent_states.append(parent.evaluation.state)
+
+        evaluation = item.evaluation
+        if evaluation.state != "stale" and "stale" in parent_states:
+            evaluation = evaluation.model_copy(update={
+                "state": "stale",
+                "reason": "bound_source_stale",
+            })
+        elif evaluation.state != "stale" and (
+            missing_parent or "unknown" in parent_states
+        ):
+            evaluation = evaluation.model_copy(update={
+                "state": "unknown",
+                "reason": "bound_source_unknown",
+            })
+        elif evaluation.state == "current" and "due" in parent_states:
+            evaluation = evaluation.model_copy(update={
+                "state": "due",
+                "reason": "bound_source_due",
+            })
+
+        resolved_item = item.model_copy(update={"evaluation": evaluation})
+        resolved[key] = resolved_item
+        return resolved_item
+
+    return [
+        resolve(
+            (item.artifact.kind, item.artifact.id, item.artifact.version),
+            set(),
+        )
+        for item in results
+    ]
+
+
+@router.get(
+    "/contexts/{context_id}/freshness",
+    response_model=ContextFreshness,
+)
 async def get_context_freshness(
     context_id: str,
     db: AsyncSession = Depends(get_db, scope="function"),
@@ -714,222 +936,61 @@ async def get_context_freshness(
     _guard(caller, write=False)
     context = await _owned_context(db, context_id, caller.id)
     if not get_settings().caos_lineage_v2_enabled:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Analysis context not found.")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Analysis context not found.",
+        )
     refs = AnalysisArtifactRefs.model_validate(context.artifacts or {})
-    await _validate_artifact_refs(db, refs, context_id=context_id, caller=caller)
+    await _validate_artifact_refs(
+        db, refs, context_id=context_id, caller=caller
+    )
     typed_refs = list(refs.artifact_refs)
-    # Phase 1B retains historical typed refs for audit, while the legacy scalar
-    # fields remain the producer-maintained active pointer for singleton kinds.
-    # Narrow those kinds to the active id so a newly derived artifact can become
-    # current after a rebind instead of comparing forever against old history.
-    # If the scalar id has multiple typed versions, it cannot identify which is
-    # active; fail to unknown rather than guessing a sortable version scheme.
     current_by_kind = _active_refs_by_kind(context, typed_refs)
     now = datetime.now(timezone.utc)
     results: list[ArtifactFreshness] = []
     parents_by_artifact: dict[
-        tuple[ArtifactKind, str, Optional[str]],
-        set[tuple[ArtifactKind, str, Optional[str]]],
+        _FreshnessArtifactKey, set[_FreshnessArtifactKey]
     ] = {}
 
     for ref in typed_refs:
-        source_kind: FreshnessSourceKind = "derived_artifact"
-        observed_at = None
-        effective_period_end = None
-        cadence: ReportingCadence = "unknown"
-        reporting_lag_days = None
-        grace_days = 7
-        version_state: SourceVersionState = "match"
-        if ref.kind == "issuer_run":
-            run_row = await db.get(Run, ref.id)
-            source_kind = "run"
-            observed_at = (
-                (run_row.completed_at or run_row.created_at) if run_row else None
-            )
-        elif ref.kind == "market_snapshot":
-            snapshot_row = await db.get(MarketSnapshot, ref.id)
-            source_kind = "price"
-            observed_at = snapshot_row.as_of if snapshot_row else None
-        elif ref.kind == "document":
-            document_row = await db.get(Document, ref.id)
-            if document_row and document_row.source_kind in {
-                "reported_financials",
-                "legal_document",
-                "price",
-            }:
-                source_kind = cast(FreshnessSourceKind, document_row.source_kind)
-                observed_at = (
-                    document_row.source_published_at or document_row.uploaded_at
-                )
-                effective_period_end = document_row.effective_period_end
-                if source_kind == "reported_financials":
-                    profile = await db.get(
-                        IssuerReportingProfile, document_row.issuer_id
-                    )
-                    if profile:
-                        cadence = cast(ReportingCadence, profile.cadence)
-                        reporting_lag_days = profile.reporting_lag_days
-                        grace_days = profile.grace_days
-            else:
-                results.append(ArtifactFreshness(
-                    artifact=ref,
-                    evaluation=FreshnessEvaluation(
-                        state="unknown", source_kind="derived_artifact",
-                        reason="document_source_kind_unknown",
-                    ),
-                ))
-                continue
-        else:
-            if ref.kind == "model_checkpoint":
-                checkpoint_row = await db.get(ModelCheckpoint, ref.id)
-                observed_at = checkpoint_row.created_at if checkpoint_row else None
-            elif ref.kind == "report_version":
-                report_row = await db.get(ReportVersion, ref.id)
-                observed_at = report_row.created_at if report_row else None
-            elif ref.kind == "insight":
-                insight_row = await db.get(AnalysisInsight, ref.id)
-                observed_at = insight_row.generated_at if insight_row else None
-            elif ref.kind == "research_job":
-                research_row = await db.get(ResearchJob, ref.id)
-                observed_at = (
-                    (research_row.completed_at or research_row.created_at)
-                    if research_row
-                    else None
-                )
-            elif ref.kind == "source_manifest":
-                manifest_row = await db.get(SourceManifest, ref.id)
-                observed_at = manifest_row.created_at if manifest_row else None
+        inputs = await _load_freshness_inputs(db, ref)
+        if isinstance(inputs, FreshnessEvaluation):
+            results.append(ArtifactFreshness(
+                artifact=ref,
+                evaluation=inputs,
+            ))
+            continue
 
-        if source_kind in {"run", "derived_artifact"}:
-            edges = (await db.execute(
-                select(LineageEdge).where(
-                    LineageEdge.context_id == context_id,
-                    LineageEdge.analyst_id == caller.id,
-                    LineageEdge.artifact_id == f"{ref.kind}:{ref.id}",
-                    LineageEdge.artifact_version == ref.version
-                    if ref.version is not None else LineageEdge.artifact_version.is_(None),
-                    LineageEdge.v2_idempotency_key.is_not(None),
-                )
-            )).scalars().all()
-            artifact_key = (ref.kind, ref.id, ref.version)
-            if not edges:
-                version_state = "unknown"
-                parents_by_artifact[artifact_key] = set()
-            else:
-                version_state = "match"
-                incomplete_lineage = False
-                parents_by_kind: dict[
-                    ArtifactKind, set[tuple[str, Optional[str]]]
-                ] = {}
-                transforms_by_kind: dict[ArtifactKind, set[str]] = {}
-                parent_keys: set[
-                    tuple[ArtifactKind, str, Optional[str]]
-                ] = set()
-                for edge in edges:
-                    raw_parent_kind = edge.parent_kind or ""
-                    parent_id = edge.parent_id.split(":", 1)[1] if ":" in edge.parent_id else ""
-                    if raw_parent_kind not in ARTIFACT_KINDS or not parent_id:
-                        incomplete_lineage = True
-                        continue
-                    parent_kind = cast(ArtifactKind, raw_parent_kind)
-                    parents_by_kind.setdefault(parent_kind, set()).add(
-                        (parent_id, edge.parent_version)
-                    )
-                    transforms_by_kind.setdefault(parent_kind, set()).add(edge.transform)
-                    parent_keys.add((parent_kind, parent_id, edge.parent_version))
-                parents_by_artifact[artifact_key] = parent_keys
-                for parent_kind, expected_parents in parents_by_kind.items():
-                    candidates = current_by_kind.get(parent_kind)
-                    if not candidates:
-                        incomplete_lineage = True
-                        continue
-                    # An ingestion manifest is intentionally scoped to its own
-                    # document; other documents may coexist in the context and
-                    # are not replacements. Snapshot-style transforms (runs,
-                    # checkpoints, reports, insights) compare the full active set.
-                    # Singleton kinds were already narrowed to their active scalar.
-                    subset_scoped = transforms_by_kind.get(parent_kind) == {"ingestion"}
-                    changed = (
-                        not expected_parents.issubset(candidates)
-                        if subset_scoped else candidates != expected_parents
-                    )
-                    if changed:
-                        version_state = "changed"
-                        break
-                if version_state != "changed" and incomplete_lineage:
-                    version_state = "unknown"
+        version_state: SourceVersionState = "match"
+        if inputs.source_kind in {"run", "derived_artifact"}:
+            version_state, parents = await _lineage_version_state(
+                db,
+                context_id=context_id,
+                analyst_id=caller.id,
+                ref=ref,
+                current_by_kind=current_by_kind,
+            )
+            parents_by_artifact[(ref.kind, ref.id, ref.version)] = parents
 
         results.append(ArtifactFreshness(
             artifact=ref,
             evaluation=evaluate_freshness(
-                source_kind=source_kind,
+                source_kind=inputs.source_kind,
                 now=now,
-                observed_at=observed_at,
-                effective_period_end=effective_period_end,
-                cadence=cadence,
-                reporting_lag_days=reporting_lag_days,
-                grace_days=grace_days,
+                observed_at=inputs.observed_at,
+                effective_period_end=inputs.effective_period_end,
+                cadence=inputs.cadence,
+                reporting_lag_days=inputs.reporting_lag_days,
+                grace_days=inputs.grace_days,
                 source_version_state=version_state,
             ),
         ))
 
-    # Propagate parent freshness through the lineage DAG. Identity equality is
-    # necessary but not sufficient: a checkpoint still bound to the same run is
-    # stale if that run became stale after a document/market source change.
-    by_key = {
-        (item.artifact.kind, item.artifact.id, item.artifact.version): item
-        for item in results
-    }
-    resolved: dict[
-        tuple[ArtifactKind, str, Optional[str]], ArtifactFreshness
-    ] = {}
-
-    def resolve(
-        key: tuple[ArtifactKind, str, Optional[str]],
-        visiting: set[tuple[ArtifactKind, str, Optional[str]]],
-    ) -> ArtifactFreshness:
-        if key in resolved:
-            return resolved[key]
-        item = by_key[key]
-        if key in visiting:
-            # Lineage must be a DAG. Fail closed if corrupt rows form a cycle.
-            cycled = item.model_copy(update={
-                "evaluation": item.evaluation.model_copy(update={
-                    "state": "unknown", "reason": "lineage_cycle",
-                })
-            })
-            resolved[key] = cycled
-            return cycled
-        next_visiting = {*visiting, key}
-        parent_states: list[str] = []
-        missing_parent = False
-        for parent_key in parents_by_artifact.get(key, set()):
-            if parent_key not in by_key:
-                missing_parent = True
-                continue
-            parent_states.append(resolve(parent_key, next_visiting).evaluation.state)
-        evaluation = item.evaluation
-        if evaluation.state != "stale" and "stale" in parent_states:
-            evaluation = evaluation.model_copy(update={
-                "state": "stale", "reason": "bound_source_stale",
-            })
-        elif evaluation.state != "stale" and (missing_parent or "unknown" in parent_states):
-            evaluation = evaluation.model_copy(update={
-                "state": "unknown", "reason": "bound_source_unknown",
-            })
-        elif evaluation.state == "current" and "due" in parent_states:
-            evaluation = evaluation.model_copy(update={
-                "state": "due", "reason": "bound_source_due",
-            })
-        resolved_item = item.model_copy(update={"evaluation": evaluation})
-        resolved[key] = resolved_item
-        return resolved_item
-
-    propagated = [
-        resolve((item.artifact.kind, item.artifact.id, item.artifact.version), set())
-        for item in results
-    ]
-    return ContextFreshness(context_id=context_id, evaluated_at=now, artifacts=propagated)
+    return ContextFreshness(
+        context_id=context_id,
+        evaluated_at=now,
+        artifacts=_propagate_freshness(results, parents_by_artifact),
+    )
 
 
 def _merge_legacy_context_maps(

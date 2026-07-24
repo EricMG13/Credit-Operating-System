@@ -3428,3 +3428,22 @@ concepts and its golden path corrected to Directory → Upload → Pipeline.
 | RT-2026-07-23-03 | 2026-07-23 | Drop coverage/location from signup | Silently loses profile-metadata capture with no replacement surface. | Medium | Accepted | Both fields are write-only today (no UI or server read path); `RegisterRequest` keeps them Optional (auth.py:109-110) and the columns remain (migration 0017), so capture returns intact with a future profile editor. |
 | RT-2026-07-23-04 | 2026-07-23 | Decision→watch-rule nudge | Adds a network call to the decision path and could over- or under-claim rule coverage. | Medium | Resolved | The check fires only after the decision persists and is failure-silent (never blocks recording); coverage counts issuer-scoped + team-scoped rules; portfolio-scoped rules are conservatively not counted, and the copy claims only "no issuer or team watch rule". |
 | RT-2026-07-23-05 | 2026-07-23 | Landing UI changes while H0 candidate `3b66da67` is frozen | Merging would invalidate the frozen release candidate. | High | Resolved | Ships as a post-freeze draft PR on `claude/start-5t1kuy` (same pattern as #169/#191); nothing merges to `main` before the release decision. |
+
+## 2026-07-23 — freshness route rewrite-tournament critic pass
+
+Decision under review: extract `get_context_freshness` artifact loading,
+lineage comparison, and DAG propagation into private helpers without changing
+the HTTP, authorization, persistence, or freshness contracts.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-23-838 | Authorization reviewer | Helper extraction could move artifact reads ahead of role, ownership, feature-gate, or reference validation checks and create an enumeration side channel. | Critical | Resolved and verified | The endpoint retains the original guard, owned-context lookup, feature gate, Pydantic parse, and `_validate_artifact_refs` sequence before invoking any new helper. Whole-diff review and lineage/freshness tests confirm the order. |
+| RT-2026-07-23-839 | Lineage-semantics reviewer | Separating comparison logic can invert `changed` over incomplete-lineage precedence or apply ingestion subset semantics to snapshot transforms. | High | Resolved and verified | `_lineage_version_state` preserves exact-version SQL predicates, per-kind parent sets, ingestion-only subset comparison, full-set comparison otherwise, and only downgrades to `unknown` when no mismatch was proven. Freshness and lineage suites remain green. |
+| RT-2026-07-23-840 | Ordering reviewer | Helper returns or batching could reorder awaited reads, typed artifacts, or response rows and change boundary-time evaluations. | High | Resolved and verified | The candidate retains the serial typed-ref loop, captures one `now`, appends once per ref, and propagates over the original result order. No database batching or concurrent reads are introduced; 131 focused tests pass. |
+| RT-2026-07-23-841 | Failure-closure reviewer | A helperized DAG resolver could weaken cycle, missing-parent, or transitive severity handling. | High | Resolved and verified | The pure propagation helper retains memoization and exact precedence: direct/parent stale, then missing/unknown, then due for current children, with cycle degradation to `lineage_cycle`. Freshness adapters and edge tests pass. |
+
+Decision: accepted. The focused freshness, adapter, lineage, and edge suites
+passed (131 passed, 1 opt-in integration skipped); Ruff, compilation, and
+whole-diff checks are clean. The GitNexus scope report is high only because
+line shifts touch adjacent symbols; the reviewed diff has no behavior change in
+those functions.
