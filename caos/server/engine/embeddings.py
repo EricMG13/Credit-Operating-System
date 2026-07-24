@@ -1,7 +1,4 @@
-import hashlib
-import struct
 import math
-import random
 import logging
 from typing import List
 from datetime import datetime, timezone
@@ -12,17 +9,6 @@ from config import get_settings
 from database import Document, DocumentChunk, DocumentChunkEmbedding
 
 logger = logging.getLogger("caos.embeddings")
-
-
-def get_mock_embedding(text: str, dim: int = 768) -> List[float]:
-    """Generates a deterministic, normalized unit vector for mock testing."""
-    h = hashlib.sha256(text.encode("utf-8")).digest()
-    seed = struct.unpack(">I", h[:4])[0]
-    rng = random.Random(seed)
-    # Generate a normalized unit vector
-    vec = [rng.gauss(0, 1) for _ in range(dim)]
-    norm = math.sqrt(sum(x*x for x in vec))
-    return [x / (norm or 1.0) for x in vec]
 
 
 async def get_embeddings(texts: List[str]) -> List[List[float]]:

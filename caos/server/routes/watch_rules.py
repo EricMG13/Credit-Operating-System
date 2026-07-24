@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import base64
 from datetime import datetime, timezone
 import hashlib
-import hmac
 import json
 from typing import Literal, cast
 from uuid import UUID, uuid4
@@ -23,6 +21,7 @@ from sqlalchemy import and_, exists, false, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
+import signed_tokens
 from alert_contracts import (
     EvaluationTrigger,
     SignalObservation,
@@ -350,35 +349,14 @@ def _encode_cursor(*, fingerprint: str, row: WatchRule) -> str:
         "created_at": created_at.isoformat(),
         "id": row.id,
     }
-    raw = (
-        base64.urlsafe_b64encode(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-        )
-        .decode("ascii")
-        .rstrip("=")
-    )
-    signature = hmac.new(
-        get_settings().session_secret.encode("utf-8"),
-        raw.encode("ascii"),
-        hashlib.sha256,
-    ).hexdigest()
-    return f"{raw}.{signature}"
+    return signed_tokens.sign_json(payload, secret=get_settings().session_secret)
 
 
 def _decode_cursor(cursor: str, *, fingerprint: str) -> tuple[datetime, str]:
     if len(cursor) > _CURSOR_MAX:
         raise HTTPException(400, "invalid_watch_rule_cursor")
     try:
-        raw, signature = cursor.rsplit(".", 1)
-        expected = hmac.new(
-            get_settings().session_secret.encode("utf-8"),
-            raw.encode("ascii"),
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature.encode("ascii"), expected.encode("ascii")):
-            raise ValueError
-        decoded = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
-        payload = json.loads(decoded)
+        payload = signed_tokens.verify_json(cursor, secret=get_settings().session_secret)
         if (
             not isinstance(payload, dict)
             or payload.get("v") != _CURSOR_VERSION

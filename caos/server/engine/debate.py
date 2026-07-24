@@ -327,9 +327,7 @@ class LiveDebater:
         self._client = None
 
     def _get_client(self):
-        if self._client is None:
-            self._client = llm_client.anthropic_client(self._settings)
-        return self._client
+        return llm_client.cached_client(self)
 
     async def narrate(self, advocate: str, lens: str, points: List[Point],
                       upstream: Dict[str, ModulePayload]) -> str:

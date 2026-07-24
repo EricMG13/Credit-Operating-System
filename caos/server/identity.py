@@ -28,10 +28,7 @@ relying on network isolation alone.
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import hmac
-import json
 import time
 from dataclasses import dataclass, replace
 
@@ -39,6 +36,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import signed_tokens
 from access_log import sanitize_field
 from config import get_settings, is_deployed
 from database import Analyst, case_insensitive_email_match, get_db
@@ -93,15 +91,9 @@ def require_write_role(caller: CallerIdentity) -> None:
         raise HTTPException(403, "Read-only callers cannot mutate this resource.")
 
 
-def _sig(raw: str, secret: str) -> str:
-    mac = hmac.new(secret.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=")
-
-
 def make_session_token(payload: dict, secret: str) -> str:
-    """Sign a small JSON payload into a `<b64>.<hmac>` cookie value (stdlib only)."""
-    raw = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii").rstrip("=")
-    return f"{raw}.{_sig(raw, secret)}"
+    """Sign a small JSON payload into a `<b64>.<hmac>` cookie value."""
+    return signed_tokens.sign_json(payload, secret=secret)
 
 
 def read_session_token(token: str, secret: str) -> dict | None:
@@ -122,18 +114,8 @@ def read_session_token(token: str, secret: str) -> dict | None:
     except UnicodeEncodeError:
         return None
     try:
-        raw, sig = token.rsplit(".", 1)
+        data = signed_tokens.verify_json(token, secret=secret)
     except ValueError:
-        return None
-    # Compare as bytes: the signature segment is attacker-controlled cookie data, so a
-    # non-ASCII char would make compare_digest raise TypeError on str (→ 500, not a
-    # clean reject). Same fix as the edge-credential compare in get_identity. (run-2 #B6)
-    if not hmac.compare_digest(sig.encode("utf-8", "ignore"), _sig(raw, secret).encode("utf-8")):
-        return None
-    try:
-        padded = raw + "=" * (-len(raw) % 4)
-        data = json.loads(base64.urlsafe_b64decode(padded))
-    except (ValueError, json.JSONDecodeError):
         return None
     # exp is mandatory (#32): every cookie minted since the claim shipped carries
     # one (auth._set_cookie), so a token without exp predates it — treat a missing

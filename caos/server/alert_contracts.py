@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal, Optional, Protocol
 from uuid import UUID
 
 from pydantic import (
@@ -17,8 +17,15 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from engine.periods import is_finite_number
+
+
+class AsyncSessionFactory(Protocol):
+    """Callable that creates one async context-managed database session."""
+
+    def __call__(self) -> AsyncSession: ...
 
 
 SignalType = Literal[

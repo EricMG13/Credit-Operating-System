@@ -7,6 +7,7 @@ import type {
   VisualizationValue,
 } from "@/components/charts/SemanticVisualization";
 import { DominantTableRegion } from "@/components/shared/DominantTableRegion";
+import { finiteNumber } from "@/lib/engine/numbers";
 
 const compactUsd = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -25,10 +26,6 @@ function sourceLabel(id: string): { text: string; title?: string } {
   return /^[0-9a-f-]{20,}$/i.test(id)
     ? { text: `ID ${id.slice(0, 8)}…`, title: id }
     : { text: id };
-}
-
-function finiteNumber(value: VisualizationValue | undefined): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function visualKeys<Datum extends VisualizationDatum>(spec: VisualizationSpec<Datum>) {

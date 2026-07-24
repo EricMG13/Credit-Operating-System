@@ -634,17 +634,6 @@ def compute_exposure(positions: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def _wavg(pairs: List[Any]) -> Optional[float]:
-    """MV-weighted average of finite (value, weight) pairs; None if no finite weight."""
-    num: Optional[float] = 0.0
-    den: Optional[float] = 0.0
-    for value, weight in pairs:
-        if is_finite_number(value) and is_finite_number(weight) and weight > 0:
-            num = checked_add(num, checked_multiply(value, weight))
-            den = checked_add(den, weight)
-    return _rounded(checked_divide(num, den), 3)
-
-
 def _nearest_rating_idx(warf: float) -> Optional[int]:
     """Rating-scale index whose idealized factor is nearest ``warf`` (WA rating label)."""
     if not is_finite_number(warf):

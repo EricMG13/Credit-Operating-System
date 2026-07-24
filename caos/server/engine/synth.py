@@ -514,9 +514,7 @@ class LiveSynthesizer:
         self._client = None
 
     def _get_client(self):
-        if self._client is None:
-            self._client = llm_client.anthropic_client(self._settings)
-        return self._client
+        return llm_client.cached_client(self)
 
     def _active_prompt(self, module_id: str) -> str:
         path = MODULAR_OS_DIR / module_id / f"{module_id}_ACTIVE_PROMPT.md"

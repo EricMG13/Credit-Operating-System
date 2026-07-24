@@ -15,13 +15,13 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Protocol
+from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import Select, Update, and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from alert_contracts import EvaluationTrigger, SignalObservation, SubjectScope
+from alert_contracts import AsyncSessionFactory, EvaluationTrigger, SignalObservation, SubjectScope
 from alert_dispatch import materialize_alert
 from alert_evaluation import claim_rule_evaluation, evaluate_rule
 from alert_sinks import EmailSink, InAppSink
@@ -70,10 +70,6 @@ def _now() -> datetime:
 
 
 Clock = Callable[[], datetime]
-
-
-class AsyncSessionFactory(Protocol):
-    def __call__(self) -> AsyncSession: ...
 
 
 class _ScheduleLeaseLost(RuntimeError):

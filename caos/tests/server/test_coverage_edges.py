@@ -39,7 +39,11 @@ from engine.textscan import _to_musd, amount_musd
 import avscan
 import context_lineage
 import freshness
+import hashlib
+import hmac
+
 import identity
+import signed_tokens
 import lineage_service
 import llm
 import notification_service
@@ -353,7 +357,8 @@ def test_identity_rejects_malformed_tokens_and_falls_back_locally(
 ) -> None:
     assert identity.read_session_token("no-separator", "secret") is None
     raw = "bm90LWpzb24"  # base64url("not-json")
-    token = f"{raw}.{identity._sig(raw, 'secret')}"
+    signature = hmac.new(b"secret", raw.encode(), hashlib.sha256).hexdigest()
+    token = f"{raw}.{signature}"
     assert identity.read_session_token(token, "secret") is None
 
     request = SimpleNamespace(
@@ -1704,15 +1709,10 @@ def test_notifications_cursor_shape_and_feed_edges(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "event_id": 3,
     }
-    raw = notifications_route.base64.urlsafe_b64encode(
-        json.dumps(bad_payload).encode(),
-    ).decode().rstrip("=")
-    signature = notifications_route.hmac.new(
-        b"secret", raw.encode("ascii"), notifications_route.hashlib.sha256,
-    ).hexdigest()
+    token = signed_tokens.sign_json(bad_payload, secret="secret")
     with pytest.raises(notifications_route.HTTPException):
         notifications_route._decode_cursor(
-            f"{raw}.{signature}", analyst_id="analyst",
+            token, analyst_id="analyst",
         )
 
     now = datetime.now(timezone.utc)

@@ -13,6 +13,7 @@
 //  - sofrDelta is additive to each seeded annual SOFR point (0.01 = +100bp).
 
 import { ATLF_REFERENCE_ISSUER_ID } from "@/lib/engine/types";
+import { finiteNumber } from "@/lib/engine/numbers";
 
 export interface CaseAssumptions {
   gDrive: number;  // Δ Drivetrain growth
@@ -114,9 +115,6 @@ function sanitizeCase(raw: unknown): CaseAssumptions {
   return out;
 }
 
-const finiteNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
-
 function migrateLegacySofr(
   rawCase: unknown,
   rawYears: unknown,
@@ -126,13 +124,13 @@ function migrateLegacySofr(
   const years = sanitizeYears(rawYears);
   const source = rawCase && typeof rawCase === "object" ? rawCase as Record<string, unknown> : {};
   const yearSource = rawYears && typeof rawYears === "object" ? rawYears as Record<number, unknown> : {};
-  const legacyAll = finiteNumber(source.sofrRate) ? source.sofrRate : null;
+  const legacyAll = finiteNumber(source.sofrRate);
 
   for (const year of [0, 1, 2] as FY[]) {
     const rawYear = yearSource[year] && typeof yearSource[year] === "object"
       ? yearSource[year] as Record<string, unknown>
       : {};
-    const legacyYear = finiteNumber(rawYear.sofrRate) ? rawYear.sofrRate : null;
+    const legacyYear = finiteNumber(rawYear.sofrRate);
     const alreadyMigrated = years[year]?.sofrDelta !== undefined;
     // The old 4.3% all-years value was the buggy default, not an analyst change;
     // adopting the seeded curve fixes untouched saved sessions. Non-default old

@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import json
 from datetime import datetime, timezone
 from typing import Optional
@@ -14,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import signed_tokens
 from config import get_settings
 from database import NotificationEvent, get_db
 from identity import CallerIdentity, get_identity, get_write_identity
@@ -73,25 +71,12 @@ def _encode_cursor(*, analyst_id: str, created_at: datetime, event_id: str) -> s
         "created_at": _as_utc(created_at).isoformat(),
         "event_id": event_id,
     }
-    raw = base64.urlsafe_b64encode(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).decode("ascii").rstrip("=")
-    signature = hmac.new(
-        get_settings().session_secret.encode("utf-8"), raw.encode("ascii"), hashlib.sha256
-    ).hexdigest()
-    return f"{raw}.{signature}"
+    return signed_tokens.sign_json(payload, secret=get_settings().session_secret)
 
 
 def _decode_cursor(cursor: str, *, analyst_id: str) -> tuple[datetime, str]:
     try:
-        raw, signature = cursor.rsplit(".", 1)
-        expected = hmac.new(
-            get_settings().session_secret.encode("utf-8"), raw.encode("ascii"), hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            raise ValueError
-        decoded = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
-        payload = json.loads(decoded)
+        payload = signed_tokens.verify_json(cursor, secret=get_settings().session_secret)
         if (
             payload.get("v") != _CURSOR_VERSION
             or payload.get("analyst_id") != analyst_id

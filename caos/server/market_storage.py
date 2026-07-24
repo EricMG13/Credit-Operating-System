@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import os
-import re
-import uuid
+import os  # noqa: F401 — re-exported for tests to monkeypatch os.replace
 from pathlib import Path
 
+import vault_storage
 from config import get_settings
+
+_NAMESPACE = "market"
+_DEFAULT_FILENAME = "market.xlsx"
 
 
 def _root() -> Path:
@@ -17,64 +19,20 @@ def _root() -> Path:
 
 
 def _path_for(key: str) -> Path:
-    root = _root()
-    path = (root / key).resolve()
-    if not path.is_relative_to(root):
-        raise ValueError("Market storage key escaped the configured vault.")
-    return path
+    return vault_storage.path_for(_root(), key)
 
 
 def _safe_basename(filename: str, *, limit: int = 240) -> str:
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", Path(filename).name)
-    if safe in {"", ".", ".."}:
-        safe = "market.xlsx"
-    if len(safe.encode("utf-8")) <= limit:
-        return safe
-    raw_suffix = Path(safe).suffix
-    suffix = raw_suffix[:16]
-    stem = safe[: -len(raw_suffix)] if raw_suffix else safe
-    return f"{stem[: limit - len(suffix)]}{suffix}"
+    return vault_storage.safe_basename(filename, _DEFAULT_FILENAME, limit=limit)
 
 
 def store_atomic(content: bytes, filename: str) -> str:
     """Write one unique source object atomically and return its vault key."""
-    safe = _safe_basename(filename)
-    key = f"market/{uuid.uuid4().hex}/{safe}"
-    final_path = _path_for(key)
-    final_path.parent.mkdir(parents=True, exist_ok=False)
-    temporary = final_path.parent / ".upload.tmp"
-    try:
-        with temporary.open("xb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, final_path)
-        directory_fd = os.open(final_path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    except Exception:
-        for cleanup in (
-            lambda: temporary.unlink(missing_ok=True),
-            lambda: final_path.unlink(missing_ok=True),
-            final_path.parent.rmdir,
-        ):
-            try:
-                cleanup()
-            except OSError:
-                pass
-        raise
-    return key
+    return vault_storage.store_atomic(
+        _NAMESPACE, content, filename, default_filename=_DEFAULT_FILENAME, root=_root()
+    )
 
 
 def remove_uncommitted(key: str) -> None:
     """Remove only a unique market object created by the failed transaction."""
-    if not key.startswith("market/"):
-        raise ValueError("Refusing to remove a non-market vault object.")
-    path = _path_for(key)
-    path.unlink(missing_ok=True)
-    try:
-        path.parent.rmdir()
-    except OSError:
-        pass
+    vault_storage.remove_uncommitted(_NAMESPACE, key, root=_root())

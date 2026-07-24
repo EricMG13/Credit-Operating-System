@@ -108,9 +108,7 @@ class LiveReviewer:
         }
 
     def _get_client(self):
-        if self._client is None:
-            self._client = llm_client.anthropic_client(self._settings)
-        return self._client
+        return llm_client.cached_client(self)
 
     async def review(self, produced: Sequence[ModulePayload]) -> List[Finding]:
         seats = list(SEATS[: max(0, self._settings.council_seats)])

@@ -28,6 +28,7 @@ import functools
 from typing import Any, List, Optional
 
 from config import get_settings
+from engine.provider_shapes import Response as _Response, TextBlock as _TextBlock, ToolUseBlock as _ToolUseBlock, Usage as _Usage
 
 
 class GeminiUnsupported(Exception):
@@ -129,37 +130,6 @@ _STOP_MAP = {
     "STOP": "end_turn", "MAX_TOKENS": "max_tokens",
     "SAFETY": "stop_sequence", "RECITATION": "stop_sequence",
 }
-
-
-class _TextBlock:
-    type = "text"
-
-    def __init__(self, text: str):
-        self.text = text
-
-
-class _ToolUseBlock:
-    type = "tool_use"
-
-    def __init__(self, name: str, inp: dict):
-        self.name = name
-        self.input = inp  # parsed dict — what synth's tool_use reader expects
-
-
-class _Usage:
-    def __init__(self, input_tokens, output_tokens,
-                 cache_read_input_tokens=0, cache_creation_input_tokens=0):
-        self.input_tokens = input_tokens
-        self.output_tokens = output_tokens
-        self.cache_read_input_tokens = cache_read_input_tokens
-        self.cache_creation_input_tokens = cache_creation_input_tokens
-
-
-class _Response:
-    def __init__(self, content, usage, stop_reason):
-        self.content = content
-        self.usage = usage
-        self.stop_reason = stop_reason
 
 
 def normalize(resp) -> _Response:

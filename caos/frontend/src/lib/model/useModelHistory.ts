@@ -232,7 +232,7 @@ const useCheckpointActions = (
     const trimmed = name.trim();
     if (!trimmed || !checkpointActionReady(store, issuerId)) return false;
     const next: ModelCheckpoint = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: crypto.randomUUID(),
       name: trimmed,
       at: new Date().toISOString(),
       overrides,

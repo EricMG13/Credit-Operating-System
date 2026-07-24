@@ -40,6 +40,18 @@ logger = logging.getLogger("caos.llm")
 _client_cache: dict = {}
 
 
+def cached_client(instance: Any) -> anthropic.AsyncAnthropic:
+    """Lazily resolve and cache `instance._client` from `instance._settings`.
+
+    Shared by LiveSynthesizer/LiveReviewer/LiveDebater — each owns a `_client`
+    slot instead of going through `anthropic_client`'s cache directly, so tests
+    can inject a fake by setting `instance._client` before the first call.
+    """
+    if instance._client is None:
+        instance._client = anthropic_client(instance._settings)
+    return instance._client
+
+
 def anthropic_client(settings: Optional[Any] = None) -> anthropic.AsyncAnthropic:
     s = settings or get_settings()
     cache_key = (anthropic.AsyncAnthropic, s.anthropic_api_key, s.caos_llm_timeout_s)

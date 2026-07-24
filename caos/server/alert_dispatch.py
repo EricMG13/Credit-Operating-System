@@ -8,7 +8,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Protocol, TypeAlias
+from typing import Any, TypeAlias
 from uuid import UUID, uuid4
 
 from pydantic import ValidationError
@@ -18,7 +18,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import OperationalError
 
-from alert_contracts import AlertCandidate, SignalObservation, SinkIntent, SinkResult
+from alert_contracts import AlertCandidate, AsyncSessionFactory, SignalObservation, SinkIntent, SinkResult
 from alert_evaluation import evaluate_rule
 from alert_sinks import AlertSink, Channel, DeliveryEnvelope, sink_idempotency_key
 from config import get_settings
@@ -62,12 +62,6 @@ _EVIDENCE_KEYS = frozenset(
 UNRECOVERABLE_EVIDENCE_FIELDS = frozenset(
     {"numeric_value", "categorical_value", "source_artifact_refs"}
 )
-
-
-class AsyncSessionFactory(Protocol):
-    """Callable that creates one async context-managed database session."""
-
-    def __call__(self) -> AsyncSession: ...
 
 
 SinkRegistryKey: TypeAlias = Channel | tuple[Channel, str]

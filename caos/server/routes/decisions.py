@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import base64
-import hmac
 import re
 from datetime import date, datetime, timezone
 from typing import Annotated, Dict, List, Literal, Optional, Union
@@ -17,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import rate_limit
+import signed_tokens
 from config import get_settings
 from database import (
     AlertEvent,
@@ -153,24 +152,15 @@ def _book_fingerprint(filters: dict, sort: str, direction: str) -> str:
 
 
 def _book_cursor(offset: int, fingerprint: str) -> str:
-    encoded = base64.urlsafe_b64encode(
-        json.dumps({"v": 1, "offset": offset, "fingerprint": fingerprint}, separators=(",", ":")).encode()
-    ).decode().rstrip("=")
-    signature = hmac.new(
-        get_settings().session_secret.encode(), encoded.encode(), hashlib.sha256
-    ).hexdigest()
-    return f"{encoded}.{signature}"
+    return signed_tokens.sign_json(
+        {"v": 1, "offset": offset, "fingerprint": fingerprint},
+        secret=get_settings().session_secret,
+    )
 
 
 def _book_offset(cursor: str, fingerprint: str) -> int:
     try:
-        encoded, signature = cursor.rsplit(".", 1)
-        expected = hmac.new(
-            get_settings().session_secret.encode(), encoded.encode(), hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            raise ValueError
-        payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        payload = signed_tokens.verify_json(cursor, secret=get_settings().session_secret)
         offset = payload["offset"]
         if payload.get("v") != 1 or payload.get("fingerprint") != fingerprint:
             raise ValueError
