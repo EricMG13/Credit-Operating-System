@@ -310,9 +310,15 @@ jobs:
           -x 'caos/server/.venv,caos/server/.venv311'
           --severity-level high --confidence-level medium
       # Frontend deps straight from the lockfile — no install needed.
-      - name: Frontend deps (npm audit)
+      # Wraps `npm audit --json` rather than calling `npm audit --audit-level=high`
+      # directly: the bare form is all-or-nothing, so one unfixable transitive
+      # advisory takes the job red until someone deletes the gate. The script keeps
+      # the high threshold and permits only advisories named in its dated,
+      # reachability-justified allowlist — failing on any new advisory, on an
+      # expired exception, and on an exception that has stopped matching.
+      - name: Frontend deps (advisory gate)
         working-directory: caos/frontend
-        run: npm audit --audit-level=high
+        run: node scripts/audit-gate.mjs
       # Secret scan over the repo + history. OSS image (no GITLEAKS_LICENSE — that
       # is only required by the org-gated Action, which we deliberately avoid).
       # .gitleaks.toml allowlists prose/vendored trees that carry example tokens;
