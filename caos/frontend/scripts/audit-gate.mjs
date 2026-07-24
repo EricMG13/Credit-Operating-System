@@ -1,5 +1,3 @@
-// fallow-ignore-file unused-file
-//
 // Dependency-advisory gate. Replaces a bare `npm audit --audit-level=high`,
 // which is all-or-nothing: it cannot express "this specific advisory is
 // accepted, for this reason, until this date", so a single unfixable transitive
