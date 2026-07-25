@@ -183,6 +183,31 @@ def test_okf_classifier_prefers_the_document_title_over_a_quoted_agency():
     assert classify(text) is DocType.OFFERING_MEMO
 
 
+@pytest.mark.parametrize("line,expected", [
+    ("Issuer Credit Rating: BB-", "BB-"),
+    ("Issuer Credit Rating: B+", "B+"),
+    ("Issuer Credit Rating: BBB-", "BBB-"),
+    ("Issuer Credit Rating: CCC+", "CCC+"),
+    ("Corporate Family Rating: B2", "B2"),
+    ("Corporate Family Rating: Baa3", "Baa3"),
+    ("Issuer Credit Rating: AA", "AA"),
+])
+def test_okf_rating_modifiers_are_not_truncated(line, expected):
+    """Regression (found by the labelled corpus): a trailing \\b after the rating
+    token failed on "BB-" — the "-" is a non-word char at end-of-token, so the
+    regex backtracked and returned "BB". BB- and BB are a full grade apart, so the
+    truncation was a real misread of credit quality, not a formatting nit."""
+    from okf_schema import ExtractedDocument, PageText
+    from okf_structure import _ratings_in
+
+    doc = ExtractedDocument(
+        storage_key="k/x", file_name="x", content_sha256="a" * 64,
+        full_text=line, pages=[PageText(page=1, text=line)],
+        method="pypdf", has_page_map=True, page_count=1, extraction_status="full",
+    )
+    assert [f.value for f in _ratings_in(line, doc)] == [expected]
+
+
 def test_okf_classifier_honours_the_analyst_override():
     from okf_schema import DocType
     from okf_structure import classify

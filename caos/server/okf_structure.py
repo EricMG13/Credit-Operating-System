@@ -277,8 +277,10 @@ _TRANCHE_KEYWORDS = (
 _MONEY_RE = re.compile(
     r"([$€£]\s?\d[\d,]*(?:\.\d+)?\s*(?:mm|m|bn|k|million|billion)?)", re.IGNORECASE
 )
+# Group 1 is the full phrase (kept as source_span); group 2 is the year, which is
+# the typed value a `kind="maturity"` consumer actually wants.
 _MATURITY_RE = re.compile(
-    r"((?:matur\w+|due)\s+(?:in\s+)?(?:20\d{2}))", re.IGNORECASE
+    r"((?:matur\w+|due)\s+(?:in\s+)?(20\d{2}))", re.IGNORECASE
 )
 
 
@@ -313,8 +315,15 @@ def extract_key_facts(doc: ExtractedDocument, doc_type: DocType) -> list[KeyFact
 def _ratings_in(line: str, doc: ExtractedDocument) -> list[KeyFact]:
     out: list[KeyFact] = []
     for label in _RATING_LABELS:
+        # NOT a trailing \b: after "BB-" the "-" is a non-word char at end-of-token,
+        # so \b fails there and the regex backtracks to "BB" — silently dropping the
+        # notch. BB- and BB are a full rating grade apart, so that truncation is a
+        # real misread, not a cosmetic one. A negative lookahead for an alphanumeric
+        # keeps the modifier while still preventing a partial match inside a longer
+        # token (the "B" of "BBB").
         match = re.search(
-            rf"{re.escape(label)}\s*(?:of|:|is|at|=)?\s*({_RATING_TOKEN})\b", line, re.IGNORECASE
+            rf"{re.escape(label)}\s*(?:of|:|is|at|=)?\s*({_RATING_TOKEN})(?![A-Za-z0-9])",
+            line, re.IGNORECASE,
         )
         if match:
             out.append(KeyFact(
@@ -353,9 +362,13 @@ def _maturities_in(line: str, doc: ExtractedDocument) -> list[KeyFact]:
     match = _MATURITY_RE.search(line)
     if not match:
         return []
+    # The VALUE is the year, not the phrase that introduced it: a consumer reading
+    # kind="maturity" wants "2031", not "mature 2031" to string-strip. The phrase
+    # is preserved in source_span, so nothing is lost. Still verbatim — the year is
+    # copied exactly as printed, never reformatted.
     return [KeyFact(
-        label="Maturity", value=match.group(1).strip(), kind="maturity",
-        page=_page_of(line, doc), source_span=line[:300],
+        label="Maturity", value=match.group(2).strip(), kind="maturity",
+        page=_page_of(line, doc), source_span=match.group(1).strip()[:300],
     )]
 
 
