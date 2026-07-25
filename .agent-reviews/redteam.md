@@ -3514,3 +3514,44 @@ Two design commitments deliberately **not** yet met, and not claimed as met:
 Decision: Phase-1 and Phase-2 accepted. Phase-3 must re-open RT-2026-07-24-01 and
 discharge it against the real CP-4C wiring — a passing basis-tagging test is not
 evidence that routing is correct.
+
+### Phase-3 addendum — RT-2026-07-24-01 discharged — 2026-07-25
+
+Phase-3 landed the CP-4C wiring, so the Critical objection held open above is now
+re-opened and answered against real code.
+
+**What was built, and why this shape.** `bindings._bind_cp1` already skipped the
+add-back strip on a reported basis, and its own comment named the gap: *"The
+marketed-vs-reported bridge would need the inverse math and is a separate
+deliberate feature."* `engine/marketed.py` is that feature. On a **reported**
+basis it reads the OKF registry's basis-tagged facts and presents the marketed
+figure **beside** the reported one, with the gap as the signal.
+
+The design choice that discharges the objection is that **nothing is ever routed
+*into* the reported foundation.** The bridge is read-only and additive:
+
+| Property | Enforcement |
+|---|---|
+| Marketed figure never enters `normalized_financials` | The function returns a dict; the caller attaches it under a separate `marketed_vs_reported` key. `test_marketed_figure_never_mutates_reported_cp1` deep-copies the reported financials and asserts field-for-field equality after the call, and that the marketed value is absent from their values. |
+| Only marketed bases qualify | `MARKETED_BASES` excludes `reported`; a `reported`-tagged fact produces no bridge (`test_a_reported_basis_fact_is_not_treated_as_a_marketing_claim`). |
+| Runs only where reported is canonical | The bridge is attached in the reported-basis branch; the adjusted-basis branch keeps the existing add-back strip, unchanged. |
+| A mis-read cannot reach committee text | Parsed multiples are range-checked (0.1–40x), so a page number or year is rejected (`test_implausible_multiples_are_rejected`). |
+| No NaN poisoning | Every figure passes `is_finite_number` before the subtraction, per the CP-1 engine convention (`bool(NaN)` is `True`, so a bare truthiness check would let it through). |
+| Never fails a run | A registry read failure or malformed payload degrades to no bridge; the CP-5 finding gate degrades rather than raising in the QA phase. |
+
+| ID | Status after Phase-3 |
+|----|----------------------|
+| RT-2026-07-24-01 | **Discharged.** No longer "mitigated by absence" — the routing now exists and is constrained by construction and by an explicit contamination test. The marketed figure is a labelled comparison, not an input to the reported basis. |
+| RT-2026-07-24-10 (PPTX) | Still an accepted deferral — unchanged. |
+
+**Residual, stated rather than closed:** the bridge reads the *latest* marketed
+leverage per issuer (newest OKF document wins). A stale deck that was never
+superseded will keep supplying its figure until a newer document lands. That is a
+freshness limitation of the source, not a contamination path — the figure is still
+labelled marketed and still cannot touch the reported basis. The add-back *bridge
+preservation* from the brief is partially served: `adjusted.py`'s existing
+reconciliation is untouched on the adjusted-basis path, but the OKF vision lane
+does not yet extract a structured add-back bridge from a deck's waterfall slide.
+That remains open work, not something this phase claims.
+
+Decision: Phase-3 accepted; RT-2026-07-24-01 closed.

@@ -356,6 +356,9 @@ async def persist(
     settings = get_settings()
     vault_dir = settings.vault_export_dir
     initial_status = "pending_note" if vault_dir else "note_skipped"
+    # Typed facts travel with the registry row so the CP-4C bridge can read a
+    # basis-tagged figure directly. mode="json" keeps it a plain JSON-safe list.
+    fact_payload = [fact.model_dump(mode="json") for fact in report.key_facts] or None
     if existing is not None:
         existing.document_id = document_id
         existing.note_title = note_title
@@ -367,6 +370,7 @@ async def persist(
         existing.contains_source_text = True
         existing.content_sha256 = extracted.content_sha256
         existing.okf_version = OKF_VERSION
+        existing.key_facts_json = fact_payload
         registry_row = existing
     else:
         registry_row = OkfNote(
@@ -382,6 +386,7 @@ async def persist(
             contains_source_text=True,
             content_sha256=extracted.content_sha256,
             okf_version=OKF_VERSION,
+            key_facts_json=fact_payload,
         )
         db.add(registry_row)
     await db.flush()

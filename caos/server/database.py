@@ -466,6 +466,11 @@ class OkfNote(Base):
     )
     content_sha256: Mapped[Optional[str]] = mapped_column(String(64))
     okf_version: Mapped[Optional[str]] = mapped_column(String(32))
+    # The document's typed KeyFacts, each carrying its `basis`. Read by the CP-4C
+    # marketed-vs-reported bridge, which needs the basis tag — re-parsing the
+    # chunk text would recover the number but lose the very distinction that
+    # decides whether a figure may touch the reported foundation.
+    key_facts_json: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )

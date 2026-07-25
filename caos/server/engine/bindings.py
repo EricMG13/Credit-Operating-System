@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import Issuer
 from engine import cp1_sources
 from engine.adjusted import reconcile_adjusted_ebitda
+from engine.marketed import marketed_vs_reported
 from engine.capstructure import synthesize_recovery_preference
 from engine.catalysts import synthesize_catalysts
 from engine.coststructure import synthesize_cost_structure
@@ -122,6 +123,26 @@ async def _bind_cp1(ctx: RunContext) -> ModulePayload:
         if res is not None:
             recon, claim = res
             (cp1.runtime_output or {})["adjusted_ebitda_reconciliation"] = recon
+            cp1.claims.append(claim)
+    else:
+        # The counterpart named above: on a REPORTED basis the add-back strip is
+        # correctly skipped, but the marketed figure a sponsor/lender deck states
+        # is still worth showing beside it — the distance between the two is the
+        # presentation gap an analyst is paid to notice.
+        #
+        # This is strictly ADDITIVE and read-only. It lands under its own
+        # `marketed_vs_reported` key and never writes `normalized_financials`, so a
+        # marketed number cannot become the reported foundation
+        # (red-team RT-2026-07-24-01).
+        # ctx.issuer is Optional (the reference/demo lane can run issuer-less), so
+        # the bridge is simply skipped rather than guessing an id.
+        bridge_res = (
+            await marketed_vs_reported(ctx.session, ctx.issuer.id, cp1)
+            if ctx.issuer is not None else None
+        )
+        if bridge_res is not None:
+            bridge, claim = bridge_res
+            (cp1.runtime_output or {})["marketed_vs_reported"] = bridge
             cp1.claims.append(claim)
     return cp1
 

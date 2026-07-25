@@ -1,6 +1,6 @@
 # Vision-LLM financial extraction lane — architect brief
 
-Status: **Phase-1 and Phase-2 SHIPPED; Phase-3 outstanding.** The red-team pass in
+Status: **Phase-1, Phase-2 and Phase-3 SHIPPED.** The red-team pass in
 [.agent-reviews/redteam.md](../../.agent-reviews/redteam.md) §2026-07-24 carries a
 verification addendum recording which objections are now discharged against real
 code and which remain open. Extends — does not replace — the deterministic OKF
@@ -13,11 +13,18 @@ the vision lane (`okf_vision.py`), the latter **off by default** —
 `vision_extractor_model` empty *and* `caos_document_egress_enabled` false both
 disable it, and both must be set to enable it.
 
-**What is not:** CP-4C routing of sponsor-basis facts. Vision facts are tagged with
-a `basis` and reach the OKF note and registry, but nothing routes them into the
-adjusted layer and the reported↔marketed gap is not yet surfaced as a signal. Until
-that lands, the sponsor-basis contamination risk is mitigated *by absence* — there
-is no path from a vision fact into reported CP-1 — rather than by construction.
+**Also live:** the CP-4C marketed-vs-reported bridge (`engine/marketed.py`,
+migration `0070`). On a **reported**-basis CP-1 — where the add-back strip is
+correctly skipped — the bridge presents an OKF-extracted marketed leverage
+*beside* the reported one and raises a MINOR CP-5 finding when the gap is
+material. It is **read-only and additive**: the marketed figure lands under its own
+`marketed_vs_reported` key and can never enter `normalized_financials`, which is
+what closes RT-2026-07-24-01 by construction rather than by absence.
+
+**Still open:** the vision lane does not yet extract a structured **add-back
+bridge** from a deck's waterfall slide (the existing `adjusted.py` reconciliation
+on the adjusted-basis path is untouched), and PPTX decks still do not reach the
+vision lane at all.
 
 ## The one-paragraph shape
 
@@ -211,7 +218,8 @@ never re-extracted on read. Re-ingesting a byte-identical deck is a
 | 0 | This brief + red-team pass | user approval | **done** |
 | 1 | OKF spine (blueprint Stages 0–6) — deterministic core, no vision | OKF tests green | **done** — 22 tests; full suite green under Postgres in CI |
 | 2 | Multimodal passthrough in `gemini`; `okf_vision.py`; PDF decks; confidence+basis+page tags | adversarial tests on the two Critical objections | **done** — 20 tests incl. in-document injection + hallucination decoy |
-| 3 | CP-4C routing of sponsor-basis facts + add-back-bridge preservation; reported↔marketed gap surfaced as a signal | CP-4C integration test proving a marketed figure never mutates reported CP-1 | **outstanding** |
+| 3 | CP-4C marketed-vs-reported bridge; reported↔marketed gap surfaced as a MINOR CP-5 finding | CP-4C test proving a marketed figure never mutates reported CP-1 | **done** — 23 tests; RT-2026-07-24-01 closed |
+| — | Structured add-back bridge from a deck's waterfall slide | — | **open** — `adjusted.py`'s reconciliation is unchanged on the adjusted-basis path, but the vision lane does not extract the bridge |
 | — | PPTX-native rendering | — | **accepted deferral** — a PPTX deck does not reach the vision lane at all |
 
 ## Accepted limitations / open questions

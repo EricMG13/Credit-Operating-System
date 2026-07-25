@@ -36,6 +36,7 @@ from engine import budget, presets
 from engine.bindings import RunContext, resolve_binding
 from engine.fixtures import DEMO_FIXTURE_LIMITATION, REFERENCE_ISSUER_ID, demo_fixture_finding
 from engine.adjusted import reconciliation_finding
+from engine.marketed import marketed_gap_finding
 from engine.council import get_reviewer
 from engine.covenants import addback_cap_finding, covlite_finding
 from engine.earnings import monitoring_finding
@@ -444,6 +445,7 @@ async def execute_run(session: AsyncSession, run: Run) -> None:  # noqa: C901  #
         # (provider, module) pair once; the loop cannot drift.
         _FINDING_PROVIDERS = (
             (reconciliation_finding, "CP-1"),      # reported-vs-adjusted recon
+            (marketed_gap_finding, "CP-1"),        # OKF marketed-vs-reported gap
             (covlite_finding, "CP-4C"),
             (addback_cap_finding, "CP-4C"),
             (monitoring_finding, "CP-1B"),
