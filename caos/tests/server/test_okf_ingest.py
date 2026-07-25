@@ -411,6 +411,21 @@ def test_okf_ingest_rejects_an_unknown_doc_type_override(client, issuer_id, vaul
     assert "doc_type must be one of" in r.text
 
 
+def test_okf_ingest_names_the_format_when_a_pptx_deck_is_uploaded(client, issuer_id, vault):
+    """PPTX is a named deferral. An analyst who drops in a lender presentation
+    should be told that and given the workaround — not 'not a valid PDF'."""
+    pptx = b"PK\x03\x04" + b"\x00" * 40 + b"ppt/presentation.xml" + b"\x00" * 200
+    r = client.post(
+        "/api/okf/ingest",
+        data={"issuer_id": issuer_id},
+        files={"file": ("lender_deck.pptx", pptx,
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+    )
+
+    assert r.status_code == 415
+    assert "PowerPoint" in r.text and "Export the presentation to PDF" in r.text
+
+
 def test_okf_ingest_404s_an_unknown_issuer(client, vault):
     """Extraction vaults the bytes before the issuer is resolved, so a rejected
     issuer must not leave the blob behind — otherwise probing ids grows the vault."""

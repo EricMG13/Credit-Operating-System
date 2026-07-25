@@ -3555,3 +3555,37 @@ does not yet extract a structured add-back bridge from a deck's waterfall slide.
 That remains open work, not something this phase claims.
 
 Decision: Phase-3 accepted; RT-2026-07-24-01 closed.
+
+### Phase-3b addendum — the residuals resolved — 2026-07-25
+
+The Phase-3 record above left three items open. They are now closed, and one of
+them turned out to be a **latent defect rather than a limitation**.
+
+**The latent defect.** The Phase-3 bridge accepted a leverage figure only when it
+carried a marketed `basis`, and only the *vision* lane set one — but the vision
+lane is off by default. So on the shipped default configuration the CP-4C bridge
+was **deterministically blind**: a sponsor deck ingested without vision produced
+facts with `basis=None` and the bridge silently returned nothing. RT-2026-07-24-01
+was closed correctly (a marketed figure could not contaminate reported CP-1), but
+the *feature* only worked in a configuration nobody runs by default. Fixed by
+tagging basis from the document **class** in `okf_structure.structure`:
+`sponsor-deck`/`lender-update` facts are `sponsor-adjusted`. Other classes stay
+untagged rather than guessed — an offering memo mixes reported and pro-forma
+figures, and asserting "reported" there would be worse than asserting nothing.
+
+| Item | Resolution |
+|---|---|
+| **Add-back bridge not extracted** (the one real remaining gap) | New `addback` and `ebitda` fact kinds on both lanes. `marketed._addback_bridge` computes the add-back share of the marketed EBITDA and carries the ordered composition on the bridge; the CP-5 finding now names it ("~29% of add-backs (Run-rate savings, Synergies)"). Requires **both** the add-back lines and a denominator — a percentage without one would be a guess. Amounts require a recognised unit (`mm`/`bn`/…): a bare "45" could be millions, billions or a slide number, and guessing the scale would put an order-of-magnitude error into committee text. Load outside 1–90% is dropped as a parse error. |
+| **Newest-document-wins freshness** | Now ordered by the **document's own `report_date`**, not `created_at`. The old behaviour meant re-uploading last year's deck silently overrode this quarter's figure. Sorted in Python over the already-bounded row set so NULL-ordering cannot differ between Postgres and SQLite; an undated document sorts last rather than winning by accident, and an unexpected row shape sorts last rather than raising mid-run. |
+| **PPTX** | Still not ingested — that remains a genuine deferral (the vision lane takes PDF document blocks, and PPTX→PDF would need a heavy native dependency against the lean-image posture). But it now returns **415 naming the format and the workaround** instead of failing the generic PDF sniff with "not a valid PDF". The limitation is unchanged; the silence about it is not. |
+
+Still open and unchanged: the hallucination gate cannot run on a scanned deck with
+no text layer (inherent — there is nothing to verify against); vision-lane *model*
+accuracy is not scored offline (only the lane's handling of a reply is); and
+`okf_notes.note_path` is globally unique, so two identically-named issuers in
+different teams would collide on one vault path (inherent to a single shared
+vault; only reachable with tenancy enabled).
+
+Decision: residuals resolved. The corpus gained a waterfall-slide document, and
+the scorecard holds at 1.00 across classification, sections, anchors (23/23),
+chunks and fact recall (15/15).

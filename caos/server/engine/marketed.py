@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from sqlalchemy import select
@@ -59,6 +60,27 @@ _MIN_LEVERAGE, _MAX_LEVERAGE = 0.1, 40.0
 
 _LEVERAGE_VALUE = re.compile(r"(\d+(?:\.\d+)?)\s*x\b", re.IGNORECASE)
 
+# Money → millions. A recognised unit is REQUIRED: a bare "45" could be millions,
+# billions or a slide number, and guessing the scale would put an order-of-
+# magnitude error into a committee-facing percentage. Precision over recall.
+_MONEY_VALUE = re.compile(
+    r"[$€£]?\s?([\d,]+(?:\.\d+)?)\s*(mm|bn|m|b|k|million|billion|thousand)\b",
+    re.IGNORECASE,
+)
+_SCALE_TO_MILLIONS = {
+    "bn": 1000.0, "b": 1000.0, "billion": 1000.0,
+    "mm": 1.0, "m": 1.0, "million": 1.0,
+    "k": 0.001, "thousand": 0.001,
+}
+
+# An add-back load outside this band is far more likely a parse error (a mismatched
+# denominator, a double-counted line) than a real disclosure, and a nonsense
+# percentage in committee text is worse than none.
+_MIN_ADDBACK_PCT, _MAX_ADDBACK_PCT = 0.01, 0.90
+
+# Sort floor for a row with no created_at — it sorts last rather than raising.
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
 
 def _parse_leverage(value: str) -> Optional[float]:
     """``"4.25x"`` → ``4.25``. Returns None for anything not a plausible multiple,
@@ -75,11 +97,13 @@ def _parse_leverage(value: str) -> Optional[float]:
     return parsed
 
 
-def _marketed_from_facts(rows) -> Optional[Tuple[float, str, Optional[int]]]:
+def _marketed_from_facts(rows) -> Optional[Tuple[float, str, Optional[int], object]]:
     """The most recent marketed leverage across an issuer's OKF documents.
 
-    Returns ``(leverage, source_label, page)`` or None. Rows arrive newest-first,
-    so the first usable fact wins — a re-issued deck supersedes an older one.
+    Returns ``(leverage, source_label, page, row)`` or None. Rows arrive
+    newest-first, so the first usable fact wins — a re-issued deck supersedes an
+    older one. The row comes back too so the caller can read the add-back bridge
+    from the SAME document the leverage came from, never mixing two decks.
     """
     for row in rows:
         facts = row.key_facts_json or []
@@ -97,8 +121,69 @@ def _marketed_from_facts(rows) -> Optional[Tuple[float, str, Optional[int]]]:
                 continue
             label = row.source or row.doc_type or "sponsor presentation"
             page = fact.get("page") if isinstance(fact.get("page"), int) else None
-            return parsed, str(label), page
+            return parsed, str(label), page, row
     return None
+
+
+def _parse_money_millions(value: str) -> Optional[float]:
+    """``"$45mm"`` → ``45.0``; ``"$1.2bn"`` → ``1200.0``. None when no unit."""
+    match = _MONEY_VALUE.search(value or "")
+    if match is None:
+        return None
+    try:
+        amount = float(match.group(1).replace(",", ""))
+    except ValueError:  # pragma: no cover — the regex constrains the shape
+        return None
+    scaled = amount * _SCALE_TO_MILLIONS[match.group(2).lower()]
+    return scaled if is_finite_number(scaled) else None
+
+
+def _addback_bridge(facts: list) -> Optional[dict]:
+    """The deck's EBITDA waterfall, as a share of the marketed EBITDA.
+
+    A sponsor deck walks reported EBITDA up to "Adjusted EBITDA" through
+    synergies, run-rate savings and one-time items. The composition is what an
+    investment committee interrogates — *how much of this EBITDA has not happened
+    yet* — so it is preserved rather than collapsed into a single number.
+
+    Returns None unless BOTH the add-back lines and a marketed EBITDA denominator
+    were extracted: a percentage without its denominator would be a guess.
+    """
+    addbacks: list[tuple[str, float]] = []
+    adjusted_ebitda: Optional[float] = None
+
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        kind, label = fact.get("kind"), str(fact.get("label") or "")
+        amount = _parse_money_millions(str(fact.get("value") or ""))
+        if amount is None or amount <= 0:
+            continue
+        if kind == "addback":
+            addbacks.append((label, amount))
+        elif kind == "ebitda" and label.lower().startswith(("adjusted", "pro forma", "pf")):
+            # Largest stated adjusted EBITDA wins — a deck may repeat it per period.
+            adjusted_ebitda = max(adjusted_ebitda or 0.0, amount)
+
+    if not addbacks or not is_finite_number(adjusted_ebitda) or not adjusted_ebitda:
+        return None
+
+    total = sum(amount for _label, amount in addbacks)
+    if not is_finite_number(total) or total <= 0:
+        return None
+    pct = total / adjusted_ebitda
+    if not is_finite_number(pct) or not (_MIN_ADDBACK_PCT <= pct <= _MAX_ADDBACK_PCT):
+        return None
+
+    return {
+        "addback_pct": round(pct, 4),
+        "addback_total_mm": round(total, 1),
+        "adjusted_ebitda_mm": round(float(adjusted_ebitda), 1),
+        # Ordered largest-first: the biggest add-back is the one to challenge.
+        "addback_categories": [
+            label for label, _amt in sorted(addbacks, key=lambda p: -p[1])
+        ],
+    }
 
 
 async def marketed_vs_reported(
@@ -119,20 +204,36 @@ async def marketed_vs_reported(
         return None  # nothing credible to compare against
 
     try:
-        rows = (await session.execute(
+        rows = list((await session.execute(
             select(OkfNote)
             .where(OkfNote.issuer_id == issuer_id)
             .order_by(OkfNote.created_at.desc())
             .limit(20)
-        )).scalars().all()
+        )).scalars().all())
     except Exception:  # noqa: BLE001 — a bridge is never worth failing a run over
         logger.exception("marketed bridge: OKF registry read failed for %s", issuer_id)
         return None
 
+    # Freshness is the DOCUMENT's date, not the upload's. Ordering by created_at
+    # alone means re-uploading last year's deck silently overrides this quarter's
+    # figure. Sorted in Python (the row set is already bounded) so NULL-ordering
+    # cannot differ between Postgres and SQLite; an undated document sorts last
+    # rather than winning by accident.
+    # getattr, not attribute access: this module's contract is that a bridge is
+    # never worth failing a run over, so an unexpected row shape must sort last
+    # rather than raise mid-run.
+    def _freshness(row):
+        return (
+            getattr(row, "report_date", None) or "",
+            (getattr(row, "created_at", None) or _EPOCH),
+        )
+
+    rows.sort(key=_freshness, reverse=True)
+
     found = _marketed_from_facts(rows)
     if found is None:
         return None
-    marketed, source_label, page = found
+    marketed, source_label, page, source_row = found
 
     # Positive gap = the reported basis is more levered than the marketing.
     gap = round(float(reported) - marketed, 2)
@@ -147,6 +248,13 @@ async def marketed_vs_reported(
         "marketed_page": page,
         "basis": "okf_marketed_vs_reported",
     }
+    # Preserve the deck's EBITDA waterfall when it disclosed one. This is the
+    # composition behind the marketed number — what an investment committee
+    # actually challenges — so it travels WITH the gap rather than being
+    # collapsed into it.
+    addbacks = _addback_bridge(getattr(source_row, "key_facts_json", None) or [])
+    if addbacks is not None:
+        bridge.update(addbacks)
     claim = ClaimSpec(
         claim_id="C-MKT1",
         claim_text=(
@@ -190,13 +298,23 @@ def marketed_gap_finding(cp1: Optional[ModulePayload]) -> Optional[Finding]:
     if abs(gap) < _MATERIAL_GAP_TURNS:
         return None  # the two stories agree closely enough — no noise
     direction = "below" if gap > 0 else "above"
+    # When the deck disclosed its EBITDA waterfall, name the composition: "5.2
+    # turns apart" is a fact, but "and 38% of that EBITDA is synergies and
+    # run-rate savings" is the part a committee can actually challenge.
+    pct, categories = bridge.get("addback_pct"), bridge.get("addback_categories")
+    composition = ""
+    if is_finite_number(pct) and isinstance(categories, list) and categories:
+        composition = (
+            f" The marketed EBITDA carries ~{pct * 100:.0f}% of add-backs "
+            f"({', '.join(str(c) for c in categories[:4])})."
+        )
     return Finding(
         finding_id="CP-1-MKTGAP", severity="MINOR", lane=2, module_id="CP-1",
         affected_claim_id="C-MKT1",
         description=(
             f"Marketed net leverage ({marketed:g}x) sits {abs(gap):g} turns {direction} the "
-            f"reported basis ({reported:g}x). Sponsor and lender materials present a "
-            "pro-forma / add-back-adjusted figure; confirm which basis any covenant, "
+            f"reported basis ({reported:g}x)." + composition + " Sponsor and lender materials "
+            "present a pro-forma / add-back-adjusted figure; confirm which basis any covenant, "
             "screening threshold, or committee comparison is actually using."
         ),
         required_remediation=(

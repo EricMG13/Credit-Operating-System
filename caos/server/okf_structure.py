@@ -283,6 +283,27 @@ _MATURITY_RE = re.compile(
     r"((?:matur\w+|due)\s+(?:in\s+)?(20\d{2}))", re.IGNORECASE
 )
 
+# The add-back bridge — the waterfall a sponsor deck uses to walk reported EBITDA
+# up to the marketed "Adjusted EBITDA". Capturing the COMPOSITION, not just the
+# total, is what lets CP-4C answer the question an investment committee actually
+# asks: how much of this EBITDA is synergies and run-rate savings that have not
+# happened yet?
+_ADDBACK_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Synergies", ("synerg",)),
+    ("Run-rate savings", ("run-rate", "run rate")),
+    ("Cost savings", ("cost saving",)),
+    ("Restructuring", ("restructur",)),
+    ("Non-recurring items", ("non-recurring", "one-time", "one-off")),
+    ("Transaction costs", ("transaction cost", "transaction fee")),
+)
+
+# The bridge's endpoints. Without a denominator the add-backs are only amounts;
+# with one they become a share of EBITDA, which is the credit-relevant form.
+_EBITDA_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Adjusted EBITDA", ("adjusted ebitda", "pro forma ebitda", "pf ebitda")),
+    ("Reported EBITDA", ("reported ebitda", "actual ebitda")),
+)
+
 
 def _page_of(line: str, doc: ExtractedDocument) -> Optional[int]:
     if not doc.has_page_map:
@@ -306,6 +327,10 @@ def extract_key_facts(doc: ExtractedDocument, doc_type: DocType) -> list[KeyFact
         if doc_type in (DocType.OFFERING_MEMO, DocType.SPONSOR_DECK, DocType.LENDER_UPDATE):
             facts.extend(_tranches_in(line, doc))
             facts.extend(_maturities_in(line, doc))
+            # The add-back bridge lives in the marketed document classes; a filed
+            # rating report states the agency's own basis, not a sponsor waterfall.
+            facts.extend(_addbacks_in(line, doc))
+            facts.extend(_ebitda_in(line, doc))
         # Leverage is the one metric worth pulling from every family.
         facts.extend(_leverage_in(line, doc))
 
@@ -356,6 +381,42 @@ def _tranches_in(line: str, doc: ExtractedDocument) -> list[KeyFact]:
         label=keyword.title(), value=money.group(1).strip(), kind="tranche",
         page=_page_of(line, doc), source_span=line[:300],
     )]
+
+
+def _addbacks_in(line: str, doc: ExtractedDocument) -> list[KeyFact]:
+    """Add-back line items from a bridge/waterfall slide.
+
+    One fact per category found on the line, valued at the amount printed beside
+    it. These are marketed adjustments by definition — the caller tags them so a
+    downstream consumer can never mistake an add-back for a reported figure.
+    """
+    lowered = line.lower()
+    money = _MONEY_RE.search(line)
+    if not money:
+        return []
+    out: list[KeyFact] = []
+    for label, markers in _ADDBACK_CATEGORIES:
+        if any(marker in lowered for marker in markers):
+            out.append(KeyFact(
+                label=label, value=money.group(1).strip(), kind="addback",
+                page=_page_of(line, doc), source_span=line[:300],
+            ))
+    return out
+
+
+def _ebitda_in(line: str, doc: ExtractedDocument) -> list[KeyFact]:
+    """The bridge's endpoints — the denominator the add-back share needs."""
+    lowered = line.lower()
+    money = _MONEY_RE.search(line)
+    if not money:
+        return []
+    for label, markers in _EBITDA_LABELS:
+        if any(marker in lowered for marker in markers):
+            return [KeyFact(
+                label=label, value=money.group(1).strip(), kind="ebitda",
+                page=_page_of(line, doc), source_span=line[:300],
+            )]
+    return []
 
 
 def _maturities_in(line: str, doc: ExtractedDocument) -> list[KeyFact]:
@@ -412,6 +473,19 @@ def structure(
     else:
         sections = segment(doc)
         key_facts = extract_key_facts(doc, doc_type)
+
+    # Tag the basis from the document CLASS. A sponsor/lender presentation states
+    # marketed figures by definition, so leaving these untagged would make the
+    # CP-4C bridge deterministically blind — and since the vision lane is off by
+    # default, that is the normal case, not an edge case. Other classes are left
+    # untagged rather than guessed: an offering memo mixes reported and pro-forma
+    # figures, and asserting "reported" there would be worse than asserting
+    # nothing.
+    if doc_type in (DocType.SPONSOR_DECK, DocType.LENDER_UPDATE):
+        key_facts = [
+            f.model_copy(update={"basis": "sponsor-adjusted"}) if f.basis is None else f
+            for f in key_facts
+        ]
 
     rating_moody, rating_sp = (
         _agency_ratings(key_facts, source) if doc_type is DocType.RATING_REPORT else (None, None)

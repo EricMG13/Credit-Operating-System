@@ -61,6 +61,28 @@ def _parse_doc_type(raw: Optional[str]) -> Optional[DocType]:
         ) from None
 
 
+_OOXML_MAGIC = b"PK\x03\x04"
+
+
+def _reject_unsupported_deck(file_name: str, content: bytes) -> None:
+    """Name the format when an analyst uploads a deck OKF cannot read yet.
+
+    A PPTX would otherwise fail the generic PDF sniff with "not a valid PDF",
+    which tells someone who just dropped in a lender presentation nothing about
+    what to do next. PPTX support is a named deferral (the vision lane takes PDF
+    document blocks), so the honest response is to say so and give the workaround.
+    """
+    if file_name.lower().endswith((".pptx", ".ppt")) or (
+        content.startswith(_OOXML_MAGIC) and b"ppt/" in content[:4096]
+    ):
+        raise HTTPException(
+            415,
+            "PowerPoint decks are not supported yet — OKF ingests PDF. "
+            "Export the presentation to PDF and upload that; the vision lane "
+            "reads slide layout from the PDF pages.",
+        )
+
+
 class OkfDocumentRow(BaseModel):
     document_id: str
     note_path: str
@@ -92,6 +114,7 @@ async def okf_ingest_route(
         fiscal_period=fiscal_period,
     )
     content = await ingest.read_capped(file)  # 413 over cap / 400 empty
+    _reject_unsupported_deck(file.filename or "", content)
     ingest.sniff_pdf(content)                 # 400 if not %PDF-
     await avscan.scan(content)                # 422 on a hit / 503 fail-closed
     # ingest_pdf extracts OFF-THREAD first, then opens the DB session (issuer

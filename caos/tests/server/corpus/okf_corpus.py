@@ -188,6 +188,27 @@ CORPUS: list[CorpusDoc] = [
         ],
     ),
     CorpusDoc(
+        key="deck-otex-waterfall",
+        issuer="Open Text Corporation",
+        doc_type="sponsor-deck",
+        expect_facts=["4.8x", "$45mm", "$210mm"],
+        note="EBITDA bridge/waterfall — the add-back composition CP-4C reports",
+        pages=[
+            "\n".join([
+                "Lender Presentation",
+                "Open Text Corporation",
+            ]),
+            "\n".join([
+                "ADJUSTED EBITDA BRIDGE",
+                "Reported EBITDA $150mm",
+                "Plus: run-rate cost savings $45mm",
+                "Plus: synergies $15mm",
+                "Adjusted EBITDA $210mm",
+                "Pro forma net leverage 4.8x",
+            ]),
+        ],
+    ),
+    CorpusDoc(
         key="deck-chtr-management",
         issuer="Charter Communications, Inc.",
         doc_type="sponsor-deck",

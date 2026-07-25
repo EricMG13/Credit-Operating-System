@@ -45,8 +45,15 @@ def _cp1(leverage=6.8, net_debt=680.0, basis="reported_gaap_xbrl"):
     )
 
 
-def _row(facts, *, source="Sponsor Deck", doc_type="sponsor-deck"):
-    return SimpleNamespace(key_facts_json=facts, source=source, doc_type=doc_type)
+def _row(facts, *, source="Sponsor Deck", doc_type="sponsor-deck",
+         report_date="2026-06-30", created_at=None):
+    from datetime import datetime, timezone
+
+    return SimpleNamespace(
+        key_facts_json=facts, source=source, doc_type=doc_type,
+        report_date=report_date,
+        created_at=created_at or datetime(2026, 7, 1, tzinfo=timezone.utc),
+    )
 
 
 class _FakeSession:
@@ -290,6 +297,147 @@ def test_a_malformed_bridge_never_crashes_the_qa_phase():
         cp1 = _cp1()
         cp1.runtime_output["marketed_vs_reported"] = junk
         assert marketed_gap_finding(cp1) is None
+
+
+# ── the add-back bridge (the deck's EBITDA waterfall) ───────────────────────
+
+
+def _bridge_facts():
+    """A waterfall slide: $60mm of add-backs inside a $210mm adjusted EBITDA."""
+    return [
+        _marketed_fact("4.8x"),
+        {"label": "Run-rate savings", "value": "$45mm", "kind": "addback",
+         "basis": "sponsor-adjusted", "page": 2},
+        {"label": "Synergies", "value": "$15mm", "kind": "addback",
+         "basis": "sponsor-adjusted", "page": 2},
+        {"label": "Adjusted EBITDA", "value": "$210mm", "kind": "ebitda",
+         "basis": "sponsor-adjusted", "page": 2},
+    ]
+
+
+def test_the_addback_composition_travels_with_the_gap():
+    """The brief's 'add-back-bridge preservation': the composition behind the
+    marketed number is what a committee challenges, so it must not be collapsed
+    into a single figure."""
+    from engine.marketed import marketed_vs_reported
+
+    bridge, _claim = _run(marketed_vs_reported(
+        _FakeSession([_row(_bridge_facts())]), "issuer-1", _cp1(leverage=6.8)
+    ))
+
+    assert bridge["addback_total_mm"] == 60.0
+    assert bridge["adjusted_ebitda_mm"] == 210.0
+    assert bridge["addback_pct"] == pytest.approx(60 / 210, rel=1e-3)
+    # Largest add-back first — the one to challenge leads.
+    assert bridge["addback_categories"] == ["Run-rate savings", "Synergies"]
+
+
+def test_addbacks_without_a_denominator_produce_no_percentage():
+    """A percentage without its denominator would be a guess."""
+    from engine.marketed import marketed_vs_reported
+
+    facts = [f for f in _bridge_facts() if f.get("kind") != "ebitda"]
+    bridge, _claim = _run(marketed_vs_reported(
+        _FakeSession([_row(facts)]), "issuer-1", _cp1()
+    ))
+    assert "addback_pct" not in bridge
+    assert bridge["marketed_leverage"] == 4.8  # the gap itself still works
+
+
+def test_an_amount_without_a_unit_is_refused():
+    """A bare "45" could be millions, billions or a slide number — guessing the
+    scale would put an order-of-magnitude error into committee text."""
+    from engine.marketed import _parse_money_millions
+
+    assert _parse_money_millions("$45mm") == 45.0
+    assert _parse_money_millions("$1.2bn") == 1200.0
+    assert _parse_money_millions("$1,250mm") == 1250.0
+    assert _parse_money_millions("45") is None
+    assert _parse_money_millions("") is None
+
+
+def test_an_implausible_addback_load_is_dropped():
+    from engine.marketed import marketed_vs_reported
+
+    facts = [
+        _marketed_fact("4.8x"),
+        {"label": "Synergies", "value": "$500mm", "kind": "addback",
+         "basis": "sponsor-adjusted", "page": 2},
+        {"label": "Adjusted EBITDA", "value": "$210mm", "kind": "ebitda",
+         "basis": "sponsor-adjusted", "page": 2},
+    ]
+    bridge, _claim = _run(marketed_vs_reported(
+        _FakeSession([_row(facts)]), "issuer-1", _cp1()
+    ))
+    assert "addback_pct" not in bridge, "add-backs > EBITDA must not be reported"
+
+
+def test_the_finding_names_the_addback_composition():
+    from engine.marketed import marketed_gap_finding
+
+    finding = marketed_gap_finding(_cp1_with_bridge(
+        marketed_leverage=4.8, reported_leverage=6.8, gap_turns=2.0,
+        addback_pct=0.2857, addback_categories=["Run-rate savings", "Synergies"],
+    ))
+
+    assert finding is not None
+    assert "29% of add-backs" in finding.description
+    assert "Run-rate savings" in finding.description
+
+
+def test_the_finding_omits_composition_when_none_was_extracted():
+    from engine.marketed import marketed_gap_finding
+
+    finding = marketed_gap_finding(_cp1_with_bridge(
+        marketed_leverage=4.2, reported_leverage=6.8, gap_turns=2.6
+    ))
+    assert finding is not None and "add-backs" not in finding.description
+
+
+# ── freshness ordering ──────────────────────────────────────────────────────
+
+
+def test_the_documents_own_date_decides_freshness_not_the_upload_time():
+    """Re-uploading last year's deck must not override this quarter's figure."""
+    from datetime import datetime, timezone
+
+    from engine.marketed import marketed_vs_reported
+
+    def dated(value, report_date, created_at, source):
+        row = _row([_marketed_fact(value)], source=source)
+        row.report_date = report_date
+        row.created_at = created_at
+        return row
+
+    # The STALE deck was uploaded most recently (created_at later).
+    rows = [
+        dated("9.9x", "2024-01-31", datetime(2026, 7, 25, tzinfo=timezone.utc), "Old Deck"),
+        dated("4.2x", "2026-06-30", datetime(2026, 1, 1, tzinfo=timezone.utc), "Current Deck"),
+    ]
+    bridge, _claim = _run(marketed_vs_reported(_FakeSession(rows), "issuer-1", _cp1()))
+
+    assert bridge["marketed_leverage"] == 4.2
+    assert bridge["marketed_source"] == "Current Deck"
+
+
+def test_an_undated_document_does_not_outrank_a_dated_one():
+    from datetime import datetime, timezone
+
+    from engine.marketed import marketed_vs_reported
+
+    def row_for(value, report_date, created_at, source):
+        row = _row([_marketed_fact(value)], source=source)
+        row.report_date = report_date
+        row.created_at = created_at
+        return row
+
+    rows = [
+        row_for("9.9x", None, datetime(2026, 7, 25, tzinfo=timezone.utc), "Undated"),
+        row_for("4.2x", "2026-06-30", datetime(2026, 1, 1, tzinfo=timezone.utc), "Dated"),
+    ]
+    bridge, _claim = _run(marketed_vs_reported(_FakeSession(rows), "issuer-1", _cp1()))
+
+    assert bridge["marketed_source"] == "Dated"
 
 
 def test_the_finding_is_registered_with_the_cp5_gate():

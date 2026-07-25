@@ -21,10 +21,24 @@ material. It is **read-only and additive**: the marketed figure lands under its 
 `marketed_vs_reported` key and can never enter `normalized_financials`, which is
 what closes RT-2026-07-24-01 by construction rather than by absence.
 
-**Still open:** the vision lane does not yet extract a structured **add-back
-bridge** from a deck's waterfall slide (the existing `adjusted.py` reconciliation
-on the adjusted-basis path is untouched), and PPTX decks still do not reach the
-vision lane at all.
+**Add-back bridge (added 2026-07-25).** Both lanes now extract `addback` and
+`ebitda` facts, so a deck's EBITDA waterfall is preserved as composition rather
+than collapsed into one number: the CP-4C bridge carries the add-back share of the
+marketed EBITDA and its ordered categories, and the CP-5 finding names them. It
+needs **both** the add-back lines and a denominator — a percentage without one
+would be a guess — and amounts require a recognised unit, since a bare "45" could
+be millions, billions or a slide number.
+
+**Basis is now tagged by document class on the deterministic lane too.** Without
+this the bridge only worked when the vision lane was enabled, which is off by
+default — so the feature was effectively dead in the shipped configuration.
+`sponsor-deck`/`lender-update` facts are `sponsor-adjusted`; other classes stay
+untagged rather than guessed.
+
+**Still open:** PPTX decks do not reach the vision lane (PPTX→PDF would need a
+heavy native dependency against the lean-image posture) — but an upload now
+returns **415 naming the format and the workaround** rather than a generic
+"not a valid PDF".
 
 ## The one-paragraph shape
 
