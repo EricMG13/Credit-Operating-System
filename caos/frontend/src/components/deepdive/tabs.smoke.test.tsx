@@ -31,7 +31,13 @@ describe("deep-dive bespoke tabs", () => {
     const evidence = screen.queryAllByRole("button", { name: /evidence/ })[0];
     if (evidence) fireEvent.click(evidence);
     rerender(<DebateTab onOpenEvidence={openEvidence} variant="CP-6E" layout="summary" />);
-    expect(screen.getByText(/CIO ruling/i)).toBeTruthy();
+    // Summary condenses to claim + verdict and deliberately drops the bias/memo block:
+    // DecisionRail (rails.tsx) already renders "Recommendation bias" and "Chair final
+    // memo", and deepdive/page.tsx puts it on screen alongside this pane, so repeating
+    // them here was a literal duplicate. Assert the condensed matrix renders AND that
+    // the dropped block stays dropped.
+    expect(screen.getByText(/Allocation Weighting & Decision Matrix — condensed/)).toBeTruthy();
+    expect(screen.queryByText(/CIO ruling/i)).toBeNull();
     rerender(<DebateTab onOpenEvidence={openEvidence} variant="CP-6E" />);
     expect(screen.getByText(/Allocation Weighting & Decision Matrix/)).toBeTruthy();
   });
