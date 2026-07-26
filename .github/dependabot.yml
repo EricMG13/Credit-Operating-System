@@ -7,22 +7,41 @@
 # and npm dependencies but never scans container image tags.
 version: 2
 updates:
+  # Grouped deliberately. Ungrouped, each ecosystem opened up to 5 PRs a week and
+  # none of them landed — 13 of the 22 PRs open on 2026-07-26 were dependabot, the
+  # oldest 10 days and 44 commits behind main. Every pip PR additionally needs a
+  # `caos/scripts/relock.sh` pass, because dependabot bumps requirements.txt but
+  # cannot regenerate a pip-compile lock, so the "Lock — requirements.lock in sync"
+  # gate fails on arrival. One grouped PR per ecosystem means one relock and one
+  # review instead of five of each. Majors stay separate: they need individual
+  # judgement (the held TS7 / react / tailwind4 / vitest4 bumps are why).
   - package-ecosystem: npm
     directory: /caos/frontend
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
 
   - package-ecosystem: pip
     directory: /caos/server
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
+    groups:
+      pip-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
 
   # Dockerfile base images (node:24-slim, python:3.14-slim).
   - package-ecosystem: docker

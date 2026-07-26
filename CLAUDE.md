@@ -118,6 +118,7 @@ visible focus ring.
 - **Turbopack Dev Cache**: Ensure `turbopackFileSystemCacheForDev: false` remains in `next.config.js` to prevent persistent development server cache crashes and high disk write overhead.
 - **Accessibility Verification**: Use the local axe-core runner `node caos/frontend/scripts/a11y-axe.mjs` for actual accessibility validation rather than relying on static regex-based audits which are prone to false positives.
 - **FastAPI Server Environment**: Execute the server suite and check scripts with the project virtual environment when one exists (`caos/server/.venv` or `caos/server/.venv311`); otherwise install `caos/server/requirements.txt` + `requirements-dev.txt` into a fresh venv. Do not downgrade the FastAPI pin in `requirements.txt` (currently `0.139.*` — it clears the starlette CVE set).
+- **Red "Lock — requirements.lock in sync"? Run `caos/scripts/relock.sh` and commit the lock.** Dependabot bumps `requirements.txt` but cannot regenerate a pip-compile lock, so every pip dependabot PR arrives failing that gate. The gate is correct — the prod image installs from the lock, so an unpropagated bump would ship a stale package. **The lock must be regenerated in place**: pip-compile treats the existing output file as its constraint set, so writing to a fresh path drops every pin and floats the whole transitive graph to latest instead of moving the one package that actually changed. `relock.sh --check` verifies without touching the tree.
 
 ## Skill improvement observations
 
