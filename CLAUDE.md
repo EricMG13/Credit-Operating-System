@@ -39,6 +39,16 @@ Before committing to an architecture, interface, or rollout plan, record a
 critic pass in [.agent-reviews/redteam.md](.agent-reviews/redteam.md). Fix and
 verify each high-impact objection, or document why the risk is accepted.
 
+**Append a new dated section at the end; never edit an existing entry.** This file
+and `skill-observations/observation-log.md` are declared `merge=union` in
+`.gitattributes`, so concurrent appends from different branches merge instead of
+conflicting — on 2026-07-26 all three live conflicting PRs (#219, #220, #221)
+conflicted on this file and nothing else, purely because every branch appends to the
+same tail. Union is line-based and structure-blind: it keeps both sides. That is
+correct for appends, but if you *edit* an existing entry while another branch edits
+the same one, you get a silently duplicated passage rather than a conflict asking you
+to choose.
+
 ## Design Context
 
 ### Users
