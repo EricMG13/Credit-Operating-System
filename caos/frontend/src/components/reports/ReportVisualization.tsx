@@ -5,12 +5,15 @@ import type { Section } from "@/lib/reports/builders";
 type ReportChartSection = Extract<Section, { t: "chart" }>;
 type ChartDatum = Record<string, string | number | boolean | null>;
 
+// Paper ramp, not the dark-surface --tranche-* one: these fills carry
+// --paper-bg value labels (LightweightStack) and tint --paper-bg value labels
+// (LightweightLine), so each must clear AA against --paper-bg itself.
 const SERIES_COLORS = [
-  "var(--tranche-1l)",
-  "var(--tranche-2l)",
-  "var(--tranche-unsec)",
-  "var(--tranche-sub)",
-  "var(--tranche-equity)",
+  "var(--paper-tranche-1l)",
+  "var(--paper-tranche-2l)",
+  "var(--paper-tranche-unsec)",
+  "var(--paper-tranche-sub)",
+  "var(--paper-tranche-eq)",
 ] as const;
 
 function chartRows(section: ReportChartSection): ChartDatum[] {
@@ -120,7 +123,10 @@ function LightweightStack({ section, rows, height }: { section: ReportChartSecti
         const x = 10 + offset;
         offset += width;
         const label = String(encode.color ? row[encode.color] ?? "—" : row[section.columns[0]?.key] ?? "—");
-        return <g key={index}><rect x={x} y="8" width={width} height={Math.max(28, height - 16)} fill={SERIES_COLORS[index % SERIES_COLORS.length]} />{width >= 86 ? <text x={x + width / 2} y={height / 2 + 4} textAnchor="middle" fill="var(--paper-bg)" fontSize="10" fontWeight="700">{label} · {value.toLocaleString()}</text> : null}</g>;
+        // Segments abut with no gutter and the paper ramp is uniformly dark, so a
+        // --paper-bg hairline carries the boundary. Suppressed under 2 units: the
+        // stroke straddles the edge and would repaint a sliver segment in full.
+        return <g key={index}><rect x={x} y="8" width={width} height={Math.max(28, height - 16)} fill={SERIES_COLORS[index % SERIES_COLORS.length]} stroke="var(--paper-bg)" strokeWidth={width > 2 ? 1 : 0} />{width >= 86 ? <text x={x + width / 2} y={height / 2 + 4} textAnchor="middle" fill="var(--paper-bg)" fontSize="10" fontWeight="700">{label} · {value.toLocaleString()}</text> : null}</g>;
       })}
     </svg>
   );
