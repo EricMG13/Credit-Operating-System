@@ -71,16 +71,37 @@ export function DebateTab({ onOpenEvidence, layout = "report", variant = "CP-6A"
   const cfg = DEBATE_CFG[variant];
   const d = cfg.data;
   if (layout === "summary") {
+    // Summary mode used to repeat bias + memo, but DecisionRail (rails.tsx) already
+    // renders both — "Recommendation bias" and "Chair final memo" — and the rail is on
+    // screen at the same time as this pane (deepdive/page.tsx renders DebateTab and
+    // DecisionRail together). So that block was a literal duplicate, not a second read.
+    // Lead with the thesis, the one thing the rail does not carry, then condense the
+    // matrix to claim + verdict. Report mode keeps the full four-column version with
+    // weight bars and evidence chips.
     return (
       <div className="p-3 flex flex-col gap-3">
         <div className="bg-caos-bg px-3 py-2.5">
           <div className="tabular text-caos-xs uppercase tracking-wider text-caos-muted mb-1">{cfg.thesisCode} · thesis</div>
           <div className="text-caos-xl text-caos-text leading-relaxed">{d.thesis}</div>
         </div>
-        <div className="rounded border border-caos-accent/40 bg-caos-bg px-3 py-2.5">
-          <div className="tabular text-caos-xs uppercase tracking-wider text-caos-accent mb-1">{cfg.verdictHeader}</div>
-          <div className="text-caos-xl text-caos-text leading-relaxed">{d.bias}</div>
-          <div className="mt-1.5 text-caos-md text-caos-text/90 leading-relaxed">{d.memo}</div>
+        <div className="rounded border border-caos-border bg-caos-bg">
+          <SectionHeader title={<><span className="text-caos-accent">⚖</span> {cfg.matrixTitle} — condensed</>} right={cfg.matrixCode} />
+          {d.weighting.map((w, i) => (
+            <div key={i} className="grid grid-cols-[1fr_auto] gap-x-3 px-3 py-1.5 items-baseline border-b border-caos-border/50 last:border-b-0">
+              <span className="text-caos-lg text-caos-text leading-snug">{w.claim}</span>
+              {/* Lean carries a glyph, never colour alone. Report mode conveys it via the
+                  ▲/▼ weight bars, which this condensed view drops — so without the glyph
+                  colour would be the only signal, which the AA/colourblind rule forbids. */}
+              <span
+                className="text-caos-md leading-snug flex items-baseline gap-1 justify-end text-right"
+                style={{ color: w.lean === "pro" ? "var(--caos-success)" : w.lean === "con" ? "var(--caos-critical-bright)" : "var(--caos-muted)" }}
+                aria-label={`${cfg.verdictHeader}, leans ${w.lean === "pro" ? cfg.proLabel : w.lean === "con" ? cfg.conLabel : "split"}: ${w.verdict}`}
+              >
+                <span aria-hidden="true">{w.lean === "pro" ? "▲" : w.lean === "con" ? "▼" : "◆"}</span>
+                {w.verdict}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     );
