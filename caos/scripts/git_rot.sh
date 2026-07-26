@@ -48,7 +48,10 @@ if [ "${selftest:-0}" = 1 ]; then
 JSON
   out=$(ROT_FIXTURE="$fx" "$0" --prs 2>&1) || true
   fail=0
-  check() { echo "$out" | grep -qE "$2" && echo "  ok   $1" || { echo "  FAIL $1 (want /$2/)"; fail=1; }; }
+  check() {
+    if echo "$out" | grep -qE "$2"; then echo "  ok   $1"
+    else echo "  FAIL $1 (want /$2/)"; fail=1; fi
+  }
   echo "git_rot selftest:"
   check "conflicts -> REBASE"   '#1 .*REBASE \(conflicts\)'
   check "red CI -> FIX CI"      '#2 .*FIX CI: Server'
@@ -56,13 +59,14 @@ JSON
   check "pending -> wait"       '#4 .*wait \(checks running\)'
   # Landable rows must sort above the ones needing work — that ordering is the
   # whole point of the report, so assert line positions, not just presence.
-  ln() { echo "$out" | grep -nE "^#$1 " | cut -d: -f1; }
-  if [ "$(ln 3)" -lt "$(ln 2)" ] && [ "$(ln 2)" -lt "$(ln 1)" ]; then
+  row_at() { echo "$out" | grep -nE "^#$1 " | cut -d: -f1; }
+  if [ "$(row_at 3)" -lt "$(row_at 2)" ] && [ "$(row_at 2)" -lt "$(row_at 1)" ]; then
     echo "  ok   merge-first ordering"
   else
-    echo "  FAIL merge-first ordering (#3=$(ln 3) #2=$(ln 2) #1=$(ln 1))"; fail=1
+    echo "  FAIL merge-first ordering (#3=$(row_at 3) #2=$(row_at 2) #1=$(row_at 1))"
+    fail=1
   fi
-  [ "$fail" = 0 ] && echo "PASS" || { echo "FAIL"; echo "$out"; }
+  if [ "$fail" = 0 ]; then echo "PASS"; else echo "FAIL"; echo "$out"; fi
   exit "$fail"
 fi
 
