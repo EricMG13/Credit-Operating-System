@@ -26,9 +26,48 @@ want_prs=1; want_local=1
 case "${1:-}" in
   --prs)   want_local=0 ;;
   --local) want_prs=0 ;;
+  --ci)    want_local=0; ci=1 ;;
   --selftest) want_prs=1; want_local=0; selftest=1 ;;
   --help|-h) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
+
+# --ci: same report, but exit nonzero once the backlog has actually rotted, so a
+# scheduled job can say so instead of waiting for someone to remember to look.
+# Threshold is staleness, not count: ten fresh PRs are healthy, one PR 50 commits
+# behind is the state that produced a 22-PR pile-up nobody could land.
+if [ "${ci:-0}" = 1 ]; then
+  out=$("$0" --prs) || true
+  echo "$out"
+  worst=$(echo "$out" | sed -n 's/.*ROT_WORST_BEHIND=\([0-9]*\).*/\1/p' | tail -1)
+  pr=$(echo "$out" | sed -n 's/.*ROT_WORST_PR=\([^ ]*\).*/\1/p' | tail -1)
+  unknown=$(echo "$out" | sed -n 's/.*ROT_UNKNOWN=\([0-9]*\).*/\1/p' | tail -1)
+  # A PR whose branch ref is missing locally cannot be measured, and an unmeasured
+  # backlog is not a healthy one. Fail rather than report OK on partial data —
+  # every gate fixed in this repo on 2026-07-26 failed by being green for the
+  # wrong reason, and this one is not going to join them.
+  if [ -z "${worst:-}" ] || [ -z "${unknown:-}" ]; then
+    echo ""
+    echo "FAIL: could not parse the rot rollup — refusing to report health."
+    exit 1
+  fi
+  if [ "$unknown" -gt 0 ]; then
+    echo ""
+    echo "FAIL: $unknown open PR(s) have no local branch ref, so their staleness is"
+    echo "unknown. Fetch all heads first:"
+    echo "  git fetch origin '+refs/heads/*:refs/remotes/origin/*'"
+    exit 1
+  fi
+  if [ "$worst" -ge "$STALE" ]; then
+    echo ""
+    echo "FAIL: PR #$pr is $worst commits behind $BASE (threshold $STALE)."
+    echo "Rebase or close it. A branch this far back conflicts on contact, and its"
+    echo "CI failures stop being attributable to its own diff."
+    exit 1
+  fi
+  echo ""
+  echo "OK: nothing past the ${STALE}-commit staleness threshold."
+  exit 0
+fi
 
 # Verdict logic is the only real logic here, so it gets one check. --selftest
 # feeds fixture PRs through the same code path and asserts the verdicts, with no
@@ -71,6 +110,20 @@ JSON
     echo "  FAIL merge-first ordering (#3=$(row_at 3) #2=$(row_at 2) #1=$(row_at 1))"
     fail=1
   fi
+  # --ci gate: the three outcomes that matter. The unknown-ref case is the one
+  # worth pinning — a guard that reports OK on data it could not measure is worse
+  # than no guard, because it converts silence into a health claim.
+  ci_case() { # <label> <fixture-json> <want-exit>
+    printf '%s' "$2" > "$fx.ci"
+    ROT_FIXTURE="$fx.ci" "$0" --ci >/dev/null 2>&1; got=$?
+    if [ "$got" = "$3" ]; then echo "  ok   $1"
+    else echo "  FAIL $1 (exit $got, want $3)"; fail=1; fi
+  }
+  ci_case "ci: healthy -> 0" \
+    '[{"number":9,"headRefName":"main","mergeable":"MERGEABLE","statusCheckRollup":[]}]' 0
+  ci_case "ci: unknown ref -> 1" \
+    '[{"number":9,"headRefName":"no-such-ref-xyz","mergeable":"MERGEABLE","statusCheckRollup":[]}]' 1
+  rm -f "$fx.ci"
   if [ "$fail" = 0 ]; then echo "PASS"; else echo "FAIL"; echo "$out"; fi
   exit "$fail"
 fi
@@ -121,11 +174,19 @@ for p in prs:
     rows.append((0 if v.startswith("**") else 1 if v.startswith("FIX") else 2,
                  -n, p, n, merge, len(checks)-len(bad), len(checks), v))
 rows.sort(key=lambda r:(r[0],r[1]))
+worst=0; worst_pr=None; unknown=0
 for _,_,p,n,merge,ok,tot,v in rows:
     num="#"+str(p["number"]); bh=str(n) if n>=0 else "?"
     ch="%d/%d"%(ok,tot); br=p["headRefName"][:34]
     print("%-6s %-7s %-13s %-7s %-34s %s"%(num,bh,merge,ch,br,v))
+    if n<0: unknown+=1          # ref missing locally — NOT evidence of health
+    elif n>worst: worst,worst_pr=n,p["number"]
 print("\n%d open. Merge the ** rows first — every day they wait, they rot further."%len(prs))
+# Machine-readable tail for --ci. Printed always: harmless in the human report,
+# and keeping one code path means the CI check can never disagree with what a
+# person reading the same command sees.
+print("ROT_WORST_BEHIND=%d ROT_WORST_PR=%s ROT_OPEN=%d ROT_UNKNOWN=%d"
+      %(worst,worst_pr,len(prs),unknown))
 ' "$STALE" "$BASE"
   echo
 fi

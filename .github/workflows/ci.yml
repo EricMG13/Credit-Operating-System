@@ -76,14 +76,21 @@ jobs:
       # before the heavier dependency install (config: ruff.toml).
       - run: pip install ruff==0.15.18
       - run: ruff check caos/server caos/tests
-      # Complexity gate — C901 (cyclomatic > 10) on the Python paths THIS PR
-      # changed. Exact path+symbol debt in the checked baseline may not worsen;
+      # Complexity gate — C901 (cyclomatic > 10) on the Python paths the change
+      # touched. Exact path+symbol debt in the checked baseline may not worsen;
       # new findings fail and stale/lowered entries must be tightened or removed.
+      #
+      # Runs on push to main as well as on PRs. It used to be PR-only, which meant
+      # it never evaluated main — so the baseline drifted silently and the debt was
+      # billed to whoever next opened a PR touching the file. erase_analyst_data
+      # went 11 -> 20 that way and failed an unrelated audit-trail PR. On push the
+      # base is HEAD~1 (first parent of the merge commit), so the gate judges what
+      # that merge introduced, and drift fails the commit that caused it.
       - name: Complexity gate (changed Python)
-        if: github.event_name == 'pull_request'
         run: >-
           python caos/scripts/check_complexity_delta.py
-          --base-ref "origin/${{ github.base_ref }}"
+          --base-ref "${{ github.event_name == 'pull_request'
+          && format('origin/{0}', github.base_ref) || 'HEAD~1' }}"
       # Dead-code gate — vulture over the backend (currently zero findings at
       # conf>=80). `cls` is a classmethod-override signature arg, never dead code.
       - name: Dead code (vulture)

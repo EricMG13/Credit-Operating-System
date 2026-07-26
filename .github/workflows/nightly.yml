@@ -39,6 +39,33 @@ jobs:
           OPENROUTER_API_KEY: ""
         run: python -m pytest -m golden_e2e -q caos/tests/server/golden
 
+  # Branch-rot watch. The 2026-07-26 cleanup started from 22 open PRs, none of them
+  # landable, several 200-600 commits behind main — a state nobody chose, that
+  # accumulated because nothing reported it. git_rot.sh could always show this, but
+  # only if someone remembered to run it. This job runs it for you and fails when the
+  # backlog has actually rotted, so the signal arrives instead of waiting to be asked
+  # for. Threshold is staleness, not count: ten fresh PRs are fine; one PR 50 commits
+  # behind is the shape that produced the pile-up.
+  backlog-rot:
+    name: Backlog — PR rot watch
+    if: github.event_name != 'schedule' || github.event.schedule != '0 7 * * 0'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # needs full history to count how far behind each PR is
+      # actions/checkout fetches a restricted refspec, so origin/<pr-branch> would
+      # not exist and every behind-count would come back unknown — which the guard
+      # must not read as "healthy". Fetch all heads first.
+      - run: git fetch --quiet origin "+refs/heads/*:refs/remotes/origin/*"
+      - name: PR rot report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: caos/scripts/git_rot.sh --ci
+
   # Full-history secret sweep. The per-PR gate in ci.yml scans only the commits a
   # branch adds, because `.gitleaksignore` fingerprints are commit-SHA-bound and read
   # from the working tree — a full-history scan there turns every open branch red the
