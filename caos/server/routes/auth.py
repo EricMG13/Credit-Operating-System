@@ -26,6 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import rate_limit
 from access_log import client_source, sanitize_field
 from config import get_settings, is_deployed
@@ -261,19 +262,43 @@ async def create_profile(  # noqa: C901 — cohesive login flow (code gate + SSO
                 "Ambiguous analyst email identity; resolve duplicate profiles.",
             )
         analyst = matching_analysts[0] if matching_analysts else None
+        # `is_new` is read again below to decide whether the create path needs its
+        # own flush + audit row; bind it here, before `analyst` is reassigned.
+        # The branch below still tests `analyst is None` rather than `is_new`:
+        # mypy narrows on the former but cannot connect a separate bool to the
+        # optionality, and testing `is_new` leaves `analyst` as `Analyst | None`
+        # for the rest of the function (17 union-attr errors).
+        is_new = analyst is None
         if analyst is None:
             analyst = Analyst(name=name, email=sso_email)
             db.add(analyst)
         else:
+            if analyst.password_hash or analyst.recovery_word_hashes:
+                # SSO adopts an existing local-password analyst — a security-relevant
+                # credential revocation, not a pure login; audit it distinctly from
+                # the name/email touch-up below (which is not itself worth a row).
+                audit.write(db, analyst_id=analyst.id, action="analyst.sso_adopt",
+                            target_type="analyst", target_id=analyst.id,
+                            before={"name": analyst.name, "had_password": bool(analyst.password_hash)},
+                            after={"name": name})
             if analyst.email != sso_email:
                 analyst.email = sso_email
             if analyst.name != name:
                 analyst.name = name
-            if analyst.password_hash or analyst.recovery_word_hashes:
-                analyst.password_hash = None
-                analyst.recovery_word_hashes = []
-                analyst.token_version += 1
+            analyst.password_hash = None
+            analyst.recovery_word_hashes = []
+            analyst.token_version += 1
         try:
+            if is_new:
+                # flush + audit INSIDE the try: a UNIQUE-name collision on the
+                # flush must hit the same 409 path as a collision on commit —
+                # not escape as an uncaught 500 (this bit test_auth_profile.py's
+                # impersonation-block case, where flush is exactly where the
+                # collision fires).
+                await db.flush()  # populate analyst.id (client-side uuid default)
+                audit.write(db, analyst_id=analyst.id, action="analyst.create",
+                            target_type="analyst", target_id=analyst.id,
+                            after={"name": name, "email": sso_email, "source": "sso"})
             await db.commit()
         except IntegrityError:
             await db.rollback()
@@ -284,6 +309,11 @@ async def create_profile(  # noqa: C901 — cohesive login flow (code gate + SSO
             analyst = Analyst(name=name)
             db.add(analyst)
             try:
+                await db.flush()  # populate analyst.id (client-side uuid default); same
+                # try/except as the collision on commit — see the SSO branch above.
+                audit.write(db, analyst_id=analyst.id, action="analyst.create",
+                            target_type="analyst", target_id=analyst.id,
+                            after={"name": name, "source": "local"})
                 await db.commit()
             except IntegrityError:  # two concurrent creates with the same name
                 # Same 409 the SSO branch returns — the bare commit surfaced a
@@ -360,6 +390,12 @@ async def register(
     )
     db.add(analyst)
     try:
+        # flush + audit INSIDE the try: a UNIQUE-name/email collision on the
+        # flush must hit the same 409 path as one on commit, not escape uncaught.
+        await db.flush()  # populate analyst.id (client-side uuid default)
+        audit.write(db, analyst_id=analyst.id, action="analyst.register",
+                    target_type="analyst", target_id=analyst.id,
+                    after={"name": name, "email": email})
         await db.commit()
     except IntegrityError:  # display name taken, or a racing email registration
         await db.rollback()

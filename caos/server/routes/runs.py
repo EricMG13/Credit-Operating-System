@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import rate_limit
 import vault_export
 from access_log import sanitize_field
@@ -394,7 +395,14 @@ async def create_run(
         )
         db.add(run)
         try:
-            await db.flush()
+            # flush + audit INSIDE the try: a concurrent-insert collision on the
+            # flush must hit the same recovery path as one on commit, not escape
+            # uncaught (this bit the SSO-profile route the same way — see auth.py).
+            await db.flush()  # populate run.id (client-side uuid default)
+            audit.write(db, analyst_id=caller.id, action="run.create",
+                        target_type="run", target_id=run.id,
+                        after={"issuer_id": body.issuer_id, "as_of_date": body.as_of_date,
+                               "portfolio_id": portfolio_id, "model_mode": run.model_mode})
             input_refs = None
             if body.context_id and settings.caos_lineage_v2_enabled:
                 context = (await db.execute(select(AnalysisContextRecord).where(
@@ -436,7 +444,7 @@ async def create_run(
             run.input_manifest_ids = snapshot.manifest_ids
             run.input_corpus_sha256 = snapshot.corpus_sha256
             run.input_snapshot_state = snapshot.state
-            await db.commit()  # persist the queued run so the executor can see it
+            await db.commit()  # persist the queued run (+ audit row) so the executor can see it
         except LookupError as exc:
             await db.rollback()
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
@@ -445,8 +453,9 @@ async def create_run(
             # serialized by _create_run_lock() within THIS process, but the DB-
             # level uq_runs_issuer_active partial unique index (migration 0035)
             # also backstops a race across multiple app replicas, where a
-            # per-process lock can't coordinate. Same 409 the in-process check
-            # above already gives — not a 500.
+            # per-process lock can't coordinate. Rollback discards the run AND
+            # its audit row together. Same 409 the in-process check above already
+            # gives — not a 500.
             await db.rollback()
             if idempotency_key is not None:
                 prior = (await db.execute(select(Run).where(

@@ -725,6 +725,9 @@ def test_qa_routes_rate_limits_create_and_apply_optional_filters(
         def add(self, value):
             self.value = value
 
+        async def flush(self):
+            pass  # E3: create_flag flushes to populate flag.id for the audit row
+
         async def commit(self):
             pass
 

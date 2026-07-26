@@ -387,7 +387,7 @@ async def test_erase_removes_owned_c3_graph_and_redacts_retained_audit_rows(
 async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
     from database import (
         Analyst, AnalysisContextRecord, AnalysisInsight, AsyncSessionLocal,
-        Document, Issuer, IssuerReportingProfile, LineageEdge, Portfolio,
+        AuditLog, Document, Issuer, IssuerReportingProfile, LineageEdge, Portfolio,
         NotificationEvent, PortfolioStressRun, ResearchJob, Run,
         SavedModel, erase_analyst_data,
     )
@@ -444,6 +444,10 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
             analyst_id=subj_id, artifact_kind="document",
             parent_kind="issuer_run", v2_idempotency_key="a" * 64,
         ))
+        # E3: an audit_log row the subject actioned — must be ANONYMIZED (kept,
+        # analyst_id scrubbed), not deleted — it's compliance history.
+        s.add(AuditLog(id="gdpr-audit-subj", analyst_id=subj_id, action="issuer.create",
+                       target_type="issuer", target_id="gdpr-issuer", after={"name": "GDPR Co"}))
         # Bystander's data — must survive untouched
         s.add(Run(id="gdpr-run-other", issuer_id="gdpr-issuer", analyst_id=other_id, status="complete"))
         s.add(NotificationEvent(
@@ -469,6 +473,8 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
             artifact_kind="issuer_run", parent_kind="document",
             v2_idempotency_key="b" * 64,
         ))
+        s.add(AuditLog(id="gdpr-audit-other", analyst_id=other_id, action="issuer.create",
+                       target_type="issuer", target_id="gdpr-issuer", after={"name": "GDPR Co"}))
         await s.commit()
 
     async with AsyncSessionLocal() as s:
@@ -507,6 +513,7 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         "runs_anonymized": 1,
         "reporting_profiles_anonymized": 1,
         "documents_anonymized": 1,
+        "audit_log_anonymized": 1,
         "profile_deleted": 1,
     }
 
@@ -545,6 +552,23 @@ async def test_erase_deletes_private_anonymizes_shared_spares_others(seeded_db):
         kept = set((await s.execute(select(SavedModel.analyst_id))).scalars().all())
         assert subj_id not in kept
         assert other_id in kept
+        # E3: audit_log rows are RETAINED (compliance history), only the actor
+        # link is scrubbed for the subject; the bystander's row is untouched;
+        # the erasure event itself (analyst.gdpr_erase) is present and already
+        # anonymized at write time.
+        subj_audit = await s.get(AuditLog, "gdpr-audit-subj")
+        assert subj_audit is not None
+        assert subj_audit.analyst_id is None
+        assert subj_audit.action == "issuer.create"
+        assert subj_audit.target_id == "gdpr-issuer"
+        other_audit = await s.get(AuditLog, "gdpr-audit-other")
+        assert other_audit is not None and other_audit.analyst_id == other_id
+        erase_events = (await s.execute(
+            select(AuditLog).where(AuditLog.action == "analyst.gdpr_erase",
+                                    AuditLog.target_id == subj_id)
+        )).scalars().all()
+        assert len(erase_events) == 1
+        assert erase_events[0].analyst_id is None
 
 
 @pytest.mark.asyncio
