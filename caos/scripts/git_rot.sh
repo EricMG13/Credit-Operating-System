@@ -22,6 +22,21 @@ BASE="${ROT_BASE:-origin/main}"
 STALE=50   # commits behind BASE at which a branch is "rotted"
 OLD=14     # days without a commit at which a local branch is "cold"
 
+# Pure function, no git calls: takes a precomputed behind-count so --selftest can
+# pin the WARN/OK threshold without fabricating branches or touching real refs —
+# this script is read-only and stays that way even in its own tests. Defined here
+# (before the --ci/--selftest dispatch below) so --selftest can call it.
+_stale_upstream_verdict() { # <branch> <upstream> <behind-count>
+  if [ "$3" -gt 0 ]; then
+    echo "  WARN: $1 tracks $2, which is $3 commits behind origin/main."
+    echo "        A new-only complexity/duplication gate scoped to @{upstream} will"
+    echo "        misattribute up to $3 commits of main's history as yours."
+    echo "        If this branch merges into main: git branch --set-upstream-to=origin/main $1"
+  else
+    echo "  OK: $1 tracks $2, which is current with origin/main."
+  fi
+}
+
 want_prs=1; want_local=1
 case "${1:-}" in
   --prs)   want_local=0 ;;
@@ -124,6 +139,15 @@ JSON
   ci_case "ci: unknown ref -> 1" \
     '[{"number":9,"headRefName":"no-such-ref-xyz","mergeable":"MERGEABLE","statusCheckRollup":[]}]' 1
   rm -f "$fx.ci"
+  # Stale-upstream verdict: pure function, fed fabricated numbers — no branch
+  # created, no ref touched.
+  su_check() { # <label> <behind> <want-substring>
+    got=$(_stale_upstream_verdict feature-x origin/old-base "$2")
+    if echo "$got" | grep -q "$3"; then echo "  ok   $1"
+    else echo "  FAIL $1 (got: $got)"; fail=1; fi
+  }
+  su_check "stale-upstream: 0 behind -> OK"    0  "OK: feature-x tracks"
+  su_check "stale-upstream: 40 behind -> WARN" 40 "WARN: feature-x tracks origin/old-base, which is 40 commits behind"
   if [ "$fail" = 0 ]; then echo "PASS"; else echo "FAIL"; echo "$out"; fi
   exit "$fail"
 fi
@@ -206,6 +230,30 @@ if [ "$want_local" = 1 ]; then
   done < <(git for-each-ref --format='%(refname:short) %(upstream)' refs/heads |
            awk '$2==""{print $1}')
   [ "$n" = 0 ] && echo "  none"
+  echo
+
+  # A branch checked out via `checkout -B <name> origin/<other-branch>` (the
+  # normal shape of a rebase-into-a-new-local-name) auto-tracks that OLD ref as
+  # upstream. Tools that scope a diff via merge-base(HEAD, @{upstream}) — fallow
+  # audit's new-only gate is the one that bit this repo — then diff against
+  # whatever main looked like when that old branch was cut, misattributing every
+  # intervening main commit as "introduced by this branch". It also blocks the
+  # push that would fix the ref: push is gated by the same stale computation.
+  # Caught in production: a 40-commit-stale upstream inflated one PR's diff from
+  # 32 files to 105 and flagged pre-existing complexity in a file the branch
+  # never touched. Only checks the CURRENT branch — this is what you're about to
+  # commit against, not a survey of every local branch.
+  echo "== current branch's upstream vs origin/main ===================="
+  cur=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+  if [ -n "$cur" ] && [ "$cur" != "HEAD" ]; then
+    up=$(git rev-parse --abbrev-ref "$cur@{upstream}" 2>/dev/null || true)
+    if [ -n "$up" ]; then
+      stale_up=$(git rev-list --count "$up..origin/main" 2>/dev/null || echo 0)
+      _stale_upstream_verdict "$cur" "$up" "$stale_up"
+    else
+      echo "  OK: $cur has no upstream configured."
+    fi
+  fi
   echo
 
   echo "== worktrees ================================================="
