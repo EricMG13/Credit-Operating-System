@@ -113,20 +113,58 @@ function LightweightLine({ section, rows, height }: { section: ReportChartSectio
 
 function LightweightStack({ section, rows, height }: { section: ReportChartSection; rows: ChartDatum[]; height: number }) {
   const encode = encodings(section);
-  const total = Math.max(1, rows.reduce((sum, row) => sum + numeric(encode.y ? row[encode.y] : null), 0));
-  let offset = 0;
+  const plotWidth = 620;
+  const plotStartX = 10;
+  const segmentHeight = Math.max(28, height - 16);
+  const total = Math.max(
+    1,
+    rows.reduce(
+      (sum, row) => sum + numeric(encode.y ? row[encode.y] : null),
+      0,
+    ),
+  );
+  let cumulativeWidth = 0;
+
   return (
     <svg viewBox={`0 0 640 ${height}`} width="100%" height={height} aria-hidden="true" focusable="false">
       {rows.map((row, index) => {
         const value = numeric(encode.y ? row[encode.y] : null);
-        const width = value / total * 620;
-        const x = 10 + offset;
-        offset += width;
-        const label = String(encode.color ? row[encode.color] ?? "—" : row[section.columns[0]?.key] ?? "—");
-        // Segments abut with no gutter and the paper ramp is uniformly dark, so a
-        // --paper-bg hairline carries the boundary. Suppressed under 2 units: the
-        // stroke straddles the edge and would repaint a sliver segment in full.
-        return <g key={index}><rect x={x} y="8" width={width} height={Math.max(28, height - 16)} fill={SERIES_COLORS[index % SERIES_COLORS.length]} stroke="var(--paper-bg)" strokeWidth={width > 2 ? 1 : 0} />{width >= 86 ? <text x={x + width / 2} y={height / 2 + 4} textAnchor="middle" fill="var(--paper-bg)" fontSize="10" fontWeight="700">{label} · {value.toLocaleString()}</text> : null}</g>;
+        const width = value / total * plotWidth;
+        const x = plotStartX + cumulativeWidth;
+        cumulativeWidth += width;
+        const label = String(
+          encode.color
+            ? row[encode.color] ?? "—"
+            : row[section.columns[0]?.key] ?? "—",
+        );
+
+        return (
+          <g key={index}>
+            <rect
+              x={x}
+              y="8"
+              width={width}
+              height={segmentHeight}
+              fill={SERIES_COLORS[index % SERIES_COLORS.length]}
+              stroke="var(--paper-bg)"
+              // The stroke straddles the edge, so suppress it when it could
+              // repaint most of a very narrow segment.
+              strokeWidth={width > 2 ? 1 : 0}
+            />
+            {width >= 86 ? (
+              <text
+                x={x + width / 2}
+                y={height / 2 + 4}
+                textAnchor="middle"
+                fill="var(--paper-bg)"
+                fontSize="10"
+                fontWeight="700"
+              >
+                {label} · {value.toLocaleString()}
+              </text>
+            ) : null}
+          </g>
+        );
       })}
     </svg>
   );
