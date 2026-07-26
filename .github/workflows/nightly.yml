@@ -39,6 +39,24 @@ jobs:
           OPENROUTER_API_KEY: ""
         run: python -m pytest -m golden_e2e -q caos/tests/server/golden
 
+  # Full-history secret sweep. The per-PR gate in ci.yml scans only the commits a
+  # branch adds, because `.gitleaksignore` fingerprints are commit-SHA-bound and read
+  # from the working tree — a full-history scan there turns every open branch red the
+  # moment main allowlists a new false positive. Here a stale allowlist is an alarm to
+  # fix on main, not a merge blocker, so history stays covered without the ratchet.
+  secret-history:
+    name: Secrets — full history sweep
+    if: github.event_name != 'schedule' || github.event.schedule != '0 7 * * 0'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history is the point of this job
+      - name: Secret scan (gitleaks, all history)
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.18.4 \
+            detect --source=/repo --config=/repo/.gitleaks.toml --redact --no-banner
+
   concept-contracts:
     name: Concepts — manifests, bindings, taxonomy
     if: github.event_name != 'schedule' || github.event.schedule != '0 7 * * 0'
