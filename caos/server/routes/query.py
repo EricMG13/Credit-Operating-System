@@ -22,6 +22,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import rate_limit
 from analysis_contracts import AnalysisJobState, AuthorityEnvelope, QueryRun
 from database import (
@@ -479,12 +480,20 @@ async def accept_link(
     )
     db.add(row)
     try:
+        # flush + audit INSIDE the try: a concurrent-insert collision on the
+        # flush must hit the same recovery path as one on commit, not escape
+        # uncaught (this bit the SSO-profile route the same way — see auth.py).
+        await db.flush()  # populate row.id (client-side uuid default)
+        audit.write(db, analyst_id=caller.id, action="query_link.create",
+                    target_type="query_link", target_id=row.id,
+                    after={"issuer_a": a, "issuer_b": b, "capability_id": body.capability_id})
         await db.commit()
     except IntegrityError:
         # Concurrent double-accept of the same pair (double-click / racing request)
         # both passed the existence SELECT above; uq_accepted_link_pair then fires.
-        # Honour the idempotency contract — return the row the winner wrote — rather
-        # than a 500. (Saboteur W6)
+        # Rollback discards the row AND its audit entry together — the loser
+        # created nothing. Honour the idempotency contract — return the row the
+        # winner wrote — rather than a 500. (Saboteur W6)
         await db.rollback()
         existing = (await db.execute(
             select(QueryAcceptedLink).where(QueryAcceptedLink.issuer_a == a, QueryAcceptedLink.issuer_b == b)
@@ -529,6 +538,12 @@ async def retract_link(
         require_issuer(caller, await db.get(Issuer, row.issuer_b))
     except HTTPException as exc:
         raise HTTPException(status_code=404, detail="Link not found.") from exc
+    # Audit only after the tenancy check passes: a caller who cannot see both
+    # issuers gets a 404 and must not leave a "retracted" row behind for a link
+    # they were never allowed to touch.
+    audit.write(db, analyst_id=caller.id, action="query_link.retract",
+                target_type="query_link", target_id=link_id,
+                before={"issuer_a": row.issuer_a, "issuer_b": row.issuer_b})
     await db.delete(row)
     await db.commit()
     return {"deleted": link_id}

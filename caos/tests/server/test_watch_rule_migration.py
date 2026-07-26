@@ -372,7 +372,12 @@ def test_0068_upgrades_legacy_rules_with_nullable_retry_identity(
         rule_id, version_id = _insert_rule_and_version(connection)
         connection.commit()
 
-    upgraded_0068 = _alembic("upgrade", "head", db_url=db_url)
+    # Upgrade to 0068 explicitly, not "head": this test is about what 0068 does to
+    # a legacy 0067 row, and it asserts alembic_version == 0068 below. Targeting
+    # "head" made it fail the moment any later revision existed — it broke on 0069
+    # for no reason connected to watch rules. The sibling offline-downgrade test
+    # above already pins explicit revisions; this line was the outlier.
+    upgraded_0068 = _alembic("upgrade", "0068", db_url=db_url)
     assert upgraded_0068.returncode == 0, upgraded_0068.stderr
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(
