@@ -3428,3 +3428,19 @@ concepts and its golden path corrected to Directory → Upload → Pipeline.
 | RT-2026-07-23-03 | 2026-07-23 | Drop coverage/location from signup | Silently loses profile-metadata capture with no replacement surface. | Medium | Accepted | Both fields are write-only today (no UI or server read path); `RegisterRequest` keeps them Optional (auth.py:109-110) and the columns remain (migration 0017), so capture returns intact with a future profile editor. |
 | RT-2026-07-23-04 | 2026-07-23 | Decision→watch-rule nudge | Adds a network call to the decision path and could over- or under-claim rule coverage. | Medium | Resolved | The check fires only after the decision persists and is failure-silent (never blocks recording); coverage counts issuer-scoped + team-scoped rules; portfolio-scoped rules are conservatively not counted, and the copy claims only "no issuer or team watch rule". |
 | RT-2026-07-23-05 | 2026-07-23 | Landing UI changes while H0 candidate `3b66da67` is frozen | Merging would invalidate the frozen release candidate. | High | Resolved | Ships as a post-freeze draft PR on `claude/start-5t1kuy` (same pattern as #169/#191); nothing merges to `main` before the release decision. |
+
+## 2026-07-26 — Report Studio paper-tranche accessibility critic pass
+
+Decision under review: replace the dark-workspace tranche ramp inside the light
+Report Studio tear-sheet and add a boundary between adjacent stacked segments.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-26-838 | Contrast reviewer | Reusing the dark-workspace ramp puts paper-coloured 10px value labels on fills that measure only 1.71–4.36:1, below the WCAG AA 4.5:1 floor. | High | Resolved and verified | A dedicated `--paper-tranche-*` ramp clears 4.5:1 against the default paper and every analyst-selectable sheet colour. Token-parity and contrast tests pass for all five tranches. |
+| RT-2026-07-26-839 | Color-vision reviewer | Uniformly darkening the series can collapse adjacent category separation, while an unconditional SVG stroke can repaint a very narrow segment. | High | Resolved and verified | Hue and lightness remain staggered, and a paper-coloured hairline separates ordinary segments. The stroke is suppressed at widths of 2px or less so it cannot consume a sliver. |
+| RT-2026-07-26-840 | Token-integrity reviewer | A misspelled CSS variable fails silently to the property's initial value; the existing `--tranche-equity` typo rendered black and could recur outside this chart. | High | Resolved and verified | Production policy tests now require every `--caos-*`, `--tranche-*`, and `--paper-*` `var()` reference to resolve to a definition in `globals.css`. |
+| RT-2026-07-26-841 | Regression reviewer | A readability rewrite of cumulative SVG geometry can subtly change floating-point order, label thresholds, or the narrow-segment boundary. | Medium | Resolved and verified | The rewrite tournament retained the same ordered reduction and cumulative update, the exact `> 2` and `>= 86` thresholds, and the same SVG contract. Focused visualization/token tests (10/10), TypeScript, GitNexus impact review, and the real `/reports` axe/layout scan are green. |
+
+Decision: accept the paper-specific ramp and bounded segment hairline. The
+change is limited to Report Studio presentation; it does not alter report data,
+ordering, calculations, or the dark-workspace tranche semantics.

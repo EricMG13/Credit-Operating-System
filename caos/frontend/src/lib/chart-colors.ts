@@ -13,9 +13,12 @@ export const TRANCHE_HEX: Record<string, string> = {
   "1l": "#2dd4bf", "2l": "#4f8cff", unsec: "#f5a524", sub: "#a855f7", eq: "#64748b",
 };
 
-// Tranche ramp for the light "paper" report theme (Report Studio).
+// Tranche ramp for the light "paper" report theme (Report Studio) — mirrors
+// --paper-tranche-*. Every entry clears 4.5:1 against --paper-bg #f7f5ee, so a
+// --paper-bg value label painted on the fill still meets AA. See globals.css for
+// the ratios; chart-colors.test.ts asserts both the parity and the contrast.
 export const TRANCHE_HEX_PAPER: Record<string, string> = {
-  "1l": "#0d9488", "2l": "#2563eb", unsec: "#b45309", sub: "#7c3aed", eq: "#94a3b8",
+  "1l": "#0f766e", "2l": "#1e40af", unsec: "#8a5a08", sub: "#86198f", eq: "#334155",
 };
 
 // Semantic + neutral series colors for app-surface charts. The semantic colors

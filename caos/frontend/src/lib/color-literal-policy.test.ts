@@ -42,4 +42,22 @@ describe("frontend production color-literal policy", () => {
     const findings = files.flatMap((file) => scanProductionColorLiterals(file, fs.readFileSync(path.join(root, file), "utf8")));
     expect(findings).toEqual([]);
   });
+
+  // A var() naming an undefined token fails silently — the property falls back to
+  // its initial value (black for `fill`), which can look plausible while missing
+  // the design system entirely. `var(--tranche-equity)` (real name: --tranche-eq)
+  // shipped that way in ReportVisualization.
+  it("resolves every --caos-/--tranche-/--paper- reference to a globals.css definition", () => {
+    const css = fs.readFileSync(path.join(root, "src/app/globals.css"), "utf8");
+    const token = String.raw`--(?:caos|tranche|paper)-[a-z0-9-]+`;
+    const defined = new Set(Array.from(css.matchAll(new RegExp(`(${token})\\s*:`, "gi")), (match) => match[1]));
+    expect(defined.size).toBeGreaterThan(20);
+
+    const files = FRONTEND_PRODUCTION_ROOTS.flatMap((directory) => productionFiles(path.join(root, directory)));
+    const unresolved = files.flatMap((file) =>
+      Array.from(fs.readFileSync(path.join(root, file), "utf8").matchAll(new RegExp(String.raw`var\(\s*(${token})`, "gi")))
+        .filter((match) => !defined.has(match[1]))
+        .map((match) => `${file} → var(${match[1]})`));
+    expect(unresolved).toEqual([]);
+  });
 });
