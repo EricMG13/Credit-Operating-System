@@ -44,7 +44,10 @@ if [ "${selftest:-0}" = 1 ]; then
  {"number":3,"headRefName":"x-clean","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN",
   "statusCheckRollup":[{"name":"CI","conclusion":"SUCCESS"}]},
  {"number":4,"headRefName":"x-running","mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN",
-  "statusCheckRollup":[{"name":"CI","conclusion":null,"state":"PENDING"}]}]
+  "statusCheckRollup":[{"name":"CI","conclusion":null,"state":"PENDING"}]},
+ {"number":5,"headRefName":"x-mergeable-but-pending","mergeable":"MERGEABLE",
+  "mergeStateStatus":"UNSTABLE",
+  "statusCheckRollup":[{"name":"CI","conclusion":null,"status":"IN_PROGRESS"}]}]
 JSON
   out=$(ROT_FIXTURE="$fx" "$0" --prs 2>&1) || true
   fail=0
@@ -56,7 +59,9 @@ JSON
   check "conflicts -> REBASE"   '#1 .*REBASE \(conflicts\)'
   check "red CI -> FIX CI"      '#2 .*FIX CI: Server'
   check "green -> MERGE NOW"    '#3 .*\*\* MERGE NOW \*\*'
-  check "pending -> wait"       '#4 .*wait \(checks running\)'
+  check "pending -> wait"       '#4 .*wait \([0-9]+ check'
+  # Regression: MERGEABLE + still-running checks must never read MERGE NOW.
+  check "mergeable+pending"     '#5 .*wait \([0-9]+ check'
   # Landable rows must sort above the ones needing work — that ordering is the
   # whole point of the report, so assert line positions, not just presence.
   row_at() { echo "$out" | grep -nE "^#$1 " | cut -d: -f1; }
@@ -98,12 +103,19 @@ def behind(b):
 rows=[]
 for p in prs:
     checks=p.get("statusCheckRollup") or []
-    bad=[c for c in checks if (c.get("conclusion") or c.get("state")) in
-         ("FAILURE","ERROR","TIMED_OUT","CANCELLED")]
+    def state(c): return c.get("conclusion") or c.get("status") or c.get("state")
+    bad=[c for c in checks if state(c) in
+         ("FAILURE","ERROR","TIMED_OUT","CANCELLED","STARTUP_FAILURE")]
+    # A still-running check is not a passing one. Without this, a MERGEABLE PR
+    # whose checks are all pending has no "bad" checks and falls through to
+    # MERGE NOW — telling you to merge before CI has said anything.
+    pending=[c for c in checks if state(c) in
+             ("PENDING","QUEUED","IN_PROGRESS","WAITING","REQUESTED","EXPECTED",None)]
     n=behind(p["headRefName"]); merge=p["mergeable"]
     if   merge=="CONFLICTING":  v="REBASE (conflicts)"
     elif n>=stale:              v=f"REBASE or CLOSE ({n} behind)"
     elif bad:                   v="FIX CI: "+", ".join((c.get("name") or "?") for c in bad)[:44]
+    elif pending:               v=f"wait ({len(pending)} check(s) running)"
     elif merge=="MERGEABLE":    v="** MERGE NOW **"
     else:                       v="wait (checks running)"
     rows.append((0 if v.startswith("**") else 1 if v.startswith("FIX") else 2,
