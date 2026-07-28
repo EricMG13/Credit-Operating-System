@@ -3447,3 +3447,30 @@ passed (131 passed, 1 opt-in integration skipped); Ruff, compilation, and
 whole-diff checks are clean. The GitNexus scope report is high only because
 line shifts touch adjacent symbols; the reviewed diff has no behavior change in
 those functions.
+
+## 2026-07-28 — Databricks rebuild specification critic pass
+
+Decision under review: the full rebuild specification set authored this session
+(`audit/AUDIT-2026-07-28.md`, `architecture/ARCHITECTURE.md`,
+`architecture/DECISIONS.md`, `roadmap/ROADMAP.md`, `specs/phase-01-foundation.md`,
+`specs/SPEC-TEMPLATE.md`, replaced `CLAUDE.md`, `DEVIATIONS.md`,
+`OPEN-QUESTIONS.md`, vendored `corpus/`) — before commit.
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-28-01 | Repo-strategy reviewer | Building `dbx/` inside the legacy repo carries 46 MB of legacy + 15 MB screenshots into the enterprise org (5.1) and tempts the implementation model to touch `caos/`. | High | Resolved | In-repo build is what makes golden-master parity (9.1) run in-process with zero environment skew — the single biggest de-risk of the port. Read-only zones are enforced by CLAUDE.md forbidden-actions + phase-spec rules; repo hygiene (screenshot pruning) is scheduled with the 5.1 migration (Q-002). |
+| RT-2026-07-28-02 | Orchestration reviewer | Stop-on-Blocked via `runs.halt_reason` + task failure lets an already-running sibling branch continue burning tokens until its next wrapper checkpoint, and conflates analytical Blocked with infra failure. | High | Resolved | Wrapper halt-check at task start + per-run budget ceiling bounds waste; `halt_reason` (analytical) is distinct from task-failure state (infra) so the finalize task reports honestly; Phase-3 spec may add an explicit Jobs-cancel call as an optimization. Corpus-mandated whole-pathway halt vs legacy dependents-only blocking is now logged as **D-LEG-010**. |
+| RT-2026-07-28-03 | Parity reviewer | 1e-9 relative tolerance + cross-interpreter float drift (legacy 3.9 venv vs dbx 3.11) could flap the parity gate. | Medium | Resolved | Phase-1 kernel parity imports legacy modules into the same 3.11 interpreter (pure stdlib modules — safe); whole-module parity in P3 must state its interpreter strategy in the P3 spec (legacy_loader in-process first, subprocess-with-venv fallback). Tolerance applies only after exact-equality fails; None/enum fields compare exactly. |
+| RT-2026-07-28-04 | Schema reviewer | `artifact_envelopes.filename` CHECK enforces shape only — app-computed filename could drift from `canonical_filename()`. | Medium | Resolved | Single composition function in `caos_contracts` + differential test vs the vendored validator's `canonical_markdown_filename`; DB CHECK is a backstop, not the contract (generated columns cannot call non-immutable date formatting). |
+| RT-2026-07-28-05 | Checklist-traceability reviewer | Matrix listed 4.4 (P1 blocker) as satisfied only in P6 — an apparent sequencing violation of "blockers earliest". | High | Resolved | Audit §8.4.1 shows no uncontrolled mail path exists to remove; blocker is moot by construction from P2 (nothing uncontrolled is ever built), and P6 ships the governed lane. Matrix row corrected to state both. |
+| RT-2026-07-28-06 | Licence reviewer | Phase-1 dev deps: `psycopg` is LGPL-3.0 and was missing from Q-008; `hypothesis` is MPL-2.0. | Medium | Resolved | Q-008 updated: both dev-only, never shipped; psycopg carries the linking exception and a BSD substitute (`pg8000`) is pre-approved in the entry if policy demands. |
+| RT-2026-07-28-07 | Legacy-guide reviewer | Replacing root `CLAUDE.md` removes the legacy agent guide from working tree while `caos/` still exists. | Medium | Accepted | The deliverable table mandates the replacement; legacy tree is a frozen reference by decision (DECISIONS A); the old guide remains on `main` and in history, and the new guide says exactly that. |
+| RT-2026-07-28-08 | Vector-infra reviewer | Choosing Lakebase pgvector over Databricks Vector Search may hit HNSW scale/ops limits later. | Medium | Accepted | D-DBX-001: parity-first sequencing choice inside the checklist's allowed set (6.2 names both); revisit post-cutover with measured retrieval load. |
+| RT-2026-07-28-09 | Corpus-fidelity reviewer | DECISIONS Table B "exclude duplicates" reading of the owner instruction could be wrong (owner might mean drop corpus modules outright, or prefer corpus over legacy). | High | Mitigated | Q-001 records the interpretation, the alternative readings, and what changes under each; contracts are extracted for all non-dropped entries either way, so the reversible surface is the runtime disposition only; flagged for owner review before Phase 3. |
+| RT-2026-07-28-10 | Ops reviewer | Two IaC systems (Asset Bundles + Terraform) can drift. | Low | Resolved | Boundary fixed in ARCHITECTURE §2/§3: DABs own app/jobs/endpoints; Terraform owns org-level objects (catalog, schemas, grants, SPNs); neither defines the other's objects. |
+
+Decision: accepted with the two corrective actions applied before commit
+(D-LEG-010 logged; ROADMAP 4.4 row corrected; Q-008 dependency list completed).
+Impact analysis note: GitNexus MCP tooling was unavailable in this session; the
+spec set was derived from five parallel manual dependency-mapping sweeps with
+file:line evidence recorded in `audit/AUDIT-2026-07-28.md`.

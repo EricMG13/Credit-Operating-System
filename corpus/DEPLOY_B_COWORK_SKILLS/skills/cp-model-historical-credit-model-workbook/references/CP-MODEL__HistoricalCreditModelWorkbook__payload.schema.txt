@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CP-MODEL__HistoricalCreditModelWorkbook__payload.schema.txt",
+  "allOf": [{"$ref": "CP_WORKBOOK_EXPORT_PAYLOAD_BASE.schema.txt"}],
+  "properties": {
+    "module_id": {"const": "CP-MODEL"},
+    "module_name": {"const": "HistoricalCreditModelWorkbook"},
+    "owned_object": {"const": "historical_credit_model_workbook"},
+    "schema_family": {"const": "Infrastructure"},
+    "output_class": {"const": "WORKBOOK_EXPORT"},
+    "runtime_output": {
+      "type": "object",
+      "required": [
+        "periods_written",
+        "metrics_written",
+        "repeat_blocks",
+        "formula_checks",
+        "reconciliations",
+        "preservation_checks"
+      ],
+      "properties": {
+        "periods_written": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "metrics_written": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "repeat_blocks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/repeat_block"},
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "formula_checks": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+        "reconciliations": {"type": "array", "items": {"$ref": "#/$defs/check"}},
+        "preservation_checks": {"type": "array", "items": {"$ref": "#/$defs/check"}}
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "repeat_block": {
+      "type": "object",
+      "required": [
+        "repeat_group", "source_row_count", "rendered_row_count", "status"
+      ],
+      "properties": {
+        "repeat_group": {
+          "type": "string",
+          "enum": ["business_unit_revenue", "adjusted_ebitda_addbacks"]
+        },
+        "source_row_count": {"type": "integer", "minimum": 0},
+        "rendered_row_count": {"type": "integer", "minimum": 0},
+        "status": {"type": "string", "enum": ["PASS", "BLOCK"]}
+      },
+      "additionalProperties": false
+    },
+    "check": {
+      "type": "object",
+      "required": ["check_id", "status", "detail"],
+      "properties": {
+        "check_id": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["PASS", "WARN", "BLOCK"]},
+        "detail": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

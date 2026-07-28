@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CP-EMAIL__CreditIntelligenceClassifier__payload.schema.txt",
+  "allOf": [{"$ref": "CP_MODULE_PAYLOAD_BASE.schema.txt"}],
+  "description": "Run-local CP-EMAIL display digest. No file artifact, delivery, connector, durable state or automatic downstream execution is implied.",
+  "properties": {
+    "module_id": {"const": "CP-EMAIL"},
+    "module_name": {"const": "CreditIntelligenceClassifier"},
+    "owned_object": {"const": "intelligence_digest"},
+    "schema_family": {"const": "Nested"},
+    "output_class": {"const": "DISPLAY_DIGEST"},
+    "runtime_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_header",
+        "scope_resolution",
+        "coverage_manifest",
+        "source_register",
+        "story_cluster_register",
+        "signal_assessments",
+        "top_line_assessment",
+        "ranked_story_cards",
+        "recommended_analyst_actions",
+        "limitations",
+        "suppressed_item_count",
+        "qa_summary"
+      ],
+      "properties": {
+        "run_header": {"$ref": "#/$defs/run_header"},
+        "scope_resolution": {"$ref": "#/$defs/scope_resolution"},
+        "coverage_manifest": {"type": "array", "items": {"$ref": "#/$defs/coverage_row"}},
+        "source_register": {"type": "array", "items": {"$ref": "#/$defs/source_row"}},
+        "story_cluster_register": {"type": "array", "items": {"$ref": "#/$defs/story_cluster"}},
+        "signal_assessments": {"type": "array", "items": {"$ref": "#/$defs/signal_assessment"}},
+        "top_line_assessment": {"$ref": "#/$defs/top_line_assessment"},
+        "ranked_story_cards": {"type": "array", "items": {"$ref": "#/$defs/story_card"}},
+        "sector_clo_regulatory_synthesis": {"type": "array", "items": {"$ref": "#/$defs/synthesis"}},
+        "recommended_analyst_actions": {"type": "array", "items": {"$ref": "#/$defs/analyst_action"}},
+        "limitations": {"type": "array", "items": {"$ref": "#/$defs/limitation"}},
+        "suppressed_item_count": {"type": ["integer", "null"], "minimum": 0},
+        "qa_summary": {"$ref": "#/$defs/qa_summary"}
+      }
+    }
+  },
+  "$defs": {
+    "non_empty_string": {"type": "string", "minLength": 1},
+    "nullable_string": {"type": ["string", "null"]},
+    "priority": {"enum": ["URGENT ACTION", "MATERIAL SIGNAL", "WATCH", "INFORMATION"]},
+    "confidence": {"enum": ["High", "Medium", "Low", "Insufficient Information"]},
+    "coverage_status": {"enum": ["REVIEWED", "LIMITED", "UNAVAILABLE", "NOT REQUESTED", "NO QUALIFYING ITEMS"]},
+    "access_depth": {"enum": ["FULL BODY", "ATTACHMENT REVIEWED", "SUMMARY", "SNIPPET", "HEADLINE ONLY", "METADATA ONLY", "INACCESSIBLE"]},
+    "newness": {"enum": ["FIRST SEEN", "SUBSTANTIVE UPDATE", "REPEAT", "CORRECTION", "STALE RESURFACING", "NOT TESTED"]},
+    "event_status": {"enum": ["CONFIRMED", "ANNOUNCED", "PROPOSED", "DISPUTED", "RUMOUR", "CORRECTED", "UNRESOLVED"]},
+    "direction": {"enum": ["POSITIVE", "NEGATIVE", "MIXED", "NEUTRAL", "UNRESOLVED"]},
+    "qa_status": {"enum": ["Passed", "Restricted", "Blocked"]},
+    "run_header": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "as_of", "time_zone", "lookback", "mode", "markets", "scope_label", "minimum_level", "max_items"],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/non_empty_string"},
+        "as_of": {"type": "string", "format": "date-time"},
+        "time_zone": {"$ref": "#/$defs/non_empty_string"},
+        "lookback": {"$ref": "#/$defs/non_empty_string"},
+        "mode": {"enum": ["Daily Brief", "Monitoring", "Exceptions Only", "Issuer Focus", "Sector Focus", "CLO Lens", "Regulatory Lens", "Full Digest"]},
+        "markets": {"type": "array", "minItems": 1, "items": {"enum": ["HY", "Loans", "CLO"]}},
+        "scope_label": {"$ref": "#/$defs/non_empty_string"},
+        "minimum_level": {"$ref": "#/$defs/priority"},
+        "max_items": {"type": "integer", "minimum": 1}
+      }
+    },
+    "scope_resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["explicit_qualifiers", "applied_inclusions", "applied_exclusions", "fallback_used", "unresolved_scope"],
+      "properties": {
+        "explicit_qualifiers": {"type": "object"},
+        "available_inherited_preferences": {"type": "object"},
+        "applied_inclusions": {"type": "array", "items": {"type": "string"}},
+        "applied_exclusions": {"type": "array", "items": {"type": "string"}},
+        "fallback_used": {"type": "boolean"},
+        "unresolved_scope": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "coverage_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_class", "requested_scope", "status", "access_depth", "retrieval_cutoff", "reliable_count", "limitation"],
+      "properties": {
+        "source_class": {"$ref": "#/$defs/non_empty_string"},
+        "requested_scope": {"$ref": "#/$defs/non_empty_string"},
+        "status": {"$ref": "#/$defs/coverage_status"},
+        "access_depth": {"$ref": "#/$defs/access_depth"},
+        "retrieval_cutoff": {"type": ["string", "null"], "format": "date-time"},
+        "reliable_count": {"type": ["integer", "null"], "minimum": 0},
+        "limitation": {"$ref": "#/$defs/nullable_string"}
+      }
+    },
+    "source_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "origin", "source_role", "information_boundary", "authority_tier", "access_depth", "retrieval_time", "locator", "evidence_family", "limitations"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/non_empty_string"},
+        "origin": {"$ref": "#/$defs/non_empty_string"},
+        "source_role": {"$ref": "#/$defs/non_empty_string"},
+        "information_boundary": {"enum": ["PRIVATE", "PUBLIC"]},
+        "authority_tier": {"type": "integer", "minimum": 1, "maximum": 5},
+        "event_time": {"type": ["string", "null"], "format": "date-time"},
+        "publication_time": {"type": ["string", "null"], "format": "date-time"},
+        "retrieval_time": {"type": "string", "format": "date-time"},
+        "access_depth": {"$ref": "#/$defs/access_depth"},
+        "locator": {"$ref": "#/$defs/non_empty_string"},
+        "evidence_family": {"$ref": "#/$defs/non_empty_string"},
+        "limitations": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "story_cluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cluster_id", "canonical_headline", "entity_resolution", "atomic_claim_ids", "member_source_ids", "newness", "comparison_basis", "conflict_present", "correction_present"],
+      "properties": {
+        "cluster_id": {"$ref": "#/$defs/non_empty_string"},
+        "canonical_headline": {"$ref": "#/$defs/non_empty_string"},
+        "entity_resolution": {"$ref": "#/$defs/non_empty_string"},
+        "atomic_claim_ids": {"type": "array", "items": {"type": "string"}},
+        "member_source_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "earliest_event_time": {"type": ["string", "null"], "format": "date-time"},
+        "newness": {"$ref": "#/$defs/newness"},
+        "comparison_basis": {"$ref": "#/$defs/nullable_string"},
+        "conflict_present": {"type": "boolean"},
+        "correction_present": {"type": "boolean"}
+      }
+    },
+    "signal_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cluster_id", "priority", "direction", "credit_channels", "mechanism", "monitoring_lane_result", "confidence", "confidence_reason", "affected_instruments", "evidence_ids"],
+      "properties": {
+        "cluster_id": {"$ref": "#/$defs/non_empty_string"},
+        "priority": {"$ref": "#/$defs/priority"},
+        "direction": {"$ref": "#/$defs/direction"},
+        "credit_channels": {"type": "array", "items": {"type": "string"}},
+        "mechanism": {"$ref": "#/$defs/non_empty_string"},
+        "monitoring_lane_result": {"enum": ["PASSED", "NOT PASSED", "NOT APPLICABLE"]},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "confidence_reason": {"$ref": "#/$defs/non_empty_string"},
+        "affected_instruments": {"type": "array", "items": {"type": "string"}},
+        "evidence_ids": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "top_line_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["counts_by_priority", "leading_conclusion", "zero_item_statement"],
+      "properties": {
+        "counts_by_priority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["URGENT ACTION", "MATERIAL SIGNAL", "WATCH", "INFORMATION"],
+          "properties": {
+            "URGENT ACTION": {"type": "integer", "minimum": 0},
+            "MATERIAL SIGNAL": {"type": "integer", "minimum": 0},
+            "WATCH": {"type": "integer", "minimum": 0},
+            "INFORMATION": {"type": "integer", "minimum": 0}
+          }
+        },
+        "leading_conclusion": {"$ref": "#/$defs/nullable_string"},
+        "zero_item_statement": {"$ref": "#/$defs/nullable_string"}
+      }
+    },
+    "source_citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "source_name", "timestamp", "access_depth", "locator"],
+      "properties": {
+        "source_id": {"$ref": "#/$defs/non_empty_string"},
+        "source_name": {"$ref": "#/$defs/non_empty_string"},
+        "timestamp": {"type": ["string", "null"], "format": "date-time"},
+        "access_depth": {"$ref": "#/$defs/access_depth"},
+        "locator": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "story_card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "rank", "priority", "subject", "headline", "what_happened", "newness", "comparison_basis", "impact_mechanism", "event_status", "confidence", "confidence_reason", "sources", "action"],
+      "properties": {
+        "item_id": {"type": "string", "pattern": "^item-[1-9][0-9]*$"},
+        "rank": {"type": "integer", "minimum": 1},
+        "priority": {"$ref": "#/$defs/priority"},
+        "subject": {"$ref": "#/$defs/non_empty_string"},
+        "headline": {"$ref": "#/$defs/non_empty_string"},
+        "what_happened": {"$ref": "#/$defs/non_empty_string"},
+        "newness": {"$ref": "#/$defs/newness"},
+        "comparison_basis": {"$ref": "#/$defs/nullable_string"},
+        "impact_mechanism": {"$ref": "#/$defs/non_empty_string"},
+        "event_status": {"$ref": "#/$defs/event_status"},
+        "affected_instruments": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"$ref": "#/$defs/confidence"},
+        "confidence_reason": {"$ref": "#/$defs/non_empty_string"},
+        "sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source_citation"}},
+        "action": {"$ref": "#/$defs/non_empty_string"}
+      }
+    },
+    "synthesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["synthesis_type", "finding", "affected_scope", "supporting_cluster_ids", "mechanism", "limitations"],
+      "properties": {
+        "synthesis_type": {"enum": ["SECTOR", "CLO", "REGULATORY"]},
+        "finding": {"$ref": "#/$defs/non_empty_string"},
+        "affected_scope": {"$ref": "#/$defs/non_empty_string"},
+        "supporting_cluster_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "mechanism": {"$ref": "#/$defs/non_empty_string"},
+        "limitations": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "analyst_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["priority", "action_or_question", "rationale", "manual_command"],
+      "properties": {
+        "priority": {"$ref": "#/$defs/priority"},
+        "action_or_question": {"$ref": "#/$defs/non_empty_string"},
+        "target_date": {"type": ["string", "null"], "format": "date"},
+        "rationale": {"$ref": "#/$defs/non_empty_string"},
+        "manual_command": {"$ref": "#/$defs/nullable_string"}
+      }
+    },
+    "limitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limitation_type", "description", "affected_item_ids"],
+      "properties": {
+        "limitation_type": {"enum": ["ACCESS", "IDENTITY", "CONFLICT", "FRESHNESS", "COMPARISON BASIS", "SUPPRESSED VOLUME", "EVIDENCE", "PRIVACY", "OTHER"]},
+        "description": {"$ref": "#/$defs/non_empty_string"},
+        "affected_item_ids": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "qa_remediation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding", "severity", "action", "revalidation_result"],
+      "properties": {
+        "finding": {"$ref": "#/$defs/non_empty_string"},
+        "severity": {"enum": ["CRITICAL", "MATERIAL", "MINOR"]},
+        "action": {"$ref": "#/$defs/non_empty_string"},
+        "revalidation_result": {"enum": ["PASSED", "RESTRICTED", "UNRESOLVED"]}
+      }
+    },
+    "qa_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "remediations", "unresolved_findings"],
+      "properties": {
+        "status": {"$ref": "#/$defs/qa_status"},
+        "remediations": {"type": "array", "items": {"$ref": "#/$defs/qa_remediation"}},
+        "unresolved_findings": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

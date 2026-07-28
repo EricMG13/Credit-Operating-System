@@ -1,0 +1,99 @@
+allOf $ref CP_MODULE_PAYLOAD_BASE.schema.txt
+properties
+  module_id const CP-PARSE
+  module_name const DataPreparation
+  owned_object const document_parse_manifest
+  schema_family const Nested
+  runtime_output type object additionalProperties false required pack input_sources triage parse_jobs output_artifacts packages verification limitation_flags properties
+    pack type object required run_id pack_key analysis_date source_count properties
+      run_id type string
+      pack_key type string
+      analysis_date type string
+      issuer_or_scope type string null
+      source_count type integer minimum 1
+      user_overrides type array items type string
+      include_originals type boolean
+      batch_max_sources type integer minimum 1
+      batch_max_uncompressed_mb type integer minimum 1
+    input_sources type array minItems 1 items type object required source_id source_file_name source_file_type document_families access_status properties
+      source_id type string
+      source_file_name type string
+      source_file_type enum pdf docx pptx xlsx csv html txt image other
+      source_sha256 type string null
+      source_bytes type integer null
+      locator_units type integer null
+      locator_unit_type enum page slide sheet range paragraph unknown
+      issuer_or_entity type string null
+      document_title type string null
+      document_date type string null
+      reporting_period type string null
+      document_families type array minItems 1 items enum ANNUAL_REPORT QUARTERLY_REPORT EARNINGS_RELEASE INVESTOR_PRESENTATION LENDER_PRESENTATION LEGAL_FINANCING OFFERING_TRANSACTION SPREADSHEET_SCHEDULE OTHER
+      version_status enum CURRENT DRAFT FINAL RESTATED SUPERSEDED AMENDMENT BASE UNKNOWN
+      related_source_ids type array items type string
+      access_status enum ACCESSIBLE BLOCKED CORRUPT PASSWORD_PROTECTED UNSUPPORTED
+      native_text_status enum COMPLETE PARTIAL NONE UNKNOWN
+    triage type array minItems 1 items type object required source_id evidence_value authority_uniqueness structural_benefit duplication_noise parse_need_score decision reason properties
+      source_id type string
+      evidence_value type integer minimum 0 maximum 5
+      authority_uniqueness type integer minimum 0 maximum 3
+      structural_benefit type integer minimum 0 maximum 3
+      duplication_noise type integer minimum 0 maximum 4
+      parse_need_score type integer minimum -4 maximum 11
+      decision enum PARSE_FULL PARSE_TARGETED PASS_THROUGH SKIP_DUPLICATE SKIP_LOW_VALUE BLOCKED
+      critical_document_override type boolean
+      user_override enum NONE FORCE_INCLUDE FORCE_EXCLUDE FORCE_TARGETED FORCE_FULL
+      selected_replacement_source_id type string null
+      related_base_source_id type string null
+      reason type string
+      classification_confidence enum HIGH MEDIUM LOW
+    parse_jobs type array items type object required source_id decision document_profiles extraction_modes scope status properties
+      source_id type string
+      decision enum PARSE_FULL PARSE_TARGETED
+      document_profiles type array minItems 1 items enum ANNUAL_REPORT QUARTERLY_REPORT EARNINGS_RELEASE INVESTOR_PRESENTATION LENDER_PRESENTATION LEGAL_FINANCING OFFERING_TRANSACTION SPREADSHEET_SCHEDULE OTHER
+      extraction_modes type array minItems 1 items enum LAYOUT_TEXT TABLE_FIRST SLIDE_CHART LEGAL_CLAUSE OCR_SCAN SHEET_RANGE HYBRID
+      scope type string
+      locator_type enum page slide sheet range clause paragraph hybrid unknown
+      status enum COMPLETE DEGRADED BLOCKED
+      inspected_units type integer null
+      retained_units type integer null
+      excluded_units type integer null
+      unreadable_units type integer null
+      limitation_flags type array items type string
+    evidence_objects type array items type object required source_id object_id object_type locator fidelity_status properties
+      source_id type string
+      object_id type string
+      object_type enum SECTION TABLE CHART LEGAL_CLAUSE SHEET_RANGE FIGURE FOOTNOTE
+      locator type string
+      heading_or_label type string null
+      fidelity_status enum INTACT DEGRADED OCR_UNCERTAIN LOCATOR_UNKNOWN
+      note type string null
+    output_artifacts type array items type object required source_id markdown_file markdown_sha256 requested_exports properties
+      source_id type string
+      markdown_file type string
+      markdown_sha256 type string
+      requested_exports type array items enum DOCX PDF
+      docx_file type string null
+      docx_status enum NOT_REQUESTED PASS FAIL
+      docx_sha256 type string null
+      pdf_file type string null
+      pdf_status enum NOT_REQUESTED PASS FAIL
+      pdf_sha256 type string null
+      batch_number type integer minimum 1
+      limitation_flags type array items type string
+    packages type array minItems 1 items type object required batch_number total_batches zip_file package_type source_ids entries checksum_status safe_paths_status batch_reconciled properties
+      batch_number type integer minimum 1
+      total_batches type integer minimum 1
+      zip_file type string
+      package_type enum PARSED TRIAGE_ONLY
+      source_ids type array items type string
+      entries type array minItems 4 items type string
+      uncompressed_bytes type integer minimum 0
+      zip_sha256 type string
+      checksum_status enum PASS FAIL
+      safe_paths_status enum PASS FAIL
+      batch_reconciled type boolean
+    verification type array minItems 1 items type object required check status note properties
+      check type string
+      status enum PASS FAIL NA
+      note type string null
+    limitation_flags type array items type string

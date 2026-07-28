@@ -1,0 +1,4 @@
+CP ORCHESTRATOR SPEC v2.6 (A6,Q1; filename retained for citation stability)
+DESIGN-TIME ONLY. No payload/agent/node. Defines policies CP-X enforces.
+EXECUTION: Standard issuer pipeline is User->CP-0->CP-X->Modules->CP-5/CP-5A. CP-DR may run standalone from a user-approved research brief; CP-0 is optional advisory input and CP-X is an optional downstream router. CP-EMAIL is standalone, has no required upstream and displays its `intelligence_digest`; any CP-X, specialist or CP-DR follow-up remains a manual user command and never an automatic dependency edge. CANONICAL_MARKDOWN modules self-author and validate one .md handoff; only that Markdown grounds the next module. After validation, users may request an editable DOCX, a visual PDF, or both. CP-EMAIL alone uses DISPLAY_DIGEST and creates no file or canonical analytical handoff. No CP-RENDER/CP-EXTRACT/CP-DB.
+IDENTITY: CP-6->CP-6/6E | CP-2A skipped | M-prefix->CP-

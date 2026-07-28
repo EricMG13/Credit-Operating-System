@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CP_WORKBOOK_EXPORT_PAYLOAD_BASE.schema.txt",
+  "description": "Canonical-only payload base for independent Excel workbook exporters.",
+  "type": "object",
+  "required": [
+    "module_id",
+    "module_name",
+    "owned_object",
+    "schema_family",
+    "output_class",
+    "runtime_output",
+    "template_file",
+    "output_file",
+    "source_manifest",
+    "limitation_flags",
+    "qa_status",
+    "validation_warnings",
+    "downstream_consumers"
+  ],
+  "properties": {
+    "module_id": {"type": "string", "enum": ["CP-MODEL", "CP-SNAP"]},
+    "module_name": {"type": "string", "minLength": 1},
+    "owned_object": {"type": "string", "minLength": 1},
+    "schema_family": {"const": "Infrastructure"},
+    "output_class": {"const": "WORKBOOK_EXPORT"},
+    "runtime_output": {"type": "object"},
+    "template_file": {"const": "REF_CP_MODEL_SNAPSHOT_TEMPLATE.xlsx"},
+    "output_file": {"type": "string", "pattern": "^[^/\\\\]+_CP-(MODEL|SNAP)_[0-9]{8}\\.xlsx$"},
+    "source_manifest": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["module_id", "artifact", "status"],
+        "properties": {
+          "module_id": {"type": "string"},
+          "artifact": {"type": "string", "minLength": 1},
+          "status": {"type": "string", "enum": ["ready", "missing", "blocked"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "limitation_flags": {"type": "array", "items": {"type": "string"}},
+    "qa_status": {"type": "string", "enum": ["Passed", "Restricted", "Blocked"]},
+    "validation_warnings": {"type": "array", "items": {"type": "string"}},
+    "downstream_consumers": {"type": "array", "maxItems": 0}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"module_id": {"const": "CP-MODEL"}}, "required": ["module_id"]},
+      "then": {
+        "properties": {
+          "module_name": {"const": "HistoricalCreditModelWorkbook"},
+          "owned_object": {"const": "historical_credit_model_workbook"},
+          "output_file": {"pattern": "^[^/\\\\]+_CP-MODEL_[0-9]{8}\\.xlsx$"}
+        }
+      },
+      "else": {
+        "properties": {
+          "module_name": {"const": "QualitativeCreditSnapshotWorkbook"},
+          "owned_object": {"const": "qualitative_credit_snapshot_workbook"},
+          "output_file": {"pattern": "^[^/\\\\]+_CP-SNAP_[0-9]{8}\\.xlsx$"}
+        }
+      }
+    },
+    {
+      "not": {
+        "anyOf": [
+          {"required": ["confidence_score"]},
+          {"required": ["confidence_band"]}
+        ]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

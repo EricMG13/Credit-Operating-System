@@ -1,0 +1,3127 @@
+{
+  "version": "1.0",
+  "deployment": "DEPLOY_B_COWORK_SKILLS",
+  "scope": "deployable files grouped by Structure B skill profile",
+  "hash_algorithm": "sha256",
+  "digest_basis": "SHA-256 of canonical JSON for each ordered file-record list (sort_keys=true, separators=[\",\",\":\"])",
+  "excluded_files": [
+    "COWORK_MIGRATION_MANIFEST.json",
+    "DEPLOY_B_PROFILE_MANIFEST.json"
+  ],
+  "summary": {
+    "profile_count": 36,
+    "profile_file_count": 540,
+    "support_file_count": 16,
+    "total_file_count": 556,
+    "total_bytes": 3651690,
+    "deployment_sha256": "3517fbb029649611679b9e6b53b1485bdaf99e5444ecc0f190c1b521ba709bed"
+  },
+  "support_files": [
+    {
+      "path": "CANON_PROFILE_MANIFEST.json",
+      "bytes": 39120,
+      "sha256": "7b1a4f15cda53d0011b6119735982de0cdf86dcd23b9deadb1267e13f147dca4"
+    },
+    {
+      "path": "README.md",
+      "bytes": 21263,
+      "sha256": "c9de2555d73ad6996674c0e8f26027c1581b53ee82df166e6f3af0c745f54e29"
+    },
+    {
+      "path": "_COMMON_CORE.md",
+      "bytes": 1905,
+      "sha256": "20e08fd48a4766dbfba8034f231f8f91a003a8e78e672ee9b7bad903ea2f01e9"
+    },
+    {
+      "path": "tools/check_cowork_deploy.py",
+      "bytes": 44796,
+      "sha256": "93000fc27d3588af6db74bd479a4cf1a275338c405f8b8dec63c90bc2fe404ef"
+    },
+    {
+      "path": "tools/export_handoff.py",
+      "bytes": 7344,
+      "sha256": "518fd2526990e6eb321841d4bee24f0003cb073dd1449d1f7976a9def3cc7ae6"
+    },
+    {
+      "path": "tools/normalize_module_payload.py",
+      "bytes": 2365,
+      "sha256": "7fccd694c4d12bdef221c7c00c2d95aadf90594b2b1c9e86521740fa08df8a59"
+    },
+    {
+      "path": "tools/optimise_cowork_skills.py",
+      "bytes": 21577,
+      "sha256": "bb2b8fa35e668406ecdc2bcdca814ddadc3e7272aaf4b1e10975aa09c3d70417"
+    },
+    {
+      "path": "tools/render_handoff_docx.py",
+      "bytes": 23137,
+      "sha256": "7ab379b4d998c8299ef20ac4897248db0bb95f0c241070be752ecce9c617f26f"
+    },
+    {
+      "path": "tools/render_visual_pdf.py",
+      "bytes": 492,
+      "sha256": "afd68d1c101afd61978b7f798b6f00f556b6255dfd279b256bbb6f7347c13992"
+    },
+    {
+      "path": "tools/requirements-renderer.txt",
+      "bytes": 50,
+      "sha256": "12e5008bb129d84a52a471825476b0426339025994cb78897cc7d9ea24d9044c"
+    },
+    {
+      "path": "tools/validate_handoff.py",
+      "bytes": 24976,
+      "sha256": "31cc7f1f1d1d2277d19c452b1524f4de1f9871b605e63300887866265f063f9c"
+    },
+    {
+      "path": "tools/visual_pdf/__init__.py",
+      "bytes": 296,
+      "sha256": "8b13855aa5e59c2c5d6f41194d487b44e8ea5c21bc3056826ddb2791cf884ecf"
+    },
+    {
+      "path": "tools/visual_pdf/archetypes.py",
+      "bytes": 11716,
+      "sha256": "3bea53db1b23f33bb26cc0b9eeb130d478718ad83dd12a9bde5bf5b9e25e6b92"
+    },
+    {
+      "path": "tools/visual_pdf/quality.py",
+      "bytes": 3718,
+      "sha256": "5738ad71930fd00c3b8b814950e0e5aefad6012fc44330623c7691e1b7f0b1c6"
+    },
+    {
+      "path": "tools/visual_pdf/registry.py",
+      "bytes": 23255,
+      "sha256": "c8c552cfbd8571ff0971089726a7b848760508539f54b3e7e033365c2abd1a98"
+    },
+    {
+      "path": "tools/visual_pdf/renderer.py",
+      "bytes": 72564,
+      "sha256": "36c198ad029c0802042203bed2af951eb035b998f6470af6606ac9f595b1668a"
+    }
+  ],
+  "profiles": [
+    {
+      "skill": "ai-assurance-auditor",
+      "module": "AI-AUDIT",
+      "file_count": 11,
+      "total_bytes": 52675,
+      "profile_sha256": "7c5b91c8f068d4130706efdc4a8240469b26e9ea75fcff13be5acb942d8a14e3",
+      "files": [
+        {
+          "path": "skills/ai-assurance-auditor/SKILL.md",
+          "bytes": 11655,
+          "sha256": "c4745f0308914dc3c1d5098c9dde097c4c2695fad1e57002d03292039eff9251"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/CANON_RELEVANT.md",
+          "bytes": 3988,
+          "sha256": "f0089811b6c26c5fe3a7317c80a65bdba186ccedac6df7697dc29cd913083342"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/MODULE_RUNBOOK.md",
+          "bytes": 5534,
+          "sha256": "0cc6ab8462a7891932f1f6f94d64477f525003842dc219e752d05c08153d7c25"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/REF_AI-AUDIT_01_IntakeAndRiskTier.md",
+          "bytes": 3708,
+          "sha256": "a12bd9644e6ba7b5f6bb64366cab37e290d4528235f788093bd7026a8ff806fd"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/REF_AI-AUDIT_02_StaticInspection.md",
+          "bytes": 3350,
+          "sha256": "9654d4f6bc5c9b7c790bdb61e1f24f32bb22ce6ad4929de0bf4e5a2fc9adb1b2"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/REF_AI-AUDIT_03_SecurityTestCatalogue.md",
+          "bytes": 3791,
+          "sha256": "43221e9ee9ca006ba6ff07164a11449b03648af1662873780fc410e6c7d5b954"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/REF_AI-AUDIT_04_InvestmentDecisionTests.md",
+          "bytes": 3927,
+          "sha256": "aa6ae27efa72f04657dca657bc1a9aed4ea603950d866f451de91fb04d43871e"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/REF_AI-AUDIT_05_ScoringAndReleaseGates.md",
+          "bytes": 6199,
+          "sha256": "87079cd2b8980a2526aca9a80029841842407a5862bec729708e64919023c084"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/REF_AI-AUDIT_06_OptimisationAndRetest.md",
+          "bytes": 3065,
+          "sha256": "8c1570bbb5d91ab7097c0a7fc61cb6f9bd1d900bb1bf430e13c3d57d711d650e"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/REF_AI-AUDIT_ExampleOutput.md",
+          "bytes": 3528,
+          "sha256": "45487d50b848c6251b15b128736e2c3bc1a81bbf5279aeb60fef9ea7aff2c5d2"
+        },
+        {
+          "path": "skills/ai-assurance-auditor/references/SCHEMA_REFERENCE.md",
+          "bytes": 3930,
+          "sha256": "216ff9c9e7035e8ab402da556665e30da4fce33900e8e8b41ec1aadc2ccebe00"
+        }
+      ]
+    },
+    {
+      "skill": "cp-0-source-readiness",
+      "module": "CP-0",
+      "file_count": 16,
+      "total_bytes": 52048,
+      "profile_sha256": "2a5437cb5f9148a3cd5f63c04b219dc09fdec71df79b59bd5a73c5c2e8378c6e",
+      "files": [
+        {
+          "path": "skills/cp-0-source-readiness/SKILL.md",
+          "bytes": 6490,
+          "sha256": "2a5621bb402f36e1f626f23d347e325561a5f9779d3e4da9f5edc39f0b6e9e82"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/CANON_RELEVANT.md",
+          "bytes": 32199,
+          "sha256": "7af2984660a75e34121ff8b9328bf03b1b1bb32b3d296a02ff537b940ad29fe8"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/MODULE_RUNBOOK.md",
+          "bytes": 5361,
+          "sha256": "2f1db4e77481f5a243ede51024463135c0235e441116e23bba242c0d5f82df72"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_A_FileClassification.md",
+          "bytes": 330,
+          "sha256": "bce23b1170ddbd49181d16adf0443a21abe83ac87834d9622f4b06c4262fe429"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_B_EntityIdentification.md",
+          "bytes": 331,
+          "sha256": "a77f89dc0cbc8a71e9b1140ab226eba73c1a2a707c4f5c06d89d18b9c3e8ae39"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_C_DocumentMapping.md",
+          "bytes": 281,
+          "sha256": "407325ef8645155fb74f55d5873ffa70584fdc2c20d0219c44a250df57cbe08c"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_D_QualityAssignment.md",
+          "bytes": 311,
+          "sha256": "c88d4be805b934c955c46407d782392b6c03c79a3fb9ab6e61fa241909df3bea"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_E_ContentModuleMapping.md",
+          "bytes": 332,
+          "sha256": "c4fa834ae2425fc7570e1e690a3e81c486fc22f9e156bf2894caa65afef6970a"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_ExampleOutputPattern.md",
+          "bytes": 2022,
+          "sha256": "08f491f9a84f79ce7e31df4b8f9ff82c4f15bc7902f153fd9a298f76517d926c"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_F_GapLogging.md",
+          "bytes": 296,
+          "sha256": "b5981f8a3f949e35931dad333f1d1d26d3f45071addad43cf8b5c15e5afe823b"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_G_ConflictLogging.md",
+          "bytes": 284,
+          "sha256": "62747ba6b0e018641483102dd1966835a14ab396ef2e20c443b6065e2aa51019"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_H_FileQualityRisk.md",
+          "bytes": 324,
+          "sha256": "4972c2050e4c9a12b9d8e31c04fc30a8181569d255c4ac08a183c1a706a91cb8"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_I_DownstreamReadiness.md",
+          "bytes": 280,
+          "sha256": "f495126646dc656fb98612fa593f74b4a967629e29bdd44d764d56954bd9ef1a"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_J_MasterIndexUpdate.md",
+          "bytes": 305,
+          "sha256": "235fe67b7e6ad4cdf70bc0f3b77e9382163d74bcbaf6c65d85cc00c0e089567f"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/REF_CP-0_K_ExportAssembly.md",
+          "bytes": 920,
+          "sha256": "757b91bad70229807ce1d47200cee19ec523c481dca4d0303e53514b8a5b2fac"
+        },
+        {
+          "path": "skills/cp-0-source-readiness/references/SCHEMA_REFERENCE.md",
+          "bytes": 1982,
+          "sha256": "6bd603ae79fb32c9b4e6ae6159a691cd3692827371149aafb231e8fa7f82d8d6"
+        }
+      ]
+    },
+    {
+      "skill": "cp-1-canonical-data-foundation",
+      "module": "CP-1",
+      "file_count": 17,
+      "total_bytes": 84928,
+      "profile_sha256": "6e6bd92b395e6c22a43dfefa0a03a6a4d47d2fa1c45ead70eaaf75e68d0f486a",
+      "files": [
+        {
+          "path": "skills/cp-1-canonical-data-foundation/SKILL.md",
+          "bytes": 7615,
+          "sha256": "ef41f065bd99615c77c9c7eccc1832382ec9eb87ed03650166d5e527ba247599"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/CANON_RELEVANT.md",
+          "bytes": 41962,
+          "sha256": "6f53b80083efcedafd6e8ab61820524a002591d9d63a67af837197f721c75592"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/MODULE_RUNBOOK.md",
+          "bytes": 13289,
+          "sha256": "f429a4045f3a4c94c3421e79df6b908aebff3610784a3659e53c2ba3b71f9058"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_01_FileGateSourceValidation.md",
+          "bytes": 1175,
+          "sha256": "f69094f7253952d468997ffd1b88db42bc38e57255fb3375db12332bdbbd4846"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_02_EntityPeriodScope.md",
+          "bytes": 1414,
+          "sha256": "96098c49481d2a55a07baa0794ff5128cca3195817ade0691fb028a0988b38ca"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_03_Normalization.md",
+          "bytes": 1016,
+          "sha256": "15d8fef8983791dd4a1c083eab7c3323f9df05c2ae0303616e13460eb5e3206d"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_04_IncomeStatementCoverage.md",
+          "bytes": 1146,
+          "sha256": "f860f69b06677d59169a25393a7e4bc225e3695013d87af47b84232626a4ce7d"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_05_CashFlowStatementCoverage.md",
+          "bytes": 987,
+          "sha256": "6cf5d33a9e1b58e02228a43b2103f78ce924de5703ccea3e6130097ede5c6f32"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_06_BalanceSheetCoverage.md",
+          "bytes": 1561,
+          "sha256": "c70c558db81f91202b250e4a86d6b283e59ba1d5ec4422ab94d48e5ab9450bcc"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_07_NormalizedFinancialsTable.md",
+          "bytes": 1050,
+          "sha256": "6ed4cb4dea5a3d6ea9501fa711e9207ff69e3164342d96824264aa63b4f44cc6"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_08_DerivedPeriodConstruction.md",
+          "bytes": 1121,
+          "sha256": "3ed27a5a7a42aeaec36d1047d856718075b93f1e1b8c9347c984f343101486b0"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_09_CalculationRegisterKPIBuild.md",
+          "bytes": 1650,
+          "sha256": "508a4d36c99ab4114b2bf8795694c09a61974301e3d862bb503489362075708f"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_10_DefinitionConflictRegister.md",
+          "bytes": 1856,
+          "sha256": "f6924181456d9056744c86445f14523d14fba8f2f93fd1433c98cfced09a558d"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_11_EvidenceRiskCreditAnalysis.md",
+          "bytes": 1987,
+          "sha256": "f7a40567fa9184d00bfbfa4244c71e82f67c20f5029c36733b89bab35c9ba410"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_12_CoverageGateDownstreamReadiness.md",
+          "bytes": 2356,
+          "sha256": "1d98a365698223bc9610cd74bf8c183140008f1965a1fde5619ddc459f54db01"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/REF_CP-1_AntiPatterns.md",
+          "bytes": 1076,
+          "sha256": "ad5449fdd57cd277579b1217d314893dd33e251a6f0ccd980b11cb6f99108643"
+        },
+        {
+          "path": "skills/cp-1-canonical-data-foundation/references/SCHEMA_REFERENCE.md",
+          "bytes": 3667,
+          "sha256": "84384318abf597bc37383a99f3589b6800c1cd5c011fb90687e17a76113af6bc"
+        }
+      ]
+    },
+    {
+      "skill": "cp-1a-business-transaction-fact-pack",
+      "module": "CP-1A",
+      "file_count": 15,
+      "total_bytes": 57368,
+      "profile_sha256": "837eb28d4f35fcd1d2d1cea1ed0fb38166abaae559c82207592c706a0f62ef78",
+      "files": [
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/SKILL.md",
+          "bytes": 7342,
+          "sha256": "2e15bdf16d3c00cfe3605832c72a85a3fbe231b6c7941e6be12c183f3d191019"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/CANON_RELEVANT.md",
+          "bytes": 33841,
+          "sha256": "a3a5a7329dac99fb091fe3f89c6ac2d8a1bb66e8e2c92d54b3df3b966c1a47f4"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/MODULE_RUNBOOK.md",
+          "bytes": 6823,
+          "sha256": "40e341e814dad64e6d89692786f703773a11cfc78a94815b46ea9c3ea3397e44"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_01_SourceBasisEstablishment.md",
+          "bytes": 338,
+          "sha256": "a79f866c81bf90d9715a1908a241d60cf262561aabdcdc20b8dfd88ec5c9e660"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_02_SourceClassification.md",
+          "bytes": 335,
+          "sha256": "5cba87b5cb6a3b6679dffc02ec5a2a672a65f8df2dd968021f3c1dba4de040ef"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_03_TransactionSummary.md",
+          "bytes": 387,
+          "sha256": "ad85c01f754964d7ad40e8b6cb183794719255cfb580c80eeefc2612e977c872"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_04_BusinessDescription.md",
+          "bytes": 392,
+          "sha256": "884afa0b4db74053a614ad19c46bffb9873ef66d708527f4bed05d9393d8e9e2"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_05_OwnershipRegister.md",
+          "bytes": 344,
+          "sha256": "0c88463fd28a5dc3e988e9c54272771b4446e1ea651a197f0d9a567dc0ed4063"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_06_OperatingModel.md",
+          "bytes": 337,
+          "sha256": "0427a3b6727ef3bb4e58da3672d6e38604f6fe52d85d3485e69a1c2d6fe36c76"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_07_HistoryTimeline.md",
+          "bytes": 338,
+          "sha256": "ddccad33c4531ba63f304668e911011c7150454e56e670032e731511d4407905"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_08_CreditTranslation.md",
+          "bytes": 345,
+          "sha256": "64b185b481ad76ebfab308c7494254c1085b1db31d0185c75b7dbe47311a5101"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_09_GapsLedger.md",
+          "bytes": 308,
+          "sha256": "4a4e73be5469303d36266a4489484764ade4804231d1ed494c5a9d7c1190ef11"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_10_ModuleSummary.md",
+          "bytes": 300,
+          "sha256": "26eebb366d8dc476c42d49fd5709f8d23e6cf7ec4721f14ba9277bc2e436af37"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/REF_CP-1A_BusinessFactTaxonomy.md",
+          "bytes": 3697,
+          "sha256": "62a246957aaf68e786a0fb032599250c85980a90a1d8dcbed61afebbbcee74cc"
+        },
+        {
+          "path": "skills/cp-1a-business-transaction-fact-pack/references/SCHEMA_REFERENCE.md",
+          "bytes": 2241,
+          "sha256": "05830b5a82f8e68821c2554bfbdfc8d3cd0fec1f4725752c2bd3a0c40e035dea"
+        }
+      ]
+    },
+    {
+      "skill": "cp-1b-earnings-delta",
+      "module": "CP-1B",
+      "file_count": 18,
+      "total_bytes": 66063,
+      "profile_sha256": "b57958f6f14514941deda99d80bc0c8d8eba4434edc19beb372497ebd2c806fd",
+      "files": [
+        {
+          "path": "skills/cp-1b-earnings-delta/SKILL.md",
+          "bytes": 7673,
+          "sha256": "3acb99b743d83d8200a40ddbd7347bdfc8d76bea1bef8b805507338cabef4bfe"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "5a06785088250fecd9d0ab5daf2a6c7a3608f2627e334967bff14ec5cbbe59cf"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/MODULE_RUNBOOK.md",
+          "bytes": 6487,
+          "sha256": "ec576880fd108dc5794b13d682a279a2db956345f5cd04d2d14f9e4f40c13f9f"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_01_FileGateSourceValidation.md",
+          "bytes": 853,
+          "sha256": "6118c2c22452802921f4d450ededdaeba27537cb3994ccf099baed9c776cedb6"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_02_IssuerPeriodScope.md",
+          "bytes": 378,
+          "sha256": "2a51dd475cb9e6609d7a68d45b0d1e74d758926e62389ab99b0800fcaed3e804"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_03_DefinitionInheritance.md",
+          "bytes": 486,
+          "sha256": "aaeae4b05137f6a53679bf7d81a857df730e9d9d351c0d3ed69fb502d97e7192"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_04_SummaryTopSheet.md",
+          "bytes": 451,
+          "sha256": "90b45eb05a2ada87be08fb8c4cdad7c5ebaa5d39646132ffdae4ac865f2ee523"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_05_FinancialPerformanceTable.md",
+          "bytes": 709,
+          "sha256": "77c9bcc9c368a42500ad690df657acd9a4ff435eb9ef34e66722f3f8d4f65058"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_06_KPIDashboard.md",
+          "bytes": 541,
+          "sha256": "db78276a7103822072afb5d8af12fbe338fa876b7bec79be921bc82a9439fea6"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_07_VarianceAnalysis.md",
+          "bytes": 663,
+          "sha256": "eebc96847c186bbeeee0a7558c9a2387b5030afd6e6328e271b574246fae1d7a"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_08_CorporateActions.md",
+          "bytes": 466,
+          "sha256": "5b8c577daead1c0bcbc4e46a6553880eca454d42a59ced4f1d4ee2b3e33f102f"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_09_ComparativeEvaluation.md",
+          "bytes": 436,
+          "sha256": "74eb81da973892fcf0ee2ee0e1d00534820d3d88fd96676f038fd1440ec92641"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_10_ConflictLog.md",
+          "bytes": 371,
+          "sha256": "38137dbf36dae743af57a8d811cd23ba6a5b05fc2fe7589018010d03df48bfdc"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_11_MonitoringAssessment.md",
+          "bytes": 453,
+          "sha256": "d9997163d74a2f20b7762158aa0caebaf840ba76c31fd98a95f533e04d023424"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_12_GapsLimitations.md",
+          "bytes": 395,
+          "sha256": "ea0419e062e0ea8ffda226cdaa27642c8e5a61a296589020ba7c7c56c9c375dd"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_13_OverallEarningsView.md",
+          "bytes": 618,
+          "sha256": "d53e61674640a7a8b16be1975dd75fec5e70a0f7eaf2ca4fe057ea4e99286791"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/REF_CP-1B_CalculationDiscipline.md",
+          "bytes": 2525,
+          "sha256": "16bfd8b8bf691fc289b83daeba4872a1ca9111717d36777276a179e4a464c417"
+        },
+        {
+          "path": "skills/cp-1b-earnings-delta/references/SCHEMA_REFERENCE.md",
+          "bytes": 2337,
+          "sha256": "8c5f247860df7a5598d5a32437c973b6159b0bd821f2949d3fc2faf4678c965d"
+        }
+      ]
+    },
+    {
+      "skill": "cp-1c-peer-benchmark",
+      "module": "CP-1C",
+      "file_count": 17,
+      "total_bytes": 80180,
+      "profile_sha256": "f0d59c1fc3ebdaa9cd84dc4d2bea7199df07f60a358fc2789c8758a069fd5470",
+      "files": [
+        {
+          "path": "skills/cp-1c-peer-benchmark/SKILL.md",
+          "bytes": 7776,
+          "sha256": "6cc8174ceb0efe26695965cd8e8074197f35da3fac4ce8da0ff4e177b593002a"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "0794a766907f50c87716d4ba64449d5e7737e7a949fa9fa7f76e7707509ce0d7"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/MODULE_RUNBOOK.md",
+          "bytes": 12194,
+          "sha256": "6752802bbd62e4fab3b80449bd7e61d9355504ee7895c8bb71e970da3df7a9ef"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_00_PeerDiscoveryGate.md",
+          "bytes": 791,
+          "sha256": "f0357a8f17a0f42bf0ff99dcd211c829e89a8590d1a77bab7b62df7dffebf3aa"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_01_PeerDataGate.md",
+          "bytes": 981,
+          "sha256": "7755d416729b2860640f98009a1ed222cc218b91cae1fb078c6ec358498905cf"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_02_PeerUniverseRegister.md",
+          "bytes": 676,
+          "sha256": "6a1b628ed9eec4919de274c60f7ac914eb24bd0f500c676b941642cbe5bb0c58"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_03_MetricAlignmentRegister.md",
+          "bytes": 663,
+          "sha256": "cb614d4203cb9d2ef19fb088f870c86c8e5d4adbcd88402d0acb010e03440408"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_04_BenchmarkAnalysis.md",
+          "bytes": 2522,
+          "sha256": "9a9301d776ab997651336414a724153aa6796e8e6608bdc18e5c0a385ac015ed"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_05_OutlierRegister.md",
+          "bytes": 1001,
+          "sha256": "09b9ab299a6005c827aa86810be6d1b2f621886151d1fbdb30606026bd0e247c"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_06A_PublicTradingComps.md",
+          "bytes": 534,
+          "sha256": "92ac9b01ca588a99481b98dfd6de32470462faa228c6872e6ea30e0f7330cc40"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_06B_TransactionComps.md",
+          "bytes": 430,
+          "sha256": "c63214d809f3b44e222d1c8a6726700fecfa627dad3f1de772d85e80e7ba857a"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_06C_ImpliedEV.md",
+          "bytes": 854,
+          "sha256": "7dd56e11d49902162d0b475deac6aa486fb99edb55d2fe94dccfd051181b8cfd"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_07_PeerInterpretationCreditTranslation.md",
+          "bytes": 548,
+          "sha256": "ae07ade7baa337d31fdf086ff2f45d2f3e797413d3075efc170beae7a55bff97"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_08_GapsLimitationsLedger.md",
+          "bytes": 505,
+          "sha256": "a9bc33fbc7ae8ce5dbf8a88ac8556035f69eb5185eb370508b7877afcae49133"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_09_OverallPeerBenchmarkingView.md",
+          "bytes": 549,
+          "sha256": "688328f49c08578050e2d195a32b84e96338a6a9cab12ffe91c3dc79c1e09ea3"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_ValuationAndOutlierRules.md",
+          "bytes": 6927,
+          "sha256": "58b13f4979e9b53d267abcd883cfcbdb2268122af28d333b95a7940f03c85ebf"
+        },
+        {
+          "path": "skills/cp-1c-peer-benchmark/references/SCHEMA_REFERENCE.md",
+          "bytes": 3008,
+          "sha256": "a923d585c542bdda931297a19d9819e025cbdd847336742395b176043adf4cf0"
+        }
+      ]
+    },
+    {
+      "skill": "cp-2-fundamental-credit-synthesizer",
+      "module": "CP-2",
+      "file_count": 17,
+      "total_bytes": 82395,
+      "profile_sha256": "7001e5b74e58cbd001e7bd4cb9d33dfede1f7eefe21f589f0dcf382095d56054",
+      "files": [
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/SKILL.md",
+          "bytes": 7556,
+          "sha256": "f8859e0f6a308cb0c089a81609cecf8e0dec8f585c83b94bf77a0f66e3d40b64"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/CANON_RELEVANT.md",
+          "bytes": 41962,
+          "sha256": "b4fc3459a5d552810bfff5c0fe3ffe02127b11f8cbc1bda648b38c41f3be8732"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/MODULE_RUNBOOK.md",
+          "bytes": 11458,
+          "sha256": "bf016b618a4027c301b9066e2ed51e5507b20c4eaace55f0c347411d4c96dd3f"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_01_SourceGateReadiness.md",
+          "bytes": 1497,
+          "sha256": "497baf7452855cd90b617c247e6fbbb8724dc1e9769e4376d6de526aa3f0891a"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_02-04_OperatingModel.md",
+          "bytes": 5274,
+          "sha256": "471ec7b9bea0bac20cfa39ab57f77b4d6e3110c4ea9e47973d9f35cf9b7c5d54"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_05A_PorterFiveForces.md",
+          "bytes": 688,
+          "sha256": "c407183bf29e453bcd6dc1e5bb61d8d981a85235f928bd9678284c00440581db"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_05B_PESTAnalysis.md",
+          "bytes": 780,
+          "sha256": "e6b4075d8d7856385c753dacd0b7827c088611fd4acd0fa47620e5a56ccffdc7"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_05C_SWOTAnalysis.md",
+          "bytes": 1833,
+          "sha256": "ecb565cf23fde9d7cecb810ceea82dd4ae18f5122fa69517620aac75a8a85e14"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_07_FinancialProfileCreditQuality.md",
+          "bytes": 2374,
+          "sha256": "a827fdf2f5a028803beb11b50a72898a43efeb29d41dc1644ca6ba2574a05d41"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_08_OutlookTailwindsHeadwinds.md",
+          "bytes": 682,
+          "sha256": "bba86697a10cb56e40ef1b87e008f62413dd49facd97326677f1736f2a86407b"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_09_QualitativeDownsideScenario.md",
+          "bytes": 780,
+          "sha256": "85c7b590da0c44d1188766b25040bb6be530554420d85063dd75af243904ee8e"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_10_MaterialityFilter.md",
+          "bytes": 664,
+          "sha256": "a2cff1bac98e3c7c7d78f741a5eea88b60421d313adb7f2bf016a4fcc1535ca4"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_11_IssuerMatrix.md",
+          "bytes": 717,
+          "sha256": "d290c3efc69f4e50050fb7c65c07981c0a7f4f5af18855463c24af1a96059d94"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_12_MonitoringTriggers.md",
+          "bytes": 724,
+          "sha256": "f4d1164fdcdbd77ac45ac54368c0c64ddccbd70638306a0278d882d3b34281bd"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_13_OverallCreditView.md",
+          "bytes": 1116,
+          "sha256": "cb2a911032424b5b11d86d5cde0088ef5c3c00f024f6da9c884b00dd8c13eb21"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_Frameworks.md",
+          "bytes": 984,
+          "sha256": "5a78b9ca700c14ee58f43fc9bc6326d310352b47b198ad4dad8eb8b08f31dddf"
+        },
+        {
+          "path": "skills/cp-2-fundamental-credit-synthesizer/references/SCHEMA_REFERENCE.md",
+          "bytes": 3306,
+          "sha256": "7dfcd8565cd53a71a96a3128ff5b1a224dc901ceb1f7e3cf143784541e869296"
+        }
+      ]
+    },
+    {
+      "skill": "cp-2a-downside-pathway",
+      "module": "CP-2A",
+      "file_count": 16,
+      "total_bytes": 86372,
+      "profile_sha256": "d46854f2d9c8630ae47558e851cdb6d0bafc53a3672b78c1711282d12313e2bd",
+      "files": [
+        {
+          "path": "skills/cp-2a-downside-pathway/SKILL.md",
+          "bytes": 7478,
+          "sha256": "359bd3415a01f69e3b1a6766109d97f803825a0a027328eab626d406f580cf3f"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "a5487abee69335faa04dcc7865a9a5d575ea0d9402453314eb76214aa9e18319"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/MODULE_RUNBOOK.md",
+          "bytes": 13684,
+          "sha256": "570492e3a797fdb027a201acd2d6172762efcd0b2f44575c40c9a20b17b2b344"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_01_SourceGateBaseline.md",
+          "bytes": 1769,
+          "sha256": "acc32127a7e1bf8612cc89e32d5ad43d198afe1d806e5a00e2c5b02686db89f8"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_02_BusinessModelSnapshot.md",
+          "bytes": 899,
+          "sha256": "f822cffac9f444931a95f43f0273e5371d4f5ea378feacbd59f722b12c0cd035"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_03_FragilityMap.md",
+          "bytes": 1293,
+          "sha256": "48246476826684887bca366be43677887568add528b06d291e17efbdbc985076"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_04_StressTransmissionTable.md",
+          "bytes": 2487,
+          "sha256": "7ff8b13f862b7f3caecddd6a7199c61b1d5fd7ed552912ecbacdd8a4719a206f"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_05_DownsidePathwayRegister.md",
+          "bytes": 934,
+          "sha256": "55175524e4675f991e130a4ad14ea7b5d64fb05768fb853880252a06de309d09"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_06_DownsideSensitivityMatrix.md",
+          "bytes": 973,
+          "sha256": "4a73396521d5b9f8748a4cec6ac7620ca4bcf5473ed545c1b43dd05c0da60868"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_07_MonitoringSensitivityFlags.md",
+          "bytes": 1134,
+          "sha256": "a00d2f5ad67e11bb23e48b604c17c71850daccabb49e68b81c86a5920fa94c37"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_08_CrossModuleHandoffRegister.md",
+          "bytes": 2517,
+          "sha256": "0d9d58ea28167e5e7746a88b740c7b94e4640abce05087c80b0affc19519fb06"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_09_GapsLedger.md",
+          "bytes": 920,
+          "sha256": "8d5c0a8581c3ceceebb2d8cc6efb53a9efb1c2a0aef2353bab09a1d7603ce66d"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_10_OverallDownsidePathwayView.md",
+          "bytes": 1078,
+          "sha256": "2df4f08d388ef41010eb51fb0c61ff4d3303a24c4d198186a26b60fa57050262"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_FragilityDriverTaxonomy.md",
+          "bytes": 3102,
+          "sha256": "2a1988505ad9371be5816b98c2c5da5f94a541a8c9aeaacb8d320417a311d4f1"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/REF_CP-2A_MonitoringIndicatorLibrary.md",
+          "bytes": 2952,
+          "sha256": "5f8897c484bc0222e7f3b4e20dafb1b9fb4b15cd5e6e0c6df9a90d78098281e6"
+        },
+        {
+          "path": "skills/cp-2a-downside-pathway/references/SCHEMA_REFERENCE.md",
+          "bytes": 4931,
+          "sha256": "502972d475c0047dda21c5b5073a1bc5cf7dbfd836f6ec4fd7fb619de0709cbe"
+        }
+      ]
+    },
+    {
+      "skill": "cp-2b-event-catalyst-register",
+      "module": "CP-2B",
+      "file_count": 13,
+      "total_bytes": 56671,
+      "profile_sha256": "c83d26ffdab635dd40f51f4198ee42ae7bc358ae1ffd80a83eb74676d80da90b",
+      "files": [
+        {
+          "path": "skills/cp-2b-event-catalyst-register/SKILL.md",
+          "bytes": 7176,
+          "sha256": "0f0f1b20d3bcdf82e218b2204b984f9d9baab92a4d03724b85853cb427e461b5"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/CANON_RELEVANT.md",
+          "bytes": 33841,
+          "sha256": "2766bb9116fd2b8cde341ec959aa13479c2ec6896640051b1a277980e56e1eca"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/MODULE_RUNBOOK.md",
+          "bytes": 7654,
+          "sha256": "1d8bfa6142d4d116262e7a31200bb6725332decd19e20f1dd94ff363d5c6bd84"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/REF_CP-2B_01_SourceGateCalendarScope.md",
+          "bytes": 892,
+          "sha256": "5d7d2502ae466337b698247e2f66904d7c18db1f6818789e65f2436ee92c4682"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/REF_CP-2B_02_EventSourceRegister.md",
+          "bytes": 522,
+          "sha256": "4f3becc7307b66912a54a4605bafe402576a0303468f7130df259b70a17bf243"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/REF_CP-2B_03_CatalystCalendar.md",
+          "bytes": 989,
+          "sha256": "590f06ad460034a8cac02fc03103ce953faf90ba41885ee9d6b88e0f80ff8e79"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/REF_CP-2B_04_EventRiskRegister.md",
+          "bytes": 571,
+          "sha256": "a0e4958c754f0fa33ceaf8da9bda4744f9dab3da187bf463842f833e16114057"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/REF_CP-2B_05_ProbabilityImpactMatrix.md",
+          "bytes": 461,
+          "sha256": "ef3d6640b46aff52a1fa032b063c46046de61f24c66f04ba824e9dbf07e45218"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/REF_CP-2B_06_MonitoringPriorityTable.md",
+          "bytes": 538,
+          "sha256": "b415d89f9f8054ebdf790f071e732844922a2360a5396f71d3a0ccf5cf45165d"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/REF_CP-2B_07_WatchlistHandoffRegister.md",
+          "bytes": 510,
+          "sha256": "6247723ac2824a1b8463016f65152221c7017063e74b964892dcd737c82b9dec"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/REF_CP-2B_08_GapsLimitationsLedger.md",
+          "bytes": 446,
+          "sha256": "79371f04c34d869f6f87ed84bc3b9f54d195df61371f601d884f60e67f6b0547"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/REF_CP-2B_09_OverallCatalystView.md",
+          "bytes": 685,
+          "sha256": "759a1aff3e89a86975bf27d6620118180b080d8c57bbbe9491bb163d523ba682"
+        },
+        {
+          "path": "skills/cp-2b-event-catalyst-register/references/SCHEMA_REFERENCE.md",
+          "bytes": 2386,
+          "sha256": "4c0a8851b795d2807751ea0b5fff354cbc78712b471b269b0c7f953443b6e1dc"
+        }
+      ]
+    },
+    {
+      "skill": "cp-2c-governance-sponsor-score",
+      "module": "CP-2C",
+      "file_count": 17,
+      "total_bytes": 80125,
+      "profile_sha256": "a84e26246a0f9fce97b57842c8cd7e20fad4aa562326b89d34cf6b51016d6537",
+      "files": [
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/SKILL.md",
+          "bytes": 7637,
+          "sha256": "df53cad5abf8d4a6e0ad317beb5feb81df58ae48904e1282d775391cf4c89af3"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/CANON_RELEVANT.md",
+          "bytes": 33841,
+          "sha256": "deee621c7034c43d1416c0846e9e4f99c783395b1c021aa6e58b5b00aa5a16bc"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/MODULE_RUNBOOK.md",
+          "bytes": 12320,
+          "sha256": "9956f3f7d5ca57f8ea23679db5f37550b3d47a3e14a724bce30919539dcf08fa"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_01_SourceGateReadiness.md",
+          "bytes": 1891,
+          "sha256": "f08b4fa107a63e3fc58482ce440921e883835d6d60c1935470ba3f49a391f0ba"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_02_OwnershipSponsorControlRegister.md",
+          "bytes": 1347,
+          "sha256": "b59b15620a669cb1bee05662f3333699aaba6d83b2d8de1b9cdc246a13032756"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_03_GovernanceRegister.md",
+          "bytes": 1203,
+          "sha256": "6d17b3515ba9b4e184c074cc557c3e641eadf0a4f37a9344631bbd2b08f7823d"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_04_SponsorBehaviorFlags.md",
+          "bytes": 1647,
+          "sha256": "2bfe064b5097c5fac3d8ff42247ca1fa175c08447b8179e964512d35766b16c7"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_05_CapitalAllocationRisk.md",
+          "bytes": 1079,
+          "sha256": "28d6f330421e411896a51c1c5e0722e8fc22533baf596bb5688573154a021b60"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_06_AcquisitionAppetiteIntegration.md",
+          "bytes": 1261,
+          "sha256": "75439e8805a5ed9e2c4ea30f400ada4e4a67f09ab3d51975bb54d168662243a3"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_07_DisclosureQualityLog.md",
+          "bytes": 1457,
+          "sha256": "cd8dfb3adbb70da4b3475070c9dbc0bade43dc4846158a5ca0798aacb766a8be"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_08_CreditorAlignmentFinancialPolicy.md",
+          "bytes": 1407,
+          "sha256": "c0f84e38e76789ea17bbd50eaae36e984a47ae4f43a6d3699caaa8d715beb11d"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_09_SponsorRiskAssessment.md",
+          "bytes": 2473,
+          "sha256": "91b54535ff0d6a0be311d588edd0a122770e91c909821da3184a0bee9364560b"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_10_CrossModuleHandoffRegister.md",
+          "bytes": 1339,
+          "sha256": "38c092dbaa7de8571022b6049820e50caaab75a3a45a80626092e1e35b6295c3"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_11_GapsLedger.md",
+          "bytes": 2547,
+          "sha256": "70263b3bd9f82a24db91551c3e9a05892451dbcfef770b7ada1c703d752f10d0"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_12_OverallGovernanceView.md",
+          "bytes": 1137,
+          "sha256": "acb3cfa43a4e8cf13753dfd10c5552a1d9b2f95902fd1cd468a46cfe6f36b131"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/REF_CP-2C_ScoringTaxonomy.md",
+          "bytes": 3061,
+          "sha256": "d2886cb839513e983879c5fec66e6665c4d326c8fc2e5eaf284dc7727e10a7ec"
+        },
+        {
+          "path": "skills/cp-2c-governance-sponsor-score/references/SCHEMA_REFERENCE.md",
+          "bytes": 4478,
+          "sha256": "90fbede8e522901abbe3df52f5a3256ca851050eb0deb8963dac03aa18586eaa"
+        }
+      ]
+    },
+    {
+      "skill": "cp-2d-liquidity-cash-flow-bridge",
+      "module": "CP-2D",
+      "file_count": 15,
+      "total_bytes": 80942,
+      "profile_sha256": "65f1fe164b9ef027e64c3582b32d9215cc85a1137d74114aff2253b9c35c7e91",
+      "files": [
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/SKILL.md",
+          "bytes": 7404,
+          "sha256": "9c26f314a065a8e24fbe92a40f9781725bbaa53637a4c9ad770e381658c24fbd"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "c3a414c52cde085a319674e9d19071a3b8f5059d4e5025e9b5d76192b81cbf67"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/MODULE_RUNBOOK.md",
+          "bytes": 12404,
+          "sha256": "46a1d4118dd053c8374678c215771df0be869fd51bcd3fcdea1401751ecc007b"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_01_LiquiditySourceGateReadiness.md",
+          "bytes": 1875,
+          "sha256": "a57369ba35a3c310954cb8a9bf1bf0ca236c57942b818840584cdf350cf027e3"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_02_BeginningLiquidityRegister.md",
+          "bytes": 1343,
+          "sha256": "b48292a934c145fbb49f21914943b65257b33a12607a8837c835634485b3d3a7"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_03_MandatoryCashUsesRegister.md",
+          "bytes": 1180,
+          "sha256": "7b12f32e1d2505b8d41c6e04ceb8e5165c5f88bb0107e2754396f44dbcc05db1"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_04_WorkingCapitalCapexPressure.md",
+          "bytes": 1159,
+          "sha256": "bdfa5198bb5b147a0d8da1286519a7b17df1da775347ee5a3c22f1ce2736c531"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_05_TwelveMonthLiquidityBridge.md",
+          "bytes": 1256,
+          "sha256": "210de9e831e1a5b5f946d798c41063d82637367218db82825ed0d53283749398"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_06_MonthsToEmptyCalculation.md",
+          "bytes": 1111,
+          "sha256": "dad0c080b540fd373a167b0fa506df71ba5fae85b0319991d310a41659e5a12e"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_07_LiquidityMitigantsConstraints.md",
+          "bytes": 1080,
+          "sha256": "7787b4a1fbcb81333c9ecf5077b62438668035492a545e211b25cead688348e4"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_08_LiquidityRiskAssessment.md",
+          "bytes": 1357,
+          "sha256": "9bbfe9035788b82079e81f579bc7a7c3971477c7c321bd40441cfefdea36e261"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_09_GapsLedger.md",
+          "bytes": 1299,
+          "sha256": "67cab405aef1e8e604291843d0b65cd0080a1fa0663d3dcc88f0591164b5719d"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_10_OverallLiquidityView.md",
+          "bytes": 1245,
+          "sha256": "1e29c873ac109dd9ee7d83d5b05c3a1dbe0ebbf5fb835a292b66508995d78573"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/REF_CP-2D_LabelsAndCalc.md",
+          "bytes": 3965,
+          "sha256": "6b4d487bd9434ff9efc9ab2af8e282d1c1eeeeda711e6d1d56ca2a11539414e8"
+        },
+        {
+          "path": "skills/cp-2d-liquidity-cash-flow-bridge/references/SCHEMA_REFERENCE.md",
+          "bytes": 4043,
+          "sha256": "827d1eec9016b55c24cf6b38880b98e47ad9a70ed4b51e5667c7930214a8e6a1"
+        }
+      ]
+    },
+    {
+      "skill": "cp-2e-macro-fx-hedging-sensitivity",
+      "module": "CP-2E",
+      "file_count": 15,
+      "total_bytes": 79495,
+      "profile_sha256": "7b8948cea8be244b0fe23bff1839c0a3984dcfeec900cf72fe47d782efb40b72",
+      "files": [
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/SKILL.md",
+          "bytes": 7360,
+          "sha256": "2f18b3e3884ea8b842a61a692ddac3c7f8c9188310d4f530fe6d6929b1e2c0a1"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "c201be04c953f5627fea09987ee2f80540add1fcef368184a74de359bb8e8db6"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/MODULE_RUNBOOK.md",
+          "bytes": 13129,
+          "sha256": "58e570e145d9a32edd308a5620824630c20b85800503b5dcc9e549f605bccd60"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_01_MacroHedgingSourceGateReadiness.md",
+          "bytes": 1910,
+          "sha256": "74e6eeb489ad3a8ece966778a51fc839b9b6312fd768404f4ebd59755cc82591"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_02_DebtRateExposureRegister.md",
+          "bytes": 988,
+          "sha256": "71696def39f16b0ca69b47d88c60e4820e32f4fc90536f3dd0a0878769dcaf45"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_03_HedgingRegister.md",
+          "bytes": 1347,
+          "sha256": "28fc3056265253758e40aae3168834dfece8727026e562092b4f57927f58f586"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_04_UnhedgedFloatingRateExposure.md",
+          "bytes": 1030,
+          "sha256": "56748b9b9338fd9a401693e415d61b258eb95da9560ac74d927ee1113718076b"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_05_BaseRateSensitivity.md",
+          "bytes": 998,
+          "sha256": "69f44b0babf8bfd90f3694ef83940204897fce3a12d90380286db728947450d4"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_06_FXExposureMismatchRegister.md",
+          "bytes": 1204,
+          "sha256": "aad63e8f6b0ed7e67bc39b0f3d1980f03d59e8255ee0ad3fdc1ec2e4a48ca00b"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_07_CommodityInflationSensitivity.md",
+          "bytes": 1359,
+          "sha256": "7164f6bd8874f3d5129d7484e7e10b8ab50f7c2991d50c630c37b5ffe688d079"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_08_MacroSensitivitySummary.md",
+          "bytes": 1556,
+          "sha256": "521d24ff48b3a7690503c427659fc1d6df9e060591d133af8060ba7a09c1ac2e"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_09_GapsLedger.md",
+          "bytes": 1136,
+          "sha256": "cf3844e6dc8392c9f6b27e362d49376c648a655e9403ed523f5139fa40d4dcac"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_10_OverallMacroHedgingView.md",
+          "bytes": 1286,
+          "sha256": "9a9feceefc2ee3882e3d11b6458d30d69c82b71c075a594731b26659998c75dd"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/REF_CP-2E_ExposureLabels.md",
+          "bytes": 1469,
+          "sha256": "95d59bd4d52a47e78009f5070fb73e87c768389528dcaf21990af0fe8a2c868b"
+        },
+        {
+          "path": "skills/cp-2e-macro-fx-hedging-sensitivity/references/SCHEMA_REFERENCE.md",
+          "bytes": 4502,
+          "sha256": "1c336283c578a051f34514fe6d6dbdb175f79a126fc3796539562c79027d8f5b"
+        }
+      ]
+    },
+    {
+      "skill": "cp-2f-esg-sustainability-credit-risk",
+      "module": "CP-2F",
+      "file_count": 12,
+      "total_bytes": 64043,
+      "profile_sha256": "f1737b834e76c6334fa82f9887c968bbd1e4a5e718d9c91f24dd82afef0f14bb",
+      "files": [
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/SKILL.md",
+          "bytes": 7088,
+          "sha256": "880dde5dbed8e838d4bf9c96051878274d87d5ad52eb8752227f36314c2cf35a"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/CANON_RELEVANT.md",
+          "bytes": 33841,
+          "sha256": "16567139de12ffb7c92bac45017588cc3311fb89217a3617b8e8b65786c949fc"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/MODULE_RUNBOOK.md",
+          "bytes": 11232,
+          "sha256": "fbc34b07f0822db85fa3e8ac898b2655f3addec178fce38361055cdd1d42a681"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/REF_CP-2F_01_SourceGateESGDisclosureInventory.md",
+          "bytes": 1852,
+          "sha256": "34c6624a806fe860549706e215d7c7cc4fb77c093cf722479933431d98ad590a"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/REF_CP-2F_02_EnvironmentalTransitionExposure.md",
+          "bytes": 989,
+          "sha256": "9dacf335f0a4d311d648c854875402725da84cbdca582e7a7605f47e2465fff7"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/REF_CP-2F_03_SocialOperationalExposure.md",
+          "bytes": 789,
+          "sha256": "aaa0846e594cd13c90a502739c3e370e2d43eca0e595489ccde37b7fb41d5291"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/REF_CP-2F_04_MaterialityClassification.md",
+          "bytes": 887,
+          "sha256": "555e1b0184e8ed190b46e670acbc246804a895047a13d4f657b6ba7d10a79cc5"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/REF_CP-2F_05_SustainabilityLinkedDebtMechanics.md",
+          "bytes": 1212,
+          "sha256": "ffa8237af44cf7150bed0ada01dd7f160aa2e8af5313b4ff4ecd75476b12ecf2"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/REF_CP-2F_06_RefinancingCostOfCapitalLinkage.md",
+          "bytes": 927,
+          "sha256": "0f61027bd423863c192430383e226ce5a70573c3bd7f87d5c5dc7c855b38a4da"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/REF_CP-2F_07_CreditImplicationSynthesis.md",
+          "bytes": 1153,
+          "sha256": "20fa7a73390f58dc3d7770e1aabecae69e90a9a13b7e38c7f57b75271599fff9"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/REF_CP-2F_08_GapsLedger.md",
+          "bytes": 864,
+          "sha256": "68d41f18d508079c8ed2498fef3ca84f8f771dfa91729b784bc03590a510439a"
+        },
+        {
+          "path": "skills/cp-2f-esg-sustainability-credit-risk/references/SCHEMA_REFERENCE.md",
+          "bytes": 3209,
+          "sha256": "c5caea39573165966ab60e1113b7bcbd150b059086e31edc335b7c4170e43ac1"
+        }
+      ]
+    },
+    {
+      "skill": "cp-2g-forward-credit-model",
+      "module": "CP-2G",
+      "file_count": 12,
+      "total_bytes": 61116,
+      "profile_sha256": "b8c71229e7e249e504e5375dcd8bb22207cacf74d9879b8cd82c77f97ce5da39",
+      "files": [
+        {
+          "path": "skills/cp-2g-forward-credit-model/SKILL.md",
+          "bytes": 4913,
+          "sha256": "4f96dd095afbf121acbcd84f29eb6d024291eb912694dbc6a0998adbba3c0617"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "6485c454fe2c030752e3d4e1ac5c8dc1b662c7f654492339ed54ce9e2cd304d6"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/CP-2G_ForwardCreditModel.schema.md",
+          "bytes": 2106,
+          "sha256": "2f74553e4f9f0976717b03b17647a3c9b219ac99b75fcb45fa3a2a36ed774289"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/CP-2G__ForwardCreditModel__payload.schema.txt",
+          "bytes": 682,
+          "sha256": "efb9d75dc131cdf140a9bc2b625214bc397b6ed8819d5e14236dce52e4f47472"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/CP_MODULE_PAYLOAD_BASE.schema.txt",
+          "bytes": 2832,
+          "sha256": "d49eb6e000d680193129a1b83d5a0e9feaa9429162ffca234efd432772b146f6"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/MODULE_RUNBOOK.md",
+          "bytes": 5071,
+          "sha256": "58e8d3820a1ba34a9723860193cb679d49b2df8562fe3114f8af3d240e29c57f"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/REF_CP-2G_A_SourceGate.md",
+          "bytes": 948,
+          "sha256": "6dfd2e39d5a3d6cea1d9b19710f65d43435794f1c3ad2e0b563036b8ede8b07b"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/REF_CP-2G_B_AssumptionAndDefinitionLock.md",
+          "bytes": 879,
+          "sha256": "798cd2f63c772dc62bccd887a0540597c04f48fa578dcbfabb03c76892f5db18"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/REF_CP-2G_C_ForecastEngine.md",
+          "bytes": 904,
+          "sha256": "ef9e498ab0aa62cbe0dd9277fa23c11c9a006bff1264e91b6b948ec5d1ad3f72"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/REF_CP-2G_D_ScenariosAndBreakpoints.md",
+          "bytes": 820,
+          "sha256": "cec814e58258c85559f991b1bf4a47d2fc757b181542f4f291be2c206757fc92"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/REF_CP-2G_E_CreditHandoff.md",
+          "bytes": 743,
+          "sha256": "7f2c4684b5c1b45daf957cbc1add178eb8dc0a0fadb33ab78e06baf53db042ab"
+        },
+        {
+          "path": "skills/cp-2g-forward-credit-model/references/REF_CP-2G_F_OutputAndQA.md",
+          "bytes": 997,
+          "sha256": "e422507b82971a01376018a0beb7a52724de79e5ac03301a7428c486ac9d39d7"
+        }
+      ]
+    },
+    {
+      "skill": "cp-2h-ratings-migration-trigger",
+      "module": "CP-2H",
+      "file_count": 12,
+      "total_bytes": 62625,
+      "profile_sha256": "e8ddcb6533a4dd5d1978e4ba4a892018d69e6c736f58299da6ce8edaefc626ae",
+      "files": [
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/SKILL.md",
+          "bytes": 4913,
+          "sha256": "c1b3b968d1a6904f08e1682bf3a6e3223913137e8ce9dce2f14bc4b7c3b0487c"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/CANON_RELEVANT.md",
+          "bytes": 41963,
+          "sha256": "2d1c40f29a857f4a3e902671eb60cd72d09ba1a3fe104a218f70ad0ea321aa41"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/CP-2H_RatingTransition.schema.md",
+          "bytes": 1993,
+          "sha256": "f674ef714e27e332e5247b392ca895e646a5893d8d194ee7dedecab87f713a3e"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/CP-2H__RatingTransitionCase__payload.schema.txt",
+          "bytes": 683,
+          "sha256": "e7be348514e164feaf8c1d5f3587cd9ad852a538c4acd24d9ebd3306e7c60adf"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/CP_MODULE_PAYLOAD_BASE.schema.txt",
+          "bytes": 2832,
+          "sha256": "d49eb6e000d680193129a1b83d5a0e9feaa9429162ffca234efd432772b146f6"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/MODULE_RUNBOOK.md",
+          "bytes": 5139,
+          "sha256": "36a148ddf260de9bcbba7ce05e70e04e59423c6734a76fdab1267c92781facc7"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/REF_CP-2H_A_RatingEvidenceGate.md",
+          "bytes": 862,
+          "sha256": "9b19ae7a9d5ef3efaaae9b620532b55a3346b6b79bda600800522298ebc22ccc"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/REF_CP-2H_B_MethodologyAndMetricBridge.md",
+          "bytes": 840,
+          "sha256": "037f99ed3812c521e73c6c37a187638a75af931332a595e8a705291d85a5fb80"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/REF_CP-2H_C_TriggerHeadroomEngine.md",
+          "bytes": 861,
+          "sha256": "4b0405b6093444d68420289c55562d168ce00be951704827edecb21b0a06f717"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/REF_CP-2H_D_MigrationAndDivergence.md",
+          "bytes": 805,
+          "sha256": "4a5142ad82a12d3f110b18e7a58f1a6fab2c6dcf05a1fb8e59d0ac605126c290"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/REF_CP-2H_E_CreditHandoff.md",
+          "bytes": 800,
+          "sha256": "c0282df00835630eca9190c951d0150bd30db09d920982c3271160c89cf6c6ea"
+        },
+        {
+          "path": "skills/cp-2h-ratings-migration-trigger/references/REF_CP-2H_F_OutputAndQA.md",
+          "bytes": 934,
+          "sha256": "98a4eab7aac82cdb1e7d24c24b1bec834c7aff55f6c454dc4e8a8fdf5afdf557"
+        }
+      ]
+    },
+    {
+      "skill": "cp-3-relative-value-security-selection",
+      "module": "CP-3",
+      "file_count": 17,
+      "total_bytes": 87585,
+      "profile_sha256": "9320f045ae7bb1dc5f6daf13dcf60646af8bfddffc961292efa09e1aba3e5060",
+      "files": [
+        {
+          "path": "skills/cp-3-relative-value-security-selection/SKILL.md",
+          "bytes": 8024,
+          "sha256": "2f8b43ec8ab2e8951d306b8ec82de12c10c7bbc7b374f6afc71a0cd4d2356614"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/CANON_RELEVANT.md",
+          "bytes": 40220,
+          "sha256": "0a6b8bd3b3195148b5620c8eead7666fcb72e0727ba566bd4808d5b876937e95"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/MODULE_RUNBOOK.md",
+          "bytes": 12491,
+          "sha256": "a8ef1782aa550c98db88f3863a3785d802325d352b227aabc40447cf0fa82bf6"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_01_FileGateSourceQuality.md",
+          "bytes": 2690,
+          "sha256": "5ba8024b80cccd368f8655bad3f76a9da817a2e6939d27493c3e7f308bc6337f"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_02_FundamentalCreditSummary.md",
+          "bytes": 1132,
+          "sha256": "8250784b5ff1ac4dc72cc879f4f226e50713758c85f0acc3bc72aa34aec84678"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_03_IssuerSecurityScorecard.md",
+          "bytes": 1525,
+          "sha256": "1f7c415352600c6135491f2ca41c4095749dd63895773e6f622cde977d005d47"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_04_OverrideReview.md",
+          "bytes": 765,
+          "sha256": "e8249931607ba80b911a93a73eaa37d068866b35dd24b99639e23ca577b7c549"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_05_RelativeValueTable.md",
+          "bytes": 1205,
+          "sha256": "c10e1a16b6fb1549cfe6f59ced966c36a33ed42aae79ce39e22b48f8e09a480a"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_06_FundamentalValueMatrix.md",
+          "bytes": 1002,
+          "sha256": "2e6ddf2f4a82842cf4552fbb04dd356e047411b03f224b69aa1587e1399ea41f"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_07_FinalRanking.md",
+          "bytes": 1008,
+          "sha256": "bf28dff8795d7d6eae4a461f8f5b90d77a35fd08997ae9fdcda455024c4efd45"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_08_SecuritySelectionConclusions.md",
+          "bytes": 1161,
+          "sha256": "1cbf87d6194f5ed415b40eb3b5b7522f2aa3adb75012ed83352166375f8251d8"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_09_MonitoringTriggers.md",
+          "bytes": 743,
+          "sha256": "3e124b7eed3bc53a0b21d3ce64386a7c37a1e2462b79928c1931c3a5cbe1de3a"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_10_GapsLedger.md",
+          "bytes": 999,
+          "sha256": "5cdc488516e4befa9378086833041c3692e756866e24c92b42c59224a6cbfbb1"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_11_FinalCreditRVView.md",
+          "bytes": 1767,
+          "sha256": "eb9fa10a78fc450d3b38f0879902e7cd36b1174baf7f48f6e73d347162ba9824"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_ScoringAndModes.md",
+          "bytes": 3057,
+          "sha256": "22200f2a753157563fc4e935373b1ad29374056ea070d5f27cf4a50b95bb4353"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/REF_CP-3_Sector_RV.xlsx",
+          "bytes": 4835,
+          "sha256": "ea7e76a2b05134c1746695c643b3cf5ac2c27fc7d1886704c5f086a5a120c69a"
+        },
+        {
+          "path": "skills/cp-3-relative-value-security-selection/references/SCHEMA_REFERENCE.md",
+          "bytes": 4961,
+          "sha256": "e5e142c3e6a6c23753372cd2293cef14097a5dab5064739c565d6b3c67534cfa"
+        }
+      ]
+    },
+    {
+      "skill": "cp-3a-recovery-instrument-preference",
+      "module": "CP-3A",
+      "file_count": 17,
+      "total_bytes": 84440,
+      "profile_sha256": "31492aa2cafee52a519c5325c79b9f15a6f189d2ad488ba79366628570ba28bb",
+      "files": [
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/SKILL.md",
+          "bytes": 8061,
+          "sha256": "0d29ba324c2b24e03f7dc691e75852be40101839789162e9b65c69fa36112e57"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "8a32a702d6731e1978bf21e579371b4f6c41e6f107556bbfe4dcf192115235f4"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/MODULE_RUNBOOK.md",
+          "bytes": 12359,
+          "sha256": "287b3c201408cb0e814995612aaa96c6617f44c04f2f359d7f1dfafffdd9efb9"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_01_InstrumentDataGate.md",
+          "bytes": 2117,
+          "sha256": "cac7a894657c3c8e254005a93e247c0caef6f3f78e95a956798a58641e62f2b8"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_02_CapitalStructureDashboard.md",
+          "bytes": 976,
+          "sha256": "6543f58efe4f92e8cd7f91045504cc92b8018cb4bf2e65ab568897b93d7449c2"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_03_InstrumentMatrix.md",
+          "bytes": 965,
+          "sha256": "25cc8436622439420e86b59e81a2c058cb061d8e6621cffde2af9ec7011198da"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_04_StructuralPositioningLog.md",
+          "bytes": 1174,
+          "sha256": "a24911ac54f5c0d33fdf137e7ceb65a2cf4e3f06ca16e80f45a351aab32af114"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_05_LegalCovenantLMEOverlay.md",
+          "bytes": 1276,
+          "sha256": "7df3289490e6000f3ace630f1df8c27db5b3750d5c084e979bff8d26fba3f6c0"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_06_RecoverySensitivity.md",
+          "bytes": 1332,
+          "sha256": "144b55ed2e06c94248dd40149b668a8654503a229a2c2801c47a9e7b1ed8d30e"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_07_CompensationCrossCheck.md",
+          "bytes": 1117,
+          "sha256": "b6cfbb19e588da381bed5209d10253a0d725a4a748bd9a51291b003ea9e663f4"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_08_PreferenceDecisionTable.md",
+          "bytes": 1190,
+          "sha256": "336c8ef6e1dfda2a155bb551bb8097f15e9cf28de6867576fd016068b9680238"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_09_RankingTradeOffSummary.md",
+          "bytes": 1009,
+          "sha256": "a8ade5690a2be0dd533670cafff5d2c11194b33de7b391349d06ed1ff2a6ed42"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_10_MonitoringTriggers.md",
+          "bytes": 1017,
+          "sha256": "caed17e34a39e61e56f370d3ebb339390b11cb02919122dfd12ac178b31947ce"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_11_GapsLedger.md",
+          "bytes": 1053,
+          "sha256": "1bd824513ed6db272e85a4c78253f58faa0c12de7c9f1b2a6df28b449cc7bf03"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_12_OverallInstrumentPreferenceView.md",
+          "bytes": 1405,
+          "sha256": "5597a0ccfa9b46e496c62556a91c52d35fb69c561f179ca8f1b3b9cef64b0d95"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/REF_CP-3A_TaxonomyAndLabels.md",
+          "bytes": 4207,
+          "sha256": "32185565bee5f1c0352b01d75b0a297c8d306838624456216eae1c4e2263bf9b"
+        },
+        {
+          "path": "skills/cp-3a-recovery-instrument-preference/references/SCHEMA_REFERENCE.md",
+          "bytes": 4961,
+          "sha256": "1f5485d69cc5eaa368e813505e9653e6eea1b0aa75b95ab5f0613b8d837ea901"
+        }
+      ]
+    },
+    {
+      "skill": "cp-3b-portfolio-fit-position-sizing",
+      "module": "CP-3B",
+      "file_count": 16,
+      "total_bytes": 88611,
+      "profile_sha256": "917539982c6584115f45c4219822e99164d711890b5802a81fc1a10e078138b3",
+      "files": [
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/SKILL.md",
+          "bytes": 7569,
+          "sha256": "ad2e5ce65c0470178e24ca4731f2ba78c4041015b44c6378f41bddff166cff23"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "f950e2b91bbff2735ae5ac8b836114f7eccba0b5d5b983ff9e45b14ba3b1c4f3"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/MODULE_RUNBOOK.md",
+          "bytes": 14103,
+          "sha256": "439af1875dd6cefd5edee6f38cb5eb98c474e2448b4965a25c3a234064a27870"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_01_PortfolioInputGate.md",
+          "bytes": 2380,
+          "sha256": "8ca9ced721d5251e5861328fcb2c13467ecbd18324af9d726e58bf02d8ecbb3e"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_02_PortfolioFitRegister.md",
+          "bytes": 1255,
+          "sha256": "28f2986718b380942e5a2458dd88b1617f078b1e694643d6e330544edf6c12b8"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_03_PositionSizingPostureTable.md",
+          "bytes": 1424,
+          "sha256": "30ffdb11963ef2eb01dbb09a6be2d35febd81788989cf5d3e92508b37a1f6c12"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_04_RiskBudgetFlags.md",
+          "bytes": 959,
+          "sha256": "1b69ed82ced89b9187906f4bbbcf02a6978dfb824bf4ab6bdd70e6eed372b0c8"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_05_ConcentrationCorrelationRegister.md",
+          "bytes": 1259,
+          "sha256": "244ba17bd032f6b93ca4463deea12ecaeb1ca58b804d6c0c9a99a996a602ff94"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_06_LiquidityImplementationAssessment.md",
+          "bytes": 1083,
+          "sha256": "cbe329c5d083128802ea8d89e1df651657ed3b25c89d6123d85205fbb4d5ad25"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_07_DownsideBudgetRecoverySensitivity.md",
+          "bytes": 1267,
+          "sha256": "b28de17104a9cb403fd0ebec834ed8d6344427d2b641a1aead61ec90982c1c8a"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_08_MonitoringAddTrimTriggers.md",
+          "bytes": 1069,
+          "sha256": "2d8fdff595a2afabe684fb5e59563956d30eaa1ef6694d4d493c8e17ad7b9770"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_09_GapsLedger.md",
+          "bytes": 1060,
+          "sha256": "ef8ac3c63e2a140129f1f32718439d21bb6dfa4c04be3d26d0e033b88fc74a80"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_10_OverallPortfolioFitView.md",
+          "bytes": 1705,
+          "sha256": "b50d842318dd064c586b5c437551450ec64c2d3b31551124216d1c2245acdece"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_FitAndActionLabels.md",
+          "bytes": 956,
+          "sha256": "4fc3b94faf05fe403d39c882cd01b598e8a77093594c9b2f8a2ee393fd4cddfc"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/REF_CP-3B_Portfolio_Constraints.xlsx",
+          "bytes": 7411,
+          "sha256": "52dd945edd02184dcf6561176c56e35121cc227f1b09ea58dcae43eda6a3755d"
+        },
+        {
+          "path": "skills/cp-3b-portfolio-fit-position-sizing/references/SCHEMA_REFERENCE.md",
+          "bytes": 4890,
+          "sha256": "3b740799e41d6588996e240eb62af18241d5a3473d3d243e52d74507133f1d40"
+        }
+      ]
+    },
+    {
+      "skill": "cp-3c-refinancing-lme-risk",
+      "module": "CP-3C",
+      "file_count": 17,
+      "total_bytes": 86917,
+      "profile_sha256": "d0ab50c2358f1480fead54b08ea7570062f3fdeb358391c42c4428ed920746c7",
+      "files": [
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/SKILL.md",
+          "bytes": 7650,
+          "sha256": "e28be6902bb614a7a96c886c92a203c2bd34683e0d68b4e27b28b283db238315"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "b932c9672d2fabea596e2b2bd9cfbd23fa61ea3520415aafff11582f06d006af"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/MODULE_RUNBOOK.md",
+          "bytes": 13564,
+          "sha256": "61d0f60b2cf058f6eed83586055e9a65959dd6f48cf73a86b7adc63a854cd67a"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_01_RefinancingLMESourceGate.md",
+          "bytes": 2169,
+          "sha256": "6020b444c88a9e16b5a34d98426edfd59efc009280e78ec7265c342c709c2e5e"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_02_MaturityWallRefinancingRegister.md",
+          "bytes": 1246,
+          "sha256": "6d0ca21037a96bc63eb3892a2f5f73cd7d8b793998e57f8680b0bad679d3ed2b"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_03_LiquidityFCFMarketAccess.md",
+          "bytes": 1207,
+          "sha256": "b6b4cc9172cfdb725b1e6e5e696a031b07cb992dd297256f1a1b156d2ad97e96"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_04_LegalCapacityForLME.md",
+          "bytes": 1500,
+          "sha256": "383e697bfdf9822d01be851dc44f5c883c2502e1ef70e8582dcea98d22670f14"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_05_SponsorGovernanceWillingness.md",
+          "bytes": 1257,
+          "sha256": "2eb8bdeb3ac2d8e1ac78359b32513dc5cc9db27b46dbad7c77c94ba61f37ed43"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_06_RefinancingPathAssessment.md",
+          "bytes": 1284,
+          "sha256": "6db760b9f97d199d879fda573c747b0367d11291af74db41a6ebcae481628355"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_07_PrimeLMEVulnerabilityScore.md",
+          "bytes": 1364,
+          "sha256": "7eb58303fcbae0181a0b0ace98c0230ef052dd9b5aaa12d4026de15208d61dd9"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_08_CreditorClassExposure.md",
+          "bytes": 1280,
+          "sha256": "758ec95c1ce4853c1595a1cd2d25243077fa55fd7b36eb49694601a3aab8bf37"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_09_MonitoringTriggers.md",
+          "bytes": 1240,
+          "sha256": "380e7efae185735724151ab5318fce4da35437f17501bb61c04eabd9e8817a11"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_10_ScenarioMap.md",
+          "bytes": 1367,
+          "sha256": "ab10b25a8a792c1e0e43df03344a046a48b722a3ac969d5151f38427eacefb36"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_11_GapsLedger.md",
+          "bytes": 1059,
+          "sha256": "0d82c842e31b793aa49de14879d148959800099d202852bd836f7d32710c8aba"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_12_OverallRefinancingLMEView.md",
+          "bytes": 1382,
+          "sha256": "217bfc93ef5e8fad1c44d1158ccb31db71715e9b6518716a22ae3c5128617698"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/REF_CP-3C_PathsAndScoring.md",
+          "bytes": 4154,
+          "sha256": "4d1f1be5b0ceb51e50870a62cb4a4256c872a035fe7561cf312287e7e6dedcc8"
+        },
+        {
+          "path": "skills/cp-3c-refinancing-lme-risk/references/SCHEMA_REFERENCE.md",
+          "bytes": 4973,
+          "sha256": "1bcb2caccda16d42016683b52f264d081f0ae354d4d834396ecafcfdc10a20cc"
+        }
+      ]
+    },
+    {
+      "skill": "cp-3d-market-implied-credit-technicals",
+      "module": "CP-3D",
+      "file_count": 12,
+      "total_bytes": 62188,
+      "profile_sha256": "78ba5fc6d4a857479789c4143316bed899fe10e5e5e1af955770514b3ddb34aa",
+      "files": [
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/SKILL.md",
+          "bytes": 5046,
+          "sha256": "511bbe630338a741ea0eab8bfd18078dc1c21c9588d0e5279a5606b41b9c65a9"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/CANON_RELEVANT.md",
+          "bytes": 41963,
+          "sha256": "88cac42eb173255726693c937d5c57124a27bd73aeb4806ceaa60058709999e1"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/CP-3D_MarketImpliedRisk.schema.md",
+          "bytes": 2131,
+          "sha256": "6227c7896f7a36e404b41fef02ce2bc952cfe987645f1e35c714ba1f66f33373"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/CP-3D__MarketImpliedRiskMap__payload.schema.txt",
+          "bytes": 711,
+          "sha256": "e0ab86a9ccae711ea7ac9aecb44cb18985ad2f6e9ff7bb2b63d4fef6515b4619"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/CP_MODULE_PAYLOAD_BASE.schema.txt",
+          "bytes": 2832,
+          "sha256": "d49eb6e000d680193129a1b83d5a0e9feaa9429162ffca234efd432772b146f6"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/MODULE_RUNBOOK.md",
+          "bytes": 4878,
+          "sha256": "211c49abd551c5bb1952579f9a3157b7f8cabbb09a64de471f3617a0c15dd860"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/REF_CP-3D_A_MarketEvidenceGate.md",
+          "bytes": 714,
+          "sha256": "51864463ee0e470353acaefa04e369bb6f0c277e9f9dafb19f4bf71f58215777"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/REF_CP-3D_B_BenchmarkAndCalculationLock.md",
+          "bytes": 644,
+          "sha256": "c4aacbc69c7cef7cd9ab3846a8b29b5c9111caa65f0db3fe629137f5b2b15a9e"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/REF_CP-3D_C_MarketImpliedEngine.md",
+          "bytes": 808,
+          "sha256": "d2feb25062a670853958213c07ef15a99bf6e8d7b3c25ce54b0c2b6ae45c9136"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/REF_CP-3D_D_LiquidityTechnicalsAndDislocation.md",
+          "bytes": 766,
+          "sha256": "55dc8161b351df766f6495f21d50a4ce1bebcef1a875af15b50ea249710b6321"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/REF_CP-3D_E_CreditHandoff.md",
+          "bytes": 778,
+          "sha256": "8c4877416133790ced727a06044bb932fb34db0d85b83342cdbd5422d40b14a1"
+        },
+        {
+          "path": "skills/cp-3d-market-implied-credit-technicals/references/REF_CP-3D_F_OutputAndQA.md",
+          "bytes": 917,
+          "sha256": "cd1a55a8ccf5f568c2ac741d58d5dbd73cccff8983a8e978b8c67f2e8f1e39d2"
+        }
+      ]
+    },
+    {
+      "skill": "cp-4-legal-covenant-interpreter",
+      "module": "CP-4",
+      "file_count": 17,
+      "total_bytes": 97207,
+      "profile_sha256": "c3b91427ec9e411b74f4b4e2099fce59c7f55778a3f7aa6ef47baec54e6fbb28",
+      "files": [
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/SKILL.md",
+          "bytes": 7710,
+          "sha256": "4f0ce191d4fb3a61f80609d32b7d95130230c2525c49abebadaf1b35f115815e"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/CANON_RELEVANT.md",
+          "bytes": 35582,
+          "sha256": "48370db66f4f8147170b7abb13803e949374400298eb81c3107d7d9d3e8feb8e"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/MODULE_RUNBOOK.md",
+          "bytes": 29975,
+          "sha256": "ba2acec9967f0ab58ce869857226af0c364e44ec4d4e8d3d7075d722ac346dfb"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_01-02_LegalSourceGate.md",
+          "bytes": 4459,
+          "sha256": "27c893054495a41184fab69a6ce4c1adaf2da42e2d158f59d7d4f7c963e03345"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_03_CovenantFeatureRegister.md",
+          "bytes": 1121,
+          "sha256": "d9cf37f5c60f95c2f72a908ff62cefc89bbbc449f09f243e7d532f0f526841e7"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_04_EBITDADefinitionsRatioMechanics.md",
+          "bytes": 1349,
+          "sha256": "53cfe45a43cda98357e140d9ba9d02bf0e3ee28105a7c8fbb48c9f39b3db15a7"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_05_DebtIncurrenceIncrementalMFN.md",
+          "bytes": 1278,
+          "sha256": "4f68a0f63698ecb3da29901ee91c56b49cb20cd3d43d0f50417c76fea21deb79"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_06_LeakageRPInvestmentsAssetTransfers.md",
+          "bytes": 1240,
+          "sha256": "d6ea74cc157eaf2ac9480275b69c9a3a28aea8df0d6078ef4865328bcd20c040"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_07_CollateralGuaranteesStructuralSubordination.md",
+          "bytes": 1224,
+          "sha256": "d106cdc89eafa57c14a3e3c4a86c1380c5925389108001864a27af4441552c1b"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_08_EventsOfDefaultRemediesAmendmentRisk.md",
+          "bytes": 1184,
+          "sha256": "c7b455bb0da9a4b3b831b3958b63e9f7e0909835f9800d5ef1a30e5901a2e940"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_09_PDversusLGDRecoveryTranslation.md",
+          "bytes": 1063,
+          "sha256": "93d5441a303dc2019d888e34e52f4cf1f5dacd795d97571e93765d909e490ef4"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_10_MarketNormCovenantReviewComparison.md",
+          "bytes": 1380,
+          "sha256": "6adecd83e0a28a991431356ab41f0b455040298e1ec0446102d99f3ea1eb7881"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_11_CovenantAggressivenessScore.md",
+          "bytes": 1381,
+          "sha256": "8167032bae537e114e475980f8668e80fbbd4553b8171f7edb06057dd515f07f"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_12_RedFlagsMonitoringTriggers.md",
+          "bytes": 999,
+          "sha256": "a314075b7eeae3f598028d8af73f22ce09dc6e18823423f87aeba74ea6c6ee3f"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_13_GapsLedger.md",
+          "bytes": 1158,
+          "sha256": "1b208d42ba4bfe6189729d4bda96824169c0149762dff0a9659fddedba47a10b"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_14_OverallLegalCreditView.md",
+          "bytes": 1593,
+          "sha256": "a8de2c4a2e11515e52e22e863bdfd1f6925d18a223c16cddd7d3b2f8862b4ae4"
+        },
+        {
+          "path": "skills/cp-4-legal-covenant-interpreter/references/SCHEMA_REFERENCE.md",
+          "bytes": 4511,
+          "sha256": "28fb52ee9b6880afbe5d8e2986b1f31111111a5e2f18d27cb9cfec1386215260"
+        }
+      ]
+    },
+    {
+      "skill": "cp-4a-covenant-capacity-calculator",
+      "module": "CP-4A",
+      "file_count": 18,
+      "total_bytes": 87149,
+      "profile_sha256": "a7c50f511d3feaeabca8aadbf536f40a00ce8d1cd383f4ea3b74dc861f1c0c84",
+      "files": [
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/SKILL.md",
+          "bytes": 8105,
+          "sha256": "6f41b177b80da2098b7e1126e906526f2fd3b09577471d55920284ea8b73dd43"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "2c6c0895877ef01a13830f170057efe2c1cfab67994085856e25699c826740e7"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/MODULE_RUNBOOK.md",
+          "bytes": 12748,
+          "sha256": "a5148837f24e7edfd832013f374414b9127ae7ebd383f951ada6587ffb44e2e4"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_01_CapacitySourceGate.md",
+          "bytes": 2145,
+          "sha256": "71409cc128cf03ca323ccca30c4f67befee187c3ef79b82c291bb6008cfba4b6"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_02_ControllingCapacitySourceMap.md",
+          "bytes": 964,
+          "sha256": "ce98b9a7364b163276dca1295d2c33e9db8263861f1230e1c12045e2af0760dd"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_03_CovenantDefinitionRatioMechanicsRegister.md",
+          "bytes": 1194,
+          "sha256": "9b918e56d17f36566e288ea59749a7b15816f90499878d9be1fdd6e4b53d94cf"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_04_HeadroomTable.md",
+          "bytes": 1249,
+          "sha256": "fa7b402d79b071f9c41c1f93d43f13a5d505f4fba1299f22bf501ae303adcfa7"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_05_CapacityRegister.md",
+          "bytes": 1469,
+          "sha256": "7ecc9cf7830c54baa82913cb2c97a1b0b6a1a6f455add80824582404a6864060"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_06_DebtLienPrimingCapacityAnalysis.md",
+          "bytes": 1061,
+          "sha256": "135900c49a51b5e7d91778a45949d21cc73d3182641b753fe05b66dcaf7f17e7"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_07_RPInvestmentAssetTransferLeakageAnalysis.md",
+          "bytes": 1088,
+          "sha256": "c8b7ea66c05c077d7b46e1c06d73219e7e4c28072e811291cab72238ae6f56a2"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_08_EBITDAAddBackCapacityInflationAnalysis.md",
+          "bytes": 1123,
+          "sha256": "63ef0e0df96d11af9098d7798cf67b860c31b5f89dfc01f6805561675fa0fbf8"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_09_LeakageBasketFlags.md",
+          "bytes": 931,
+          "sha256": "faf1d4f31685d6a8c6e9b475acfc4beb5e0c05d6b6e7128fd9668a83a6df03b8"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_10_NearestPressurePoint.md",
+          "bytes": 1375,
+          "sha256": "c9387f47da838e808bc1ab9a93cc1641fd0ab338b9ad29c33294e55e44dac6bb"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_11_CapacityRiskPrioritizationMatrix.md",
+          "bytes": 1007,
+          "sha256": "30f3a1bc9a15c472ceb4c29ed9bb93fce0b0b71e1276758a314ed83d63e81830"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_12_GapsLedger.md",
+          "bytes": 1384,
+          "sha256": "a74aeb0714c4b772b7ce7d4bc7aee6eaa0c5bd85a64587d60eeada5571337419"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_13_OverallCovenantCapacityView.md",
+          "bytes": 1488,
+          "sha256": "b4bbdea25e3682853f30fcad5d78635d44bced523d31c62af3723c095a43ace7"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/REF_CP-4A_CalculationRules.md",
+          "bytes": 4830,
+          "sha256": "b37ef5d43fba4a9f1da5799aab19208f0eae527113cb49abb8a0bf30996f07d7"
+        },
+        {
+          "path": "skills/cp-4a-covenant-capacity-calculator/references/SCHEMA_REFERENCE.md",
+          "bytes": 4767,
+          "sha256": "089f2957f333ffa4a6f733cb7bf6ace3874ea027a1ee21c5f6afeeec7f98bca3"
+        }
+      ]
+    },
+    {
+      "skill": "cp-4b-restricted-group-guarantee-map",
+      "module": "CP-4B",
+      "file_count": 13,
+      "total_bytes": 73745,
+      "profile_sha256": "63db38e27433c4784c4873eec6c60a980b41f18439a1e25ee77f50af0a27da49",
+      "files": [
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/SKILL.md",
+          "bytes": 7172,
+          "sha256": "dea3b3ff804e90b2a43db8910c4d590959cede012948a016a395778b6f1d2bd2"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/CANON_RELEVANT.md",
+          "bytes": 35583,
+          "sha256": "85b2d295ae75cfca233a6ed85cd36ef714ee5e3314ebc44a2ca489f474ddca7d"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/MODULE_RUNBOOK.md",
+          "bytes": 13561,
+          "sha256": "15d02b8fe7f409f170f279a7c3fc6da99b07749345176d4aa25600b612a9d9c6"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/REF_CP-4B_01_SourceGateEntityEvidence.md",
+          "bytes": 3137,
+          "sha256": "82a89f37d840aeb501a8ce4ed4ba2a986321df6f8e4f0a651f342b0a501c2e87"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/REF_CP-4B_02_LegalEntityPerimeterRegister.md",
+          "bytes": 1506,
+          "sha256": "123e4f5d4cacbe83470e59e99df815a4d6013867fb42b3100f68c9e48539834f"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/REF_CP-4B_03_GuaranteePackageMap.md",
+          "bytes": 1231,
+          "sha256": "9d7ff60538d7845624f02d7fe6b122897243fbfe0166c8bab2e03d32aec302b9"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/REF_CP-4B_04_SecurityCollateralMap.md",
+          "bytes": 1228,
+          "sha256": "ce53701008feb843fbba7a64d37a0f4b8b2ce3ddcec5cc5f5ad6472960bb4ec8"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/REF_CP-4B_05_StructuralSubordinationAnalysis.md",
+          "bytes": 1473,
+          "sha256": "c6ebd8caefef9c1b1f6195e5e8fbec6d317b4e0d41f72290800a03f868a93108"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/REF_CP-4B_06_LeakageRouteRegister.md",
+          "bytes": 1453,
+          "sha256": "274b52f1ab51d506bfa26085e4f441f82434dd798f1092f0120034af2e693652"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/REF_CP-4B_07_TrapdoorUptierVulnerability.md",
+          "bytes": 1446,
+          "sha256": "641f8062316379b19269f695e9fe28dbfe07983b9e478aa15231e2722d472eff"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/REF_CP-4B_08_GapsLedger.md",
+          "bytes": 1165,
+          "sha256": "e78dfd3566a0b3e889ffb6a7e9d11880bcbc1340cdd46b4c784085d099a6d1b9"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/REF_CP-4B_09_OverallStructuralView.md",
+          "bytes": 1404,
+          "sha256": "e35bb80593a0ff44236ccf3440047a4fe3946649464c74f387796f4666daa0a4"
+        },
+        {
+          "path": "skills/cp-4b-restricted-group-guarantee-map/references/SCHEMA_REFERENCE.md",
+          "bytes": 3386,
+          "sha256": "757be4b66cd77ac795b8f62ca5aa34dfd882d08cd4d5676373d869da8745b967"
+        }
+      ]
+    },
+    {
+      "skill": "cp-4c-restructuring-fulcrum",
+      "module": "CP-4C",
+      "file_count": 12,
+      "total_bytes": 62729,
+      "profile_sha256": "2c7c97d54b37abc5b5c394ff62ae9fc567f609663885a058728ac07f81dad428",
+      "files": [
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/SKILL.md",
+          "bytes": 4979,
+          "sha256": "15f3cb6a4ca34ad9393bafb7e13725e5aba238b86aa7a64352568aaf91dd8831"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/CANON_RELEVANT.md",
+          "bytes": 41963,
+          "sha256": "33f39d9988c1181abb035f247e855d152da946ffbbce0cd70b74957ab65bcba9"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/CP-4C_RestructuringScenario.schema.md",
+          "bytes": 2095,
+          "sha256": "70ae77f77f30bf95a89ad6632c2f0dd458f14507ec4c92c3ee433128eb7adb49"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/CP-4C__RestructuringScenario__payload.schema.txt",
+          "bytes": 671,
+          "sha256": "4e15265ffb3656fce80d1c294a5d5828fc0b212c12331d3ccbbc34b703d940fd"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/CP_MODULE_PAYLOAD_BASE.schema.txt",
+          "bytes": 2832,
+          "sha256": "d49eb6e000d680193129a1b83d5a0e9feaa9429162ffca234efd432772b146f6"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/MODULE_RUNBOOK.md",
+          "bytes": 5206,
+          "sha256": "e385ed3b885f9cd95bb402a11e9f19b0c3fe6636292f652ab088eaeb0019f5eb"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/REF_CP-4C_A_DistressAndJurisdictionGate.md",
+          "bytes": 831,
+          "sha256": "3adc814d4834efbe1a8b2bf9d4bade2670fc5383f69380317fdc662c8a6d322e"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/REF_CP-4C_B_ClaimsValueAndPriorityLock.md",
+          "bytes": 836,
+          "sha256": "64795cea1fed78cb7978451ed57ce56a13660bbffc53b9a0feaa116594a5c9a6"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/REF_CP-4C_C_RestructuringPathEngine.md",
+          "bytes": 768,
+          "sha256": "4e21d69e756536e0ae3d658de1ab39525071ef764ccd329bdf4607881f3dc852"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/REF_CP-4C_D_FulcrumAndRecovery.md",
+          "bytes": 781,
+          "sha256": "43ac849547c39a9e394ab2131820656907aedccbd1ee6b33a2bcd8da5ba495e1"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/REF_CP-4C_E_DecisionHandoff.md",
+          "bytes": 734,
+          "sha256": "63bc2730c865b9122d35c2783a08920b51a25f4276bf40000a3130789b9fb61c"
+        },
+        {
+          "path": "skills/cp-4c-restructuring-fulcrum/references/REF_CP-4C_F_OutputAndQA.md",
+          "bytes": 1033,
+          "sha256": "53aa2ae87ba6b0788378de6c7fe2b65b9ab7f2c2bd4a56790d110fc8dc2aba99"
+        }
+      ]
+    },
+    {
+      "skill": "cp-5-evidence-trace-validator",
+      "module": "CP-5",
+      "file_count": 13,
+      "total_bytes": 83447,
+      "profile_sha256": "fabf2b6bb4ab336ad77037000d002d118d9a84a50580c4a571abd8737b232dac",
+      "files": [
+        {
+          "path": "skills/cp-5-evidence-trace-validator/SKILL.md",
+          "bytes": 7078,
+          "sha256": "90e039714133aff265d564e28a17cfceaf9594a21cf2d67de02377e25dc446b9"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/CANON_RELEVANT.md",
+          "bytes": 47789,
+          "sha256": "0a917fe42218744243c92c649bcb6330fbdbf53f7eb5c15d89b0bf3b9ddf5462"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/MODULE_RUNBOOK.md",
+          "bytes": 13058,
+          "sha256": "e07add46018dc9b0611f956fff121f89c2866476f2b4139f9c65194f3f7d4f0a"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/REF_CP-5_01_TraceabilitySourceGateReadiness.md",
+          "bytes": 2501,
+          "sha256": "e744959e22d20dbe7c2b1549d5681dc0ef5c5439f4f24538bf9da8ba1cb4c601"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/REF_CP-5_02_Top5MaterialCreditDrivers.md",
+          "bytes": 1087,
+          "sha256": "ab4f352c1fb6c40cb9cd202ca36b343022b71aa9a59f62c41b2174734c1b3b78"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/REF_CP-5_03_TraceabilityMap.md",
+          "bytes": 1305,
+          "sha256": "aa91a4f1ffdb17b08803166d9f67c66e5c5e389e26d9c303e4aa03e731bafd79"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/REF_CP-5_04_SourceLineageRegister.md",
+          "bytes": 938,
+          "sha256": "7dd5aed95eeb4698305636f4ef98ee117793df6bbbe0ead45bf68ae5ced52899"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/REF_CP-5_05_CalculationAssumptionRegister.md",
+          "bytes": 1053,
+          "sha256": "7ef9a7657a7bfaffc57265e5ade6b372bd8efb5d2517485307fbeacfcfb5cebf"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/REF_CP-5_06_MissingCitationWeakLineageFlags.md",
+          "bytes": 1328,
+          "sha256": "9ff718acfa9b659e190e7452f132f2f4cd0746297dddb692f7c7308ee50c6b8d"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/REF_CP-5_07_AuditabilityAssessment.md",
+          "bytes": 1039,
+          "sha256": "0a29a52c2212e7887f391f2b4360c1da2f2d680d198c9bd964db02a4a0036f1d"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/REF_CP-5_08_GapsLedger.md",
+          "bytes": 990,
+          "sha256": "51b81b3aee67e460529c9177fe160228e68930002d5b39c9f70bc7ea130ea528"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/REF_CP-5_09_OverallTraceabilityView.md",
+          "bytes": 1124,
+          "sha256": "53a0d136a5bed7d8fafb233f679dab10a19b219a6a6e7d1064c772153c43ccaf"
+        },
+        {
+          "path": "skills/cp-5-evidence-trace-validator/references/SCHEMA_REFERENCE.md",
+          "bytes": 4157,
+          "sha256": "1c164c08963466cfcd349f252dd7a9f58be83a9b16ee233cd6b79c4cd850ba9b"
+        }
+      ]
+    },
+    {
+      "skill": "cp-5a-research-integrity-qa",
+      "module": "CP-5A",
+      "file_count": 17,
+      "total_bytes": 99885,
+      "profile_sha256": "19a2700719a8ba6d7a4bdbb8ce7bcd7ab237dbfca2818364d52e13deac990728",
+      "files": [
+        {
+          "path": "skills/cp-5a-research-integrity-qa/SKILL.md",
+          "bytes": 7707,
+          "sha256": "dc01462a39ced2311b790564dae5110f8e66b4ba1a9a1430fc58a2fc9d62a39d"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/CANON_RELEVANT.md",
+          "bytes": 47790,
+          "sha256": "f812cf34f65179bed1371adb618eb10b324d2fc2f8150ee4057f0407e59774c7"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/MODULE_RUNBOOK.md",
+          "bytes": 14204,
+          "sha256": "ba854b30dc824ba8125481d5cde05313d6a4a66df88c5c17a54c4f8cbe2b00b2"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_01_QASourceGateInputModuleRegister.md",
+          "bytes": 2507,
+          "sha256": "25a3d550d9eb7eaee6ca8a959a9ad35ead8b206e6fb869d01b839f4d768c8f57"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_02_CitationEvidenceSupportAudit.md",
+          "bytes": 1323,
+          "sha256": "fe4824e7e9e6f3d42cb7f0d462df7ac49306addf08f95d5c90050b8eca135dfa"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_03_MathLogicDefinitionAudit.md",
+          "bytes": 1324,
+          "sha256": "a9eb350414b0b0448935058d5c19c45f71a84fe7d8339e07dfbe827c5113b07d"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_04_LegalStructuralClaimAudit.md",
+          "bytes": 1311,
+          "sha256": "2a2acd938c123773a2466bb589860235d651b2cd4fa32a5c53b524cc4e514f5c"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_05_RelativeValueMarketClaimAudit.md",
+          "bytes": 1147,
+          "sha256": "2f4f9428b8dc5a1e78aab4ece341adf4cf1f53e184ce0e9f5a5de86d50ab7522"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_06_CrossModuleConsistencyVersionControlAudit.md",
+          "bytes": 1276,
+          "sha256": "dfe5fb2b432716f0b5d696202b26dd30a6dd69010bd66879737bc3dc7654d970"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_07_DuplicationMaterialityCommitteeReadinessAudit.md",
+          "bytes": 1021,
+          "sha256": "08a7c6f436132e0ef7a16d230c7723a277793091111728e6261c4c4843782703"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_08_StructuredExportMasterIndexEvidenceTraceAudit.md",
+          "bytes": 2317,
+          "sha256": "074d579821505c62ddc947102124a97786575c08fe085cc696392ce0c8457acf"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_09_ConsolidatedIssueLog.md",
+          "bytes": 949,
+          "sha256": "c2065518e7ff5bb9274034a6edd64a2945f2e447da97a8ee1b82e56a88193d21"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_10_RemediationPriorityMap.md",
+          "bytes": 1067,
+          "sha256": "7efcfaa4140009a90f317ff4c454522a5c1c13939e88a122b6501a29b0e49ba9"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_11_ClearanceDecision.md",
+          "bytes": 1475,
+          "sha256": "a8aef04c969345e33c717735fe489c84006027a5d2af0bd044b50a2da52be10f"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_AuditRules.md",
+          "bytes": 5134,
+          "sha256": "bd02223359a8b91502410d377d2e3a8085200e351005baf2a52ab6e93c4c4aca"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/REF_CP-5A_ExampleOutputPattern.md",
+          "bytes": 4564,
+          "sha256": "57e86a83d66534750e1df04b6534c7a2717073ae2cdfe159670a57e8c14e3e42"
+        },
+        {
+          "path": "skills/cp-5a-research-integrity-qa/references/SCHEMA_REFERENCE.md",
+          "bytes": 4769,
+          "sha256": "58d8ad9d7f5add61a2bdaa0d1b32dc309695605e70b9f65492d43c59aefac0de"
+        }
+      ]
+    },
+    {
+      "skill": "cp-6-ic-debate-challenge",
+      "module": "CP-6",
+      "file_count": 17,
+      "total_bytes": 90839,
+      "profile_sha256": "f06532e9a9e7d20f10ba92d954c3afe2f4374788b3c29f0c27e6bccaf02a094e",
+      "files": [
+        {
+          "path": "skills/cp-6-ic-debate-challenge/SKILL.md",
+          "bytes": 7581,
+          "sha256": "833d09ed4c943f3291c05a5cd4ebbe44de09c25cdd1267155a58e4738e73fdd2"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/CANON_RELEVANT.md",
+          "bytes": 41962,
+          "sha256": "0468f11450d3ac72667b3116e6661afabb7d42fb47541c265ac70a750abb5424"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/MODULE_RUNBOOK.md",
+          "bytes": 12437,
+          "sha256": "5d5dde29cbe137caf7d4fef145c4f728dae185d531a36a4ec5dac9abe92c95e8"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_01_ICDebateSourceGate.md",
+          "bytes": 2228,
+          "sha256": "bd51f140a34cee8cae99445c9ae546c145115fd4642945765e52394643584687"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_02_PreDebateThesisMap.md",
+          "bytes": 1160,
+          "sha256": "55dbaab646bf27c53c4e7521331dd38e920f11b88f525f206dd2d3bc3fba657b"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_03_BullAnalystOpeningStatement.md",
+          "bytes": 1270,
+          "sha256": "d3a4c2aef85a7db2e3f5f04b52978358f3c3f760b20c52e20ee2d3a76ec7611d"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_04_BearAnalystCrossExamination.md",
+          "bytes": 1716,
+          "sha256": "704f2adc5c8f4381c4099ce3c3474489659fee4cab7d865ce76ed47838db9089"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_05_BullAnalystDefense.md",
+          "bytes": 1068,
+          "sha256": "4193a9806327ed40fb80f9e430f0493c152e884cb3d332bb37872d5ed6d8eedf"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_06_ICChairEvidenceWeighting.md",
+          "bytes": 1262,
+          "sha256": "a0f7e3d9d6bfa6ddbdf6731f9106a27f73f8d71dbdb57baa1b3b04321bdf56f6"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_07_DebateResolutionMatrix.md",
+          "bytes": 1134,
+          "sha256": "828a21010f4aa678c53e76d4fcdc47643eb7a33371a063cbb48fea876c4b7829"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_08_ActionBiasDetermination.md",
+          "bytes": 1306,
+          "sha256": "b191867138c06fbf8645557393468ae1253c2b20a7429de921b07b4be7611443"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_09_SingleGreatestUncertainty.md",
+          "bytes": 899,
+          "sha256": "94498bbf8817ec59f83d71857afc4e9c250bc037277a2568a26d44c5d7d2110b"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_10_ICChairFinalMemo.md",
+          "bytes": 1166,
+          "sha256": "0347ebecf6724e1c98d07f3b49677987b21ecda7345b65ee901bd5af6f4d90b9"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_11_GapsLedger.md",
+          "bytes": 777,
+          "sha256": "81080b94be14c48b0af690700c51115d6ff3a03607c6cbf8b70415bf501bef1f"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_ExampleOutputPattern.md",
+          "bytes": 4375,
+          "sha256": "d737736171dfca67104bacb9250dcc32bdad009dbd16ef5ea0808ed1715c6096"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/REF_CP-6_ScoringAndBias.md",
+          "bytes": 6274,
+          "sha256": "a852a7af5123f73d617f8ae85f09b9c1563d43a4094332a2be47dfd7b7e51ff5"
+        },
+        {
+          "path": "skills/cp-6-ic-debate-challenge/references/SCHEMA_REFERENCE.md",
+          "bytes": 4224,
+          "sha256": "a302692210efa02667d3a9e5db1b829acd9a42283d91c309aaf8522328c6438b"
+        }
+      ]
+    },
+    {
+      "skill": "cp-6a-portfolio-debate-challenge",
+      "module": "CP-6A",
+      "file_count": 18,
+      "total_bytes": 109315,
+      "profile_sha256": "e8cf5ac13b182923a1de8d3cdfba0594822bcb5a13d77a9d49e029d944720800",
+      "files": [
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/SKILL.md",
+          "bytes": 7778,
+          "sha256": "0b72515254713561bc9b43eb79efe2d1bb50f0107dd2c2bd3018cd0e67b20685"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/CANON_RELEVANT.md",
+          "bytes": 41963,
+          "sha256": "57b8d8edd49a67bb6ae8d3bb995680402f09922a02728903b6b84267c3ea43e4"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/MODULE_RUNBOOK.md",
+          "bytes": 14039,
+          "sha256": "788b9ce9b91b1840a50d58e1469a5b3d004d3f0dd4527b185fc2b047df865e12"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_01_PortfolioDebateSourceGate.md",
+          "bytes": 2502,
+          "sha256": "4f204c52af28fa9db82155abeedc9366d53c062409d417244ea020e07aa169ae"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_02_PreDebatePortfolioThesisMap.md",
+          "bytes": 1262,
+          "sha256": "c9e89b41d486c5c669f3b338f7d2e4ff4b30146980ce2c6a5b6942c50abe64ee"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_03_RVTraderPitch.md",
+          "bytes": 1360,
+          "sha256": "aa3ed64220d97424919f6e28c8c5bfa83cdaf929880f5e5ca5a5750bc5d0ffd1"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_04_ComplianceOfficerAttack.md",
+          "bytes": 1574,
+          "sha256": "9f848c86f58d40debba4c65edace7d2491229daad5b2a20143fdc400c52380de"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_05_RVTraderDefense.md",
+          "bytes": 1112,
+          "sha256": "e31c568f5dc7abc2366da07d7a0022d92feb6d33c31b09ca57d8993a55970057"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_06_CIOEvidenceWeighting.md",
+          "bytes": 1335,
+          "sha256": "5b789506cc383788b83532b43d82fc0781bbdb64091366332a23f1d145de556d"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_07_AllocationDecisionMatrix.md",
+          "bytes": 1183,
+          "sha256": "50d54633bde87a43a26283c9120b5adb7646a81015f30135b16d4c0f1d00fef3"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_08_FinalSizingPosture.md",
+          "bytes": 1449,
+          "sha256": "c0229fb6c54a76d071a93b8b4fb6c4c3114f4f65bfc490c1dcbce6bba536b391"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_09_ExactPortfolioConstraint.md",
+          "bytes": 1323,
+          "sha256": "ff2bfccc9360da43f768955db8ef56f11329c29c5e397e4fba17321567fbf756"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_10_CIOFinalMemo.md",
+          "bytes": 1240,
+          "sha256": "3b0b2552121cf870a3f2e22654c8df1cfb899d458f45839c5e1a3ad13649f972"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_11_GapsLedger.md",
+          "bytes": 809,
+          "sha256": "1442d29cd16099b2b3cd3283ea8057b482c1d10b8a4848aaa544f38b041c5439"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_ExampleOutputPattern.md",
+          "bytes": 5660,
+          "sha256": "561be1c9f00da209eb26f8bd6a18411149b93af9d8d64a18c2ba175fcef7aaa6"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_Portfolio_Debate_Inputs.xlsx",
+          "bytes": 14102,
+          "sha256": "05a32699b39cedce58dd9475ea938c3dd592bd8a327426b1c2150f57579cfe22"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/REF_CP-6A_ScoringAndConstraints.md",
+          "bytes": 6510,
+          "sha256": "524c974c0df37cc30c8ef7fb1d724c717d2ac898fe3c8c23924c233a06f98dbc"
+        },
+        {
+          "path": "skills/cp-6a-portfolio-debate-challenge/references/SCHEMA_REFERENCE.md",
+          "bytes": 4114,
+          "sha256": "f32099fec9f7d1e5b5d214e2537e6e75fe605ee3b56853cfaa0cb021ea2bfdf2"
+        }
+      ]
+    },
+    {
+      "skill": "cp-8-decision-ledger-post-mortem",
+      "module": "CP-8",
+      "file_count": 12,
+      "total_bytes": 64784,
+      "profile_sha256": "7b58e6b5d7a838b5ed82c555777b5b5f764156627b1a427c157985300ffd331b",
+      "files": [
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/SKILL.md",
+          "bytes": 6970,
+          "sha256": "64f7392c699699030dbde65c48dc39d0182b96107aa18da56ef301ddbb6026f6"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/CANON_RELEVANT.md",
+          "bytes": 33840,
+          "sha256": "423eb4131382c78f5dd33f567809f33ff63a806bd912a023eceaa9b4bca7ae0e"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/MODULE_RUNBOOK.md",
+          "bytes": 11938,
+          "sha256": "91ea53089f1343c151f9d2b9b002222227c50a60e33a276a2e0bbe07a5fe74df"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/REF_CP-8_01_DecisionIntakeSourceGate.md",
+          "bytes": 1971,
+          "sha256": "837f7574c45a674e587541a223707dc58359ae431c006ca90ca198b1be9759db"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/REF_CP-8_02_ThesisExpectationCapture.md",
+          "bytes": 1140,
+          "sha256": "9de620e716552af67dcac39534279ecc02d5132c2f4293362b4a7d0410352b99"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/REF_CP-8_03_OutcomeTracking.md",
+          "bytes": 1047,
+          "sha256": "be5891a5b2e2625a885995be151ef270493f0e0c04d2565e4f0c6e98fb934d22"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/REF_CP-8_04_RealizedVsExpectedComparison.md",
+          "bytes": 801,
+          "sha256": "cc17393991f95af2bd8e5e759b74848809b2b666c7cbaa87142bb83263fceecb"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/REF_CP-8_05_Attribution.md",
+          "bytes": 1060,
+          "sha256": "f097189cf30ff4f568dc4e13e29f178aedc0b09cf999871096b4073c9dfb2424"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/REF_CP-8_06_CalibrationSignal.md",
+          "bytes": 1191,
+          "sha256": "d50c08cff1e6981cb5c2ea516eb68e0e16a54a9e404e485e7e71da1e41506938"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/REF_CP-8_07_LessonsTrackRecordRollup.md",
+          "bytes": 838,
+          "sha256": "2724a856f36d0638d8879d32c9211b8177fb7ad4949fe48e62a440cfb75ebb8c"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/REF_CP-8_08_GapsLedger.md",
+          "bytes": 847,
+          "sha256": "9282a9f66d141a759bfed5f45260331b1dfee048f5a70d6921bdd984503168d8"
+        },
+        {
+          "path": "skills/cp-8-decision-ledger-post-mortem/references/SCHEMA_REFERENCE.md",
+          "bytes": 3141,
+          "sha256": "2a61493850a1762e1901dc37bcc66f6ecb82758ee27d9894d498fa161db44b62"
+        }
+      ]
+    },
+    {
+      "skill": "cp-dr-deep-research",
+      "module": "CP-DR",
+      "file_count": 14,
+      "total_bytes": 67104,
+      "profile_sha256": "ef95c291c5cb543cf161e059cf82975abd39683686d2d3669dd02217d6021c67",
+      "files": [
+        {
+          "path": "skills/cp-dr-deep-research/SKILL.md",
+          "bytes": 6660,
+          "sha256": "36fa02f248e4b0367c924029428208fb77efc401147b902ae4c9d52eba541c83"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/CANON_RELEVANT.md",
+          "bytes": 40221,
+          "sha256": "c67b5ed63a77476e0897e814daf953e937810f5498e9c5f4078f4a6656bb7ef9"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/CP-DR_DeepResearch.schema.md",
+          "bytes": 2096,
+          "sha256": "815147fc217aa3717315ec694158df85c90669b428b0283016bf5a8a3341c777"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/CP-DR__DeepResearch__payload.schema.txt",
+          "bytes": 1309,
+          "sha256": "2b0a20b3794a99c1f9a15af4e0c7929e19d0334df53d7a232004e8c4e62b93eb"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/CP_MODULE_PAYLOAD_BASE.schema.txt",
+          "bytes": 2832,
+          "sha256": "d49eb6e000d680193129a1b83d5a0e9feaa9429162ffca234efd432772b146f6"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/MODULE_RUNBOOK.md",
+          "bytes": 5613,
+          "sha256": "5fc498ac87c8e16bc9c96e13d366aa4616d106956dba59a9d6601b4ad896d98c"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/REF_CP-DR_A_ResearchBrief.md",
+          "bytes": 2948,
+          "sha256": "84160e275b38726901fb9944651f095adc09694a0f7062ec92a16bd42bcb400c"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/REF_CP-DR_B_PlanningAndPerspective.md",
+          "bytes": 703,
+          "sha256": "59aedab42e2549ce716b1869009a8b65032d5e516fef31fa34c952517cbf97f4"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/REF_CP-DR_C_SourceAndSearchPolicy.md",
+          "bytes": 824,
+          "sha256": "8e0419a204f83b5b5ffad1bb286a59a0099eda32c7fdf436c62e61c8fdb42339"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/REF_CP-DR_D_ClaimEvidenceLedger.md",
+          "bytes": 715,
+          "sha256": "968f7272b6823036acf3910f123ba17fbd1c4e413a2069a714e2bbf6d147bf83"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/REF_CP-DR_E_SynthesisAndStopRules.md",
+          "bytes": 829,
+          "sha256": "7d65868a1903d1153002c66a82a9ddaa9a871693c41dab0bab355f1b220c75bf"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/REF_CP-DR_F_OutputAndQA.md",
+          "bytes": 936,
+          "sha256": "7a414ae8ccf87a011af6badd57c04bb7673bcd492933b66b46e87abfcd997305"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/REF_CP-DR_G_SectorProfile.md",
+          "bytes": 708,
+          "sha256": "310d8c6b1eecf9e0f23adba2e613a2f6ee16f3119372cd179a72004d65f7c3da"
+        },
+        {
+          "path": "skills/cp-dr-deep-research/references/REF_CP-DR_H_IssuerProfile.md",
+          "bytes": 710,
+          "sha256": "7bfa700db4f23ebea8617c195b22201ac37eb8660132f4c5d7180843c279f2b4"
+        }
+      ]
+    },
+    {
+      "skill": "cp-email-credit-intelligence-classifier",
+      "module": "CP-EMAIL",
+      "file_count": 15,
+      "total_bytes": 82375,
+      "profile_sha256": "e553962c907395925e408e66331d99c9d624667f9a86a2f0489c31554530c64e",
+      "files": [
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/SKILL.md",
+          "bytes": 9221,
+          "sha256": "a0cc541e61bfa55d30bb7b28a126d324abc4bedb325010c672bbc52b5d6d8581"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/CANON_RELEVANT.md",
+          "bytes": 9866,
+          "sha256": "df2df88a2df98e90a8396cf76cf8296cae031986d19d4098edc9d22448b5f568"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/CP-EMAIL__CreditIntelligenceClassifier__payload.schema.txt",
+          "bytes": 13550,
+          "sha256": "a513d5734f305170370c8bc53af25b16c0c41e8c2aad808b8cb95a34390b6c36"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/CP_DISPLAY_DIGEST_HARD_GATE.md",
+          "bytes": 4236,
+          "sha256": "85c11c07491c955cefeb5fe5f6c22e2d79b4b25e1f0bdd76f4cd7321854cb810"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/CP_MODULE_PAYLOAD_BASE.schema.txt",
+          "bytes": 2832,
+          "sha256": "d49eb6e000d680193129a1b83d5a0e9feaa9429162ffca234efd432772b146f6"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/MODULE_RUNBOOK.md",
+          "bytes": 4588,
+          "sha256": "af8bc169ca212e564dff4941dcddcb4f448efa0fb0f842ab15bc2fc3caa8acfd"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/REF_CP-EMAIL_A_ScopeAndCoverage.md",
+          "bytes": 4335,
+          "sha256": "3f56c806b31db9476b7f4d39130c8004fa389958b029f1612c885f0ac9e971f2"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/REF_CP-EMAIL_B_RetrievalAndPrivacy.md",
+          "bytes": 3117,
+          "sha256": "2250fc69bd63275a859b60b003f770a5e44478db839ccb462b94285265f7ba29"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/REF_CP-EMAIL_C_EntityAndStoryResolution.md",
+          "bytes": 3835,
+          "sha256": "52f26686147d4769c91214a7b8809f5f6ab22dc7ea545a2ca47dc382b8906652"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/REF_CP-EMAIL_D_ClassificationAndRanking.md",
+          "bytes": 4927,
+          "sha256": "8b3aef8cdc2b03d56d1d493c15b5f413ee5340c0872d0686b734da0fc32338bf"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/REF_CP-EMAIL_E_MonitoringLane.md",
+          "bytes": 3303,
+          "sha256": "9d986623a786eb8078f9a6f2eed6a2d57c430c637edbe981ba682c22d6586e7f"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/REF_CP-EMAIL_F_DigestAndFollowups.md",
+          "bytes": 4055,
+          "sha256": "2f5a7cbbb329115062fc12c4af1ddcc78a62854cbcac36d61fe79c6f602b3cf6"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/REF_CP-EMAIL_G_QAAndSafety.md",
+          "bytes": 4937,
+          "sha256": "fd4421d99a2e418a2970b7eaeb9afba8eabcdc156b9cbc2a22882eecc666f6c7"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/SCHEMA_REFERENCE.md",
+          "bytes": 5108,
+          "sha256": "fa5bd1e5827a5060b23894b8e95f1092bc1cc7e19efb96ea9633e1e4c2896f46"
+        },
+        {
+          "path": "skills/cp-email-credit-intelligence-classifier/references/SYSREF_CP-EMAIL_SourceAuthority.md",
+          "bytes": 4465,
+          "sha256": "d64c50bc9b23ef3a0e574c1fc9c0b359b350bb4fe6430fa5ef4e32d9f164da08"
+        }
+      ]
+    },
+    {
+      "skill": "cp-model-historical-credit-model-workbook",
+      "module": "CP-MODEL",
+      "file_count": 17,
+      "total_bytes": 414252,
+      "profile_sha256": "5b95e309566bb1a32259f290c78c90d3cc46467324c08059276a4927f99868ab",
+      "files": [
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/SKILL.md",
+          "bytes": 6916,
+          "sha256": "24d7e6f50a74e5f3c9f8523ca8172060af9d897e8521533f1826a7cf4e78c27b"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/assets/REF_CP_MODEL_SNAPSHOT_TEMPLATE.xlsx",
+          "bytes": 228722,
+          "sha256": "a0f5e3877ee284f674d78d3f303a22e2dd155a036aad35f8cf0fc8131777568f"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/CANON_RELEVANT.md",
+          "bytes": 25390,
+          "sha256": "fb7bf32ce2fb321c732d3435e25c15a453cfec663e5aef7fc93875bbd55c33e4"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/CP-MODEL__HistoricalCreditModelWorkbook__payload.schema.txt",
+          "bytes": 2318,
+          "sha256": "f5cbf8ce6ec88f4909648b4a41a53c9c35f968f28869bb654ec09949eb261004"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/CP_WORKBOOK_EXPORT_HARD_GATE.md",
+          "bytes": 2665,
+          "sha256": "2af16441b77b897dd80e896075f6a55e566b937df91908c1dbbd04b940734ece"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/CP_WORKBOOK_EXPORT_PAYLOAD_BASE.schema.txt",
+          "bytes": 2621,
+          "sha256": "63e2ecb3f5d4de82e9715979addff1bc051b6a13080cf6639f0d128f529f1f38"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/CP_WORKBOOK_EXPORT_SPEC.md",
+          "bytes": 2655,
+          "sha256": "14dfdf55c9c2b67e57d98a4e3d085231605542ba1ba63a813a7e726b86bf5a65"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/MODULE_RUNBOOK.md",
+          "bytes": 4478,
+          "sha256": "dd2e9dbd7bdd1901f5079a1c30b96f45ac8460063cdea418299fa7e6033c2352"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/REF_CP-MODEL_A_SourceTemplateGate.md",
+          "bytes": 1680,
+          "sha256": "059dad561d3d8c2b4e0e25b68725fed32755314c1bfffde5d7ed7cff86607d8f"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/REF_CP-MODEL_B_PeriodAccountMapping.md",
+          "bytes": 2666,
+          "sha256": "f84f0f26729b21d4ac96e5c45ae06c8251a2eda3c2dc3228a8e6461c93007bce"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/REF_CP-MODEL_C_ModelMath.md",
+          "bytes": 2354,
+          "sha256": "2fb4d214143ac8eeb4fb3a0f67cea696f6123397b5ea36940a5dbbabd40f706e"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/REF_CP-MODEL_D_PreservationExportQA.md",
+          "bytes": 1534,
+          "sha256": "f46a215ab5a2948882ef43a9cfc61e5c2e741dbca6e4f26c7482c13a025a6a31"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/references/SCHEMA_REFERENCE.md",
+          "bytes": 1226,
+          "sha256": "58308a50b86ccca2545e7429f6cae22ba96441c9298ec9084b5bea826655996d"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/scripts/export_cp_model.py",
+          "bytes": 53887,
+          "sha256": "f17ac79b1f779bb680ba144bb0e1af9dd848fdbbe28952e259b9ffa9ba44447e"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/scripts/materialize_workbook_asset.py",
+          "bytes": 4705,
+          "sha256": "f470f72c8f85df6f82f14946a5ec21f0cd268ef0f95f77ba42ff5ac8f125c6de"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/scripts/validate_cp_model_inputs.py",
+          "bytes": 45459,
+          "sha256": "8f037ebd8eba311d1206e7daf47a77d96f67afd93a904574164b4ef0d90ee8c2"
+        },
+        {
+          "path": "skills/cp-model-historical-credit-model-workbook/scripts/validate_handoff.py",
+          "bytes": 24976,
+          "sha256": "31cc7f1f1d1d2277d19c452b1524f4de1f9871b605e63300887866265f063f9c"
+        }
+      ]
+    },
+    {
+      "skill": "cp-parse-data-preparation",
+      "module": "CP-PARSE",
+      "file_count": 10,
+      "total_bytes": 70316,
+      "profile_sha256": "41c196b6796df63ce299d8c181eccd06280a1bde4ae4e471c4ad853bf00d0631",
+      "files": [
+        {
+          "path": "skills/cp-parse-data-preparation/SKILL.md",
+          "bytes": 5720,
+          "sha256": "be30c61999ec4134be30856727cc34bb1161f615b3f6d01f101bc4ba707f05a9"
+        },
+        {
+          "path": "skills/cp-parse-data-preparation/references/CANON_RELEVANT.md",
+          "bytes": 32203,
+          "sha256": "5d7e40cdcbf1589a5dc3eb9fd1fe6db652fd5c7d26b2a83d8bed3a21a6ad33f6"
+        },
+        {
+          "path": "skills/cp-parse-data-preparation/references/CP-PARSE__DataPreparation__payload.schema.txt",
+          "bytes": 5632,
+          "sha256": "beface2be235cfb5862b0be9b8b24332793513be8995867cbb44b24a5c7360e7"
+        },
+        {
+          "path": "skills/cp-parse-data-preparation/references/CP_MODULE_PAYLOAD_BASE.schema.txt",
+          "bytes": 2832,
+          "sha256": "d49eb6e000d680193129a1b83d5a0e9feaa9429162ffca234efd432772b146f6"
+        },
+        {
+          "path": "skills/cp-parse-data-preparation/references/MODULE_RUNBOOK.md",
+          "bytes": 7615,
+          "sha256": "6844bbcc65583a904f5bf5b4d528f341afffd8d8469d5117f51cdeef55c8bc04"
+        },
+        {
+          "path": "skills/cp-parse-data-preparation/references/REF_CP-PARSE_A_TriageAndSelection.md",
+          "bytes": 4209,
+          "sha256": "dd536bd1a9d8f592cd07e93703b17d10d10aaf175dc2a72baa6b55092acffdce"
+        },
+        {
+          "path": "skills/cp-parse-data-preparation/references/REF_CP-PARSE_B_DocumentProfiles.md",
+          "bytes": 3751,
+          "sha256": "c4ba6a3967ad29336433fea4154ecc7de41d5ad1ce3927724b8734741bb3b4a1"
+        },
+        {
+          "path": "skills/cp-parse-data-preparation/references/REF_CP-PARSE_C_ExtractionAndFidelity.md",
+          "bytes": 2414,
+          "sha256": "57c454654277383ab82591121e5576c6e47a5bae59aeafc6c51cff0fc3771399"
+        },
+        {
+          "path": "skills/cp-parse-data-preparation/references/REF_CP-PARSE_D_PackagingAndQA.md",
+          "bytes": 3235,
+          "sha256": "6606cacfc572e0dea0cd7b3fe85bb39612d2809886d294f9907ca3de80a3f437"
+        },
+        {
+          "path": "skills/cp-parse-data-preparation/references/SCHEMA_REFERENCE.md",
+          "bytes": 2705,
+          "sha256": "97753ec7e12924dedc2944799d9a551587ea05386ef8503cfe774337005c96b0"
+        }
+      ]
+    },
+    {
+      "skill": "cp-snap-qualitative-credit-snapshot-workbook",
+      "module": "CP-SNAP",
+      "file_count": 15,
+      "total_bytes": 299933,
+      "profile_sha256": "e33d9e03199e8f71cba673cee0ecacb842956d3362c4fc922ce980b292fb6359",
+      "files": [
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/SKILL.md",
+          "bytes": 6737,
+          "sha256": "6008bc6e30dd2d8f676223325e5a672489c7361763e59b39e561c852db0f100d"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/assets/REF_CP_MODEL_SNAPSHOT_TEMPLATE.xlsx",
+          "bytes": 228722,
+          "sha256": "a0f5e3877ee284f674d78d3f303a22e2dd155a036aad35f8cf0fc8131777568f"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/CANON_RELEVANT.md",
+          "bytes": 19009,
+          "sha256": "24f6bf1302d72e9f8ae78740b6ce32e6cd438ee0360cd0b1cf67a0f1e39e6664"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/CP-SNAP__QualitativeCreditSnapshotWorkbook__payload.schema.txt",
+          "bytes": 1793,
+          "sha256": "549c78c8cac35320dd58f0e3081c9e512accbd9ef8d39910004d9c6d921d6e54"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/CP_WORKBOOK_EXPORT_HARD_GATE.md",
+          "bytes": 2665,
+          "sha256": "2af16441b77b897dd80e896075f6a55e566b937df91908c1dbbd04b940734ece"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/CP_WORKBOOK_EXPORT_PAYLOAD_BASE.schema.txt",
+          "bytes": 2621,
+          "sha256": "63e2ecb3f5d4de82e9715979addff1bc051b6a13080cf6639f0d128f529f1f38"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/CP_WORKBOOK_EXPORT_SPEC.md",
+          "bytes": 2655,
+          "sha256": "14dfdf55c9c2b67e57d98a4e3d085231605542ba1ba63a813a7e726b86bf5a65"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/MODULE_RUNBOOK.md",
+          "bytes": 3406,
+          "sha256": "502508f455e1532c3a9e5001dcf17d366103dcbd63767e4b432460c83e9731d2"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/REF_CP-SNAP_A_SourceTemplateGate.md",
+          "bytes": 1069,
+          "sha256": "63ad1fb57e4389988f3c5303253176f354662b3890285b0ce3fad656728e57b7"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/REF_CP-SNAP_B_QualitativeMap.md",
+          "bytes": 825,
+          "sha256": "21818ae612f86d9906d776883a2adac7fbd251c4c1e767e504255261d1e02d1b"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/REF_CP-SNAP_C_PopulationRules.md",
+          "bytes": 1065,
+          "sha256": "7a479e935a4ce01873fe3c7afb9cdfea4dbefa0d4f16d09a9927ba4edc4ba199"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/REF_CP-SNAP_D_PreservationExportQA.md",
+          "bytes": 890,
+          "sha256": "0259992113c49646dd527f22b81e2855e8865f3eb3844deb1554e81eb10f5d8c"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/references/SCHEMA_REFERENCE.md",
+          "bytes": 975,
+          "sha256": "57e5da676b6eda0146ba4c08e0121cfe195dddaea313925f0710e5b6b5e67698"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/scripts/export_cp_snap.py",
+          "bytes": 22796,
+          "sha256": "9a0cc850cd5571f16d1fdaca6acc871715743f5429a7ec2a49aa48e39a79ad30"
+        },
+        {
+          "path": "skills/cp-snap-qualitative-credit-snapshot-workbook/scripts/materialize_workbook_asset.py",
+          "bytes": 4705,
+          "sha256": "f470f72c8f85df6f82f14946a5ec21f0cd268ef0f95f77ba42ff5ac8f125c6de"
+        }
+      ]
+    },
+    {
+      "skill": "cp-x-planner-router",
+      "module": "CP-X",
+      "file_count": 18,
+      "total_bytes": 85516,
+      "profile_sha256": "e02b6b0f8cfe3ec69c5850e0a6076155f75af777df029c83da073526a3381858",
+      "files": [
+        {
+          "path": "skills/cp-x-planner-router/SKILL.md",
+          "bytes": 8163,
+          "sha256": "b314b2a97644f6c07d2d051bb87ef142a643c46f33036f11efe412d5fc2dae1e"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/CANON_RELEVANT.md",
+          "bytes": 38026,
+          "sha256": "fb4e07b125dca8ecfbd50eabcf17b4da8d108659a9f7487bd57831a70a6d54b1"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/CP-X_ROUTE_GRAPH_v2.2.txt",
+          "bytes": 2286,
+          "sha256": "27f5413b7475021174374bf5f3e3d53653ec459416dd8e321994dee12298cb5b"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/CP-X_ROUTING_LOGIC_v2.2.txt",
+          "bytes": 3095,
+          "sha256": "1dc862f20d9ffedcffbe18d0ef407ba6964c4cac7088447af5b7ad2d402884ea"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/CP_MODULE_ID_ALIASES_v1.md",
+          "bytes": 2948,
+          "sha256": "5ed8a260e3206427f99b966113b84a866367857f04ee639472a9bbb7a54512f3"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/CP_ORCHESTRATOR_SPEC_v2.2.txt",
+          "bytes": 928,
+          "sha256": "3b7fe83c9e6f2f93fafce7e2bec2732db681ad1afaa6b02fa3b768339a577d66"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/CP_ROUTING_INDEX_v2.2.txt",
+          "bytes": 1749,
+          "sha256": "d1adf49daedb8adc902354404b73a302cd52f2a40744ca13ec4deca72d8bab53"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/MODULE_RUNBOOK.md",
+          "bytes": 12063,
+          "sha256": "cdeb9f6bc397f278bcf7416a69f044f86e939f00f28b0d1b63801fefa1731eb2"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/RBOT_EXPANSION_v1.md",
+          "bytes": 3962,
+          "sha256": "4d5814086ecfd804eac682e116881925e5eac4f3293c31d99b8a19c177394522"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/REF_CP-X_01_RoutePlanSourceGate.md",
+          "bytes": 1120,
+          "sha256": "607495baf71d2475912178fc03afd76de6162df030f5428dd058b26401de02cf"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/REF_CP-X_02_ModuleExecutionSequence.md",
+          "bytes": 991,
+          "sha256": "66ea4e9aabc9cdfe2beb1f47b47122b7ad601e750e4a208b0bd0d3a0a0b980ec"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/REF_CP-X_03_ModuleReadinessRegister.md",
+          "bytes": 968,
+          "sha256": "34c1443136d48be8326a19cbd55001196f71430192b0846e6d04b0fb89756f54"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/REF_CP-X_04_OneOwnerPerObjectValidation.md",
+          "bytes": 840,
+          "sha256": "d5909b3731ec086c9499d3da74611200ffe1c61c304cf1ae3eda609f02672741"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/REF_CP-X_05_SourceToModuleRoutingMap.md",
+          "bytes": 779,
+          "sha256": "354d55b1a2ded911504fa7ebcbf641b4b1211e6ee0c5de8b542a42c16b3f1b55"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/REF_CP-X_06_LimitationPropagationRegister.md",
+          "bytes": 915,
+          "sha256": "e86cc3d0cf1fe85587da945fd170eea21e1b1081067ec93844cbaca389e40c91"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/REF_CP-X_07_RoutePlanSummary.md",
+          "bytes": 858,
+          "sha256": "23f73eeadc7f46ce336c2f5e4448f60d7b1c68dd373a6fce5d24c59d914d48ef"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/REF_CP-X_ExampleOutputPattern.md",
+          "bytes": 2801,
+          "sha256": "2d3048f04c53664b572976110f3e5e59a97d808fa1e9fb9d88c87c0f730b8170"
+        },
+        {
+          "path": "skills/cp-x-planner-router/references/SCHEMA_REFERENCE.md",
+          "bytes": 3024,
+          "sha256": "06c2f2b73411c8364359ff3c23c1576586b24a1b29a8e48dcc4d87232c8e2ad7"
+        }
+      ]
+    },
+    {
+      "skill": "rbot-orchestrator",
+      "module": "CP-X",
+      "file_count": 12,
+      "total_bytes": 107733,
+      "profile_sha256": "134f084ec3ce70e3deb35e80fdfc7887d7b0b2cb52624422a2c7a7fc7134d13d",
+      "files": [
+        {
+          "path": "skills/rbot-orchestrator/SKILL.md",
+          "bytes": 6826,
+          "sha256": "436da9020f65485ccf2845897ef6e1ca920c3db726cf4180eea5959f5ec489a9"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/CANON_RELEVANT.md",
+          "bytes": 38026,
+          "sha256": "fb4e07b125dca8ecfbd50eabcf17b4da8d108659a9f7487bd57831a70a6d54b1"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/EXECUTION_ORDER.md",
+          "bytes": 9004,
+          "sha256": "da595bb4e345a3b87309ebe63a514cdce781d078e19a5527288cc44e3f71284c"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/MODULES_REFERENCE.md",
+          "bytes": 15172,
+          "sha256": "206a43caa926883216ec4940b3b65cd7ff7d60d09065024027c7ae4c8959970c"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/MODULE_ID_ALIASES.md",
+          "bytes": 2948,
+          "sha256": "5ed8a260e3206427f99b966113b84a866367857f04ee639472a9bbb7a54512f3"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/MODULE_RUNBOOK.md",
+          "bytes": 19025,
+          "sha256": "1b554cbdafe6bf7b2bec09aced38378d2c0ff3dcd82f9e92c1c24fa2e36b4a81"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/ORCHESTRATOR_SPEC.md",
+          "bytes": 928,
+          "sha256": "3b7fe83c9e6f2f93fafce7e2bec2732db681ad1afaa6b02fa3b768339a577d66"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/PATHWAYS.md",
+          "bytes": 4712,
+          "sha256": "ddd46235c570b8689df5744a5268675dad9e10a54188ceff665554da109e9d4a"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/RBOT_EXPANSION.md",
+          "bytes": 3962,
+          "sha256": "4d5814086ecfd804eac682e116881925e5eac4f3293c31d99b8a19c177394522"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/ROUTE_GRAPH.md",
+          "bytes": 2286,
+          "sha256": "27f5413b7475021174374bf5f3e3d53653ec459416dd8e321994dee12298cb5b"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/ROUTING_INDEX.md",
+          "bytes": 1749,
+          "sha256": "d1adf49daedb8adc902354404b73a302cd52f2a40744ca13ec4deca72d8bab53"
+        },
+        {
+          "path": "skills/rbot-orchestrator/references/ROUTING_LOGIC.md",
+          "bytes": 3095,
+          "sha256": "1dc862f20d9ffedcffbe18d0ef407ba6964c4cac7088447af5b7ad2d402884ea"
+        }
+      ]
+    }
+  ]
+}

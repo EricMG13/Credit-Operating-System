@@ -1,0 +1,443 @@
+{
+  "version": "1.0",
+  "runtime_status": "historical_non_runtime",
+  "lifecycle_status": "superseded",
+  "superseded_by": "current active deployment tree and module-ID registries",
+  "release_bundle_included": false,
+  "notice": "Preserved migration evidence only. Entries are not executable module identities, routes or deployment instructions.",
+  "skills": 29,
+  "actions": [
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-0a-source-readiness/SKILL.md",
+      "sha256": "6f5e00b2ab0380bdefaeb3b420300e6473fbe8f07b8cec75b1e549704c90d4de",
+      "destination": "skills/cp-0a-source-readiness/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-0a-source-readiness/references/SYSTEM_REFERENCE.md",
+      "sha256": "873c0faf71925f8e6636264ad77f389b566ac1335c3f4a8ad08331df32e236dd",
+      "destination": "skills/cp-0a-source-readiness/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-parse-data-preparation/SKILL.md",
+      "sha256": "ac6d628db7092270d36fd08dfc50efdbd5ad45804c74accffdaece563bbf335d",
+      "destination": "skills/cp-parse-data-preparation/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-1-canonical-data-foundation/SKILL.md",
+      "sha256": "c3f81fd9f6d2f818035deb93ba5bffc5c391dc57d7d07bb48e6062d33a4d504f",
+      "destination": "skills/cp-1-canonical-data-foundation/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-1-canonical-data-foundation/references/SYSTEM_REFERENCE.md",
+      "sha256": "8c95d363436b864e308f3c136dfca00d32466e9c67cdf253bde25d4e3108e64d",
+      "destination": "skills/cp-1-canonical-data-foundation/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-1a-business-transaction-fact-pack/SKILL.md",
+      "sha256": "854bc4f4931058817de0dd73561571d2abf8f85845ad1ddb010ad0016eb60795",
+      "destination": "skills/cp-1a-business-transaction-fact-pack/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-1a-business-transaction-fact-pack/references/SYSTEM_REFERENCE.md",
+      "sha256": "48b386df16dbf3709d9e20cf0c8b50de1aa65d2c775ed8ff016f335d3b933202",
+      "destination": "skills/cp-1a-business-transaction-fact-pack/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-1b-earnings-delta/SKILL.md",
+      "sha256": "d5d154a8ac0024325c1c6a4eae55de96d462cd473a0475fb81faa796852e43ff",
+      "destination": "skills/cp-1b-earnings-delta/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-1b-earnings-delta/references/SYSTEM_REFERENCE.md",
+      "sha256": "a1d4c1c47eab01f915fbe618032256a49e7bbc022e579b150f4ae7b7ae02282e",
+      "destination": "skills/cp-1b-earnings-delta/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-1c-peer-benchmark/SKILL.md",
+      "sha256": "af2dbaed16884e577fd38c81f113a6595660dc37a0bf8c79287e329d2fca24b7",
+      "destination": "skills/cp-1c-peer-benchmark/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-1c-peer-benchmark/references/SYSTEM_REFERENCE.md",
+      "sha256": "54523edfccb73b331acb8bbef53fff43093015dfa5dabb669287a13c29433b8b",
+      "destination": "skills/cp-1c-peer-benchmark/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_04A_OperatingBenchmark.md",
+      "sha256": "18eafee8f07f09d9b94eb2f5a859e77970bd3fce156473afa127e95c17d98ce1",
+      "destination": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_04_BenchmarkAnalysis.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_04B_CashFlowCapitalIntensity.md",
+      "sha256": "e9a4c4facff36657420b6cb72526394ebfdc6488882bf8486c70497e7563e6bb",
+      "destination": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_04_BenchmarkAnalysis.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_04C_CreditMetricBenchmark.md",
+      "sha256": "1296366f1090f1289860e88a67b65ca6dc5fb3473d837bae79b02ae3a888535c",
+      "destination": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_04_BenchmarkAnalysis.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_04D_SummaryStatistics.md",
+      "sha256": "3f5c23947791ed3e4dd336fec00fe1abf26aa9f282c17add64fdf6a164884717",
+      "destination": "skills/cp-1c-peer-benchmark/references/REF_CP-1C_04_BenchmarkAnalysis.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-2-fundamental-credit-synthesizer/SKILL.md",
+      "sha256": "41c7b0b3efcf30327b8f75b2f99f633b68c7f194510d68a6475ad9eead87e5b4",
+      "destination": "skills/cp-2-fundamental-credit-synthesizer/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-2-fundamental-credit-synthesizer/references/SYSTEM_REFERENCE.md",
+      "sha256": "14b7ff777e144210f007d71880262201a0b3eaca0228a91335a5449f21752221",
+      "destination": "skills/cp-2-fundamental-credit-synthesizer/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_02_CompanyDescription.md",
+      "sha256": "cf3b966b68b5ec5b1bd0fe4cfc27d927c8b8c17fd3cba31cd0a5acd448f8f31b",
+      "destination": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_02-04_OperatingModel.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_03_OwnershipGroupStructure.md",
+      "sha256": "351eb300b6cd9e3a76a7beb80c0a33ae574605aca4743730f66e6c0389598056",
+      "destination": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_02-04_OperatingModel.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_04A_RevenueDriversPricingPower.md",
+      "sha256": "38f987b9d011bad4c4f7a46996bbba77fbcdc286216e9c3b8e27717336683a25",
+      "destination": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_02-04_OperatingModel.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_04B_CostStructureMarginResilience.md",
+      "sha256": "8e013a02cc1eacf1ceb70ec13038325afe35d064a1f976e8968dc64991df3468",
+      "destination": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_02-04_OperatingModel.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_04C_CapitalIntensityFCFConversion.md",
+      "sha256": "19235b4f697822d0aa4f89cb1a6c4e57876dd9ebe7ab95aa2a397e0346ac2bae",
+      "destination": "skills/cp-2-fundamental-credit-synthesizer/references/REF_CP-2_02-04_OperatingModel.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-2a-downside-pathway/SKILL.md",
+      "sha256": "a4a50fca1ba858ef9ad5dbffc6ac3faa249becc7787b49ff0b4a53eb21d583c5",
+      "destination": "skills/cp-2a-downside-pathway/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-2a-downside-pathway/references/SYSTEM_REFERENCE.md",
+      "sha256": "4f5f15dfbb46a22dbdf45f89cc67e00d260aac1a4a365d1018eed0d316a4d8e3",
+      "destination": "skills/cp-2a-downside-pathway/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-2b-event-catalyst-register/SKILL.md",
+      "sha256": "52e694796b38bba0c96a1649b7e9797ae2180a516c77b2c0aa99f3f9b5678e75",
+      "destination": "skills/cp-2b-event-catalyst-register/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-2b-event-catalyst-register/references/SYSTEM_REFERENCE.md",
+      "sha256": "dc001297e9c2082493b08dade00747bfaade51fe8e0f3ce80c456dba70b90f5a",
+      "destination": "skills/cp-2b-event-catalyst-register/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-2c-governance-sponsor-score/SKILL.md",
+      "sha256": "3ac0e6c233ec93a02fba77d8ca790c01aea70957c33da1334afb242ed34fb344",
+      "destination": "skills/cp-2c-governance-sponsor-score/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-2c-governance-sponsor-score/references/SYSTEM_REFERENCE.md",
+      "sha256": "52d764f806595467f7117bf65c1af0f800497fbfbb1f8326a6b2275cd2c945bb",
+      "destination": "skills/cp-2c-governance-sponsor-score/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-2d-liquidity-cash-flow-bridge/SKILL.md",
+      "sha256": "66fe868af49fb0253be1f8a447311bde77f5c0203bd57aa5eb8c1644ee78bbd0",
+      "destination": "skills/cp-2d-liquidity-cash-flow-bridge/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-2d-liquidity-cash-flow-bridge/references/SYSTEM_REFERENCE.md",
+      "sha256": "c7f456dd4e77f48ce3cac40c270e36dcdd7e784d860954839ba606a550e08d65",
+      "destination": "skills/cp-2d-liquidity-cash-flow-bridge/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-2e-macro-fx-hedging-sensitivity/SKILL.md",
+      "sha256": "86d4f25e2a546aeccd0e4fb248a390fe2fba076171ef969e0da1c938276fafed",
+      "destination": "skills/cp-2e-macro-fx-hedging-sensitivity/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-2e-macro-fx-hedging-sensitivity/references/SYSTEM_REFERENCE.md",
+      "sha256": "b43384cdd5194c4ace94743ff6a3acdc89001090df00e7707bd1445fbf2d88ee",
+      "destination": "skills/cp-2e-macro-fx-hedging-sensitivity/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-2f-esg-sustainability-credit-risk/SKILL.md",
+      "sha256": "2593746127c75ea8a9de8971616244e974ef941518aa68a6c2b547e0761fe331",
+      "destination": "skills/cp-2f-esg-sustainability-credit-risk/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-2f-esg-sustainability-credit-risk/references/SYSTEM_REFERENCE.md",
+      "sha256": "4c943a591ddfe9e007b5dd5be912812443151e7c233ddcda362c8027c8330587",
+      "destination": "skills/cp-2f-esg-sustainability-credit-risk/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-3-relative-value-security-selection/SKILL.md",
+      "sha256": "8427cea6b6e2123bcb12c566272ac9cd83c17c27b2dab1e0928e9fe6e35a3334",
+      "destination": "skills/cp-3-relative-value-security-selection/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-3-relative-value-security-selection/references/SYSTEM_REFERENCE.md",
+      "sha256": "11c6b487f340df664622e2b53f1b859ed952f226650eb72c1217291a5a17f883",
+      "destination": "skills/cp-3-relative-value-security-selection/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-3a-recovery-instrument-preference/SKILL.md",
+      "sha256": "3411c27e06b7cff50e6781a24b90824e05d410b5c45b051810c822877a3d7bb7",
+      "destination": "skills/cp-3a-recovery-instrument-preference/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-3a-recovery-instrument-preference/references/SYSTEM_REFERENCE.md",
+      "sha256": "b0ec2e4be35d81331f81013ba993633409f5dd20cab6e26c63cb3845f7b02f17",
+      "destination": "skills/cp-3a-recovery-instrument-preference/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-3b-portfolio-fit-position-sizing/SKILL.md",
+      "sha256": "75fe052259738779e12f4ab1bc9e411855a2d550288bfb5f39513a97ba36c9b7",
+      "destination": "skills/cp-3b-portfolio-fit-position-sizing/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-3b-portfolio-fit-position-sizing/references/SYSTEM_REFERENCE.md",
+      "sha256": "9d5127ddb118c7c53072af2ac0f5fa783701ce22a81c15b7e67edae6b3313da5",
+      "destination": "skills/cp-3b-portfolio-fit-position-sizing/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-3c-refinancing-lme-risk/SKILL.md",
+      "sha256": "acc955b4c7032346104ff50674f5b85676b9d1618051013abe9badfc42fdba10",
+      "destination": "skills/cp-3c-refinancing-lme-risk/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-3c-refinancing-lme-risk/references/SYSTEM_REFERENCE.md",
+      "sha256": "030162f01975268ac41b790693249d323390f35558e00cf39e53d7d2acf9c810",
+      "destination": "skills/cp-3c-refinancing-lme-risk/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-4-legal-covenant-interpreter/SKILL.md",
+      "sha256": "a7b08f4cf63fd63a9cb9b1622e1f2ef6258e60f9dc425cac43e140ff6a646405",
+      "destination": "skills/cp-4-legal-covenant-interpreter/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-4-legal-covenant-interpreter/references/SYSTEM_REFERENCE.md",
+      "sha256": "6ced46af904e9f35071fb6e38ba8c093c07eed1ef60e707d86b3ae176597413c",
+      "destination": "skills/cp-4-legal-covenant-interpreter/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_01_LegalFileGateSourceQuality.md",
+      "sha256": "6a0f607a790803633be6daadd3f44d45a0b9de1aefdd6878112c01e9ea63a64d",
+      "destination": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_01-02_LegalSourceGate.md"
+    },
+    {
+      "action": "merge",
+      "source": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_02_ControllingDocumentsSourceAuthority.md",
+      "sha256": "3a3d6564caba322adc6d4640c25effb700a06df7fcd5bb04e4484c131448ec72",
+      "destination": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_01-02_LegalSourceGate.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_AggressivenessRubric.md",
+      "sha256": "e939f1661c7f3aa815aea313fa65e59d2c924e3ad69cc73f539dd421e041ae62",
+      "destination": "skills/cp-4-legal-covenant-interpreter/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_EDGARCovenantSourceMap.md",
+      "sha256": "200a514df1d9669201771067deb91f4af4e292cb68c831c60befc87a104fcc01",
+      "destination": "skills/cp-4-legal-covenant-interpreter/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-4-legal-covenant-interpreter/references/REF_CP-4_ExampleOutputPattern.md",
+      "sha256": "38c5341d78c0c1ec1c96cae34d77154c88b71b50b341e9e1fe54c7d3eecd05d2",
+      "destination": "skills/cp-4-legal-covenant-interpreter/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-4a-covenant-capacity-calculator/SKILL.md",
+      "sha256": "34b6fb94cd122f9763c6598cceb5498e4e05429083fe6b1915a768c57678a87e",
+      "destination": "skills/cp-4a-covenant-capacity-calculator/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-4a-covenant-capacity-calculator/references/SYSTEM_REFERENCE.md",
+      "sha256": "617adcc4bbec84b7de460cec9d8797401815ae04647beb94a1208521e4028d62",
+      "destination": "skills/cp-4a-covenant-capacity-calculator/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-4b-restricted-group-guarantee-map/SKILL.md",
+      "sha256": "39f123c3bf4ba407b0bc2a8a7f7ba7c7e443b7314be0cc583444b59df270f354",
+      "destination": "skills/cp-4b-restricted-group-guarantee-map/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-4b-restricted-group-guarantee-map/references/SYSTEM_REFERENCE.md",
+      "sha256": "0259074affa7a5dbeb9b17c71bb88fc69dbbf99ed5737fabadd6a5be09bd53aa",
+      "destination": "skills/cp-4b-restricted-group-guarantee-map/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-5a-research-integrity-qa/SKILL.md",
+      "sha256": "3d6eee1f6316055c35fca304730cbcdccab23fdd0a11335150aa533684c454f2",
+      "destination": "skills/cp-5a-research-integrity-qa/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-5a-research-integrity-qa/references/SYSTEM_REFERENCE.md",
+      "sha256": "1ad372da141940bca732e7f2b7cc90d429f1ddf35057d3600ca5262f0dc6b4a3",
+      "destination": "skills/cp-5a-research-integrity-qa/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-5-evidence-trace-validator/SKILL.md",
+      "sha256": "a94f49728da238e30a7e0948beb72477d620a4f196cf42266cebbdf3e83093d7",
+      "destination": "skills/cp-5-evidence-trace-validator/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-5-evidence-trace-validator/references/SYSTEM_REFERENCE.md",
+      "sha256": "adc85989a953cdaa52f34e90d872f18f8a64ab7050bc85099d5ada53f3067004",
+      "destination": "skills/cp-5-evidence-trace-validator/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-6-ic-debate-challenge/SKILL.md",
+      "sha256": "694a964802df6ea66dc684e49e48406743086442be060733960cfa7bdb540235",
+      "destination": "skills/cp-6-ic-debate-challenge/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-6-ic-debate-challenge/references/SYSTEM_REFERENCE.md",
+      "sha256": "ff3cbe4a6c64b193b8895f38c4a4d5dea8bbc7ddc25da0ddcd567d117a433886",
+      "destination": "skills/cp-6-ic-debate-challenge/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-6a-portfolio-debate-challenge/SKILL.md",
+      "sha256": "4b7b60a86783d0d0791112e740a537e62415aa3be52eaeb8f44788d42310c330",
+      "destination": "skills/cp-6a-portfolio-debate-challenge/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-6a-portfolio-debate-challenge/references/SYSTEM_REFERENCE.md",
+      "sha256": "ebb1264131435c37ad91255a3bc21c4673d48e830d8ee462fc3dcda3dbdbf9c5",
+      "destination": "skills/cp-6a-portfolio-debate-challenge/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-8-decision-ledger-post-mortem/SKILL.md",
+      "sha256": "98bff67ecba2205683833aaf69d6a30147eb1468201f1b4aa35dab68360781ec",
+      "destination": "skills/cp-8-decision-ledger-post-mortem/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-8-decision-ledger-post-mortem/references/SYSTEM_REFERENCE.md",
+      "sha256": "2d6c8b546aeb9bafd7648c13a8fb9f6babce959866af3663a8c10381ce3542df",
+      "destination": "skills/cp-8-decision-ledger-post-mortem/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-mon-issuer-level-signal-monitor/SKILL.md",
+      "sha256": "9b3e3ce2161799c36aec11fe218f49d07c9f0439c0705c497732f7f2c49ef427",
+      "destination": "skills/cp-mon-issuer-level-signal-monitor/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_schema",
+      "source": "skills/cp-mon-issuer-level-signal-monitor/references/SCHEMA_CP-MON_IssuerRegistry.md",
+      "sha256": "8afacadbeb1a8394fa37eafac972507188daec90e62bead3e252123dfea86af3",
+      "destination": "skills/cp-mon-issuer-level-signal-monitor/references/SCHEMA_REFERENCE.md"
+    },
+    {
+      "action": "fold_into_schema",
+      "source": "skills/cp-mon-issuer-level-signal-monitor/references/SCHEMA_CP-MON_IssuerResolver.md",
+      "sha256": "c0d80201018828c1179a311b014846e700bf4c5eb03a51f22330926e079cf7c9",
+      "destination": "skills/cp-mon-issuer-level-signal-monitor/references/SCHEMA_REFERENCE.md"
+    },
+    {
+      "action": "fold_into_schema",
+      "source": "skills/cp-mon-issuer-level-signal-monitor/references/SCHEMA_CP-MON_Signal.md",
+      "sha256": "a78dc568d407f75f885c9929b67fd9d9b4ba97eb007c5931d5845ab8ee8e552d",
+      "destination": "skills/cp-mon-issuer-level-signal-monitor/references/SCHEMA_REFERENCE.md"
+    },
+    {
+      "action": "fold_into_schema",
+      "source": "skills/cp-mon-issuer-level-signal-monitor/references/SCHEMA_CP-MON_WatchlistConfig.md",
+      "sha256": "16c47faa60c2e014d1c2b0d54540991697cd1a61d55f5c5544c3fd722d7cd360",
+      "destination": "skills/cp-mon-issuer-level-signal-monitor/references/SCHEMA_REFERENCE.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-sr-sector-review/SKILL.md",
+      "sha256": "22b20dc8a5b0671156a7c56c66ad59f1e74c2681d95d2637727e014e9e064968",
+      "destination": "skills/cp-sr-sector-review/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/rbot-orchestrator/SKILL.md",
+      "sha256": "8d2cceb9a6cab75b315d05ea9a0f616c710b4b8bbb5d061430cef63a6f755030",
+      "destination": "skills/rbot-orchestrator/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "extract_module_body",
+      "source": "skills/cp-x-planner-router/SKILL.md",
+      "sha256": "9cf56b4f88d704dc0023d6d377b88bd3dcd5703860965b44bd0a8b8239199105",
+      "destination": "skills/cp-x-planner-router/references/MODULE_RUNBOOK.md"
+    },
+    {
+      "action": "fold_into_runbook",
+      "source": "skills/cp-x-planner-router/references/SYSTEM_REFERENCE.md",
+      "sha256": "ef0ddda4527a187ab86c8180aef940ce1326b5d19284af81fc04a4bd9e017e79",
+      "destination": "skills/cp-x-planner-router/references/MODULE_RUNBOOK.md"
+    }
+  ]
+}
