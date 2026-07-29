@@ -75,6 +75,20 @@
   --paper-warning-status: #92400e;
   --paper-critical: #b91c1c;
   --paper-watermark: #be5410;
+  /* Seniority ramp for the paper tear-sheet (Report Studio). The dark-surface
+     --tranche-* ramp is far too light here: Report Studio paints value labels in
+     --paper-bg directly on the series fill, so each fill must itself clear AA
+     (4.5:1) against --paper-bg #f7f5ee. Ratios: 1l 5.02, 2l 8.00, unsec 5.43,
+     sub 7.55, eq 9.49 — and ≥4.79 against every analyst-selectable sheet colour
+     (White/Warm/Cool), so the ramp does not depend on the chart figure pinning
+     its own background. Lightness is staggered as well as hue so the categories
+     stay separable under protan/deutan/tritan simulation. Mirrored as
+     TRANCHE_HEX_PAPER in src/lib/chart-colors.ts (canvas can't read var()). */
+  --paper-tranche-1l: #0f766e;
+  --paper-tranche-2l: #1e40af;
+  --paper-tranche-unsec: #8a5a08;
+  --paper-tranche-sub: #86198f;
+  --paper-tranche-eq: #334155;
   --paper-query-bg: #faf8f2;
   --paper-query-ink: #1a1a1a;
   --paper-query-meta: #5a5a5a;

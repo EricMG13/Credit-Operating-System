@@ -92,17 +92,22 @@ jobs:
           vulture caos/server caos/scripts \
             --exclude '*/.venv/*,*/.venv311/*' \
             --min-confidence 80 --ignore-names cls
+      # Dev tooling comes from requirements-dev.txt, never a second inline pin.
+      # CI used to `pip install pytest pytest-asyncio httpx` unpinned and mypy at a
+      # hardcoded ==2.1.0 while requirements-dev.txt asked for ~=2.3 — so a local
+      # `pip install -r requirements-dev.txt` and CI ran different type checkers and
+      # different pytest majors. Every such gap shows up as "green on my machine, red
+      # in CI" with nothing in the diff to explain it. One file owns the versions.
+      # (httpx stays explicit: it is a test-only client, not dev tooling.)
       - run: |
           pip install --require-hashes -r caos/server/requirements.lock
-          pip install pytest pytest-asyncio httpx
+          pip install -r caos/server/requirements-dev.txt httpx
       # Engine + API type gate (mypy.ini: files=engine,routes).
       # The gate had drifted RED unnoticed because nothing in CI ran it; wire it in
       # so a bad type in the engine can't merge. 3.11 leg only (mypy.ini pins 3.11).
       - name: Engine and API type gate (mypy)
         if: matrix.python-version == '3.11'
-        run: |
-          pip install mypy==2.1.0
-          cd caos/server && mypy
+        run: cd caos/server && mypy
       # Default suite on SQLite (the existing tests + async; Postgres-only tests
       # skipped). stress + cohort carry offline tests too (the mock-Anthropic wire
       # shape, the cohort-fetch predicates) — previously never collected anywhere,
@@ -310,14 +315,43 @@ jobs:
           -x 'caos/server/.venv,caos/server/.venv311'
           --severity-level high --confidence-level medium
       # Frontend deps straight from the lockfile — no install needed.
-      - name: Frontend deps (npm audit)
+      # Wraps `npm audit --json` rather than calling `npm audit --audit-level=high`
+      # directly: the bare form is all-or-nothing, so one unfixable transitive
+      # advisory takes the job red until someone deletes the gate. The script keeps
+      # the high threshold and permits only advisories named in its dated,
+      # reachability-justified allowlist — failing on any new advisory, on an
+      # expired exception, and on an exception that has stopped matching.
+      - name: Frontend deps (advisory gate)
         working-directory: caos/frontend
-        run: npm audit --audit-level=high
-      # Secret scan over the repo + history. OSS image (no GITLEAKS_LICENSE — that
-      # is only required by the org-gated Action, which we deliberately avoid).
-      # .gitleaks.toml allowlists prose/vendored trees that carry example tokens;
-      # .gitleaksignore exempts specific verified-false-positive lines by fingerprint.
-      - name: Secret scan (gitleaks)
+        run: node scripts/audit-gate.mjs
+      # Secret scan over THIS branch's own commits only — deliberately not full
+      # history. `.gitleaksignore` fingerprints are `<commit-sha>:<file>:<rule>:<line>`
+      # and gitleaks reads that file from the working tree, so a full-history scan
+      # demands the branch's tree carry a fingerprint for every allowlisted finding
+      # anywhere in shared history. It cannot: the moment main allowlists a new false
+      # positive, every already-open branch keeps the old file, the historical finding
+      # re-fires, and the PR goes red until someone rebases. That ratchet reddened the
+      # whole PR backlog (e.g. 99d95cd1 alert_evaluation.py, allowlisted on main,
+      # unknown to branches cut before it). Scanning only the range the PR actually
+      # adds makes the gate a function of the diff, so it cannot rot.
+      # Full-history sweeps live in nightly.yml, where a stale allowlist is a fixable
+      # alarm rather than a merge blocker.
+      # OSS image (no GITLEAKS_LICENSE — that is only required by the org-gated
+      # Action, which we deliberately avoid). .gitleaks.toml allowlists prose/vendored
+      # trees that carry example tokens.
+      - name: Secret scan (gitleaks — this branch's commits)
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
         run: |
+          set -euo pipefail
+          if [ -n "$BASE_SHA" ]; then
+            RANGE="$BASE_SHA..HEAD"
+          else
+            # Push builds (main): scan just the pushed commit(s).
+            RANGE="${{ github.event.before }}..HEAD"
+            git cat-file -e "${{ github.event.before }}" 2>/dev/null || RANGE="HEAD~1..HEAD"
+          fi
+          echo "gitleaks range: $RANGE"
           docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.18.4 \
-            detect --source=/repo --config=/repo/.gitleaks.toml --redact --no-banner
+            detect --source=/repo --config=/repo/.gitleaks.toml --redact --no-banner \
+            --log-opts="$RANGE"

@@ -20,6 +20,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import avscan
 import edgar
 import ingest
@@ -231,6 +232,10 @@ async def vault_exhibit(
     )
     db.add(doc)
     await db.flush()
+    audit.write(db, analyst_id=caller.id, action="document.vault_edgar",
+                target_type="document", target_id=doc.id,
+                after={"issuer_id": body.issuer_id, "doc_type": body.doc_type,
+                       "exhibit_url": body.exhibit_url, "file_name": file_name})
     if chunks:
         import hashlib
         from database import LineageEdge

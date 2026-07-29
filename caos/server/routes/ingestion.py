@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, insert, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import audit
 import avscan
 import ingest
 import rate_limit
@@ -206,6 +207,10 @@ async def _vault_document(
     )
     db.add(doc)
     await db.flush()
+    audit.write(db, analyst_id=caller.id, action="document.upload",
+                target_type="document", target_id=doc.id,
+                after={"issuer_id": issuer_id, "doc_type": doc_type,
+                       "file_name": doc.file_name, "run_mode": run_mode})
     if chunks:
         import uuid
         from database import LineageEdge
@@ -397,6 +402,7 @@ async def _apply_collected_ratings(
                 break
         if issuer is None:
             continue
+        before_moody, before_sp = issuer.rating_moody, issuer.rating_sp
         changed = False
         if rec.get("moody") and issuer.rating_moody != rec["moody"]:
             issuer.rating_moody = rec["moody"]
@@ -407,6 +413,10 @@ async def _apply_collected_ratings(
         if changed:
             issuer.ratings_observed_at = datetime.now(timezone.utc)
             updated += 1
+            audit.write(db, analyst_id=caller.id, action="issuer.rating_update",
+                        target_type="issuer", target_id=issuer.id,
+                        before={"rating_moody": before_moody, "rating_sp": before_sp},
+                        after={"rating_moody": issuer.rating_moody, "rating_sp": issuer.rating_sp})
     if updated:
         await db.flush()
     return updated
@@ -621,6 +631,10 @@ async def upload_memo(  # noqa: C901
     msg = f"{name} vaulted as '{path.stem}' — {len(linked)} issuer link(s)."
     if chunks_created:
         msg += f" Chunked into retrieval ({chunks_created} chunks × {len(memo_doc_ids)} issuer(s))."
+
+    audit.write(db, analyst_id=caller.id, action="memo.upload",
+                target_type="memo", target_id=path.stem,
+                after={"memo_type": mtype, "issuer_links": sorted(linked)})
 
     return MemoUploadResponse(
         note=path.stem,

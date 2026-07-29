@@ -5,6 +5,15 @@
 **Ground truth this session (2026-07-23):** full server/stress/cohort pytest suite **2,934 passed / 39 skipped / 0 failed** (370 s, `.venv311` py3.11.15 from hashed lock). Tip CI green (run 29953934449), Nightly green (29991927198).
 **Companion inventories:** 178 API endpoints / 33 route modules (scratchpad `api_surface.txt`), 18 frontend routes, 355-row historical `caos/docs/qa/FEATURE_TRACKER.csv` (all Pass), 683-feature workbook `caos/docs/qa/CAOS_QUALITY_VALIDATION_TRACKER.xlsx`.
 
+**Update 2026-07-26 — multi-persona journey stress test:** a three-persona
+end-to-end UI run on branch `claude/multi-persona-stress-test-cgegcb` (base
+`341d14b`) opened **5 defects** (DEF-2026-07-26-01…05) against FEAT-031, -034,
+-040, -051 and `.claude/launch.json`. Those rows previously read `Pass · 0
+defects`; none of the five behaviours was covered by an existing test, so the
+green suite above did not contradict them — but the `0 defects` reading of this
+tracker was not accurate for them. Artifacts:
+`.goal/persona-journey-stress-test/`.
+
 Statuses: **Pass** (executed green this iteration) · **CI-Pass** (green on tip CI, local rerun pending/planned) · **Pending** (not yet executed this iteration) · **Fail** (open defect → Defect Record below).
 
 ## Feature catalog
@@ -56,16 +65,16 @@ Statuses: **Pass** (executed green this iteration) · **CI-Pass** (green on tip 
 
 | Feature ID | Name | User Story | Expected Behaviour | Edge Cases | Test Cases | Status | Defects | Severity | Last Tested | Notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| FEAT-031 | Root shell, auth gate & navigation (`/`) | As an analyst, I want a fail-closed login shell with the six-concept nav and ⌘K launcher so that the workspace is one keyboard away. | RequireAuth wraps all business routes; root redirects; ⌘K global Ask launcher; dark terminal design system. | unauthenticated → login, never data flash; deep-link preserved through login; keyboard-only nav | TC-FEAT031-01 `root-routes.test.tsx`; TC-FEAT031-02 e2e `login_flow.spec.ts` + `bootstrap_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | local vitest rerun in Phase 3 |
+| FEAT-031 | Root shell, auth gate & navigation (`/`) | As an analyst, I want a fail-closed login shell with the six-concept nav and ⌘K launcher so that the workspace is one keyboard away. | RequireAuth wraps all business routes; root redirects; ⌘K global Ask launcher; dark terminal design system. | unauthenticated → login, never data flash; deep-link preserved through login; keyboard-only nav | TC-FEAT031-01 `root-routes.test.tsx`; TC-FEAT031-02 e2e `login_flow.spec.ts` + `bootstrap_flow.spec.ts` | **Fail** | 1 | Medium | 2026-07-26 | local vitest rerun in Phase 3; **DEF-2026-07-26-02** (identical `document.title` on all 18 routes) |
 | FEAT-032 | Command Center (`/command`) | As a PM/CIO, I want portfolio posture, watch alerts, governance queue and digest in one view so that "what changed" is immediate. | Posture table with issuer drill-in; watch indicators; governance queue reads exact `GET /api/qa/findings`; live NL query; decision briefs with authority/freshness metadata. | empty portfolio explicit; live-sim reduced-motion honored; degraded upstream → labeled state | TC-FEAT032-01 18 colocated vitest files (`src/app/command`, `src/components/command`); TC-FEAT032-02 e2e `command_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | |
 | FEAT-033 | Pipeline (`/pipeline`) | As an analyst, I want run orchestration with per-module status and evidence chips so that DAG progress and decision drivers are visible. | Live run states pulse only while running; CP-5B decision-driver register chips; ordering disclosed as decision-proximity + module diversity. | failed module → explicit Blocked chain; no live register → explicit failure not seed | TC-FEAT033-01 11 colocated vitest files; TC-FEAT033-02 e2e `pipeline_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | |
-| FEAT-034 | Deep-Dive (`/deepdive`) | As an analyst, I want module tabs, evidence overlays, chat and the QA flag lane so that every number is one click from source. | Adapted persisted sections in provenance-labelled runtime register; never substitutes seeded steps; Evidence Sync cross-pane selection keyboard-operable; heavy tabs code-split via `next/dynamic`. | missing live register fails explicitly; seeded content only in labelled ATLF demo; 390px + 200% zoom usable | TC-FEAT034-01 19 colocated vitest files; TC-FEAT034-02 e2e `deepdive_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | PERF-2 split verified (350 kB initial) |
+| FEAT-034 | Deep-Dive (`/deepdive`) | As an analyst, I want module tabs, evidence overlays, chat and the QA flag lane so that every number is one click from source. | Adapted persisted sections in provenance-labelled runtime register; never substitutes seeded steps; Evidence Sync cross-pane selection keyboard-operable; heavy tabs code-split via `next/dynamic`. | missing live register fails explicitly; seeded content only in labelled ATLF demo; 390px + 200% zoom usable | TC-FEAT034-01 19 colocated vitest files; TC-FEAT034-02 e2e `deepdive_flow.spec.ts` | **Fail** | 1 | Medium | 2026-07-26 | PERF-2 split verified (350 kB initial); **DEF-2026-07-26-03** (loading placeholder persisted as analysis-context name; also hits FEAT-005) |
 | FEAT-035 | Model Builder (`/model`) | As an analyst, I want grid/scenarios/assumptions with revision-safe saves and stamped XLSX export so that model math is mine and portable. | Client-side model math; CAS revisions (409 on stale); ExcelJS 5-sheet export stamped ORIGIN/METHOD/RUN/AS-OF; checkpoint-first save flow. | stale-revision conflict surfaced; export matches on-screen numbers; empty model valid | TC-FEAT035-01 28 colocated vitest files (incl. 13 export round-trip); TC-FEAT035-02 e2e `model_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | |
 | FEAT-036 | Report Studio (`/reports`) | As an analyst, I want committee-ready tear-sheets on light paper with lineage so that the filed document survives IC scrutiny. | Paper counterpoint theme; draft→immutable version flow; export gate honors CP-5; print-ready. | export blocked on failed gate; version immutability; print CSS intact | TC-FEAT036-01 15 colocated vitest files; TC-FEAT036-02 e2e `reports_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | |
 | FEAT-037 | Monitor (`/monitor`) | As an analyst, I want watch rules and the alert inbox so that live conditions surface and triage has ownership. | Rules CRUD → durable C3 store; inbox ack/assign/resolve; in-app delivery (email = allowed-outstanding #1). | rule create idempotent; empty inbox explicit; reduced-motion pulse off | TC-FEAT037-01 9 colocated vitest files; TC-FEAT037-02 e2e `monitor_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | |
 | FEAT-038 | Query workbench (`/query`) | As an analyst/PM, I want NL cross-issuer query with cited answers so that questions resolve to evidence. | Interpretation + ranked table; citation viewer to chunk; offline deterministic fallback labeled. | empty result honest; hostile input constrained; chunk 404 handled | TC-FEAT038-01 14 colocated vitest files; TC-FEAT038-02 e2e `query_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | |
 | FEAT-039 | Upload wizard (`/upload`) | As an analyst, I want guided PDF/XLSX intake with scan/parse feedback so that documents enter the vault safely. | Stepped wizard; AV rejection surfaces named 422; run-mode selection; provenance shown. | EICAR file → clear malware message; non-PDF 400; mid-upload nav guarded | TC-FEAT039-01 8 colocated vitest files + `layout-upload-smoke.test.tsx`; TC-FEAT039-02 e2e `upload_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | C12 run-mode semantics decision = post-freeze item |
-| FEAT-040 | Issuers directory & profile (`/issuers`) | As an analyst, I want the coverage directory and per-issuer profile so that entity context and history live in one place. | Directory list + profile content; opinions surface; links into runs/deep-dive. | ghost issuer 404 page; empty coverage explicit | TC-FEAT040-01 6 colocated vitest files; TC-FEAT040-02 e2e `routed_concepts_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | C2 reference-workspace residual = post-freeze |
+| FEAT-040 | Issuers directory & profile (`/issuers`) | As an analyst, I want the coverage directory and per-issuer profile so that entity context and history live in one place. | Directory list + profile content; opinions surface; links into runs/deep-dive. | ghost issuer 404 page; empty coverage explicit | TC-FEAT040-01 6 colocated vitest files; TC-FEAT040-02 e2e `routed_concepts_flow.spec.ts` | **Fail** | 1 | High | 2026-07-26 | C2 reference-workspace residual = post-freeze; **DEF-2026-07-26-01** (per-row upload action dead-ends for all 346 demo issuers; also hits FEAT-039) |
 | FEAT-041 | Decisions page (`/decisions`) | As a PM/CIO, I want the Decision Room UI so that IC outcomes, votes and expiries are visible and auditable. | Renders `/api/decisions` data; immutable snapshot display; reopen state visible. | empty room explicit; expired decisions flagged | TC-FEAT041-01 2 colocated vitest files; TC-FEAT041-02 e2e `routed_concepts_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | |
 | FEAT-042 | Research (`/research`) | As an analyst, I want deep-research job launch + polling UI so that long research runs without babysitting. | Job submit; durable poll; failed job surfaces error state. | provider fault → failed state visible; job history retained | TC-FEAT042-01 5 colocated vitest files; TC-FEAT042-02 e2e `research_flow.spec.ts` + `research_run.spec.ts` | Pass | 0 | — | 2026-07-23 | |
 | FEAT-043 | Sector Review (`/sector`) | As an analyst, I want sector dashboards (reference contract) so that cross-sector context is available without false live claims. | Labelled reference/unavailable states; CP-SR Phase-2. | live-claim never rendered from seed | TC-FEAT043-01 5 colocated vitest files; TC-FEAT043-02 e2e `sector_flow.spec.ts` | Pass | 0 | — | 2026-07-23 | |
@@ -81,7 +90,7 @@ Statuses: **Pass** (executed green this iteration) · **CI-Pass** (green on tip 
 |---|---|---|---|---|---|---|---|---|---|---|
 | FEAT-049 | Async run executor & durable worker pool | As an analyst, I want runs executed asynchronously with durable claiming so that long DAGs survive worker restarts. | Executor walks DAG off-request; durable claiming landed (#179); Postgres claim/reaper reclaims dead workers; `WEB_CONCURRENCY≤2` envelope enforced at boot. | worker death mid-run → reclaim; duplicate claim prevented; budget carried across modules | TC-FEAT049-01 `test_async_runs.py` + `test_engine.py`; TC-FEAT049-02 Postgres claim/reaper tests (env-skip w/o Docker; Pass on prod-parity) | Pass | 0 | — | 2026-07-23 | 2 of the 39 skips |
 | FEAT-050 | Alert evaluation & dispatch loop (C3) | As an analyst, I want watch rules evaluated against fresh data with in-app dispatch so that monitor conditions actually fire. | `alert_evaluation`/`alert_triggers`/`alert_dispatch`/`alert_sinks` chain; materialized evidence appended; email sink spec'd not built (allowed-outstanding #1); render-intent contract frozen. | rule on missing data → no false fire; duplicate suppression; sink failure isolated | TC-FEAT050-01 `test_alert_rules_activation.py`, `test_alert_states.py`; TC-FEAT050-02 C3 live-operation evidence 2026-07-22 (flag cycle) | Pass | 0 | — | 2026-07-23 | target flag cycle = owner leg (PD-06) |
-| FEAT-051 | Freshness tracking | As a PM, I want data-age visibility so that stale reads are impossible to mistake for current. | `freshness.py` stamps as-of/authority; adapters feed digest/command chips. | missing timestamp → explicit unknown, never silent-fresh | TC-FEAT051-01 `test_freshness_adapters.py` (server) + `freshness-adapters.contract.test.ts` (FE) | Pass | 0 | — | 2026-07-23 | |
+| FEAT-051 | Freshness tracking | As a PM, I want data-age visibility so that stale reads are impossible to mistake for current. | `freshness.py` stamps as-of/authority; adapters feed digest/command chips. | missing timestamp → explicit unknown, never silent-fresh | TC-FEAT051-01 `test_freshness_adapters.py` (server) + `freshness-adapters.contract.test.ts` (FE) | **Fail** | 1 | Low-Medium | 2026-07-26 | **DEF-2026-07-26-04** (client calls flag-gated `/freshness` unconditionally → 8×404 per profile load; UNKNOWN conflates disabled-vs-unknown) |
 | FEAT-052 | ClamAV scan service | As the operator, I want every upload scanned before parse so that malware never reaches parsers or the vault. | `avscan.py` → clamd; scan-before-parse ordering; named 422 rejection; no vault write on detection; fault-isolated parse lane. | EICAR-in-valid-PDF caught (H6 live); clamd down → fail-closed not fail-open; oversized stream bounded | TC-FEAT052-01 `test_avscan*.py` (9-case matrix); TC-FEAT052-02 H6 live EICAR proof on frozen digest | Pass | 0 | — | 2026-07-23 | loopback cases env-skipped in sandbox (part of 39) |
 | FEAT-053 | Backup / DR / vault-init | As the operator, I want scheduled DB+vault backups with off-host sync and drilled restore so that RPO/RTO are real numbers. | `BACKUP_KEEP=7` local cycles; rclone off-host (remote-only restore rehearsed); vault-init service (config fix in `3b66da67`); DR runbook 36 s rollback rehearsed. | restore from remote-only succeeds; backup during write consistent; hold-exempt rotation (E8 PROPOSED) | TC-FEAT053-01 custody/recovery audit 2026-07-22 (off-host round trip + remote-only restore + upgrade/boot); TC-FEAT053-02 H7 timed abort/rollback | Pass (mechanism) | 0 | — | 2026-07-22 | real remote + staleness alarms = owner/target (G8) |
 | FEAT-054 | GDPR erase & audit hygiene | As the data owner, I want analyst erasure that anonymizes without breaking records so that privacy and audit coexist. | `erase_analyst.py` anonymize-not-delete pattern; access log excludes secrets; per-call LLM token/cost audit. | erase preserves referential integrity; logs never carry keys | TC-FEAT054-01 `test_proxy_identity_gdpr.py`; TC-FEAT054-02 `test_access_log.py`, `test_secret_log_hygiene.py` | Pass | 0 | — | 2026-07-23 | E3 append-only audit_log table = post-freeze (#169) |
@@ -127,6 +136,73 @@ Every FEAT row's TC bindings verified against files on disk (8 initially wrong n
 - **Root cause:** exact-string assertions over an ICU-data-dependent rendering; `maximumFractionDigits: 1` legally admits both forms; CLDR 48 changed trailing-zero display in compact currency.
 - **Fix (minimal, test-only — app code untouched, frozen candidate `3b66da67` digest unaffected):** the 3 assertions now accept both legal renderings via `/^\$100(\.0)?M$/` (comment documents the ICU boundary). Verified: 9/9 pass locally; pattern remains valid on CI's Node 24.
 - **Follow-on (post-freeze product note):** when the freeze lifts, add `trailingZeroDisplay: "stripIfInteger"` to `fmtMoney` (`CommandPortfolio.tsx:31`) so the desk-convention `$100M` stays stable across future ICU updates; then exact assertions may return.
+
+### Multi-persona end-to-end journey stress test (2026-07-26) — 5 defects opened
+
+Run: three persona journeys (analyst / pm / qa) on isolated stacks + separate
+SQLite DBs, no `CAOS_DEMO_SEED`, no fixture seeding. Full artifacts:
+`.goal/persona-journey-stress-test/` (contract, results, judging, per-persona
+transcripts, screenshots, a11y JSON). Every defect below was reproduced from a
+clean stack/session before being recorded; 5 further candidates were **withdrawn**
+under verification and are listed in `results.md` rather than deleted.
+
+**Correction to this tracker's prior state:** FEAT-031/034/040/051 were carried
+as `Pass · 0 defects`. That was not accurate for these five behaviours — none of
+them was covered by an existing test. Rows flipped to `Fail` above.
+
+### DEF-2026-07-26-01 — Directory per-row upload action dead-ends for all 346 demo issuers — **OPEN**
+
+- **Feature/Tests:** FEAT-040 (Issuers directory) → FEAT-039 (Upload wizard). No existing test covers it.
+- **Repro:** `/issuers` → click any row control `aria-label="Upload documents for <Issuer>"` → lands on `/upload?context=…&issuer=<TICKER>` → wizard shows **"Select issuer · 0 registered"** and never names the clicked issuer.
+- **Expected vs actual:** expected the wizard to resolve the `issuer` param (or reject it explicitly); actual — param silently dropped, empty picker, no error, no recovery but manual re-entry.
+- **Severity:** HIGH — step 1→2 of the golden path, primary persona, reachable from 346 rows.
+- **Reproduced:** clean p3 stack, fresh DB, different issuer (`BCULC`). Layer: frontend.
+- **Missing test:** none asserts the `issuer` query param resolves in the upload wizard, or that the action is withheld on unregistered demo rows.
+
+### DEF-2026-07-26-02 — `document.title` identical on all 18 routes — **OPEN**
+
+- **Feature/Tests:** FEAT-031 (Root shell & navigation). No existing test asserts title varies.
+- **Repro:** load any route; `document.title` is always `"Credit Agent OS (CAOS)"`. Observed on 16/16 route loads across 3 personas.
+- **Root cause:** `routeTitleForPath()` (`src/lib/nav.ts:115`) feeds only an `sr-only` `<h1>` (`src/components/shared/RouteHeading.tsx:47`); `src/app/layout.tsx:19` hardcodes the title. `nav.ts:70-78` states the metadata governs "document titles" — implementation does not meet its documented intent.
+- **Severity:** MEDIUM — CLAUDE.md defines the user's work as dense/multi-window; three open tabs are indistinguishable.
+
+### DEF-2026-07-26-03 — Transient loading placeholder persisted as durable analysis-context name — **OPEN**
+
+- **Feature/Tests:** FEAT-034 (Deep-Dive) → FEAT-005 (Analysis contexts).
+- **Repro:** open `/deepdive` before an issuer resolves; a context is persisted via `POST /api/analysis/contexts`. Observed in p1 DB: **"Loading issuer… credit view"**, **"Issuer selection required credit view"**.
+- **Root cause:** `src/app/deepdive/page.tsx:201-202` — `dealLabel` falls back to `"Loading issuer…"` / `"Issuer selection required"` / `"Issuer unavailable"` and is passed straight into `useAnalysisContext({ name })`.
+- **Severity:** MEDIUM — the context carries findings/insights across Deep-Dive → Reports → Command; garbage-named contexts degrade the governed workspace.
+- **Missing test:** none asserts context names exclude transient placeholders.
+
+### DEF-2026-07-26-04 — Client calls flag-gated `/freshness` endpoints unconditionally — **OPEN**
+
+- **Feature/Tests:** FEAT-051 (Freshness tracking).
+- **Repro:** load any issuer profile → 8 × `404` across `/api/issuers/{id}/freshness`, `/api/runs/{id}/freshness`, `/api/analysis/contexts/{id}/freshness`.
+- **Root cause:** `caos_lineage_v2_enabled` defaults `False` (`caos/server/config.py:80`). Backend 404 is **deliberate** so identifiers stay non-enumerable whether the feature is on or off (`caos/server/routes/runs.py:510`) — the defect is client-side: `src/lib/api.ts:468-472` does not gate on the flag, and the UI collapses "feature disabled" and "genuinely unknown" into one undifferentiated **UNKNOWN**.
+- **Severity:** LOW-MEDIUM — 404 noise on every profile load; the PM/CIO's core "what changed" read is silently degraded.
+
+### DEF-2026-07-26-05 — Committed `qa2-backend` launch profile cannot boot — **OPEN**
+
+- **Feature/Tests:** infra/DX (no FEAT row). `.claude/launch.json`.
+- **Repro:** boot `qa2-backend`'s exact env (`SESSION_SECRET='qa-fixed-secret-do-not-change'` + `ENVIRONMENT=development`) → `RuntimeError: ENVIRONMENT=development but a production secret (EDGE_PROXY_SECRET / SESSION_SECRET) is set — refusing to boot…` (`caos/server/config.py:392`). Verified verbatim on a spare port.
+- **Expected vs actual:** the guard is correct; the committed profile is wrong. Selecting it yields a hard startup failure.
+- **Severity:** LOW (DX) — fix by clearing `SESSION_SECRET` as the sibling qa/qa3/qa4 profiles already do.
+
+### Verified PASSING under total upstream failure (2026-07-26)
+
+Recorded because reporting only failures would misrepresent the system. With
+EDGAR unreachable, no LLM keys, no ClamAV and no OCR toolchain:
+
+- **CP-5 gate honesty (FEAT-009):** a 0-chunk, 0-text run returned `qa_status=Restricted`, `committee_status=Restricted`, 4 MATERIAL + 2 MINOR findings, `model_id="fixture"`. The QA persona's attempt to force a rubber-stamp failed.
+- **Provenance honesty (FEAT-004/040):** every KPI badged **FABRICATED** with *"Source unavailable · No persisted document chunk"*; CP-1 `limitation_flags` declare the financials synthetic and *"not committee-usable"*; ingestion reported **"scan verdict unavailable"** rather than claiming a clean AV scan.
+- **Citation integrity (FEAT-009):** gate caught dangling citations (QA-001/002, *"could not be resolved to an ingested source chunk"*).
+- **a11y (FEAT-031…048):** `node caos/frontend/scripts/a11y-axe.mjs` → **18 routes, 0 violations, 0 scan errors, 0 layout failures** (wcag2a/2aa/21a/21aa/22aa + best-practice).
+
+**Not testable in that container (reported as blocks, not passes):** live-EDGAR
+acquisition and any real issuer document (network policy blocks all general
+outbound HTTPS); ClamAV leg (no Docker daemon); true 401 fail-closed (needs
+non-`development` boot); same-number-everywhere incl. XLSX export (no real
+financials to propagate); concurrent two-persona contention (isolated DBs).
 
 ## Phase 3 (cont.) + Phase 5 — journeys, a11y, and full regression (2026-07-23)
 
