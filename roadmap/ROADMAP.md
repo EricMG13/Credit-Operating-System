@@ -16,12 +16,13 @@ P0 (seed) ──► P1 ──► P2 ──► P3 ──► P4 ──► P5 ─�
                       └── org-side (5.4 tollgates): parallel from day one
 ```
 
-**P0 — Repo bootstrap (one-time, before Phase 1).** Create `{{NEW_REPO}}` (owner
-decision Q-002R; name/org = Q-012, enterprise org recommended so 5.1 is satisfied at
-creation) and seed it per `architecture/ARCHITECTURE.md` §3.1: spec set + `corpus/` +
-`dbx/parity/corpus/` (frozen fixtures, recorded goldens, kernel vectors, registry
-snapshot, `MANIFEST.sha256`, `SEED_SOURCE.txt`). After seeding, no phase needs the
-legacy repository present.
+**P0 — Repo bootstrap (one-time, before Phase 1). Status: COMPLETE 2026-07-29.**
+The owner created `EricMG13/CAOS` (Q-012 resolved; interim-personal — the
+enterprise-org transfer completes 5.1 and stays tracked below); it was seeded per
+`architecture/ARCHITECTURE.md` §3.1: spec set + `corpus/` + `dbx/parity/corpus/`
+(frozen fixtures, recorded goldens, kernel vectors, registry snapshot,
+`MANIFEST.sha256`, `SEED_SOURCE.txt` pinning legacy commit `0bb200f11234`). No phase
+needs the legacy repository present.
 
 A phase is **done** only when its spec's Done-When criteria are green
 (`specs/phase-NN-*.md`; Phase 1 is fully specified, later phases follow
@@ -340,7 +341,7 @@ Changes to any row above are logged in `DEVIATIONS.md` §D-MIG.
 | 4.5 | PII detection/tagging/masking | P2 | **N/A — owner-deferred** (Q-011R, D-DBX-003; UC-native controls only) | — |
 | 4.6 | Read-time sensitivity + audited reads | P2 | **N/A — owner-deferred** (Q-011R, D-DBX-003; audit §8.4.2: legacy had neither) | — |
 | 4.7 | Erasure capability | P2 | **P6** | — |
-| 5.1 | Enterprise source control | P1-blocker | **P0** (`{{NEW_REPO}}` created in the enterprise org — Q-002R/Q-012) | P7 (legacy personal repo scrubbed) |
+| 5.1 | Enterprise source control | P1-blocker | **Pending org transfer** — `EricMG13/CAOS` created interim-personal at P0 (Q-012R); moving it into the enterprise org completes 5.1 (P7 at latest) | P7 (legacy personal repo scrubbed) |
 | 5.2 | SCA every build | P1 | **P2** | — |
 | 5.3 | SAST gate | P1 | **P2** | — |
 | 5.4 | Enterprise SDLC/tollgates | P1 | **P2** (org action tracked) | — |

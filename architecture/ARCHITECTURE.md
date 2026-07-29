@@ -58,9 +58,10 @@ Companion documents: `audit/AUDIT-2026-07-28.md` (why), `architecture/DECISIONS.
 
 ## 3. Repository structure
 
-**The rebuild lives in a new repository** (`{{NEW_REPO}}` — owner decision Q-002R;
-name/org tracked as Q-012, enterprise org recommended so 5.1 is satisfied at
-creation). The legacy repository is a **pinned, read-only external reference**: the
+**The rebuild lives in a new repository**: `EricMG13/CAOS` (owner decision Q-002R;
+created 2026-07-29, resolved Q-012 — interim-personal, with the enterprise-org
+transfer completing 5.1, tracked in ROADMAP). The legacy repository is a
+**pinned, read-only external reference**: the
 parity harness does not import it — it consumes **recorded goldens** seeded from it
 (§3.1). The new repo carries the spec set at its root (`audit/`, `architecture/`,
 `roadmap/`, `specs/`, `corpus/`, `CLAUDE.md`, `DEVIATIONS.md`, `OPEN-QUESTIONS.md`)
@@ -106,11 +107,14 @@ caos_contracts  ← caos_engine  ← caos_orchestration ← jobs
 caos_contracts: stdlib + pydantic only.  caos_engine: stdlib + caos_contracts only.
 ```
 
-### 3.1 Repo bootstrap (seeding runbook — run once, from a checkout holding BOTH repos)
+### 3.1 Repo bootstrap (seeding runbook)
 
-Executed by whoever creates `{{NEW_REPO}}` (spec author or implementation model), with
-the legacy repo (`EricMG13/Credit-Operating-System`, branch
-`claude/caos-databricks-audit-spec-lv17xq`) cloned adjacent:
+**Status: executed 2026-07-29.** The seed was materialized on the handoff branch
+itself (`dbx/parity/corpus/` + `dbx/parity/harness/{gen_kernel_vectors.py,seed.py}`
+on `claude/caos-databricks-audit-spec-lv17xq`) and transplanted to `EricMG13/CAOS`;
+`SEED_SOURCE.txt` pins the legacy commit. The steps below remain the normative
+**regeneration** procedure — run only from the pinned commit, producing a reviewed
+diff:
 
 1. **Copy the spec set** to the new repo root: `audit/`, `architecture/`, `roadmap/`,
    `specs/`, `corpus/`, `CLAUDE.md`, `DEVIATIONS.md`, `OPEN-QUESTIONS.md`,
@@ -463,9 +467,11 @@ def run_module(module_id: ModuleId, inputs: ModuleInputs) -> ModulePayloadBase: 
 
 # CP-5A deterministic gate (pure; ports gate.py verbatim under canonical name)
 def qa_status_from(findings: Sequence[Finding]) -> QaStatus: ...
-def committee_status_from(qa: QaStatus, *, insufficient: bool) -> CommitteeStatus: ...
+def committee_status_from(qa_status: str, confidence: str) -> CommitteeStatus: ...
 def roll_up_qa_status(statuses: Iterable[str]) -> QaStatus: ...   # unknown ranks WORST
-def cap_committee_for_blocked_upstream(status, blocked_ancestors) -> CommitteeStatus: ...
+def cap_committee_status_for_blocked_upstream(committee_status: str) -> CommitteeStatus: ...
+# signatures mirror legacy gate.py exactly (introspected at seeding; pinned by
+# parity/corpus/kernel_vectors.json) — port function-for-function, do not redesign
 
 # numeric safety (ports periods.py)
 def is_finite_number(x: object) -> TypeGuard[float]: ...

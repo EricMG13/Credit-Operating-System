@@ -11,22 +11,6 @@ Status: `OPEN` · `RESOLVED(date)`.
 
 ---
 
-## Q-012 — New-repo name, org, and creation timing — OPEN
-
-**Context.** Q-002 resolved: the rebuild lives in a **new repository** (owner
-decision, 2026-07-28), seeded per `architecture/ARCHITECTURE.md` §3.1.
-
-**Question.** (a) Repository name and owning organisation. (b) Created directly in
-the enterprise Git org (recommended — creating it under the personal account would
-recreate the exact 5.1 blocker this transfer removes), or interim-personal with a
-planned org transfer?
-
-**Working assumption.** Specs use the placeholder `{{NEW_REPO}}`. Until the new repo
-exists and is seeded, the spec set lives on branch
-`claude/caos-databricks-audit-spec-lv17xq` of the legacy repo and Phase 1 does not
-start. Seeding is mechanical and fully scripted (ARCHITECTURE §3.1); no spec content
-depends on the final name.
-
 ## Q-013 — Workspace concrete values (residual of Q-003) — OPEN
 
 **Context.** Q-003 resolved with the owner's onboarding guidance (2026-07-28):
@@ -76,3 +60,4 @@ decisions below are binding; the spec set has been updated to match (see
 | Q-009 | File-count discrepancy vs checklist 5.3 | **Understood** — informational; measured tree governs SAST/SCA scope. | none needed |
 | Q-010 | Day-count conventions | **Spec author's recommendation adopted:** flat `months/12` annualization is pinned in parity and formally accepted; no day-count work unless the owner opts in later (would be a logged deviation). | audit EC-18 (unchanged) |
 | Q-011 | Sensitivity model for 4.5/4.6 | **Ignore** — no app-side sensitivity labels, ABAC masking design, or `read_audit` table is built. UC-native platform controls (UC audit logs, workspace perms) are the only layer. Checklist 4.5/4.6 recorded as owner-deferred. | DEVIATIONS D-DBX-003; ROADMAP P6 + matrix 4.5/4.6; ARCHITECTURE §5.1/§8 |
+| Q-012 | New-repo name/org (residual of Q-002) | **RESOLVED(2026-07-29):** the owner created `EricMG13/CAOS` (private); P0 seeding executed the same day from pinned legacy commit `0bb200f11234` (see `dbx/parity/corpus/SEED_SOURCE.txt`). **Interim-personal**: the enterprise-org transfer of this repo completes checklist 5.1 and stays tracked in ROADMAP (P7 at the latest; a transfer is a rename GitHub redirects, so nothing breaks). | ROADMAP P0 + matrix 5.1; ARCHITECTURE §3; CLAUDE.md header |

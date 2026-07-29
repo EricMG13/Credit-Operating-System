@@ -1,0 +1,18 @@
+{
+  "entity": "Virgin Media O2",
+  "source": "Virgin Media O2 Q1 2026 earnings release, dated 1 May 2026",
+  "chunks": [
+    {
+      "chunk_id": "vmo2-q1-2026-results",
+      "text": "Virgin Media O2 publishes Q1 results to 31 March 2026. Financial performance on track for 2026 guidance. Revenue: Q1 total service revenue was \u00a32,007.9 million, a 3.0% year-over-year decrease. Adjusted EBITDA: Q1 Adjusted EBITDA was \u00a3901.7 million, a 3.4% year-over-year decrease."
+    },
+    {
+      "chunk_id": "vmo2-q1-2026-financial-table",
+      "text": "Financial Results, Adjusted EBITDA Reconciliation, Property and Equipment Additions and Adjusted Free Cash Flow. Three months ended 31 March 2026 and 2025, in millions. Total Revenue \u00a3 2,390.1 \u00a3 2,480.1. Memo: Total Service Revenue 2,007.9 2,015.6. Adjusted EBITDA 901.7 914.1."
+    },
+    {
+      "chunk_id": "vmo2-q1-2026-leverage",
+      "text": "Leverage ratios: The following ratios are calculated in accordance with the most restrictive covenants, and reflecting the Credit Facility Excluded Amounts as defined in the respective credit agreements as at 31 March 2026. Net Senior Debt to Annualised Adjusted EBITDA (last two quarters annualised) of 4.07x. Net Total Debt to Annualised Adjusted EBITDA (last two quarters annualised) of 4.38x. Vendor financing, lease and certain other obligations are not included in the calculation of leverage covenants; if included the associated leverage ratio would be: Total Net Debt to Annualised Adjusted EBITDA of 5.86x."
+    }
+  ]
+}

@@ -3,12 +3,12 @@
 Guidance for the AI implementation model (and any human contributor) executing the
 CAOS → Databricks rebuild. `AGENTS.md` is a symlink to this file.
 
-**Which repository this describes:** the rebuild's own repository (`{{NEW_REPO}}` —
-OPEN-QUESTIONS Q-012), created and seeded per `architecture/ARCHITECTURE.md` §3.1
-(roadmap step P0). Until that repo exists, this spec set lives on branch
+**Which repository this describes:** `EricMG13/CAOS` — the rebuild's own
+repository, created and seeded 2026-07-29 per `architecture/ARCHITECTURE.md` §3.1
+(roadmap step P0, complete). The authoring copy of this spec set lives on branch
 `claude/caos-databricks-audit-spec-lv17xq` of the legacy repo
-`EricMG13/Credit-Operating-System`, and the only permitted action is executing the
-P0 bootstrap — no phase work starts in the legacy repo.
+`EricMG13/Credit-Operating-System`; **all phase work happens in `EricMG13/CAOS`**,
+never in the legacy repo.
 
 ## What this repository is
 

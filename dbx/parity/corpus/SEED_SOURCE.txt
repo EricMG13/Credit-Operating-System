@@ -1,0 +1,5 @@
+Pinned legacy source for this frozen parity corpus.
+Regenerate ONLY from this exact commit (reviewed diff required).
+url: https://github.com/EricMG13/Credit-Operating-System
+branch: claude/caos-databricks-audit-spec-lv17xq
+commit: 0bb200f11234a0f737a35a5aa1cdc8b22d644d1b
