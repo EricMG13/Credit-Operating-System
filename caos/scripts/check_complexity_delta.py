@@ -21,7 +21,10 @@ MESSAGE_RE = re.compile(
     r"^`(?P<symbol>[^`]+)` is too complex "
     r"\((?P<actual>[0-9]+) > (?P<threshold>[0-9]+)\)$"
 )
-EXCLUDED_PARTS = frozenset({".agent-reviews", ".venv", ".goal"})
+# "corpus" is the vendored DEPLOY_B methodology canon (read-only reference
+# implementations, e.g. validate_handoff.py): its complexity is not retireable
+# debt because editing those files is forbidden by the rebuild spec set.
+EXCLUDED_PARTS = frozenset({".agent-reviews", ".venv", ".goal", "corpus"})
 
 
 class GateError(RuntimeError):

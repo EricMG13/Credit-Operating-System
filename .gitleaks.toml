@@ -24,6 +24,12 @@ paths = [
   # Methodology prompt corpus (prose) and vendored agent-skill docs whose
   # examples include placeholder API keys (e.g. "sk-1234...").
   '''Modular OS/.*''',
+  # Vendored DEPLOY_B methodology corpus (read-only canon for the Databricks
+  # rebuild): deployment manifests and reference docs carry sha256 content
+  # digests (e.g. "sha256=<64-hex>" source-authority stamps, SKILL semantic
+  # hashes) that false-positive the generic-api-key rule — same rationale as
+  # `Modular OS/` and the release manifests. Never credentials.
+  '''corpus/.*''',
   '''\.agents/skills/.*''',
   '''\.claude/skills/.*''',
   # pip-compile dependency lock: hundreds of sha256 wheel hashes. A hex digest
