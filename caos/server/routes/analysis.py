@@ -724,20 +724,20 @@ async def _load_freshness_inputs(
     ref: ArtifactRef,
 ) -> _FreshnessInputs | FreshnessEvaluation:
     if ref.kind == "issuer_run":
-        row = await db.get(Run, ref.id)
+        run_row = await db.get(Run, ref.id)
         return _FreshnessInputs(
             source_kind="run",
-            observed_at=(row.completed_at or row.created_at) if row else None,
+            observed_at=(run_row.completed_at or run_row.created_at) if run_row else None,
         )
     if ref.kind == "market_snapshot":
-        row = await db.get(MarketSnapshot, ref.id)
+        snapshot_row = await db.get(MarketSnapshot, ref.id)
         return _FreshnessInputs(
             source_kind="price",
-            observed_at=row.as_of if row else None,
+            observed_at=snapshot_row.as_of if snapshot_row else None,
         )
     if ref.kind == "document":
-        row = await db.get(Document, ref.id)
-        if row is None or row.source_kind not in {
+        doc_row = await db.get(Document, ref.id)
+        if doc_row is None or doc_row.source_kind not in {
             "reported_financials",
             "legal_document",
             "price",
@@ -748,20 +748,20 @@ async def _load_freshness_inputs(
                 reason="document_source_kind_unknown",
             )
 
-        source_kind = cast(FreshnessSourceKind, row.source_kind)
+        source_kind = cast(FreshnessSourceKind, doc_row.source_kind)
         cadence: ReportingCadence = "unknown"
         reporting_lag_days = None
         grace_days = 7
         if source_kind == "reported_financials":
-            profile = await db.get(IssuerReportingProfile, row.issuer_id)
+            profile = await db.get(IssuerReportingProfile, doc_row.issuer_id)
             if profile:
                 cadence = cast(ReportingCadence, profile.cadence)
                 reporting_lag_days = profile.reporting_lag_days
                 grace_days = profile.grace_days
         return _FreshnessInputs(
             source_kind=source_kind,
-            observed_at=row.source_published_at or row.uploaded_at,
-            effective_period_end=row.effective_period_end,
+            observed_at=doc_row.source_published_at or doc_row.uploaded_at,
+            effective_period_end=doc_row.effective_period_end,
             cadence=cadence,
             reporting_lag_days=reporting_lag_days,
             grace_days=grace_days,
@@ -769,20 +769,20 @@ async def _load_freshness_inputs(
 
     observed_at = None
     if ref.kind == "model_checkpoint":
-        row = await db.get(ModelCheckpoint, ref.id)
-        observed_at = row.created_at if row else None
+        checkpoint_row = await db.get(ModelCheckpoint, ref.id)
+        observed_at = checkpoint_row.created_at if checkpoint_row else None
     elif ref.kind == "report_version":
-        row = await db.get(ReportVersion, ref.id)
-        observed_at = row.created_at if row else None
+        version_row = await db.get(ReportVersion, ref.id)
+        observed_at = version_row.created_at if version_row else None
     elif ref.kind == "insight":
-        row = await db.get(AnalysisInsight, ref.id)
-        observed_at = row.generated_at if row else None
+        insight_row = await db.get(AnalysisInsight, ref.id)
+        observed_at = insight_row.generated_at if insight_row else None
     elif ref.kind == "research_job":
-        row = await db.get(ResearchJob, ref.id)
-        observed_at = (row.completed_at or row.created_at) if row else None
+        job_row = await db.get(ResearchJob, ref.id)
+        observed_at = (job_row.completed_at or job_row.created_at) if job_row else None
     elif ref.kind == "source_manifest":
-        row = await db.get(SourceManifest, ref.id)
-        observed_at = row.created_at if row else None
+        manifest_row = await db.get(SourceManifest, ref.id)
+        observed_at = manifest_row.created_at if manifest_row else None
     return _FreshnessInputs(observed_at=observed_at)
 
 
