@@ -24,9 +24,10 @@ cluster, no network, no Databricks account**:
   legacy with its honesty tests** (checklist 8.3).
 - `dbx/schemas/lakebase/0001_core.sql` — core OLTP DDL with the evidence chain
   enforced by schema (8.5), applying clean to Postgres 16 + pgvector.
-- `dbx/parity/` — the frozen fixture corpus (hash-manifested) and a working parity
-  harness that runs **legacy** kernel functions against **dbx** kernel functions and
-  diffs field-by-field (9.1 scaffold).
+- `dbx/parity/` — the frozen fixture corpus (hash-manifested at P0 seeding) and a
+  working parity harness that diffs **dbx** kernel outputs against **recorded legacy
+  goldens** (kernel vectors + golden payloads + registry snapshot) field-by-field
+  (9.1 scaffold; ARCHITECTURE §3.1).
 - Property tests proving NaN/±inf can never slip a guard and guarded arithmetic
   never raises (9.2).
 
@@ -51,10 +52,13 @@ cluster, no network, no Databricks account**:
 |---|---|---|
 | DEPLOY_B corpus (normative) | `corpus/DEPLOY_B_COWORK_SKILLS/` | `python3 - <<'EOF'` script in §7 T-CONF-00 recomputes per-file SHA-256 against `DEPLOY_B_PROFILE_MANIFEST.json` for the files this phase consumes |
 | Reference validator | `corpus/DEPLOY_B_COWORK_SKILLS/tools/validate_handoff.py` | `python3 <path> --help` exits 0 |
-| Legacy engine (parity source) | `caos/server/engine/{periods.py,gate.py,lineage.py,registry.py,fixtures.py,schemas.py}` | files exist; imported by the harness via `dbx/parity/harness/legacy_loader.py` |
-| Legacy kernel tests (port source) | `caos/tests/server/{test_nan_guards.py,test_periods_safe_div.py,test_periods.py,test_cp5_gate_honesty.py,test_qa_findings.py}` | files exist |
-| Legacy fixture corpus (freeze source) | `caos/tests/server/golden/`, `caos/tests/server/corpus/`, `caos/server/engine/fixtures.py` | files exist |
+| Seeded parity corpus (P0, ARCHITECTURE §3.1) | `dbx/parity/corpus/` — golden payloads, 28-issuer fact fixtures, `atlf_fixtures.py.txt`, `legacy_tests/` reference texts, `kernel_vectors.json`, `legacy_registry_snapshot.json`, `SEED_SOURCE.txt` | `MANIFEST.sha256` present; every listed file hash-matches (`tests/parity/test_corpus_frozen.py`) |
 | Alias register (parity mapping) | `corpus/.../rbot-orchestrator/references/MODULE_ID_ALIASES.md` | file exists; §6.6 table matches it |
+
+The legacy repository itself is **not** required for this phase (or any later one);
+it is needed only to regenerate the seed, always from the pinned commit recorded in
+`SEED_SOURCE.txt`. If any seeded artifact is missing, STOP — the P0 bootstrap was not
+completed; do not attempt to synthesize goldens.
 
 ## 4. Exact file tree to create
 
@@ -97,13 +101,14 @@ dbx/
       cases/                         # §7 T-CONF files (14 canonical .md cases)
       build_conformance.py           # regenerates derived cases from the valid seed (deterministic)
   parity/
-    corpus/                          # frozen copies (§6.8) + MANIFEST.sha256
+    corpus/                          # seeded at P0 (§6.8); frozen — never edited in this phase
     alias_map.py                     # §6.6 verbatim table
     harness/
       __init__.py
-      legacy_loader.py               # sys.path bootstrap to import caos/server/engine modules read-only
+      vectors.py                     # loaders for kernel_vectors.json + legacy_registry_snapshot.json
       diff.py                        # field-by-field diff w/ 1e-9 rel tolerance; report type
-      freeze.py                      # one-shot: copies fixture sources into corpus/ and writes MANIFEST.sha256
+      gen_kernel_vectors.py          # SEED-TIME generator (runs with the legacy repo on sys.path; import-guarded with a clear error otherwise)
+      seed.py                        # SEED-TIME copier + MANIFEST.sha256 writer (ARCHITECTURE §3.1); not invoked by tests
   tests/
     conftest.py                      # pg fixture (env CAOS_TEST_PG_DSN or skip), corpus paths
     contracts/
@@ -227,8 +232,9 @@ per file (each bullet is an assertion to encode):
 - `bool` inputs behave as 0/1 (documented legacy semantics).
 
 **`tests/engine/test_periods_property.py`** (property + ported cases)
-- Port every case from legacy `test_periods.py` + `test_periods_safe_div.py`
-  verbatim (same inputs/expectations).
+- Port every case from the seeded reference texts
+  `parity/corpus/legacy_tests/test_periods.py` +
+  `.../test_periods_safe_div.py` verbatim (same inputs/expectations).
 - EC-04: for any shuffle of a label set, `latest()` result is order-independent;
   2-digit years sort below nothing they shouldn't (`"26"` vs `"2024"` case);
   `H1 2025 < Q3 2025`; year-less `LTM` ranks newest-preferred consistently in both
@@ -243,7 +249,8 @@ per file (each bullet is an assertion to encode):
   absence; no code path converts one to the other (EC-03, canon rule 4).
 
 **`tests/engine/test_gate_honesty.py`** (the 8.3 gate — port + extend)
-- Port the legacy `test_cp5_gate_honesty.py` triple against dbx `gate.py`:
+- Port the honesty triple from the seeded reference text
+  `parity/corpus/legacy_tests/test_cp5_gate_honesty.py` against dbx `gate.py`:
   clean findings → `Passed`/`Committee Ready`; one MATERIAL → `Restricted`; one
   CRITICAL → `Blocked`, and `committee_status_from` maps non-Passed → `Draft Only`
   (fail-closed), Blocked → `Blocked`.
@@ -287,19 +294,25 @@ per file (each bullet is an assertion to encode):
 
 **`tests/parity/test_corpus_frozen.py`**
 - `parity/corpus/MANIFEST.sha256` exists; every listed file present with matching
-  hash; no unlisted files in `corpus/`; the manifest itself lists ≥ the freeze set in
-  §6.8.
+  hash; no unlisted files in `corpus/`; the manifest covers at minimum the seed set
+  of §6.8 including `kernel_vectors.json`, `legacy_registry_snapshot.json`,
+  `legacy_tests/` and `SEED_SOURCE.txt`.
 
-**`tests/parity/test_kernel_parity.py`** (9.1 scaffold — legacy vs dbx, both pure)
-- Via `legacy_loader`, import legacy `periods`/`gate`. For the corpus of inputs
-  extracted from frozen fixtures (§6.8) plus 500 hypothesis-generated cases per
-  function (seeded, `derandomize=True`): `dbx.guards.is_finite_number ==
-  legacy.periods.is_finite_number`; `safe_div/mul/add` identical (None==None, floats
-  exact); `sort_key/latest/latest_annual` identical on the fixture label sets;
-  `qa_status_from/roll_up/committee_status_from` identical on finding sets extracted
-  from the frozen golden payloads.
-- The alias map: for every row in §6.6, legacy `owned_object` (from legacy
-  `registry.py`) resolves to the canonical `ModuleId`; unknown/ambiguous → raises.
+**`tests/parity/test_kernel_parity.py`** (9.1 scaffold — dbx vs recorded goldens)
+- Load `parity/corpus/kernel_vectors.json` via `harness/vectors.py`. For **every**
+  recorded case, the dbx function reproduces the recorded output exactly:
+  `guards.is_finite_number`, `safe_div/mul/add` (None==None, floats bit-equal;
+  1e-9 relative tolerance applies only if exact equality fails and the vector is
+  flagged `tolerant: true` — kernel vectors are expected exact),
+  `periods.sort_key/latest/latest_annual` on the recorded label sets, and
+  `gate.qa_status_from/roll_up_qa_status/committee_status_from` on the recorded
+  finding sets (extracted at seed time from the frozen golden payloads).
+- Additionally 500 hypothesis-generated cases per guard function (seeded,
+  `derandomize=True`) assert the §5 property contracts — these guard against
+  behaviours the recorded vectors do not cover.
+- The alias map: for every row in §6.6, the (legacy_id, owned_object) pair recorded
+  in `legacy_registry_snapshot.json` resolves to the canonical `ModuleId`;
+  unknown/ambiguous → raises `AliasError`.
 
 ## 6. Implementation requirements
 
@@ -377,11 +390,13 @@ Phase 3 while reconciling legacy soft edges; divergences → DEVIATIONS). Layers
 `CP-4*`:L4 · `CP-5`,`CP-5A`:L5 · `CP-6`,`CP-6A`:L6 · `CP-DR`,`CP-EMAIL`:L7 ·
 `CP-8`:L8. `implemented=True` for the 21 modules with legacy equivalents +
 `CP-5`/`CP-5A`/`CP-X` (DECISIONS Table B "CONTRACT+LEGACY" with engine runtime);
-`False` for `CP-2H`,`CP-3D`,`CP-4C`,`CP-EMAIL`,`CP-8`,`CP-DR`,`CP-PARSE` (runtime
-arrives in their phases; CP-PARSE/CP-DR are job/lane-implemented, flagged
-`implemented=False, feature_flag=None` with a comment). `validate_registry()` runs at
-import: duplicate/dangling/cycle → `RegistryError` naming offenders (no silent
-fallback — audit §5.5).
+`False` for `CP-2H`,`CP-3D`,`CP-4C`,`CP-8`,`CP-DR`,`CP-PARSE` (runtime arrives in
+their phases; CP-PARSE/CP-DR are job/lane-implemented, flagged
+`implemented=False, feature_flag=None` with a comment) and for `CP-EMAIL`
+(**permanently excluded** — owner decision Q-005R / D-LEG-006; the enum value stays
+for corpus-schema fidelity, the module is never built; comment cites the decision).
+`validate_registry()` runs at import: duplicate/dangling/cycle → `RegistryError`
+naming offenders (no silent fallback — audit §5.5).
 
 ### 6.6 `parity/alias_map.py` (verbatim data)
 
@@ -703,15 +718,20 @@ Nineteen tables. Monitoring (C3 + `news` kill-switch), market, portfolio, model-
 decisions/committee, `read_audit` groups arrive in later migrations at their phases —
 do **not** add them now.
 
-### 6.8 Parity corpus freeze
+### 6.8 Parity corpus (seeded at P0; frozen here)
 
-`parity/harness/freeze.py` copies, without modification:
+The corpus is produced by the **P0 seeding runbook** (`ARCHITECTURE.md` §3.1) using
+`parity/harness/seed.py` + `gen_kernel_vectors.py` run from a checkout holding both
+repos, and is committed before this phase starts. Seed set:
 - `caos/tests/server/golden/**` (golden payload JSON + fixtures)
 - `caos/tests/server/corpus/**` (28 real-issuer fact fixtures + MANIFEST.md)
-- `caos/server/engine/fixtures.py` (as `corpus/atlf_fixtures.py.txt` — data reference)
-then writes `parity/corpus/MANIFEST.sha256` (`sha256  relative/path` lines, sorted).
-Run once during this phase; committed output is thereafter **frozen** (tests + CI
-enforce; edits forbidden).
+- `caos/server/engine/fixtures.py` → `atlf_fixtures.py.txt` (data reference)
+- five legacy kernel/gate test files → `legacy_tests/` (reference texts)
+- `kernel_vectors.json`, `legacy_registry_snapshot.json`, `SEED_SOURCE.txt`
+- `MANIFEST.sha256` (`sha256  relative/path` lines, sorted)
+This phase only **verifies** the seed (`test_corpus_frozen.py`) and consumes it;
+the corpus is thereafter **frozen** (tests + CI enforce; edits forbidden). If the
+seed is absent or fails verification, STOP (P0 incomplete — see §3).
 
 ### 6.9 CI (`.github/workflows/dbx-ci.yml`)
 

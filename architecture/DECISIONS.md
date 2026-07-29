@@ -27,8 +27,8 @@ entries. Checklist IDs cited by native number. Verdicts:
 | Fixture mode — `engine/fixtures.py`, `FixtureSynthesizer`, ATLF reference deal, demo-contamination guard | **KEEP** | Checklist 3.6; the fixture corpus is also the Phase-1 parity seed. Contamination guard (provenance + MATERIAL finding) ports with it (audit F-10). |
 | CP-5C council — `engine/council.py` (cross-provider critic ensemble) | **KEEP** (flagged) | Legacy-only finding *producer* feeding the deterministic gate — consistent with 8.3 (it never grades its own drafts: `reviewer_model()` picks the opposite provider). No corpus equivalent; stays feature-flagged off by default. |
 | Model Engine v2 — `model_engine_v2.py` (pure calculation authority; PIK/FX/roll-forward guards) | **ADAPT** | Ports as the CP-2G (ForwardCreditModel) implementation emitting a CP-2G-conformant payload (Table B). Its private period kernel is deleted in favour of the shared one (audit F-7) — behaviour-identical, parity-checked. |
-| Model workbook round-trip — `model_workbook.py` (hash-verified export, identity binding, signed preview tokens) | **ADAPT** | Becomes the CP-MODEL exporter bound to the corpus `WORKBOOK_EXPORT` contract (Table B); openpyxl stays the single workbook stack (frontend `exceljs` retired — audit §8.2). |
-| Report exports — `report_exports.py` (frozen-payload-only XLSX/PDF renderers) | **ADAPT** | Ports; additionally emits the CP-SNAP-conformant snapshot workbook from the packaged template. |
+| Model workbook round-trip — `model_workbook.py` (hash-verified export, identity binding, signed preview tokens) | **ADAPT** | Ports as the Model Builder workbook exporter under its own `CAOS_MODEL_WORKBOOK_V1` contract — corpus CP-MODEL is excluded (owner Q-001R: legacy Model Builder serves the same function). openpyxl stays the single workbook stack (frontend `exceljs` retired — audit §8.2). |
+| Report exports — `report_exports.py` (frozen-payload-only XLSX/PDF renderers) | **ADAPT** | Ports as Report Studio's exporters over frozen `ReportVersion` payloads — corpus CP-SNAP is excluded (owner Q-001R: Report Builder/Report Studio serves the snapshot function). |
 | Query lane — `querygraph.py`, `queryanswer.py`, `retrieval.py` (RRF fusion), `nlquery.py`, `rerank.py`, `entailment.py` | **ADAPT** | Ports onto Lakebase pgvector + silver chunk tables. Two mandatory changes: close the `nlquery`/`scenario` egress carve-outs at the seam (audit §8.1.2), and fix the three fail-open `_passes` branches (audit class C) — both logged. Scan caps become surfaced limitation flags (audit F-9/class H). |
 | EDGAR client — `server/edgar.py` (stdlib-only, SSRF-hardened, throttled) + `engine/edgar_cp1.py` | **KEEP** | Moves into the ingestion job; the fair-access throttle becomes job-level config. |
 | Deep-research lane — `deepresearch.py` + `research_report.py` | **ADAPT** | Adapted to the corpus CP-DR contract (plan approval, scope fields, coverage/stop-reason enums — enforced by `validate_handoff.py` CP-DR profile) and given an `allowed_domains` restriction via gateway guardrails (audit §8.1.3). |
@@ -89,15 +89,18 @@ entries. Checklist IDs cited by native number. Verdicts:
 
 ## Table B — All 36 `DEPLOY_B_COWORK_SKILLS` entries
 
-**Owner instruction applied (2026-07-28, OPEN-QUESTIONS Q-001):** *"Exclude modules
-with similar functions within legacy application."* Where a corpus entry's function
-already exists in legacy CAOS (which the rebuild ports), the entry is **excluded as a
-separate runtime skill** — its **contract** (payload schema, envelope fields, gates,
-filename rule) is still extracted into `dbx/contracts/` and binds the rebuilt
-component, so nothing is implemented twice and nothing loses its contract.
+**Owner instruction, as resolved (Q-001R, 2026-07-28):** *"Exclude modules with
+similar functions within legacy application — only cp-snap and cp-model; legacy
+Model Builder and Report Builder serve the same function."* So exactly **two** corpus
+entries are excluded for function duplication (rows 33–34, DROP). Every other entry
+is carried: its **contract** (payload schema, envelope fields, gates, filename rule)
+is extracted into `dbx/contracts/`, and — per Q-007R, *"deploy B wins"* — its
+`MODULE_RUNBOOK.md` is the **normative methodology source** for the module's LLM
+synthesis lane (D-LEG-011), while deterministic numeric behaviour stays
+golden-master parity-gated (9.1).
 
 Verdict legend:
-- **CONTRACT+LEGACY** — contract extracted; runtime = ported legacy component (parity-gated 9.1). *Excluded as a runtime skill per owner instruction.*
+- **CONTRACT+LEGACY** — contract extracted; deterministic runtime = ported legacy engine component (parity-gated 9.1); LLM-lane methodology from the DEPLOY_B runbook (D-LEG-011).
 - **CONTRACT+NEW** — contract extracted; no legacy equivalent — new engine module built to the corpus runbook (LLM lane via gateway; deterministic parts pure).
 - **DROP** — not carried into the product runtime.
 
@@ -138,22 +141,23 @@ module name / `owned_object`, never ID-only.
 | 29 | `cp-6a-portfolio-debate-challenge` (CP-6A) | Portfolio posture challenge | **CP-6E** → `engine/debate.py` + `portfolio.py` | **CONTRACT+LEGACY** | |
 | 30 | `cp-8-decision-ledger-post-mortem` (CP-8) | Decision rationale/dissent/outcome ledger | CP-7 alias → IC Book (`routes/decisions.py`, `routes/committee.py`, thesis/votes tables) — similar function | **CONTRACT+LEGACY** | Owner-instruction case: ledger stays the IC Book feature; CP-8 payload contract binds its export; post-mortem fields added to the IC Book schema (no separate skill). |
 | 31 | `cp-dr-deep-research` (CP-DR) | Scoped research dossier: approved plan, iterative evidence, citations | `deepresearch.py` + research executors + Research surface — similar function | **CONTRACT+LEGACY** | Legacy lane adapted to the CP-DR envelope profile (scope_type/scope_key/plan-hash/coverage/stop-reason — enforced by `validate_handoff.py`); supersedes legacy CP-SR generation (Sector Review surface consumes CP-DR dossiers). |
-| 32 | `cp-email-credit-intelligence-classifier` (CP-EMAIL) | Display-only intelligence digest over accessible mail/public sources | **none** — audit §8.4.1: no mail-sync code exists (CP-MON spec-only, retired) | **CONTRACT+NEW** | Phase 6, greenfield on governed Delta landing (4.4); `DISPLAY_DIGEST` class — no artifact, no auto-follow-up; corpus SourceRoutingMatrix is the classification spec; C3 watch-rules remain the separate alerting lane. |
-| 33 | `cp-model-historical-credit-model-workbook` (CP-MODEL) | Terminal XLSX exporter from CP-1/CP-1B | `model_workbook.py` — similar function (no CP-MODEL id in legacy) | **CONTRACT+LEGACY** | Legacy exporter bound to `CP_WORKBOOK_EXPORT_PAYLOAD_BASE` (+ per-module schema, packaged template, `[SubjectKey]_CP-MODEL_[YYYYMMDD].xlsx` name rule). |
-| 34 | `cp-snap-qualitative-credit-snapshot-workbook` (CP-SNAP) | Terminal qualitative snapshot XLSX from CP-1A/1B/2/2B | `report_exports.py` + `model_workbook.py` (partial) | **CONTRACT+LEGACY** | Same binding; authorised-cells rule (Model/vendor fields untouched) from the corpus spec. |
+| 32 | `cp-email-credit-intelligence-classifier` (CP-EMAIL) | Display-only intelligence digest over accessible mail/public sources | **none** — audit §8.4.1: no mail-sync code exists (CP-MON spec-only, retired) | **DROP** | **Owner decision Q-005R ("remove cp-email"):** no email-intelligence lane is built at all (D-LEG-006). The `ModuleId` enum keeps the value (corpus schema fidelity); the registry entry is permanently `implemented=False`. C3 watch-rules remain the alerting lane. |
+| 33 | `cp-model-historical-credit-model-workbook` (CP-MODEL) | Terminal XLSX exporter from CP-1/CP-1B | `model_workbook.py` — same function (no CP-MODEL id in legacy) | **DROP** | **Owner decision Q-001R:** excluded for function duplication — the ported legacy Model Builder exporter (`CAOS_MODEL_WORKBOOK_V1`, hash-verified, identity-bound) serves this function under its own contract. Corpus workbook schemas stay in `corpus/` as reference only. |
+| 34 | `cp-snap-qualitative-credit-snapshot-workbook` (CP-SNAP) | Terminal qualitative snapshot XLSX from CP-1A/1B/2/2B | `report_exports.py` + Report Studio — same function | **DROP** | **Owner decision Q-001R:** excluded for function duplication — Report Builder/Report Studio's frozen-payload exports serve the snapshot function. |
 | 35 | `rbot-orchestrator` | Multi-module pathway planning/gating; stop-on-Blocked; limitation propagation; committee assurance | `engine/runner.py` + executors — similar function | **CONTRACT+LEGACY** | Orchestration semantics become typed contracts executed by Workflows (ARCHITECTURE §6): 8 pathways, `ROUTE_GRAPH` edges, Upstream Re-Anchor Gate, stop-on-Blocked, limitation propagation; Committee Assurance Mode maps to `approval_state` gates (8.1) + `validate_handoff.py` in CI. |
 | 36 | `ai-assurance-auditor` (AI-AUDIT) | Audit/risk-tier M365 Copilot prompts/skills/agents | none — and out of platform scope (M365-Copilot-specific) | **DROP** | Not part of the CAOS product runtime on Databricks. Its rubric (tiering, E1–E4 evidence caps, nine-dimension scorecard, `Pending Human Decision`) is retained in `corpus/` as reference input to the Section-1 governance track (which is out of this spec's scope). |
 
 **Cross-cutting notes for Table B**
 
-1. **Prompt provenance.** For CONTRACT+LEGACY modules whose narrative synthesis used
-   legacy prompts (`Modular OS/`-derived), Phase 3 ports legacy prompts unchanged to
-   protect parity; refreshing any module's prompt to its DEPLOY_B runbook is a
-   deliberate, per-module `prompt_version` bump logged in `DEVIATIONS.md` (Q-007).
-2. **Envelope everywhere.** Every artifact-producing module (both verdicts) emits the
-   canonical Markdown envelope (15 YAML fields, six H2s, filename rule) validated by
-   the ported `validate_handoff.py` logic — Phase 1 contract, regardless of runtime
-   disposition.
-3. **The four CONTRACT+NEW modules** (CP-2H, CP-3D, CP-4C, CP-EMAIL) are the only net-new
+1. **Prompt provenance (Q-007R: "deploy B wins" — D-LEG-011).** LLM-lane synthesis
+   methodology and prompts source from each module's DEPLOY_B `MODULE_RUNBOOK.md`,
+   stamped via `prompt_version` on every run (3.7). Deterministic numeric lanes
+   remain golden-master parity-gated (9.1); narrative outputs may differ from legacy
+   narratives by design.
+2. **Envelope everywhere.** Every artifact-producing module (both carried verdicts)
+   emits the canonical Markdown envelope (15 YAML fields, six H2s, filename rule)
+   validated by the ported `validate_handoff.py` logic — Phase 1 contract, regardless
+   of runtime disposition.
+3. **The three CONTRACT+NEW modules** (CP-2H, CP-3D, CP-4C) are the only net-new
    analytical builds; all are Phase 6, after parity is locked, so they can never be
    confused with parity regressions.

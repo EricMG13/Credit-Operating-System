@@ -11,10 +11,17 @@ artifacts except final production sign-off.
 Phase dependency graph (strict execution order; org-side actions run in parallel):
 
 ```
-P1 ──► P2 ──► P3 ──► P4 ──► P5 ──► P6 ──► P7
-        ▲
-        └── org-side (5.1 repo migration, 5.4 tollgates): parallel from day one
+P0 (seed) ──► P1 ──► P2 ──► P3 ──► P4 ──► P5 ──► P6 ──► P7
+                      ▲
+                      └── org-side (5.4 tollgates): parallel from day one
 ```
+
+**P0 — Repo bootstrap (one-time, before Phase 1).** Create `{{NEW_REPO}}` (owner
+decision Q-002R; name/org = Q-012, enterprise org recommended so 5.1 is satisfied at
+creation) and seed it per `architecture/ARCHITECTURE.md` §3.1: spec set + `corpus/` +
+`dbx/parity/corpus/` (frozen fixtures, recorded goldens, kernel vectors, registry
+snapshot, `MANIFEST.sha256`, `SEED_SOURCE.txt`). After seeding, no phase needs the
+legacy repository present.
 
 A phase is **done** only when its spec's Done-When criteria are green
 (`specs/phase-NN-*.md`; Phase 1 is fully specified, later phases follow
@@ -39,9 +46,10 @@ conformance suite; `FixtureGatewayClient` stub. Full detail:
 **Out of scope.** Any Databricks deployment; any LLM call; module synthesizer ports
 beyond the kernel; the FastAPI app; the frontend.
 
-**Input dependencies.** `corpus/DEPLOY_B_COWORK_SKILLS/` (vendored, verified against
-`DEPLOY_B_PROFILE_MANIFEST.json` hashes); legacy tree `caos/` importable for the
-harness; `audit/AUDIT-2026-07-28.md` EC table.
+**Input dependencies.** P0 seeding complete: `corpus/DEPLOY_B_COWORK_SKILLS/`
+(verified against `DEPLOY_B_PROFILE_MANIFEST.json` hashes) and `dbx/parity/corpus/`
+(frozen fixtures + recorded goldens + kernel vectors + registry snapshot) present
+with `MANIFEST.sha256` green; `audit/AUDIT-2026-07-28.md` EC table.
 
 **Key contracts.** ARCHITECTURE §7.1–§7.3 (implemented this phase, verbatim).
 
@@ -84,9 +92,12 @@ guards reading the secret scope (6.5); CI: uv/npm lockfiles + SCA licence gate
 **Out of scope.** Engine modules on the platform; any workbench surface beyond a
 signed-in shell page; intake; email.
 
-**Input dependencies.** Phase 1 green; **Q-003 answered** (workspace host, region
-model availability, catalog, group names); org-side: enterprise repo target known
-(5.1 — migration can execute any time from here; not a code dependency).
+**Input dependencies.** Phase 1 green; workspace provisioned via the Azure
+onboarding pipeline (Cloud Readiness Questionnaire → architecture review → intake
+form, region stated explicitly — ARCHITECTURE §9); **Q-013 residual values
+supplied** (workspace URL, SCIM group names + SPs, Lakebase regional confirmation,
+shared-endpoint inventory). 5.1 is already satisfied if `{{NEW_REPO}}` was created
+in the enterprise org at P0 (Q-012).
 
 **Key contracts.** ARCHITECTURE §7.4 (gateway), §8 (identity chain), §9 (config).
 Stub: `resolve_role(groups: frozenset[str]) -> Role` (fail-closed), pinned by
@@ -129,9 +140,9 @@ persist + `validate_handoff` enforcement at persist time; `Run` fingerprint
 **Out of scope.** Live document intake (fixture corpus only); workbench surfaces;
 the four CONTRACT+NEW modules (P6).
 
-**Input dependencies.** Phase 2 green; parity corpus extended with owner-selected
-real issuer packs (**Q-004**) — fixture-corpus-only parity acceptable to start the
-phase, full corpus required to close it.
+**Input dependencies.** Phase 2 green. The frozen parity corpus is final per
+**Q-004R** (committed legacy fixture corpus: goldens + 28-issuer EDGAR facts + ATLF
+reference deal; no additional owner packs) — parity closes on it.
 
 **Key contracts.** ARCHITECTURE §6 (wrapper protocol), §7.3/§7.5. Legacy prompts
 ported unchanged (DECISIONS Table B note 1).
@@ -222,43 +233,44 @@ from legacy `globals.css` (mechanical, spec'd in the phase spec).
 
 ---
 
-## Phase 6 — Governed External Data & New Modules
+## Phase 6 — Monitoring, Erasure & New Modules
 
-**Objective.** The external-content lanes exist governed-first (email landing +
-CP-EMAIL digest; sensitivity + PII enforcement; GDPR erase), and the four
-CONTRACT+NEW modules ship behind flags.
+*(Scope reduced by owner decisions 2026-07-28: CP-EMAIL removed entirely — Q-005R /
+D-LEG-006; app-side sensitivity/PII enforcement not built — Q-011R / D-DBX-003;
+CP-MODEL/CP-SNAP corpus binding dropped — Q-001R.)*
 
-**Scope.** Bronze landing job for approved mail/vendor data (**Q-005** source;
-sanitised samples until approved) + silver clean tables; CP-EMAIL digest lane
-(DISPLAY_DIGEST — no artifact, corpus SourceRoutingMatrix classification, C3
-alerting stays separate); UC classification tags + ABAC masking (4.5) +
-`read_audit` for sensitive domains (4.6, Q-011); erase job spanning Lakebase +
-Delta with `VACUUM` (4.7); monitoring lane on Workflows schedules with `news`
-kill-switch constraint carried (8.4); AI Gateway guardrails + PII detection tuned
-(3.5); new modules CP-2H, CP-3D, CP-4C (distress-gated), each with corpus-contract
-conformance + fixture tests; CP-DR adaptation of the deep-research lane
-(plan-approval fields, domain allowlist); CP-MODEL/CP-SNAP binding of the exporters
-to the workbook contract + packaged template.
+**Objective.** The monitoring lane runs on platform schedules with the `news`
+kill-switch carried, GDPR erasure works across both stores, gateway guardrails are
+tuned, and the three CONTRACT+NEW modules ship behind flags.
 
-**Out of scope.** Enabling any real mailbox/vendor source without recorded
-data-governance approval (config action, not code).
+**Scope.** Monitoring lane on Workflows schedules (C3 watch-rule evaluation +
+dispatch via the ported intent contract) with the `news` kill-switch DB constraint
+carried (8.4); erase job spanning Lakebase + Delta with `VACUUM`, redaction sweeps
+WHERE-scoped (4.7); AI Gateway guardrails tuned per endpoint (3.5); new modules
+CP-2H, CP-3D, CP-4C (distress-gated), each with corpus-contract conformance +
+fixture tests; CP-DR adaptation of the deep-research lane (plan-approval fields,
+coverage/stop-reason enums, domain allowlist).
 
-**Input dependencies.** Phase 5 green; Q-005/Q-011 answered for real-source enable
-(sample-data build proceeds regardless).
+**Out of scope.** Any email-intelligence lane or mail landing (owner-removed;
+reinstating requires a new reviewed spec through the data-governance workflow);
+app-side sensitivity labels/masking/`read_audit` (owner-deferred).
+
+**Input dependencies.** Phase 5 green.
 
 **Verification (executable).**
-- CP-EMAIL: digest renders with coverage qualifiers; creates no artifact row; no
-  automatic module invocation (corpus T9 semantics as tests).
-- Masking: unprivileged read of tagged columns returns masked values; privileged
-  read is row-logged in `read_audit` + visible in UC audit logs (4.6).
+- Monitoring: scheduled evaluation fires on the platform scheduler; `news` rules
+  cannot be enabled (DB CHECK test); alert-state lattice + idempotent delivery
+  intents pass ported tests (8.4).
 - Erase drill: seeded analyst fully erased/anonymized across Lakebase + Delta;
-  redaction sweep WHERE-scoped (audit fix) — row-count assertions.
+  redaction sweep WHERE-scoped (audit fix) — row-count assertions (4.7).
 - New modules: `validate_handoff.py` green on their envelopes; CP-4C returns
   `Not Applicable` without a sourced distress gate; CP-2H refuses shadow-rating
-  output (contract test); workbook exports match `output_file` patterns and refuse
-  unauthorised cells (CP-SNAP rule).
+  output (contract test); CP-3D consumes timestamped market data only.
+- CP-DR: envelope passes the validator's CP-DR profile (plan hash, coverage,
+  stop-reason cross-rules); web search restricted to the configured domain
+  allowlist.
 
-**Checklist IDs.** **3.5, 4.4, 4.5, 4.6, 4.7, 8.4** satisfied.
+**Checklist IDs.** **3.5, 4.7, 8.4** satisfied.
 
 ---
 
@@ -324,11 +336,11 @@ Changes to any row above are logged in `DEVIATIONS.md` §D-MIG.
 | 4.1 | Classify data domains | P1 | **P4** | — |
 | 4.2 | Only approved classes into prompts | P1-blocker | **P4** | P2 (seam predicate) |
 | 4.3 | Remove uncontrolled egress | P1-blocker | **P2** (by construction) | P7 (physical decommission) |
-| 4.4 | Governed external/mail ingestion | P1-blocker | **P2** (blocker moot by construction — no uncontrolled sync exists or is ever built; audit §8.4.1) | **P6** builds the governed lane |
-| 4.5 | PII detection/tagging/masking | P2 | **P6** | — |
-| 4.6 | Read-time sensitivity + audited reads | P2 | **P6** | audit §8.4.2: new construction |
+| 4.4 | Governed external/mail ingestion | P1-blocker | **P2** (satisfied by total absence — no uncontrolled sync exists, and no mail lane is built at all; audit §8.4.1 + owner Q-005R) | any future lane = new reviewed spec |
+| 4.5 | PII detection/tagging/masking | P2 | **N/A — owner-deferred** (Q-011R, D-DBX-003; UC-native controls only) | — |
+| 4.6 | Read-time sensitivity + audited reads | P2 | **N/A — owner-deferred** (Q-011R, D-DBX-003; audit §8.4.2: legacy had neither) | — |
 | 4.7 | Erasure capability | P2 | **P6** | — |
-| 5.1 | Enterprise source control | P1-blocker | **P2** (org action tracked) | P7 (personal repo scrubbed) |
+| 5.1 | Enterprise source control | P1-blocker | **P0** (`{{NEW_REPO}}` created in the enterprise org — Q-002R/Q-012) | P7 (legacy personal repo scrubbed) |
 | 5.2 | SCA every build | P1 | **P2** | — |
 | 5.3 | SAST gate | P1 | **P2** | — |
 | 5.4 | Enterprise SDLC/tollgates | P1 | **P2** (org action tracked) | — |

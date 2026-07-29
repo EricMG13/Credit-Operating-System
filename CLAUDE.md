@@ -1,19 +1,29 @@
 # CAOS Databricks Rebuild — Implementation-Model Guide
 
 Guidance for the AI implementation model (and any human contributor) executing the
-CAOS → Databricks rebuild in this repository. `AGENTS.md` is a symlink to this file.
-(The legacy application guide this file replaces lives in git history and applies
-only to the read-only `caos/` tree.)
+CAOS → Databricks rebuild. `AGENTS.md` is a symlink to this file.
 
-## What this repository is now
+**Which repository this describes:** the rebuild's own repository (`{{NEW_REPO}}` —
+OPEN-QUESTIONS Q-012), created and seeded per `architecture/ARCHITECTURE.md` §3.1
+(roadmap step P0). Until that repo exists, this spec set lives on branch
+`claude/caos-databricks-audit-spec-lv17xq` of the legacy repo
+`EricMG13/Credit-Operating-System`, and the only permitted action is executing the
+P0 bootstrap — no phase work starts in the legacy repo.
+
+## What this repository is
 
 Three zones, with different rules:
 
 | Zone | Contents | Rule |
 |---|---|---|
-| `dbx/` | **The rebuild.** All new code lives here. | Build per specs. |
+| `dbx/` | **The rebuild.** All code lives here. | Build per specs. |
 | Spec set: `audit/`, `architecture/`, `roadmap/`, `specs/`, `DEVIATIONS.md`, `OPEN-QUESTIONS.md`, `corpus/` | The binding specification and the normative methodology corpus (`corpus/DEPLOY_B_COWORK_SKILLS/` incl. the vendored `Enterprise_Transfer_Rebuild_Checklist.md`). | **Read-only** for the implementation model (append-only for `DEVIATIONS.md` / `OPEN-QUESTIONS.md` per the protocols inside them). |
-| Legacy: `caos/`, `Modular OS/`, root audit ledgers | The golden master (checklist 9.1) and its history. | **Read-only reference.** Never edit; the parity harness imports from it. |
+| `dbx/parity/corpus/` | The seeded golden-master corpus: legacy fixtures, recorded goldens, kernel vectors, registry snapshot, `SEED_SOURCE.txt`. | **Frozen** after P0; hash-manifested; never edited. |
+
+The **legacy application** lives in a separate repository, pinned by
+`dbx/parity/corpus/SEED_SOURCE.txt` (repo URL + branch + commit). It is external
+read-only reference: never needed at build time, cloned only to regenerate the
+parity seed from the pinned commit, never modified.
 
 **Read in this order before writing any code:**
 1. `roadmap/ROADMAP.md` — find the current phase (lowest phase whose Done-When is not
@@ -104,7 +114,8 @@ python3 tools/validate_handoff.py <file.md> --expected-module CP-N \
 # bundle (Phase ≥2): databricks bundle validate && databricks bundle deploy -t dev
 ```
 
-Legacy suite (reference only, when parity questions arise): see `caos/README.md`
+Legacy suite (reference only, when parity questions arise): clone the pinned legacy
+repo/commit from `dbx/parity/corpus/SEED_SOURCE.txt`, then see its `caos/README.md`
 (bootstrap a venv from `caos/server/requirements.txt`; run
 `python -m pytest caos/tests/server -q`).
 
@@ -129,8 +140,9 @@ Legacy suite (reference only, when parity questions arise): see `caos/README.md`
 ## Forbidden actions
 
 1. Modifying `specs/**`, `architecture/**`, `roadmap/**`, `audit/**`, `corpus/**`,
-   `dbx/tools/validate_handoff.py`, or `dbx/parity/corpus/**` (post-freeze).
-2. Writing to `caos/**` or `Modular OS/**`.
+   `dbx/tools/validate_handoff.py`, or `dbx/parity/corpus/**` (post-seed).
+2. Writing to the legacy repository (any path), or working from a legacy checkout
+   other than the pinned `SEED_SOURCE.txt` commit when regenerating the seed.
 3. Adding any dependency without a prior `OPEN-QUESTIONS.md` entry (name, version,
    licence, reason). No GPL/AGPL/SSPL/BUSL runtime dependencies (checklist 5.2).
 4. Importing model-vendor SDKs or ad-hoc HTTP clients for model calls (3.1).

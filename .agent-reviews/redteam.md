@@ -3474,3 +3474,19 @@ Decision: accepted with the two corrective actions applied before commit
 Impact analysis note: GitNexus MCP tooling was unavailable in this session; the
 spec set was derived from five parallel manual dependency-mapping sweeps with
 file:line evidence recorded in `audit/AUDIT-2026-07-28.md`.
+
+## 2026-07-28 — owner-decision propagation critic pass (Q-001..Q-011 resolved)
+
+Decision under review: propagating the owner's answers to all eleven open questions
+through the spec set (second commit on PR #237).
+
+| ID | Perspective | Objection | Impact | Status | Resolution / disposition |
+|----|-------------|-----------|--------|--------|--------------------------|
+| RT-2026-07-28-11 | Repo-strategy reviewer | Owner overrode RT-01's accepted in-repo `dbx/` build (Q-002R: new repository). The in-repo choice's core benefit — in-process legacy import for parity — is lost. | High | Resolved | Parity redesigned to **recorded goldens**: P0 seeding (ARCHITECTURE §3.1) captures golden payloads, kernel vectors, registry snapshot, and legacy test reference texts into the new repo, hash-manifested with a pinned `SEED_SOURCE.txt`. After seeding, no phase needs the legacy checkout; regeneration is only from the pinned commit. |
+| RT-2026-07-28-12 | Scope reviewer | Q-005R removes CP-EMAIL and Q-011R removes app-side sensitivity — checklist items 4.4/4.5/4.6 lose their planned satisfying builds. | Medium | Resolved | 4.4 is satisfied by total absence (audit §8.4.1: nothing uncontrolled ever existed; now nothing is built either) — matrix updated; 4.5/4.6 recorded as **N/A — owner-deferred** with D-DBX-003 logging the divergence from the checklist mapping. The checklist's own status vocabulary includes N/A; deferral is the owner's call to make. |
+| RT-2026-07-28-13 | Corpus-fidelity reviewer | Q-001R narrows the exclusion to CP-MODEL/CP-SNAP — the prior broad exclusion note in Table B was wrong, and dropping the workbook contract binding loses the corpus `WORKBOOK_EXPORT` guarantees. | Medium | Resolved | Table B re-verdicted (30 CONTRACT+LEGACY, 3 CONTRACT+NEW, 3 DROP incl. the two exporters + CP-EMAIL). Workbook exports remain governed by the ported legacy `CAOS_MODEL_WORKBOOK_V1` contract (hash-verified, identity-bound) — a stronger, tested contract than the corpus one for this function; corpus schemas stay in `corpus/` as reference. |
+| RT-2026-07-28-14 | Determinism reviewer | Q-007R ("deploy B wins") flips LLM-lane prompts to DEPLOY_B runbooks — narrative drift vs legacy could be misread as parity failure. | Medium | Resolved | D-LEG-011 logs the class-level deviation; parity scope is defined as deterministic fields only; `prompt_version` stamps every run (3.7) so narrative provenance is auditable. |
+| RT-2026-07-28-15 | Sequencing reviewer | New-repo P0 gate means no phase work can start until Q-012 (name/org) is answered — a hard stall risk. | Low | Accepted | Deliberate: creating the repo under the personal account would recreate the 5.1 blocker. The stall is one organisational decision, flagged as the single blocking question. |
+
+Decision: accepted. All edits applied in this commit; OPEN-QUESTIONS reduced to
+Q-012/Q-013.
