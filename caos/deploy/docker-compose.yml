@@ -13,7 +13,7 @@ services:
   db:
     # pgvector-enabled Postgres 18 (Debian-based; stock Postgres lacks the
     # `vector` extension that migration 0030's embeddings table needs).
-    image: pgvector/pgvector:pg18@sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0
+    image: pgvector/pgvector:pg18@sha256:691673308c99d2161ba298736f3147f1f22d79de2fb7ec93ae9b4afcab870b62
     restart: unless-stopped
     # Hardening: block privilege escalation + cap memory. Caps are NOT dropped and
     # read_only is unset — the postgres entrypoint starts as root, drops to the
