@@ -302,7 +302,7 @@ services:
   # MAX_UPLOAD_MB=250) so large credit agreements / 10-Ks scan instead of failing
   # closed (503) on clamd's 25 MB default. Verify clamd starts on the first av deploy.
   clamav:
-    image: clamav/clamav:1.5@sha256:7f5389ccaa2368c383fa80e167ccfe44348d71e685f926fce4755eed1757673a
+    image: clamav/clamav:1.5@sha256:d06c1d6a451d616e1dd79b42f44c8c8c291bba9cf4e75ebc4d0e43c1c6dd87bb
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
     mem_limit: 2g
