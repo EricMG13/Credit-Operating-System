@@ -19,6 +19,9 @@ caos/frontend/**
 !caos/frontend/src/
 caos/frontend/src/**
 !caos/frontend/src/**
+!caos/frontend/app/
+caos/frontend/app/**
+!caos/frontend/app/**
 caos/frontend/src/**/__tests__/**
 caos/frontend/src/**/*.test.*
 caos/frontend/src/**/*.spec.*
@@ -29,7 +32,13 @@ caos/frontend/src/**/.impeccable/**
 !caos/server/
 caos/server/**
 !caos/server/requirements.lock
+!caos/server/requirements.txt
 !caos/server/*.py
+!caos/server/caos/
+caos/server/caos/**
+!caos/server/caos/**
+caos/server/caos/**/__pycache__/
+caos/server/caos/**/*.pyc
 !caos/server/alembic.ini
 !caos/server/deepresearch_demo.md
 !caos/server/engine/
@@ -41,6 +50,7 @@ caos/server/routes/**
 !caos/server/migrations/
 caos/server/migrations/**
 !caos/server/migrations/**/*.py
+!caos/server/migrations/**/*.sql
 !caos/server/vendor/
 caos/server/vendor/**
 !caos/server/vendor/**/*.py
